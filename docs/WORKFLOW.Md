@@ -2,7 +2,7 @@
 
 ## Current stage and agreed direction
 
-As of 9 September 2026, the user has accepted the React terrain lab and authorized proper backend research and immediate implementation of the runtime foundation. Active brief: `docs/features/backend-02.md`; accepted earlier slices: `docs/features/react-01.md` and `docs/features/atlas-01.md`. Backend 02 adds Fastify, bounded background workers for the real terrain fixture, shared transport validation, operational limits/diagnostics, a standalone built-app server, and a reproducible backend benchmark. Implementation, automated/browser verification, and independent review are complete; user review is pending, with actual results and the next action recorded in the active brief. Research is recorded in `docs/BACKEND_RESEARCH.md`. The hosting direction remains separate worlds per person, with generation and simulation on the user's PC, pausing and saving on departure, preserving manual pause, and resuming without offline catch-up. Persistent world identity, saves, simulation, resident-world scheduling, and remote access require later slices; the provisional SQLite choice must be reassessed against the intended workload before persistence implementation. See `docs/ARCHITECTURE.md` for implemented choices and open decisions. Paths in this paragraph are relative to the repository root.
+As of 9 September 2026, Atlas 02 is implemented and verified, awaiting user review: a larger, richly textured regional biome/resource atlas with multiple landmasses, real cell resources, connected unclaimed provinces, and map inspection. Active brief: `docs/features/atlas-02.md`. This user correction supersedes the seed-generator-first proposal and makes the new atlas the default browser view; the original Aster fixture remains an explicit regression study. The researched backend and architecture safeguards are implemented. Hosted persistent worlds, simulation, and remote access remain later slices. See `docs/ARCHITECTURE.md` for durable contracts and the active brief for current verification.
 
 The user has chosen small, gradual feature delivery and a **browser lab with repeatable scenarios, visual inspection, and automated checks**. Chronicle is expected to become a substantial project: small slices describe delivery size, not a small-system assumption. The user authorizes necessary local packages and tools for maintainability and future growth. The lab grows alongside Chronicle; the active brief defines current implementation and verification, including refinements to its architecture checks.
 
@@ -68,7 +68,7 @@ Acceptance checks:
 - Reset reconstructs the same initial world data and restores the initial view.
 - An automated fixture/reset check passes, and browser inspection confirms the rendered result.
 
-This validates the basic development loop. It does not validate seeded generation or simulation determinism. Procedural geography, province grouping, selection, population, economy, warfare, and time progression each require later scoped work. All M1 milestone gates still apply before declaring M1 complete.
+This validates the basic development loop. It does not validate seeded generation or simulation determinism. Atlas 02 adds connected province grouping and direct cell inspection for its authored study; procedural geography, country/province selection, population, economy, warfare, and time progression require later scoped work. All M1 milestone gates still apply before declaring M1 complete.
 
 ## Minimal feature brief
 

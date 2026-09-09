@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } from 'fastify';
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { Type } from 'typebox';
 import { TerrainResponseSchema } from '../shared/terrain.ts';
+import { AtlasResponseSchema } from '../shared/atlas.ts';
+import type { TerrainStudy } from '../shared/studies.ts';
 import type { ApiError } from '../shared/http.ts';
 import { readBackendConfig, type BackendConfig } from './config.ts';
 import { createTerrainCompute, ComputeClosedError, ComputeOverloadedError, ComputeTimeoutError, type TerrainCompute } from './compute.ts';
@@ -46,7 +48,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     reply.header('x-request-id', request.id).header('x-content-type-options', 'nosniff');
     const path = request.url.split('?')[0];
     if (path === '/api' || path.startsWith('/api/')) reply.header('cache-control', 'no-store');
-    if (['/api/health', '/api/ready', '/api/terrain'].includes(path) && request.method !== 'GET') {
+    if (['/api/health', '/api/ready', '/api/terrain', '/api/atlas'].includes(path) && request.method !== 'GET') {
       reply.header('allow', 'GET');
       return failure(reply, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
     }
@@ -80,7 +82,12 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
       limits: { workers: config.workers, queued: config.maxQueue, admitted: admissionLimit, jobTimeoutMs: config.jobTimeoutMs },
     };
   });
-  app.get('/api/terrain', { schema: { querystring, response: { 200: TerrainResponseSchema } } }, async (request, reply) => {
+  app.get('/api/terrain', { schema: { querystring, response: { 200: TerrainResponseSchema } } },
+    (request, reply) => sendStudy(request, reply, 'aster'));
+  app.get('/api/atlas', { schema: { querystring, response: { 200: AtlasResponseSchema } } },
+    (request, reply) => sendStudy(request, reply, 'verdant'));
+
+  async function sendStudy(request: FastifyRequest, reply: FastifyReply, study: TerrainStudy) {
     if (stopping) throw new ComputeClosedError();
     if (controllers.size >= admissionLimit) throw new ComputeOverloadedError();
     const controller = new AbortController();
@@ -100,7 +107,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     reply.raw.once('finish', release);
     reply.raw.once('close', onClose);
     try {
-      const body = await compute.generate(controller.signal);
+      const body = await compute.generate(controller.signal, study);
       // This is validated and encoded in the worker, avoiding a large stringify here.
       return reply.type('application/json; charset=utf-8').send(body);
     } catch (error) {
@@ -111,7 +118,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
       }
       throw error;
     }
-  });
+  }
 
   app.addHook('preClose', async () => {
     stopping = true;

@@ -5,6 +5,7 @@ import { buildApp } from '../server/app.ts';
 import { readBackendConfig } from '../server/config.ts';
 
 const round = (value: number) => Math.round(value * 100) / 100;
+const endpoint = process.argv.includes('--atlas') ? '/api/atlas' : '/api/terrain';
 
 function latency(values: number[]) {
   const sorted = [...values].sort((a, b) => a - b);
@@ -31,7 +32,7 @@ async function measurePhase(base: string, name: string, requests: number, concur
   async function terrain() {
     const start = performance.now();
     try {
-      const response = await fetch(`${base}/api/terrain`, { signal: AbortSignal.timeout(15_000) });
+      const response = await fetch(`${base}${endpoint}`, { signal: AbortSignal.timeout(15_000) });
       const body = await response.arrayBuffer();
       statuses[response.status] = (statuses[response.status] ?? 0) + 1;
       if (response.status === 200) {
@@ -103,7 +104,7 @@ async function main() {
     app = await buildApp({ logger: false });
     const base = await app.listen({ port: 0, host: '127.0.0.1' });
     // This untimed response identifies the real fixture and warms the HTTP path.
-    const warmup = await fetch(`${base}/api/terrain`, { signal: AbortSignal.timeout(15_000) });
+    const warmup = await fetch(`${base}${endpoint}`, { signal: AbortSignal.timeout(15_000) });
     if (!warmup.ok) throw new Error(`Terrain warmup returned HTTP ${warmup.status}.`);
     const { world } = await warmup.json();
     const phases = [
@@ -120,6 +121,7 @@ async function main() {
       runtime: { node: process.version, platform: process.platform, architecture: process.arch,
         cpu: cpus()[0]?.model ?? 'unknown', availableParallelism: availableParallelism() },
       mode: 'Fastify loopback API with real generation workers; no Vite or browser',
+      endpoint,
       fixture: { id: world.fixtureId, version: world.fixtureVersion, cells: world.cells.length },
       limits: { workers: config.workers, queued: config.maxQueue, admitted: config.workers + config.maxQueue,
         jobTimeoutMs: config.jobTimeoutMs },

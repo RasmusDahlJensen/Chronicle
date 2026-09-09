@@ -21,6 +21,7 @@ Evidence register:
 | Local-development discussion, 9 September | Develop with Codex locally in manageable stages; executable simulation independent of renderer; repository documentation; reproducible testing |
 | Local hosting decision, 9 September | Each person has a separate world; world generation and simulation run on the user's PC; worlds pause and save when the person leaves, then resume on return |
 | Frontend choice, 9 September | React + TypeScript + Vite for the browser interface; atlas rendering and hosted simulation remain separate |
+| Atlas visual correction, 9 September | Prioritize a larger map with several landmasses, richer textures and distinct biomes; display a primary natural resource on every cell and preserve cell → province → country relationships. Include uranium as resource potential; no extraction or nuclear mechanics implied. |
 
 Precedence: newer explicit user choices override older choices. In particular:
 
@@ -146,6 +147,8 @@ Acceptance: population ledger reconciles; food shortages can cause decline; migr
 ## 7. Economy, resources, and technology
 
 **Required:** Multiple resources per place; labor and technology determine exploitation; trade supplies missing materials; resource access is not a global shared inventory.
+
+**Current atlas slice:** Following the newer visual request, Atlas 02 exposes one primary resource per cell for map inspection. This is initial natural potential, with no quantities, extraction, or stockpiles. Additional deposits and renewable capacities remain an economy contract to define; the singular display resource does not impose a permanent one-resource limit on a place.
 
 **Proposed resource set:** food, timber, stone, copper, tin, iron, horses, and one or two luxury categories. Introduce additional goods only when a mechanic uses them. Distinguish deposits, extraction rates, finite stockpiles, and renewable productivity.
 

@@ -1,0 +1,29 @@
+{
+  "measuredAt": "2026-09-09T10:02:41.427Z",
+  "mode": "Vite development / headless Chromium; real host atlas",
+  "browser": "153.0.8010.12",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "devicePixelRatio": 1,
+  "cells": 64000,
+  "layers": {
+    "resources": true,
+    "provinces": false,
+    "grid": false
+  },
+  "zoom": 2.25,
+  "firstNavigationToRenderedMs": 1553,
+  "cachedPanRedrawMs": {
+    "samples": 30,
+    "p50": 1.7,
+    "p95": 1.8,
+    "max": 1.9
+  },
+  "notes": [
+    "Renderer-internal synchronous drawing duration per sampled drag; excludes input delivery and browser compositing, not an FPS measurement.",
+    "One navigation in a local development session, not a latency percentile or capacity guarantee."
+  ],
+  "errors": []
+}

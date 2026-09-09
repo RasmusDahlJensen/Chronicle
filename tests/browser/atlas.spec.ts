@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('terrain renders, reset restores the same image, and the page reports no errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   const canvas = page.locator('#terrain-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   await expect(page.locator('#land-area')).toContainText(/[1-9]/);
@@ -55,7 +55,7 @@ test('repeated resets count once per click and keep one active canvas resize sub
     };
     Object.defineProperty(window, 'activeCanvasObservers', { get: () => active.size });
   });
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   await expect(page.locator('#terrain-canvas')).toHaveAttribute('data-rendered', 'true');
   for (let count = 1; count <= 3; count++) {
     await page.getByRole('button', { name: 'Reset terrain' }).click();
@@ -70,7 +70,7 @@ test('a browser without a canvas context reports the failure and disables reset'
   await page.addInitScript(() => {
     Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', { value: () => null });
   });
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   await expect(page.getByRole('alert')).toContainText('could not open the terrain canvas');
   await expect(page.getByRole('status')).toHaveText('Terrain unavailable');
   await expect(page.getByRole('button', { name: 'Reset terrain' })).toBeDisabled();
@@ -78,7 +78,7 @@ test('a browser without a canvas context reports the failure and disables reset'
 });
 
 test('resizing an open atlas preserves the terrain and restores its original rendering', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   const canvas = page.locator('#terrain-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const original = await canvas.evaluate((element: HTMLCanvasElement) => ({ width: element.width, image: element.toDataURL() }));
@@ -91,7 +91,7 @@ test('resizing an open atlas preserves the terrain and restores its original ren
 
 test('the terrain fits a narrow screen and supports keyboard reset', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   const canvas = page.locator('#terrain-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const box = await canvas.boundingBox();

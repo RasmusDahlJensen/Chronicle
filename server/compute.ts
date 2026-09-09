@@ -1,4 +1,5 @@
 import Piscina from 'piscina';
+import type { TerrainStudy } from '../shared/studies.ts';
 
 export class ComputeOverloadedError extends Error {
   constructor() { super('Terrain compute is busy. Try again shortly.'); }
@@ -14,7 +15,7 @@ export class ComputeClosedError extends Error {
 
 export interface TerrainCompute {
   ready(): Promise<void>;
-  generate(signal?: AbortSignal): Promise<string>;
+  generate(signal?: AbortSignal, study?: TerrainStudy): Promise<string>;
   close(): Promise<void>;
   snapshot(): { workers: number; active: number; queued: number; completed: number; failed: number };
 }
@@ -30,7 +31,7 @@ interface ComputeOptions {
 /** One bounded, application-owned executor for disposable terrain jobs. */
 export function createTerrainCompute(options: ComputeOptions): TerrainCompute {
   const filename = options.filename ?? new URL('./workers/terrain-worker.ts', import.meta.url);
-  const pool = new Piscina<null, string>({
+  const pool = new Piscina<TerrainStudy, string>({
     filename: filename instanceof URL ? filename.href : filename,
     minThreads: options.workers,
     maxThreads: options.workers,
@@ -56,7 +57,7 @@ export function createTerrainCompute(options: ComputeOptions): TerrainCompute {
     }
   });
 
-  function submit(signal?: AbortSignal, count = true): Promise<string> {
+  function submit(signal?: AbortSignal, count = true, study: TerrainStudy = 'aster'): Promise<string> {
     if (closed) return Promise.reject(new ComputeClosedError());
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (bootstrapError) return Promise.reject(bootstrapError);
@@ -67,7 +68,7 @@ export function createTerrainCompute(options: ComputeOptions): TerrainCompute {
     signal?.addEventListener('abort', cancel, { once: true });
     // The deadline begins at admission and includes time spent in the queue.
     const timer = setTimeout(() => controller.abort(new ComputeTimeoutError()), options.jobTimeoutMs);
-    const job = pool.run(null, { signal: controller.signal })
+    const job = pool.run(study, { signal: controller.signal })
       .then(body => {
         controller.signal.throwIfAborted();
         if (typeof body !== 'string') throw new Error('Terrain worker returned an invalid body.');
@@ -95,7 +96,7 @@ export function createTerrainCompute(options: ComputeOptions): TerrainCompute {
       readiness ??= submit(undefined, false).then(() => {});
       return readiness;
     },
-    generate: submit,
+    generate: (signal, study) => submit(signal, true, study),
     close() {
       closed = true;
       closing ??= (async () => {

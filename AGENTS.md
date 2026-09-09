@@ -1,11 +1,11 @@
 # Working on Chronicle
 
-Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief, currently `docs/features/backend-02.md`. The accepted React and terrain slices are recorded in `docs/features/react-01.md` and `docs/features/atlas-01.md`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
+Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief, currently `docs/features/atlas-02.md`. Earlier backend, React, and terrain slices remain recorded in `docs/features/`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
 
 ## Scope and collaboration
 
 - At task startup, inspect working-tree changes and relevant files; reconcile them with the active brief instead of assuming its status is current.
-- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. The user authorized immediate research and implementation of Backend 02: a bounded, validated backend runtime and standalone serving. Hosted simulation, independent user worlds, and saves are later slices.
+- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. Atlas 02 is implemented and verified, awaiting user review: a larger textured biome/resource map with real cell/province data and inspection. This supersedes the seed-generator-first proposal. Hosted simulation, independent user worlds, and saves remain later slices.
 - Keep one active slice with an observable outcome and concrete acceptance checks. Do not treat a whole milestone or the full specification as one task.
 - Design for Chronicle as a substantial, growing game. Small slices govern delivery size; they do not justify throwaway architecture, fixture-sized data assumptions, or rebuilding established infrastructure by hand.
 - The user authorizes installing and configuring packages and local development tools needed for the approved work and its long-term foundation. Evaluate purpose, maintenance, licensing, runtime compatibility, operational cost, and migration impact; verify that the tool actually works here and commit the lockfile.

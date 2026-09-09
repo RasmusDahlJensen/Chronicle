@@ -1,6 +1,6 @@
 # Chronicle architecture decisions
 
-Updated 9 September 2026. Backend 02 implements the researched local runtime foundation around the accepted terrain lab. Automated checks, browser verification, and independent review are complete; user review is pending. The [active brief](features/backend-02.md) records actual results and the review steps. [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives, primary sources, and future contracts.
+Updated 9 September 2026. Atlas 02 adds Verdant Reach as the default regional biome/resource atlas on the Backend 02 runtime foundation. Its implementation, verification, and user-review status are recorded in the [active atlas brief](features/atlas-02.md). The original Aster Island study and protocol remain available. [Backend 02](features/backend-02.md) retains the foundation's evidence; [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives, primary sources, and future contracts.
 
 ## Confirmed hosting direction
 
@@ -14,8 +14,8 @@ Each future world must have independent identity, state, configuration/seed, RNG
 
 | Part | Choice | Responsibility |
 |---|---|---|
-| Browser interface | React + TypeScript + Vite | Terrain legend, reset, loading/failure/retry, and later observer controls |
-| Atlas renderer | Existing Canvas 2D | Draw the accepted terrain independently of React; benchmark larger worlds before selecting another renderer |
+| Browser interface | React + TypeScript + Vite | Biome/resource legends, layer controls, cell inspection, reset, and loading/failure/retry |
+| Atlas renderer | Canvas 2D | Textured geography, resource/province/grid overlays, bounded pan/zoom, and cell selection independently of React |
 | Host service | Node 24.20.0 + TypeScript + Fastify 5.12.3 | HTTP contracts, errors, request IDs/logging, limits, health/readiness, and lifecycle |
 | Compute | Piscina 5.3.2 with persistent bounded Node workers | Construct, validate, and encode disposable terrain jobs away from HTTP handling |
 | Shared transport | TypeBox 1.3.30 JSON schemas plus semantic validation | Common payload types and validation for host workers and browser |
@@ -26,6 +26,27 @@ Each future world must have independent identity, state, configuration/seed, RNG
 The user authorized proper research and immediate implementation of this baseline. Fastify replaces the first slice's native HTTP routing; a bounded worker pool replaces synchronous fixture construction on the request thread. The current modular application provides the HTTP and compute foundation while keeping deployment and installation straightforward.
 
 `npm start` launches Fastify and Vite in one Node process, with worker threads for CPU work. The development backend binds to an automatically assigned loopback port; Vite proxies `/api` through the browser origin at port 5173. `npm run build`, then `npm run serve`, starts the built frontend and API together on port 4173 through Fastify without a Vite runtime. `npm run preview` aliases that built-app mode. Ctrl+C closes listeners and workers. React changes use Vite hot updates; backend, worker, shared transport, and fixture changes require a restart. [README](../README.md) is the canonical setup, launch, and configuration guide.
+
+## Current regional atlas and module ownership
+
+Verdant Reach is a deterministic **authored regional study** with a bounded 320 × 200 topology. Its 64,000 square cells each cover 4 km², giving 256,000 km² in total. The study contains several substantial landmasses and a southern archipelago, eleven biome types, eleven resource types, and 77 connected unclaimed provinces. Its fixed elevation and climate fields produce coherent regions for atlas evaluation; they do not establish a user-seeded planet generator or a complete drainage/climate model.
+
+Every cell has a stable row-major ID, integral elevation in metres, a biome, one primary natural resource/potential, and a nullable province ID. Ocean and shallow-coast cells have negative elevation and no province. Every land cell belongs to one connected province. A province's nullable `countryId` is a separate hierarchy link; the initial country list is empty. Resource potential is neither an inventory nor an extraction/production rate. Camera movement, layers, and selection do not modify world data or ownership.
+
+| Module | Responsibility |
+|---|---|
+| `shared/atlas.ts` | Protocol-2 world, cell, biome, resource, province, country, and annotation schemas/types; dimension, identity, reference, water/land, and province-connectivity validation |
+| `shared/terrain.ts` | Retained protocol-1 Aster terrain contract |
+| `shared/studies.ts` | Fixed authored-study identifiers for disposable compute jobs |
+| `src/fixtures/verdant-reach.ts` | The actual shared regional fixture, deterministic resource assignment, and connected province construction |
+| `src/world/atlas.ts` | Biome/resource display catalogs and summaries derived from cell data |
+| `server/workers/terrain-worker.ts` | Construct the selected shared fixture, validate its matching contract, and encode bounded JSON |
+| `src/api/atlas.ts` | Request the atlas and validate the response before rendering |
+| `src/components/RegionalAtlas.tsx`, `src/components/AtlasCanvas.tsx` | React loading/reset state, legends, layers, cell inspector, and renderer lifecycle |
+| `src/renderer/biome-atlas.ts` | Canvas geography/texture, overlays, bounded camera, and picking; independent of React |
+| `src/App.tsx`, `src/components/LegacyTerrainLab.tsx` | Select the new default view or the retained Aster study at `?scenario=aster` |
+
+Annotations belong to fixture data. Overview resource markers are sampled for readability; closer views expose more markers, and selecting a cell reveals its exact stored resource. The `cell → province → country` inspector displays real references, including unclaimed land and water without a province. Future sovereignty, occupation, habitation, and lifecycle operations still need their own mechanics and contracts.
 
 ## Growth and dependency decisions
 
@@ -41,13 +62,20 @@ Runtime modules also reject development-only package imports; composition script
 
 ## Transport and capacity boundaries
 
-The uncached `GET /api/terrain` contract remains `{ protocolVersion: 1, world }`. Workers construct the existing authored fixture, validate it, and serialize its JSON. The browser checks the shared structural and semantic contract before rendering. Invalid replacement data or failed requests preserve the last valid map. This full-fixture transport is limited independently to **100,000 cells** and **8 MiB of JSON**; larger world delivery needs a measured contract.
+The uncached map endpoints have separate versioned contracts:
 
-The initial pool uses two workers, or one when only one processor is available, with four waiting jobs and an eight-second deadline that includes queue time. Total admitted terrain responses are bounded to worker count plus queue allowance, with admission retained until the response finishes or closes. This also constrains work retained for slow clients after computation completes. Configuration is validated on startup; defaults and allowed ranges are recorded in README.
+| Endpoint | Payload | Browser study |
+|---|---|---|
+| `GET /api/atlas` | `{ protocolVersion: 2, world: AtlasWorld }` | Verdant Reach, the default view |
+| `GET /api/terrain` | `{ protocolVersion: 1, world: TerrainWorld }` | Aster Island at `?scenario=aster` |
+
+Workers construct the selected authored fixture, validate the matching contract, and serialize its JSON. The browser checks the shared structural and semantic contract before rendering. Invalid replacement data or failed requests preserve the last valid map. Each full-fixture payload is limited independently to **100,000 cells** and **8 MiB of JSON**; larger world delivery needs a measured contract.
+
+Both endpoints share one pool: two workers, or one when only one processor is available, with four waiting jobs and an eight-second deadline that includes queue time. Total admitted map responses across both routes are bounded to worker count plus queue allowance, with admission retained until the response finishes or closes. This also constrains work retained for slow clients after computation completes. Configuration is validated on startup; defaults and allowed ranges are recorded in README.
 
 Request parsing, sockets, deadlines, and compute admission have explicit limits. Overload and timeouts return retryable failures. Disconnect cancels disposable terrain work; worker failure returns an error and does not fall back to computing on the HTTP thread. Structured logs and server-generated request IDs support diagnosis. `/api/health` establishes HTTP responsiveness; `/api/ready` reports worker/admission diagnostics and returns 503 when busy or unavailable. Startup exercises the actual worker path before announcing readiness.
 
-These are conservative engineering defaults. Worker heap limits and payload bounds are not a total process-memory guarantee. The backend benchmark measures the fixture pipeline and HTTP responsiveness, recording configuration, hardware, latency, request outcomes, event-loop delay, and memory observations. It cannot establish simultaneous-world capacity, generation performance, or simulation speed. Actual measurements and checks belong in the active brief.
+These are conservative engineering defaults. Worker heap limits and payload bounds are not a total process-memory guarantee. `npm run bench:backend -- --atlas` measures the Verdant Reach pipeline; `npm run bench:backend` retains the Aster baseline. Each records configuration, hardware, latency, request outcomes, event-loop delay, and memory observations. Fixture measurements do not establish simultaneous-world capacity, procedural-generation performance, or simulation speed. Actual measurements and checks belong in the relevant feature brief.
 
 ## Future world execution
 
@@ -61,7 +89,7 @@ Future subscriptions need initial views and bounded updates with world/incarnati
 
 **Provisional first local-store choice: SQLite. No Chronicle save database is installed or created in Backend 02.** Revisit this choice **before implementing persistent state**, using representative world/save sizes, history growth, simultaneous checkpoint writes, query needs, and recovery requirements. PostgreSQL remains an option if those requirements justify its concurrency and operating model. SQLite is selected for local ownership and installation characteristics, not an assumption that Chronicle will remain small. A later change of storage engine requires an explicit data migration and verification plan; compatibility or a transparent transition is not promised.
 
-The stateless authored fixture has no user-specific progress to protect. Introduce storage with meaningful persistent world identity and state, and add recovery before users accumulate progress. The research report supplies the initial SQLite/PostgreSQL and driver comparison and durability, migration, and backup checks; this growth decision adds the requirement to reassess it against the actual persistence workload before implementation.
+The stateless authored studies have no user-specific progress to protect. Introduce storage with meaningful persistent world identity and state, and add recovery before users accumulate progress. The research report supplies the initial SQLite/PostgreSQL and driver comparison and durability, migration, and backup checks; this growth decision adds the requirement to reassess it against the actual persistence workload before implementation.
 
 The first store can use versioned world metadata and checkpoint payloads with an atomic current-checkpoint update. Simulation state remains owned by the shared core. Save only at a completed step, including the RNG, clock, identity, in-flight work, and history required for deterministic continuation. Validate a candidate load before replacing a running world; unsupported versions and migration failures must preserve a recoverable checkpoint.
 
@@ -73,24 +101,8 @@ Periodic checkpoints must define recovery after abrupt host failure; a shutdown 
 
 The host currently binds to loopback only. The PC must remain awake and the process running for simulation or remote access to work. Before allowing access from other PCs, define authenticated sessions, per-world authorization, TLS, bounded subscriptions, and session revocation. Unattended startup and OS service management need their own scoped implementation; Docker is not a prerequisite.
 
-The accepted Atlas 01 and React 01 slices remain the visible baseline. Backend 01 established the first browser/host connection; Backend 02 implemented the runtime and growth safeguards. The active brief records the actual verification. The user has now requested next-step planning; that request does not add manual browser-test evidence or authorize implementing all subsequent features.
+The user's visual feedback selected Atlas 02 before the previously proposed seed-generator-first sequence. Verdant Reach is now the default atlas; the accepted Atlas 01/React 01 study remains accessible at `?scenario=aster`. Backend 01 established the browser/host connection, and Backend 02 supplies the runtime and growth safeguards. The active atlas brief owns verification evidence and the exact user-review steps. Review of this visual direction is still required before choosing the next slice.
 
-## Proposed next slices
+Future scoped work includes user-seeded geography, a full drainage/climate/resource pipeline, independent world instances, restart recovery, founding settlements, and committed simulation steps with meaningful population/resource accounting. The authored regions and province groups in Atlas 02 provide data to inspect; they do not complete those future generation or simulation systems. Authentication, remote access, and unattended hosting remain separate work before opening access to other PCs.
 
-The next recommendation is **seeded elevation and land/water generation**. This changes the existing worker workload into real world-generation work and gives world identity and storage representative data to own. It brings visible progress toward M1. This proposed ordering refines the earlier suggestion to add identities around the single authored fixture first.
-
-| Order | Slice | Observable outcome |
-|---|---|---|
-| 1 | Seeded landforms | Enter a seed, generate coastlines and relief, and regenerate the same data from the same seed/settings/generator version. |
-| 2 | Atlas navigation and inspection | Pan, zoom, and inspect a cell's actual terrain, elevation, and area. Define and verify wrapping for the chosen map topology. |
-| 3 | Independent world instances | Two labelled local lab worlds have separate identities and replacement histories; another tab attaches to the same instance without duplicating it. |
-| 4 | Checkpoints and restart recovery | Restart the host and recover the correct world. Reassess storage using representative sizes and concurrent saves before implementation. |
-| 5 | Geography pipeline, in separate slices | Add drainage, then climate/biomes, then resources in dependency order. |
-| 6 | Provinces, then founding settlements | Connected province groups first; viable, distributed starts after habitat data exists, with real initial population accounting. |
-| 7 | First living-settlement scenario | Introduce committed simulation steps with a real local food/population system; add the relevant scheduling, pause, and save/resume lifecycle around actual state changes. |
-
-These are sequenced proposals, not one implementation task. World identity can follow the first generator independently of atlas navigation; geographic enrichment and first simulation work must each be split into focused briefs. Authentication, remote access, and unattended hosting remain separate work before opening access to other PCs. A single settlement scenario does not complete M2.
-
-For the first generation brief, explicitly separate a **landform generation stage** from the existing province-complete `TerrainWorld` contract. Preserve Aster Island and its invariants; do not invent province membership or reuse authored-fixture identity for generated terrain. Seed/settings/generator identity is distinct from a future world-instance ID. Define topology, units, the initial development preset, and generator input limits before implementation; do not silently promote a local terrain study to an Earth-scale globe. Reuse the renderer through its actual terrain-view needs and move fixture-specific annotations out of generic rendering.
-
-The first slice's acceptance should cover repeatability across workers and host restarts, visibly different selected seeds, valid dimensions/elevations/area totals, preservation of loading/failure/cancellation behavior and the last valid map, and measured generation/transfer/rendering costs. No rivers, climate, provinces, tribes, persistence, or simulation are required to declare that landform slice complete. Start implementation only after the next slice is selected.
+A future generator must distinguish seed/settings/generator identity from both authored-fixture identity and persistent world-instance identity. Define stage outputs, topology, units, and input limits before connecting incomplete generation stages to province-complete world contracts. Preserve the original studies and their invariants, verify repeatability across workers and host restarts, and measure generation, transfer, and rendering costs with the actual workload. Select the next observable outcome and its brief after Atlas 02 review.

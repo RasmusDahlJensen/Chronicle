@@ -7,7 +7,7 @@ test('loading waits for host terrain before enabling reset', async ({ page }) =>
     await held;
     await route.continue();
   });
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   try {
     await expect(page.getByRole('status')).toHaveText('Loading terrain…');
     await expect(page.getByRole('button', { name: 'Reset terrain' })).toBeDisabled();
@@ -22,7 +22,7 @@ test('loading waits for host terrain before enabling reset', async ({ page }) =>
 
 test('unavailable host shows an error and retry loads the real terrain', async ({ page }) => {
   await page.route('**/api/terrain', route => route.fulfill({ status: 503, json: { error: 'Unavailable' } }));
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   await expect(page.getByRole('alert')).toContainText('could not be loaded');
   await expect(page.locator('#terrain-canvas')).toHaveCount(0);
   await page.unroute('**/api/terrain');
@@ -32,7 +32,7 @@ test('unavailable host shows an error and retry loads the real terrain', async (
 });
 
 test('failed reset keeps the last map and retry commits host data once', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   const canvas = page.locator('#terrain-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const original = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
@@ -55,7 +55,7 @@ test('the browser displays the host response instead of constructing a local fix
     payload.world.cellAreaKm2 = 2;
     await route.fulfill({ response, json: payload });
   });
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   await expect(page.locator('#terrain-canvas')).toHaveAttribute('data-rendered', 'true');
   await expect(page.locator('#terrain-canvas')).toHaveAttribute('aria-label', /^Island from the host:/);
   await expect(page.locator('#land-area')).toHaveText('19,796');
@@ -63,7 +63,7 @@ test('the browser displays the host response instead of constructing a local fix
 
 test('a dropped connection can be retried without reloading the page', async ({ page }) => {
   await page.route('**/api/terrain', route => route.abort('connectionrefused'));
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   await expect(page.getByRole('alert')).toContainText('could not be loaded');
   await page.unroute('**/api/terrain');
   await page.getByRole('button', { name: 'Retry terrain' }).click();
@@ -73,7 +73,7 @@ test('a dropped connection can be retried without reloading the page', async ({ 
 test('a stalled request times out and allows retry', async ({ page }) => {
   // Leave the network request unanswered so the actual client deadline must end it.
   await page.route('**/api/terrain', () => {});
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   await expect(page.getByRole('status')).toHaveText('Loading terrain…');
   await expect(page.getByRole('alert')).toContainText('could not be loaded', { timeout: 12_000 });
   await page.unroute('**/api/terrain');
@@ -82,7 +82,7 @@ test('a stalled request times out and allows retry', async ({ page }) => {
 });
 
 test('keyboard focus survives a host reset so Enter can reset again', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   const reset = page.getByRole('button', { name: 'Reset terrain' });
   await expect(reset).toBeEnabled();
   await reset.focus();
@@ -94,7 +94,7 @@ test('keyboard focus survives a host reset so Enter can reset again', async ({ p
 });
 
 test('a busy host explains the failure and retry preserves the existing map', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?scenario=aster');
   const canvas = page.locator('#terrain-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const original = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
