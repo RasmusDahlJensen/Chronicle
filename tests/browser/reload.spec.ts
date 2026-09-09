@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { AtlasWorld } from '../../shared/atlas.ts';
 import { createTestProject, startProject, type RunningProject } from '../helpers/project.ts';
 
 const FIXTURE_PATH = 'src/fixtures/verdant-reach.ts';
@@ -77,7 +78,7 @@ test('frontend edits use HMR without restarting the API or losing inspection sta
     await page.goto(app.origin);
     const canvas = page.locator('#world-canvas');
     await expect(canvas).toHaveAttribute('data-rendered', 'true');
-    await canvas.click({ position: { x: 180, y: 180 } });
+    await inspectLandCell(page, canvas);
     const selected = page.locator('[data-selected-cell]');
     await expect(selected).toBeVisible();
     const selectedId = await selected.getAttribute('data-selected-cell');
@@ -118,7 +119,7 @@ test('generated browser artifacts do not reload an open development page', async
     await page.goto(app.origin);
     const canvas = page.locator('#world-canvas');
     await expect(canvas).toHaveAttribute('data-rendered', 'true');
-    await canvas.click({ position: { x: 180, y: 180 } });
+    await inspectLandCell(page, canvas);
     const selected = page.locator('[data-selected-cell]');
     await expect(selected).toBeVisible();
     const selectedId = await selected.getAttribute('data-selected-cell');
@@ -147,6 +148,21 @@ test('generated browser artifacts do not reload an open development page', async
     await project.dispose();
   }
 });
+
+async function inspectLandCell(page: import('@playwright/test').Page, canvas: import('@playwright/test').Locator) {
+  const { world } = await (await page.request.get(new URL('/api/atlas', page.url()).href)).json() as { world: AtlasWorld };
+  const cell = world.cells.find(candidate => candidate.provinceId !== null && candidate.resource !== null)!;
+  const box = (await canvas.boundingBox())!;
+  const scale = Math.min(box.width / world.width, box.height / world.height);
+  const position = {
+    x: (box.width - world.width * scale) / 2 + (cell.id % world.width + 0.5) * scale,
+    y: (box.height - world.height * scale) / 2 + (Math.floor(cell.id / world.width) + 0.5) * scale,
+  };
+  await canvas.click({ position });
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', cell.provinceId!);
+  await canvas.click({ position });
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(cell.id));
+}
 
 async function atlasIdentity(app: RunningProject) {
   try {

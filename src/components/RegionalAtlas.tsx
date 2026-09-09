@@ -3,6 +3,7 @@ import type { AtlasWorld, Biome, Resource } from '../../shared/atlas.ts';
 import { loadAtlas } from '../api/atlas.ts';
 import { BIOMES, RESOURCES, summarizeAtlas } from '../world/atlas.ts';
 import { RESOURCE_RULES } from '../world/resources.ts';
+import { parentAtlasSelection, type AtlasSelection } from '../renderer/atlas-selection.ts';
 import { AtlasCanvas, type AtlasLayers } from './AtlasCanvas.tsx';
 import { ResourceIcon } from './ResourceIcon.tsx';
 
@@ -28,11 +29,12 @@ export function RegionalAtlas() {
   });
   const [request, setRequest] = useState(0);
   const [renderedWorld, setRenderedWorld] = useState<AtlasWorld | null>(null);
-  const [selectedCellId, setSelectedCellId] = useState<number | null>(null);
+  const [selection, setSelection] = useState<AtlasSelection>(null);
   const [layers, setLayers] = useState<AtlasLayers>({ resources: true, provinces: false, grid: false, resourceFilter: null });
   const summary = useMemo(() => world ? summarizeAtlas(world) : null, [world]);
-  const cell = selectedCellId === null ? null : world?.cells[selectedCellId] ?? null;
-  const province = cell?.provinceId ? world?.provinces.find(candidate => candidate.id === cell.provinceId) : null;
+  const cell = selection?.kind === 'cell' ? world?.cells[selection.cellId] ?? null : null;
+  const provinceId = selection?.kind === 'province' ? selection.provinceId : cell?.provinceId ?? null;
+  const province = provinceId ? world?.provinces.find(candidate => candidate.id === provinceId) : null;
   const provinceSummary = province ? summary?.provinces.get(province.id) ?? null : null;
   const country = province?.countryId ? world?.countries.find(candidate => candidate.id === province.countryId) : null;
   const onError = useCallback((cause: unknown) => {
@@ -43,7 +45,7 @@ export function RegionalAtlas() {
     const controller = new AbortController();
     void loadAtlas(controller.signal).then(nextWorld => {
       if (controller.signal.aborted) return;
-      setSelectedCellId(null);
+      setSelection(null);
       setAtlas(current => ({
         world: nextWorld, resets: current.world ? current.resets + 1 : 0,
         error: null, loading: false, renderFailed: false,
@@ -112,15 +114,22 @@ export function RegionalAtlas() {
           </aside>
 
           <section className="atlas-map-stage" aria-label="Regional map" aria-busy={busy}>
-            <div className="atlas-map-card">{world ? <AtlasCanvas world={world} layers={layers} selectedCellId={selectedCellId} onSelect={setSelectedCellId} onReady={setRenderedWorld} onError={onError} /> : <div className="atlas-loading-map"><span className="atlas-loading-compass" aria-hidden="true">✦</span><p>{error ? 'The atlas is unavailable.' : 'Preparing your atlas…'}</p><span>{error ? 'Use Retry atlas to load this regional study.' : 'Reading the regional geography from the local host.'}</span></div>}</div>
+            <div className="atlas-map-card">{world ? <AtlasCanvas world={world} layers={layers} selection={selection} onSelect={setSelection} onReady={setRenderedWorld} onError={onError} /> : <div className="atlas-loading-map"><span className="atlas-loading-compass" aria-hidden="true">✦</span><p>{error ? 'The atlas is unavailable.' : 'Preparing your atlas…'}</p><span>{error ? 'Use Retry atlas to load this regional study.' : 'Reading the regional geography from the local host.'}</span></div>}</div>
             <div className="atlas-map-caption"><span>Plate II <span aria-hidden="true">—</span> Verdant Reach</span><span>Regional geography study</span></div>
             <div className="atlas-status-row"><p id="atlas-status" role="status" aria-live="polite">{status}</p><button className="atlas-reset-button" type="button" disabled={renderFailed} aria-disabled={busy || renderFailed} onClick={resetAtlas}>{error && !renderFailed ? 'Retry atlas' : 'Reset atlas'}<span aria-hidden="true">↻</span></button></div>
             {error && <p className="atlas-error" role="alert">{error}</p>}
           </section>
 
           <aside className="atlas-inspector" aria-labelledby="atlas-inspector-title">
-            <p className="atlas-section-index">02 / Inspect</p><div className="atlas-section-heading"><h2 id="atlas-inspector-title">Cell and province</h2>{cell && <button className="atlas-clear-selection" type="button" onClick={() => setSelectedCellId(null)} aria-label="Clear cell selection">×</button>}</div>
-            {cell ? <div className="atlas-selected-cell" data-selected-cell={cell.id} aria-live="polite">
+            <p className="atlas-section-index">02 / Inspect</p><div className="atlas-section-heading"><h2 id="atlas-inspector-title">{selection?.kind === 'province' ? 'Province detail' : selection?.kind === 'cell' ? 'Cell detail' : 'Inspect the atlas'}</h2>{selection && <button className="atlas-clear-selection" type="button" onClick={() => setSelection(null)} aria-label="Clear selection">×</button>}</div>
+            {selection?.kind === 'province' && province && provinceSummary ? <div className="atlas-selected-province" data-selected-province={province.id} aria-live="polite">
+              <section className="atlas-province-resources" aria-label="Province resources">
+                <div className="atlas-province-resource-heading"><div><p className="atlas-detail-label">Province resources</p><h3>{province.name}</h3></div><span className="atlas-province-site-total">{number.format(provinceSummary.resourceSites)} {provinceSummary.resourceSites === 1 ? 'site' : 'sites'}</span></div>
+                <dl className="atlas-province-facts"><div><dt>Area</dt><dd>{number.format(provinceSummary.areaKm2)} km²</dd></div><div><dt>Cells</dt><dd>{number.format(provinceSummary.cellCount)}</dd></div><div><dt>Country</dt><dd>{country?.name ?? 'Unclaimed'}</dd></div></dl>
+                {provinceSummary.resourceSites ? <ul>{resourceEntries.filter(([resource]) => provinceSummary.resources[resource] > 0).map(([resource, detail]) => <li key={resource}><span className="atlas-resource-symbol"><ResourceIcon resource={resource} /></span><span>{detail.label}</span><strong className="atlas-province-resource-count">{number.format(provinceSummary.resources[resource])}</strong></li>)}</ul> : <p className="atlas-province-resource-empty">No resource sites in this province</p>}
+                <p className="atlas-province-selection-hint">Click inside {province.name} again to inspect a cell.</p>
+              </section>
+            </div> : cell ? <div className="atlas-selected-cell" data-selected-cell={cell.id} aria-live="polite">
               <div className="atlas-cell-biome" style={{ borderColor: BIOMES[cell.biome].color }}><p>Cell {number.format(cell.id)}</p><h3>{BIOMES[cell.biome].label}</h3></div>
               <dl className="atlas-cell-facts"><div><dt>Elevation</dt><dd>{number.format(cell.elevation)} m</dd></div><div><dt>Cell area</dt><dd>{number.format(world!.cellAreaKm2)} km²</dd></div></dl>
               <section className="atlas-cell-resource" aria-label="Selected cell resource">{cell.resource !== null ? <>
@@ -130,13 +139,9 @@ export function RegionalAtlas() {
               </> : <>
                 <p className="atlas-detail-label">Natural potential</p><p className="atlas-resource-empty">No resource site in this cell</p><p className="atlas-panel-note">This cell still has its biome. It has no special resource site in this study.</p>
               </>}</section>
-              {province && provinceSummary && <section className="atlas-province-resources" aria-label="Province resources">
-                <div className="atlas-province-resource-heading"><div><p className="atlas-detail-label">Province resources</p><h3>{province.name}</h3></div><span className="atlas-province-site-total">{number.format(provinceSummary.resourceSites)} {provinceSummary.resourceSites === 1 ? 'site' : 'sites'}</span></div>
-                {provinceSummary.resourceSites ? <ul>{resourceEntries.filter(([resource]) => provinceSummary.resources[resource] > 0).map(([resource, detail]) => <li key={resource}><span className="atlas-resource-symbol"><ResourceIcon resource={resource} /></span><span>{detail.label}</span><strong className="atlas-province-resource-count">{number.format(provinceSummary.resources[resource])}</strong></li>)}</ul> : <p className="atlas-province-resource-empty">No resource sites in this province</p>}
-                <p className="atlas-panel-note">Across {number.format(provinceSummary.cellCount)} cells · {number.format(provinceSummary.areaKm2)} km². Totals include every recorded site in the province.</p>
-              </section>}
+              {province && <button className="atlas-back-selection" type="button" onClick={() => setSelection(parentAtlasSelection(world!, selection))}><span aria-hidden="true">←</span> Back to province</button>}
               <dl className="atlas-geography-tree"><div><dt>Cell</dt><dd>#{number.format(cell.id)}</dd></div><div><dt>Province</dt><dd>{province?.name ?? 'Open water'}</dd></div><div><dt>Country</dt><dd>{country?.name ?? (province ? 'Unclaimed' : 'No country')}</dd></div></dl>
-            </div> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Click a cell on the map to inspect its biome, elevation, resources, and province.</p><span>Cells form provinces.<br />Provinces can belong to countries.</span></div>}
+            </div> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Click land to inspect its province, then click inside that province again to inspect a cell. Water opens cell detail directly.</p><span>Cells form provinces.<br />Provinces can belong to countries.</span></div>}
             <div className="atlas-unclaimed-note"><span aria-hidden="true">◇</span><p>All provinces are unclaimed in this study. Countries and living systems come later.</p></div>
           </aside>
         </div>

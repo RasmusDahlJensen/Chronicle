@@ -58,6 +58,59 @@ test('the default atlas renders a larger biome/resource map and reports real hos
   expect(errors).toEqual([]);
 });
 
+test('land selection moves from province to cell without retaining province tint', async ({ page }) => {
+  const canvas = await ready(page);
+  const { world } = await (await page.request.get('/api/atlas')).json() as { world: AtlasWorld };
+  await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
+  const cell = world.cells.find(candidate => candidate.provinceId !== null)!;
+  const remote = world.cells.find(candidate => candidate.provinceId === cell.provinceId
+    && Math.hypot(candidate.id % world.width - cell.id % world.width,
+      Math.floor(candidate.id / world.width) - Math.floor(cell.id / world.width)) > 10)!;
+  const unselected = await atlasCellPatch(canvas, world, remote.id);
+
+  await clickAtlasCell(canvas, world, cell.id);
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'province');
+  await expect(canvas).toHaveAttribute('data-selected-province-id', cell.provinceId!);
+  await expect(canvas).not.toHaveAttribute('data-selected-cell-id');
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', cell.provinceId!);
+  await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Province resources' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toHaveCount(0);
+  expect(await atlasCellPatch(canvas, world, remote.id)).not.toEqual(unselected);
+
+  await clickAtlasCell(canvas, world, cell.id);
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'cell');
+  await expect(canvas).toHaveAttribute('data-selected-cell-id', String(cell.id));
+  await expect(canvas).not.toHaveAttribute('data-selected-province-id');
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(cell.id));
+  await expect(page.locator('[data-selected-province]')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Province resources' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toBeVisible();
+  expect(await atlasCellPatch(canvas, world, remote.id)).toEqual(unselected);
+
+  await clickAtlasCell(canvas, world, remote.id);
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(remote.id));
+  await page.getByRole('button', { name: 'Back to province', exact: true }).click();
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', cell.provinceId!);
+  await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
+
+  const other = world.cells.find(candidate => candidate.provinceId !== null && candidate.provinceId !== cell.provinceId)!;
+  await clickAtlasCell(canvas, world, other.id);
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', other.provinceId!);
+  await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
+  await clickAtlasCell(canvas, world, other.id);
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(other.id));
+  await clickAtlasCell(canvas, world, cell.id);
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', cell.provinceId!);
+  await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
+  await clickAtlasCell(canvas, world, cell.id);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', cell.provinceId!);
+  await page.keyboard.press('Escape');
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'none');
+  await expect(page.locator('[data-selected-cell], [data-selected-province]')).toHaveCount(0);
+});
+
 test('zoom, resource layers and cell selection read the same atlas cells', async ({ page }, testInfo) => {
   const canvas = await ready(page);
   const original = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
@@ -69,11 +122,14 @@ test('zoom, resource layers and cell selection read the same atlas cells', async
   await expect(canvas).toHaveAttribute('data-zoom', '1.50');
   await page.getByRole('button', { name: 'Fit map', exact: true }).click();
   await expect(canvas).toHaveAttribute('data-zoom', '1.00');
-  await canvas.click({ position: { x: 100, y: 100 } });
-  await expect(page.locator('[data-selected-cell]')).toBeVisible();
-  const id = Number(await page.locator('[data-selected-cell]').getAttribute('data-selected-cell'));
   const response = await page.request.get('/api/atlas');
-  const { world } = await response.json();
+  const { world } = await response.json() as { world: AtlasWorld };
+  const inspected = world.cells.find(cell => cell.provinceId !== null && cell.resource !== null)!;
+  await clickAtlasCell(canvas, world, inspected.id);
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', inspected.provinceId!);
+  await clickAtlasCell(canvas, world, inspected.id);
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(inspected.id));
+  const id = inspected.id;
   expect(Number.isInteger(id)).toBe(true);
   await expect(page.locator('[data-selected-cell]')).toContainText(world.cells[id].elevation.toLocaleString('en'));
   await expect(page.locator('[data-selected-cell]')).toContainText(BIOMES[world.cells[id].biome as keyof typeof BIOMES].label);
@@ -97,19 +153,24 @@ test('a cell without a resource site is described explicitly', async ({ page }) 
   });
 
   const canvas = await ready(page);
+  const { world } = await (await page.request.get('/api/atlas')).json() as { world: AtlasWorld };
   const box = (await canvas.boundingBox())!;
   const scale = Math.min(box.width / 320, box.height / 200);
   await canvas.click({ position: {
     x: (box.width - 320 * scale) / 2 + 160.5 * scale,
     y: (box.height - 200 * scale) / 2 + 100.5 * scale,
   } });
+  if (world.cells[centerCellId].provinceId !== null) {
+    await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', world.cells[centerCellId].provinceId!);
+    await clickAtlasCell(canvas, world, centerCellId);
+  }
   await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(centerCellId));
   const resource = page.getByRole('region', { name: 'Selected cell resource' });
   await expect(resource).toContainText('No resource site');
   await expect(resource).toContainText('still has its biome');
 });
 
-test('an empty cell distinguishes its result from resources elsewhere in the highlighted province', async ({ page }) => {
+test('province resources stay separate from cell details through filters, clearing, water and failed reset', async ({ page }) => {
   const canvas = await ready(page);
   const { world } = await (await page.request.get('/api/atlas')).json() as { world: AtlasWorld };
   const mixed = world.provinces.map(province => ({
@@ -126,7 +187,8 @@ test('an empty cell distinguishes its result from resources elsewhere in the hig
   ])) as Record<keyof typeof RESOURCES, number>;
 
   await clickAtlasCell(canvas, world, emptyCell.id);
-  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toContainText('No resource site in this cell');
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', mixed.province.id);
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toHaveCount(0);
   const provinceResources = page.getByRole('region', { name: 'Province resources' });
   await expect(provinceResources).toContainText(mixed.province.name);
   for (const resource of ['stone', 'game'] as const) {
@@ -135,19 +197,27 @@ test('an empty cell distinguishes its result from resources elsewhere in the hig
   }
 
   const before = await provinceResources.textContent();
-  await clickAtlasCell(canvas, world, stoneCell.id);
-  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toContainText('Stone');
   await page.getByLabel('Resource filter', { exact: true }).selectOption('stone');
   await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
   await page.getByRole('checkbox', { name: 'Provinces', exact: true }).check();
   await expect(provinceResources).toHaveText(before!);
 
-  await page.getByRole('button', { name: 'Clear cell selection' }).click();
+  await clickAtlasCell(canvas, world, emptyCell.id);
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toContainText('No resource site in this cell');
   await expect(provinceResources).toHaveCount(0);
+  await clickAtlasCell(canvas, world, stoneCell.id);
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(stoneCell.id));
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toContainText('Stone');
+  await page.getByRole('button', { name: 'Back to province', exact: true }).click();
+  await expect(provinceResources).toHaveText(before!);
+  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  await expect(provinceResources).toHaveCount(0);
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'none');
   await clickAtlasCell(canvas, world, emptyCell.id);
   await expect(provinceResources).toBeVisible();
   const waterCell = world.cells.find(cell => cell.provinceId === null && cell.resource === null)!;
   await clickAtlasCell(canvas, world, waterCell.id);
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(waterCell.id));
   await expect(provinceResources).toHaveCount(0);
   await clickAtlasCell(canvas, world, emptyCell.id);
   await expect(provinceResources).toBeVisible();
@@ -155,13 +225,15 @@ test('an empty cell distinguishes its result from resources elsewhere in the hig
   await page.route('**/api/atlas', route => route.fulfill({ json: { protocolVersion: 3, world: { cells: [] } } }));
   await page.getByRole('button', { name: 'Reset atlas', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('atlas response');
-  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(emptyCell.id));
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', mixed.province.id);
+  await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
   await expect(provinceResources).toHaveText(retainedProvince!);
   await page.unroute('**/api/atlas');
   await page.getByRole('button', { name: 'Retry atlas', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('restored');
   await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
   await expect(provinceResources).toHaveCount(0);
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'none');
 });
 
 test('a valid province with no sites shows zero until reset restores host resources', async ({ page }) => {
@@ -182,6 +254,8 @@ test('a valid province with no sites shows zero until reset restores host resour
   });
   const canvas = await ready(page);
   await clickAtlasCell(canvas, original.world, selectedCell.id);
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', province.id);
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toHaveCount(0);
   const provinceResources = page.getByRole('region', { name: 'Province resources' });
   await expect(provinceResources).toContainText(province.name);
   await expect(provinceResources).toContainText('No resource sites in this province');
@@ -231,6 +305,10 @@ test('the hosted atlas shows every sparse site and its extraction requirement', 
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(allSitesImage);
 
   await clickAtlasCell(canvas, payload.world, selectedSite.id);
+  if (selectedSite.provinceId !== null) {
+    await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', selectedSite.provinceId);
+    await clickAtlasCell(canvas, payload.world, selectedSite.id);
+  }
   const selected = page.locator('[data-selected-cell]');
   await expect(selected).toHaveAttribute('data-selected-cell', String(selectedSite.id));
   const resource = page.getByRole('region', { name: 'Selected cell resource' });
@@ -239,6 +317,10 @@ test('the hosted atlas shows every sparse site and its extraction requirement', 
   await expect(resource).toContainText(RESOURCE_RULES[selectedSite.resource!].extractionTechnology);
 
   await clickAtlasCell(canvas, payload.world, ordinaryCell.id);
+  if (ordinaryCell.provinceId !== null && ordinaryCell.provinceId !== selectedSite.provinceId) {
+    await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', ordinaryCell.provinceId);
+    await clickAtlasCell(canvas, payload.world, ordinaryCell.id);
+  }
   await expect(selected).toHaveAttribute('data-selected-cell', String(ordinaryCell.id));
   await expect(resource).toContainText('No resource site');
 
@@ -254,7 +336,8 @@ test('the visible edge of a resource marker selects its site only while that mar
     const { world } = await response.json() as { world: AtlasWorld };
     const site = world.cells.find(cell => {
       const x = cell.id % world.width;
-      return cell.resource !== null && x < world.width - 1 && world.cells[cell.id + 1].resource === null;
+      return cell.provinceId === null && cell.resource !== null && x < world.width - 1
+        && world.cells[cell.id + 1].resource === null && world.cells[cell.id + 1].provinceId === null;
     })!;
     const terrainCellId = site.id + 1;
 
@@ -271,6 +354,23 @@ test('the visible edge of a resource marker selects its site only while that mar
     await page.getByLabel('Resource filter', { exact: true }).selectOption(excludedResource);
     await clickAtlasMarkerEdge(canvas, world, site.id);
     await expect(selected).toHaveAttribute('data-selected-cell', String(terrainCellId));
+    await page.getByLabel('Resource filter', { exact: true }).selectOption('');
+    await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+    const landSite = world.cells.find(cell => cell.provinceId !== null && cell.resource === 'stone'
+      && cell.id % world.width < world.width - 1 && world.cells[cell.id + 1].resource === null
+      && world.cells[cell.id + 1].provinceId === cell.provinceId)!;
+    const unselectedSite = await atlasCellPatch(canvas, world, landSite.id);
+    await clickAtlasMarkerEdge(canvas, world, landSite.id);
+    await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', landSite.provinceId!);
+    await expect(selected).toHaveCount(0);
+    await clickAtlasMarkerEdge(canvas, world, landSite.id);
+    await expect(selected).toHaveAttribute('data-selected-cell', String(landSite.id));
+    expect(newHighlightPixels(unselectedSite, await atlasCellPatch(canvas, world, landSite.id)),
+      'a selected stone site must gain a visible light outline above its resource glyph').toBeGreaterThan(0);
+    await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
+    await clickAtlasMarkerEdge(canvas, world, landSite.id);
+    await expect(selected).toHaveAttribute('data-selected-cell', String(landSite.id + 1));
+
   }
 });
 
@@ -298,11 +398,14 @@ test('drag and cancelled gestures do not pick cells; repeated reset restores cam
   await page.mouse.up();
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(beforeDrag);
   await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'none');
   await page.mouse.down();
   await canvas.dispatchEvent('pointercancel', { pointerId: 1, pointerType: 'mouse', bubbles: true });
   await page.mouse.up();
   await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
-  await canvas.click({ position: { x: 100, y: 100 } });
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'none');
+  await canvas.focus();
+  await page.keyboard.press('ArrowRight');
   await expect(page.locator('[data-selected-cell]')).toBeVisible();
   const reset = page.getByRole('button', { name: 'Reset atlas', exact: true });
   await reset.focus();
@@ -312,6 +415,7 @@ test('drag and cancelled gestures do not pick cells; repeated reset restores cam
     await expect(reset).toBeFocused();
     await expect(canvas).toHaveAttribute('data-zoom', '1.00');
     await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
+    await expect(canvas).toHaveAttribute('data-selection-kind', 'none');
     expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(original);
     expect(await page.evaluate(() => Reflect.get(window, 'atlasObservers'))).toBe(1);
   }
@@ -378,13 +482,27 @@ test('failed atlas replacement preserves the map and retry restores the original
 test('the atlas fits mobile and keyboard controls remain usable', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const canvas = await ready(page);
+  const { world } = await (await page.request.get('/api/atlas')).json() as { world: AtlasWorld };
+  const centerId = Math.floor(world.height / 2) * world.width + Math.floor(world.width / 2);
+  expect(world.cells[centerId].provinceId).not.toBeNull();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await canvas.focus();
   await page.keyboard.press('+');
   await expect(canvas).not.toHaveAttribute('data-zoom', '1.00');
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator('[data-selected-cell]')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', world.cells[centerId].provinceId!);
+  await page.keyboard.press('Space');
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(centerId));
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(centerId - 1));
   await page.screenshot({ path: testInfo.outputPath('biomes-mobile.png'), fullPage: true });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', world.cells[centerId - 1].provinceId!);
+  await page.keyboard.press('Space');
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(centerId - 1));
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'none');
 });
 
 test('high-density displays preserve tap tolerance in CSS pixels', async ({ browser }, testInfo) => {
@@ -398,22 +516,45 @@ test('high-density displays preserve tap tolerance in CSS pixels', async ({ brow
     await page.goto('/');
     const canvas = page.locator('#world-canvas');
     await expect(canvas).toHaveAttribute('data-rendered', 'true');
+    await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
+    const { world } = await (await page.request.get('/api/atlas')).json() as { world: AtlasWorld };
     const box = (await canvas.boundingBox())!;
-    const x = box.x + box.width / 2;
-    const y = box.y + box.height / 2;
+    const scale = Math.min(box.width / world.width, box.height / world.height);
+    const startCell = world.cells.find(cell => cell.provinceId !== null && cell.id % world.width < world.width - 4
+      && [1, 2, 3, 4].every(offset => world.cells[cell.id + offset].provinceId === cell.provinceId))!;
+    const x = box.x + (box.width - world.width * scale) / 2 + (startCell.id % world.width + 0.5) * scale;
+    const y = box.y + (box.height - world.height * scale) / 2 + (Math.floor(startCell.id / world.width) + 0.5) * scale;
+    const targetId = startCell.id + Math.floor(0.5 + 3 / scale);
+    expect(world.cells[targetId].provinceId).not.toBeNull();
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.mouse.move(x + 3, y);
     await page.mouse.up();
-    await expect(page.locator('[data-selected-cell]')).toBeVisible();
-    await page.getByRole('button', { name: 'Clear cell selection' }).click();
+    await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', world.cells[targetId].provinceId!);
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 3, y);
+    await page.mouse.up();
+    await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(targetId));
+    await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.mouse.move(x + 8, y);
     await page.mouse.up();
     await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
+    await expect(canvas).toHaveAttribute('data-selection-kind', 'none');
   } finally { await context.close(); }
 });
+
+function newHighlightPixels(before: number[], after: number[]) {
+  let added = 0;
+  for (let i = 0; i < after.length; i += 4) {
+    const wasLight = before[i] > 220 && before[i + 1] > 200 && before[i + 2] > 140;
+    const isLight = after[i] > 220 && after[i + 1] > 200 && after[i + 2] > 140;
+    if (isLight && !wasLight) added++;
+  }
+  return added;
+}
 
 function nearestToCenter(cells: AtlasCell[], world: AtlasWorld) {
   const centerX = world.width / 2;

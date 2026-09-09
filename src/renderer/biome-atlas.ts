@@ -5,6 +5,7 @@ import {
   type Biome,
   type Resource,
 } from '../world/atlas.ts';
+import { parentAtlasSelection, pickAtlasCell, type AtlasSelection } from './atlas-selection.ts';
 
 const PLATE_SCALE = 4;
 const MIN_ZOOM = 1;
@@ -19,14 +20,14 @@ export interface AtlasLayers {
 }
 
 export interface BiomeAtlasCallbacks {
-  onSelect?: (cellId: number) => void;
+  onSelect?: (selection: AtlasSelection) => void;
   onViewChange?: (zoom: number) => void;
 }
 
 export interface BiomeAtlasRenderer {
   setWorld(world: AtlasWorld): void;
   setLayers(layers: Partial<AtlasLayers>): void;
-  selectCell(cellId: number | null): void;
+  setSelection(selection: AtlasSelection): void;
   zoomBy(factor: number): void;
   fit(): void;
   destroy(): void;
@@ -93,7 +94,8 @@ export function createBiomeAtlasRenderer(
   let world: AtlasWorld | undefined;
   let plate: HTMLCanvasElement | undefined;
   let indexByCellId = new Map<number, number>();
-  let selectedCellId: number | null = null;
+  let selection: AtlasSelection = null;
+  let focusCellId: number | null = null;
   let layers = { ...DEFAULT_LAYERS };
   let camera: Camera = { x: 0, y: 0, zoom: MIN_ZOOM };
   let gesture: PointerGesture | undefined;
@@ -154,20 +156,25 @@ export function createBiomeAtlasRenderer(
     context.drawImage(plate, 0, 0);
     context.restore();
 
-    drawSelection(context, world, selectedCellId, indexByCellId, camera, metrics);
-    if (layers.provinces) drawProvinceBoundaries(context, world, camera, metrics, selectedCellId, indexByCellId);
+    if (selection?.kind === 'province') drawSelection(context, world, selection, indexByCellId, camera, metrics);
+    if (layers.provinces) drawProvinceBoundaries(context, world, camera, metrics, selection?.kind === 'province' ? selection.provinceId : null);
     if (layers.grid) drawGrid(context, world, camera, metrics);
     drawAnnotations(context, world, camera, metrics);
     const resourceMarkers = layers.resources
       ? drawResources(context, world, camera, metrics, layers.resourceFilter)
       : 0;
+    // Keep the cell outline visible above resource glyphs at overview scales.
+    if (selection?.kind === 'cell') drawSelection(context, world, selection, indexByCellId, camera, metrics);
 
     canvas.dataset.rendered = 'true';
     canvas.dataset.renderMs = (performance.now() - started).toFixed(1);
     canvas.dataset.resourceMarkers = String(resourceMarkers);
     canvas.dataset.zoom = camera.zoom.toFixed(2);
-    if (selectedCellId === null) delete canvas.dataset.selectedCellId;
-    else canvas.dataset.selectedCellId = String(selectedCellId);
+    canvas.dataset.selectionKind = selection?.kind ?? 'none';
+    if (selection?.kind === 'cell') canvas.dataset.selectedCellId = String(selection.cellId);
+    else delete canvas.dataset.selectedCellId;
+    if (selection?.kind === 'province') canvas.dataset.selectedProvinceId = selection.provinceId;
+    else delete canvas.dataset.selectedProvinceId;
   }
 
   function notifyViewChange() {
@@ -231,9 +238,11 @@ export function createBiomeAtlasRenderer(
     return nearest ? world.cells[nearest.index] : undefined;
   }
 
-  function chooseCell(cellId: number) {
-    selectedCellId = cellId;
-    callbacks.onSelect?.(cellId);
+  function chooseCell(cellId: number, drillDown = true) {
+    if (!world) return;
+    focusCellId = cellId;
+    selection = drillDown ? pickAtlasCell(world, selection, cellId) : { kind: 'cell', cellId };
+    callbacks.onSelect?.(selection);
     redraw();
   }
 
@@ -305,6 +314,14 @@ export function createBiomeAtlasRenderer(
 
   function onKeyDown(event: KeyboardEvent) {
     if (!world) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      selection = parentAtlasSelection(world, selection);
+      if (!selection) focusCellId = null;
+      callbacks.onSelect?.(selection);
+      redraw();
+      return;
+    }
     const zoomIn = event.key === '+' || event.key === '=';
     const zoomOut = event.key === '-' || event.key === '_';
     if (zoomIn || zoomOut) {
@@ -321,7 +338,7 @@ export function createBiomeAtlasRenderer(
       event.preventDefault();
       const metrics = measure();
       if (!metrics) return;
-      const cell = hitCell(metrics.width / 2, metrics.height / 2);
+      const cell = focusCellId === null ? hitCell(metrics.width / 2, metrics.height / 2) : world.cells[focusCellId];
       if (cell) chooseCell(cell.id);
       return;
     }
@@ -330,10 +347,10 @@ export function createBiomeAtlasRenderer(
     if (!direction) return;
     event.preventDefault();
     if (!event.shiftKey) {
-      if (selectedCellId === null) {
+      if (focusCellId === null) {
         const centerX = clamp(Math.floor(camera.x), 0, world.width - 1);
         const centerY = clamp(Math.floor(camera.y), 0, world.height - 1);
-        selectedCellId = world.cells[centerY * world.width + centerX].id;
+        focusCellId = world.cells[centerY * world.width + centerX].id;
       }
       if (moveSelection(direction.x, direction.y)) return;
     }
@@ -347,19 +364,17 @@ export function createBiomeAtlasRenderer(
   }
 
   function moveSelection(dx: number, dy: number) {
-    if (!world || selectedCellId === null) return false;
-    const currentIndex = indexByCellId.get(selectedCellId);
+    if (!world || focusCellId === null) return false;
+    const currentIndex = indexByCellId.get(focusCellId);
     if (currentIndex === undefined) return false;
     const x = currentIndex % world.width;
     const y = Math.floor(currentIndex / world.width);
     const nextX = clamp(x + dx, 0, world.width - 1);
     const nextY = clamp(y + dy, 0, world.height - 1);
     const next = world.cells[nextY * world.width + nextX];
-    if (!next || next.id === selectedCellId) return true;
-    selectedCellId = next.id;
+    if (!next) return false;
     centerCellIfNeeded(nextX, nextY);
-    callbacks.onSelect?.(next.id);
-    redraw();
+    chooseCell(next.id, false);
     return true;
   }
 
@@ -397,7 +412,8 @@ export function createBiomeAtlasRenderer(
       world = nextWorld;
       indexByCellId = new Map(nextWorld.cells.map((cell, index) => [cell.id, index]));
       plate = paintTerrainPlate(nextWorld);
-      selectedCellId = null;
+      selection = null;
+      focusCellId = null;
       camera = { x: nextWorld.width / 2, y: nextWorld.height / 2, zoom: MIN_ZOOM };
       redraw();
       canvas.dataset.renderMs = (performance.now() - started).toFixed(1);
@@ -407,8 +423,19 @@ export function createBiomeAtlasRenderer(
       layers = { ...layers, ...nextLayers };
       redraw();
     },
-    selectCell(cellId) {
-      selectedCellId = cellId !== null && indexByCellId.has(cellId) ? cellId : null;
+    setSelection(nextSelection) {
+      selection = nextSelection;
+      if (selection?.kind === 'cell') {
+        if (indexByCellId.has(selection.cellId)) focusCellId = selection.cellId;
+        else selection = null;
+      } else if (selection?.kind === 'province') {
+        const provinceId = selection.provinceId;
+        if (focusCellId === null || world?.cells[focusCellId]?.provinceId !== provinceId) {
+          focusCellId = world?.cells.find(cell => cell.provinceId === provinceId)?.id ?? null;
+          if (focusCellId === null) selection = null;
+        }
+      }
+      if (!selection) focusCellId = null;
       redraw();
     },
     zoomBy(factor) {
@@ -547,29 +574,28 @@ function drawCoastline(context: CanvasRenderingContext2D, world: AtlasWorld) {
 function drawSelection(
   context: CanvasRenderingContext2D,
   world: AtlasWorld,
-  selectedCellId: number | null,
+  selection: AtlasSelection,
   indexByCellId: ReadonlyMap<number, number>,
   camera: Camera,
   metrics: DrawMetrics,
 ) {
-  if (selectedCellId === null) return;
-  const selectedIndex = indexByCellId.get(selectedCellId);
-  if (selectedIndex === undefined) return;
-  const selected = world.cells[selectedIndex];
-  const selectedProvince = selected.provinceId;
+  if (selection === null) return;
   const bounds = visibleBounds(world, camera, metrics, 1);
 
-  if (selectedProvince !== null) {
+  if (selection.kind === 'province') {
     context.save();
     context.fillStyle = 'rgba(241, 181, 73, 0.16)';
     forEachVisible(bounds, world.width, (index, x, y) => {
-      if (world.cells[index].provinceId !== selectedProvince) return;
+      if (world.cells[index].provinceId !== selection.provinceId) return;
       const point = worldToScreen(x, y, camera, metrics);
       context.fillRect(point.x, point.y, metrics.pixelsPerCell + 0.5, metrics.pixelsPerCell + 0.5);
     });
     context.restore();
+    return;
   }
 
+  const selectedIndex = indexByCellId.get(selection.cellId);
+  if (selectedIndex === undefined) return;
   const x = selectedIndex % world.width;
   const y = Math.floor(selectedIndex / world.width);
   const point = worldToScreen(x, y, camera, metrics);
@@ -592,12 +618,9 @@ function drawProvinceBoundaries(
   world: AtlasWorld,
   camera: Camera,
   metrics: DrawMetrics,
-  selectedCellId: number | null,
-  indexByCellId: ReadonlyMap<number, number>,
+  selectedProvince: string | null,
 ) {
   if (metrics.pixelsPerCell / metrics.ratio < 2) return;
-  const selectedIndex = selectedCellId === null ? undefined : indexByCellId.get(selectedCellId);
-  const selectedProvince = selectedIndex === undefined ? null : world.cells[selectedIndex].provinceId;
   const bounds = visibleBounds(world, camera, metrics, 1);
   context.save();
   context.beginPath();

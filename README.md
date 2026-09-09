@@ -41,11 +41,13 @@ Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chro
 
 The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, database, Docker, or separate service installation is needed. Both servers listen on this PC only.
 
-Drag the map to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. Click a cell to inspect its biome, elevation, resource site or absence, province, and unclaimed country status. **Province resources** shows the site counts across that cell's whole province, even if the clicked cell has no site. These are site counts, not quantities or yields. Select a site to see its required extraction technology. Toggle **Resources**, **Provinces**, or **Cell grid**, and use **Resource filter** to locate a particular resource; display filters do not change province totals.
+Drag the map to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. **Click land once to select its province**, highlighting the whole province and showing its area, cell count, country status, and resource-site totals. **Click inside that province again to select a cell**, highlighting only that cell and showing its biome, elevation, area, and resource site or absence. A site also shows its required extraction technology. Clicking a different province starts at province level again. Use **Back to province** to return to the overview or **Clear selection** to deselect. Water cells open directly because they have no province.
+
+**Province resources** counts sites, not quantities or yields. Toggle **Resources**, **Provinces**, or **Cell grid**, and use **Resource filter** to locate a particular resource; display filters do not change province totals or selection level.
 
 Choose **Reset atlas** to fetch a freshly constructed copy of Verdant Reach. Loading failures offer **Retry atlas**; a failed reload retains the last displayed map. The atlas is a fixed regional study, so reset reproduces the same geography and resources.
 
-For keyboard exploration, focus the map with Tab: arrow keys select neighboring cells, Shift + arrows pan, + / − zoom, and Home fits the map.
+For keyboard exploration, focus the map with Tab: arrow keys directly inspect neighboring cells, Enter or Space selects the focused location (the map center initially) through the province → cell sequence, Escape moves back a level, Shift + arrows pan, + / − zoom, and Home fits the map.
 
 The original **Aster Island** study remains available through the header link or **http://127.0.0.1:5173/?scenario=aster**. It retains its water/plains/hills map and **Reset terrain** control.
 
@@ -77,6 +79,7 @@ Extend the suite alongside each change, especially when data crosses a module or
 | Connection or rule | Regression coverage |
 |---|---|
 | Cells → provinces → countries; biome/resource data and province site totals | `tests/atlas-world.test.ts`, `tests/atlas-response.test.ts` |
+| Click/back selection → matching province/cell highlight and inspector | `tests/atlas-selection.test.ts`, `tests/browser/biomes.spec.ts` |
 | Workers → validated HTTP responses; admission and shutdown | `tests/compute.test.ts`, `tests/server.test.ts`, `tests/atlas-server.test.ts` |
 | Launcher → proxy/built server; live source changes → new workers | `tests/launcher.test.ts`, `tests/dev-reload.test.ts` |
 | HTTP → browser validation → visible map, inspection, reset/retry | `tests/browser/`, run against development and production serving |

@@ -232,6 +232,8 @@ The Fantasy Map Simulator reference is a stated visual direction for territorial
 
 **Proposed interaction details:** clicking another province while at province/cell depth selects that province; breadcrumbs and Escape move up a level; drag is not a click; selection is stable during updates; clicking unowned land selects the geographic province directly. Explain the drill-down unobtrusively. Country selection highlights all direct holdings and clearly distinguishes its subjects.
 
+**Confirmed for the unclaimed regional study:** first click highlights a province and shows province information; another click inside it highlights a cell and shows cell information. These are separate selection levels. Clicking another province returns to province level; water opens cell details directly. Country-level selection remains a later slice when countries exist in the study.
+
 Country inspector: population, capital, holdings, government, cultures/religions, technology, economy/food, military, administration, legitimacy, unrest, active wars, allies, subjects and overlord, current goals, and timeline.
 
 Province inspector: sovereignty and occupation, integration/autonomy, population composition, terrain summary, production, supply/access, and grievances.

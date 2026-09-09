@@ -14,7 +14,7 @@ Each future world must have independent identity, state, configuration/seed, RNG
 
 | Part | Choice | Responsibility |
 |---|---|---|
-| Browser interface | React + TypeScript + Vite | Biome/resource legends, layer controls, cell inspection, reset, and loading/failure/retry |
+| Browser interface | React + TypeScript + Vite | Biome/resource legends, layer controls, province/cell inspection, reset, and loading/failure/retry |
 | Atlas renderer | Canvas 2D | Textured geography, resource/province/grid overlays, bounded pan/zoom, and cell selection independently of React |
 | Host service | Node 24.20.0 + TypeScript + Fastify 5.12.3 | HTTP contracts, errors, request IDs/logging, limits, health/readiness, and lifecycle |
 | Compute | Piscina 5.3.2 with persistent bounded Node workers | Construct, validate, and encode disposable terrain jobs away from HTTP handling |
@@ -56,11 +56,14 @@ Every cell has a stable row-major ID, integral elevation in metres, a biome, an 
 | `src/world/resources.ts` | Renewable/mineral site kinds and required extraction technology, independent of visual styling |
 | `server/workers/terrain-worker.ts` | Construct the selected shared fixture, validate its matching contract, and encode bounded JSON |
 | `src/api/atlas.ts` | Request the atlas and validate the response before rendering |
-| `src/components/RegionalAtlas.tsx`, `src/components/AtlasCanvas.tsx` | React loading/reset state, legends, layers, cell inspector, and renderer lifecycle |
+| `src/components/RegionalAtlas.tsx`, `src/components/AtlasCanvas.tsx` | React loading/reset state, legends, layers, province/cell inspectors, controlled selection, and renderer lifecycle |
+| `src/renderer/atlas-selection.ts` | Pure province → cell view-selection transitions and parent navigation; independent of React/Canvas and world mutation |
 | `src/renderer/biome-atlas.ts` | Canvas geography/texture, overlays, bounded camera, and picking; independent of React |
 | `src/App.tsx`, `src/components/LegacyTerrainLab.tsx` | Select the new default view or the retained Aster study at `?scenario=aster` |
 
-Annotations and site positions belong to fixture data. The resource layer and inspector read actual site presence; ordinary cells explicitly show no resource site in that cell. A separate province section totals sites across its constituent cells, matching the province highlight even when the selected cell is ordinary. These totals are derived once per received world, independent of display filters/layers, and exclude water cells without a province. Extraction requirements are catalog metadata displayed for review, not a claim that an actor knows a technology or can currently produce goods. The preview shows all sites; research, discovery, production, labor, and stocks need later contracts. The `cell → province → country` inspector displays real references, including unclaimed land and water without a province. Future sovereignty, occupation, habitation, and lifecycle operations still need their own mechanics and contracts.
+Annotations and site positions belong to fixture data. The resource layer and inspector read actual site presence; ordinary cells explicitly show no resource site in that cell. Province totals are derived once per received world, independent of display filters/layers, and exclude water cells without a province. Extraction requirements are catalog metadata displayed for review, not a claim that an actor knows a technology or can currently produce goods. The preview shows all sites; research, discovery, production, labor, and stocks need later contracts. The hierarchy inspector displays real references, including unclaimed land and water without a province. Future sovereignty, occupation, habitation, and lifecycle operations still need their own mechanics and contracts.
+
+Selection is explicit view state: none, a province ID, or a cell ID. The first land click selects a province and displays its totals; another click inside selects a cell and displays only its local details. Province tint and cell outline are mutually exclusive. Crossing into another province restarts at province level; water opens directly. Back/Escape navigate up, and successful replacement clears selection while failed replacement retains it. The renderer keeps a separate keyboard focus cell, preserving exact-cell arrow navigation and enabling Enter/Space activation without claiming a cell is already selected. Pure selection transitions are shared by the renderer and inspector; neither changes the authoritative world. Country-level selection remains future work.
 
 ## Growth and dependency decisions
 

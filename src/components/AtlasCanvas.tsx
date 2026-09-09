@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AtlasWorld } from '../../shared/atlas.ts';
 import { createBiomeAtlasRenderer, type AtlasLayers } from '../renderer/biome-atlas.ts';
+import type { AtlasSelection } from '../renderer/atlas-selection.ts';
 
 export type { AtlasLayers } from '../renderer/biome-atlas.ts';
 
 interface AtlasCanvasProps {
   world: AtlasWorld;
   layers: AtlasLayers;
-  selectedCellId: number | null;
-  onSelect: (cellId: number | null) => void;
+  selection: AtlasSelection;
+  onSelect: (selection: AtlasSelection) => void;
   onReady: (world: AtlasWorld) => void;
   onError: (cause: unknown) => void;
 }
 
 /** Keep the renderer alive across UI updates; its lifecycle belongs to this canvas. */
-export function AtlasCanvas({ world, layers, selectedCellId, onSelect, onReady, onError }: AtlasCanvasProps) {
+export function AtlasCanvas({ world, layers, selection, onSelect, onReady, onError }: AtlasCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ReturnType<typeof createBiomeAtlasRenderer> | null>(null);
   const callbacks = useRef({ onSelect, onReady, onError });
@@ -35,7 +36,7 @@ export function AtlasCanvas({ world, layers, selectedCellId, onSelect, onReady, 
   useEffect(() => {
     try {
       rendererRef.current = createBiomeAtlasRenderer(canvasRef.current!, {
-        onSelect: cellId => callbacks.current.onSelect(cellId),
+        onSelect: selection => callbacks.current.onSelect(selection),
         onViewChange: setZoom,
       });
     } catch (cause) {
@@ -67,11 +68,11 @@ export function AtlasCanvas({ world, layers, selectedCellId, onSelect, onReady, 
 
   useEffect(() => {
     try {
-      rendererRef.current?.selectCell(selectedCellId);
+      rendererRef.current?.setSelection(selection);
     } catch (cause) {
       reportFailure(cause);
     }
-  }, [selectedCellId, world, reportFailure]);
+  }, [selection, world, reportFailure]);
 
   function changeView(action: 'in' | 'out' | 'fit') {
     if (!rendererRef.current) return;
@@ -100,14 +101,14 @@ export function AtlasCanvas({ world, layers, selectedCellId, onSelect, onReady, 
           id="world-canvas"
           role="img"
           tabIndex={0}
-          aria-label={`${world.name}: regional biome and natural resource atlas. Select a cell to inspect its geography.`}
+          aria-label={`${world.name}: regional biome and natural resource atlas. Click to select a province, then click inside it to inspect a cell.`}
           aria-describedby="atlas-map-help"
         >
           The regional atlas needs a browser with Canvas 2D support.
         </canvas>
         <span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span>
       </div>
-      <p id="atlas-map-help" className="atlas-map-help">Drag to explore · Scroll to zoom · Click to inspect. Keyboard: arrows select cells, Shift + arrows pan, + / − zoom, Home fits the map.</p>
+      <p id="atlas-map-help" className="atlas-map-help">Click a province, then click inside it to inspect a cell · Drag to explore · Scroll to zoom. Keyboard: arrows inspect cells, Enter selects, Escape goes back, Shift + arrows pan, + / − zoom, Home fits the map.</p>
     </>
   );
 }

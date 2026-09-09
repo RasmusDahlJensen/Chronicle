@@ -2,7 +2,7 @@
 
 ## Current stage and agreed direction
 
-As of 9 September 2026, Resources 01 and its province inspection correction are implemented and locally verified, awaiting user review. The inspector shows province resource totals alongside an explicitly scoped cell result. Active brief: `docs/features/resources-01.md`. Dev 01's automatic restarts and complete regression gate remain in force. The regional atlas stays the default browser view; the original Aster fixture remains an explicit regression study. Hosted persistent worlds, simulation, and remote access remain later slices. See `docs/ARCHITECTURE.md` for durable contracts and the active brief for current verification.
+As of 9 September 2026, Resources 01 and the user's clarified province → cell selection flow are implemented and locally verified, awaiting user review. First click selects a province and its information; another click inside selects a cell and its information. Active brief: `docs/features/resources-01.md`. Dev 01's automatic restarts and complete regression gate remain in force. The regional atlas stays the default browser view; the original Aster fixture remains an explicit regression study. Hosted persistent worlds, simulation, and remote access remain later slices. See `docs/ARCHITECTURE.md` for durable contracts and the active brief for current verification.
 
 The user has chosen small, gradual feature delivery and a **browser lab with repeatable scenarios, visual inspection, and automated checks**. Chronicle is expected to become a substantial project: small slices describe delivery size, not a small-system assumption. The user authorizes necessary local packages and tools for maintainability and future growth. The lab grows alongside Chronicle; the active brief defines current implementation and verification, including refinements to its architecture checks.
 
@@ -71,7 +71,7 @@ Acceptance checks:
 - Reset reconstructs the same initial world data and restores the initial view.
 - An automated fixture/reset check passes, and browser inspection confirms the rendered result.
 
-This validates the basic development loop. It does not validate seeded generation or simulation determinism. Atlas 02 adds connected province grouping and direct cell inspection for its authored study; procedural geography, country/province selection, population, economy, warfare, and time progression require later scoped work. All M1 milestone gates still apply before declaring M1 complete.
+This validates the basic development loop. It does not validate seeded generation or simulation determinism. Atlas 02 adds connected province grouping; Resources 01 adds sparse sites and province → cell inspection for the authored study. Procedural geography, country-level selection, population, economy, warfare, and time progression require later scoped work. All M1 milestone gates still apply before declaring M1 complete.
 
 ## Minimal feature brief
 
