@@ -121,6 +121,7 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - **`package.json` cannot be found:** move into the Chronicle repository folder before running npm commands.
 - **Port 5173 or 4173 is busy:** stop the existing lab or built-app terminal with Ctrl+C, then retry. The commands above keep their stated ports instead of silently choosing another one.
 - **The map cannot load:** choose **Retry atlas**, or **Retry terrain** in the Aster study. If it still fails, check the launch terminal for errors, stop it with Ctrl+C, and run `npm start` again.
+- **The new interface appears but the atlas is unavailable after an update:** Vite can update the frontend while the previous backend remains running. Stop the lab with Ctrl+C, run `npm start`, and refresh the page to load both from the current code.
 - **Production build is missing:** run `npm run build` before `npm run serve` or `npm run preview`.
 - **A `CHRONICLE_...` configuration value is rejected:** correct or remove that environment variable, then restart. Ordinary launches need none of these variables.
 - **Canvas rendering fails:** reset is disabled when the browser cannot draw the map. Reload the page or try another browser.

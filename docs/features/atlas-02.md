@@ -45,8 +45,8 @@ The map is a bounded authored region. It has no user-seeded geography, complete 
 
 ## Handoff
 
-Starting checkpoint: `ebe6b58`, clean working tree. Verification above covers the complete Atlas 02 working changes; the implementation is preserved in the accompanying Git checkpoint. No unrelated changes were present. User review is pending; do not start the next feature automatically. Independent code-review findings and their resolution are recorded below.
+Starting checkpoint: `ebe6b58`, clean working tree. The verified Atlas 02 implementation is preserved in `80c4faf`. No unrelated changes were present. User review is pending; do not start the next feature automatically. Independent code-review findings and their resolution are recorded below.
 
 - Independent data/transport review found no material defects. It prompted durable positive-country and concurrent mixed-endpoint admission tests, which pass.
 - Independent UI/renderer review identified device-pixel-dependent tap tolerance. The renderer now measures tap movement in CSS pixels; a high-density tap/drag browser regression passes. The reviewer rechecked the fix and reported no remaining material findings. Actual-data selection/resource placement and renderer cleanup were also reviewed.
-- Temporary verification servers exited successfully. The pre-existing process on port 5173 still serves the older backend and returns 404 for `/api/atlas`; restart it using the review steps above.
+- Temporary verification servers exited successfully. The user subsequently reported an unavailable map: the pre-existing process on port 5173 served the new frontend through Vite but still ran the older backend, returning 404 for `/api/atlas`. Restarted that exact Chronicle process using `npm start`, then verified the same `http://127.0.0.1:5173/` address in Chromium at 2542 × 1312: API 200/protocol 2/64,000 cells, visible rendered map, successful reset, and no page errors. Inspected the resulting screenshot. The updated development server is left running for user review; refresh the browser tab. No application-code change was needed.
