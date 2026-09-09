@@ -1,6 +1,6 @@
 # Resources 01 — scattered resource sites
 
-Status: implemented and locally verified on 9 September 2026; awaiting user review of density and readability. The user's atlas review replaces the prior requirement for a resource on every cell with scattered Civilization-inspired resource sites and technology requirements for exploitation.
+Status: sparse sites and the province inspection correction implemented and locally verified on 9 September 2026; awaiting user review. The user's atlas review replaces the prior requirement for a resource on every cell with scattered Civilization-inspired resource sites and technology requirements for exploitation.
 
 ## Outcome and scope
 
@@ -35,3 +35,20 @@ The shared cell contract becomes `resource: Resource | null`, using protocol 3 a
 Starting revision: `55f370d`, clean working tree. Baseline complete gate: 55 headless tests and 47 browser scenarios. The complete Resources 01 working tree was verified before committing its implementation, tests, and this record together; no unrelated user changes were present. Setup commands and dependencies are unchanged.
 
 Open port 5173 (or run `npm start` if stopped), zoom in, and inspect ordinary cells and marked resource sites. Filter Iron or Uranium to inspect their distribution and requirements. Hide Resources for exact terrain-cell picking beneath an icon. Review the density and resource readability before choosing the next slice. No known implementation issue remains from these checks; research, extraction, and richer resource/knowledge contracts require later scoped work.
+
+## Province inspection correction — 9 September 2026
+
+The user reported a province showing no resource despite visible sites in its cells. Live reproduction selected ordinary cell 2395 in **Skeld 3**: the map highlighted its entire province, but the inspector only said **No resource site** for that cell. Skeld 3 actually contains one Stone site and one Game site. The resource data is intact; the inspector conflates the visible province selection with its cell-only result.
+
+Keep the current selection and hierarchy contracts. Derive each province's cell count, area, and resource-site counts from its actual constituent cells in the existing world-summary pass. Show those counts in a separate **Province resources** section and label cell absence **No resource site in this cell**. Counts must stay independent of display filters and layers. Water has no province summary; provinces with zero sites need an explicit truthful empty state. Successful reset clears selection and rebuilds totals for the returned world, while failed reset retains the previous usable state. No fixture, protocol, extraction, or renderer changes are needed.
+
+Verification: capture the missing aggregation and misleading UI as failing regressions; check mixed and zero-site provinces, distinct provinces with shared ownership, exclusion of sea resources, replacement-world summaries, actual host data reaching the inspector, filter/layer stability, water, clear selection, and reset. Obtain independent review, run the complete gate, and inspect the running port 5173 map before handoff.
+
+Results:
+
+- Atlas and province summaries now share one cell pass, memoized per received world. Province counts use actual membership, keep separate count records, and do not change geography or resource distribution. The inspector displays **Cell and province**, explicitly scopes the cell result, and provides a distinct **Province resources** panel with counts, cells, and area. Its list adapts to the narrow desktop panel and wider mobile layout.
+- Captured RED in two headless regressions for missing province summaries and in an actual-host browser regression for the ambiguous cell result. New checks cover separate provinces under one country, arbitrary valid province IDs, null cells, sea resources, immutable input, zero-site provinces, replacement summaries, mixed-province inspection, filters/layers, clearing selection, water, failed reset retention, and successful reset restoration.
+- Final **`npm run check` passed** on Node 24.20.0/Linux: architecture checks over 27 files, TypeScript, **62 headless tests** with no failures/skips (19.3 seconds), production build, and **57 Chromium scenarios** (30 development, 27 built serving; 54.7 seconds). Existing worker/HTTP/reload/rendering regressions remain in the gate. `git diff --check` passed; remote CI was not run.
+- Independent review found no material issues in the core aggregation, UI, or regression coverage. Live Chromium at **http://127.0.0.1:5173/** verified empty cell 2395 still shows **Skeld 3: Stone 1, Game 1**, while mobile cell 7202 shows **Skeld 1: Stone 1, Game 6**. Desktop/mobile inspector screenshots were inspected with no page errors. A uranium site's **Advanced mining** requirement and Eldermere 12's Game/Iron/Uranium counts also remained correct, with all labels fitting the narrow panel. The watched user lab remains running; temporary test servers stopped.
+
+Handoff: starting revision `05e3344`, initially clean. The correction's source, tests, and documentation are checkpointed together after verification; no unrelated user work or dependency/launch changes. No known issue remains from these checks. Next action: open port 5173 and click an ordinary cell inside a province containing resource markers, then a marked site in that same province. The cell result changes while **Province resources** stays the same. Review that distinction and the sparse distribution before choosing another slice.

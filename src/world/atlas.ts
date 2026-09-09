@@ -19,9 +19,23 @@ export const RESOURCES: Record<Resource, { label: string; color: string; symbol:
   uranium: { label: 'Uranium', color: '#bdd783', symbol: 'U' },
 };
 
+export interface ProvinceSummary {
+  cellCount: number;
+  areaKm2: number;
+  resourceSites: number;
+  resources: Record<Resource, number>;
+}
+
+function emptyResourceCounts(): Record<Resource, number> {
+  return Object.fromEntries(RESOURCE_IDS.map(id => [id, 0])) as Record<Resource, number>;
+}
+
 export function summarizeAtlas(world: AtlasWorld) {
   const biomes = Object.fromEntries(BIOME_IDS.map(id => [id, 0])) as Record<Biome, number>;
-  const resources = Object.fromEntries(RESOURCE_IDS.map(id => [id, 0])) as Record<Resource, number>;
+  const resources = emptyResourceCounts();
+  const provinces = new Map<string, ProvinceSummary>(world.provinces.map(province => [province.id, {
+    cellCount: 0, areaKm2: 0, resourceSites: 0, resources: emptyResourceCounts(),
+  }]));
   let waterKm2 = 0;
   let resourceSites = 0;
   for (const cell of world.cells) {
@@ -31,7 +45,16 @@ export function summarizeAtlas(world: AtlasWorld) {
       resourceSites++;
     }
     if (isWaterBiome(cell.biome)) waterKm2 += world.cellAreaKm2;
+    if (cell.provinceId !== null) {
+      const province = provinces.get(cell.provinceId)!;
+      province.cellCount++;
+      province.areaKm2 += world.cellAreaKm2;
+      if (cell.resource !== null) {
+        province.resources[cell.resource]++;
+        province.resourceSites++;
+      }
+    }
   }
   const totalKm2 = world.cells.length * world.cellAreaKm2;
-  return { totalKm2, waterKm2, landKm2: totalKm2 - waterKm2, biomes, resources, resourceSites, cellsWithoutResource: world.cells.length - resourceSites };
+  return { totalKm2, waterKm2, landKm2: totalKm2 - waterKm2, biomes, resources, resourceSites, cellsWithoutResource: world.cells.length - resourceSites, provinces };
 }

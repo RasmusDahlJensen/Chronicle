@@ -41,7 +41,7 @@ Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chro
 
 The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, database, Docker, or separate service installation is needed. Both servers listen on this PC only.
 
-Drag the map to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. Click a cell to inspect its biome, elevation, resource site or absence, province, and unclaimed country status. Select a site to see its required extraction technology. Toggle **Resources**, **Provinces**, or **Cell grid**, and use **Resource filter** to locate a particular resource.
+Drag the map to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. Click a cell to inspect its biome, elevation, resource site or absence, province, and unclaimed country status. **Province resources** shows the site counts across that cell's whole province, even if the clicked cell has no site. These are site counts, not quantities or yields. Select a site to see its required extraction technology. Toggle **Resources**, **Provinces**, or **Cell grid**, and use **Resource filter** to locate a particular resource; display filters do not change province totals.
 
 Choose **Reset atlas** to fetch a freshly constructed copy of Verdant Reach. Loading failures offer **Retry atlas**; a failed reload retains the last displayed map. The atlas is a fixed regional study, so reset reproduces the same geography and resources.
 
@@ -76,7 +76,7 @@ Extend the suite alongside each change, especially when data crosses a module or
 
 | Connection or rule | Regression coverage |
 |---|---|
-| Cells → provinces → countries; biome/resource data | `tests/atlas-world.test.ts`, `tests/atlas-response.test.ts` |
+| Cells → provinces → countries; biome/resource data and province site totals | `tests/atlas-world.test.ts`, `tests/atlas-response.test.ts` |
 | Workers → validated HTTP responses; admission and shutdown | `tests/compute.test.ts`, `tests/server.test.ts`, `tests/atlas-server.test.ts` |
 | Launcher → proxy/built server; live source changes → new workers | `tests/launcher.test.ts`, `tests/dev-reload.test.ts` |
 | HTTP → browser validation → visible map, inspection, reset/retry | `tests/browser/`, run against development and production serving |

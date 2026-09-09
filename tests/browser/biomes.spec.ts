@@ -109,6 +109,92 @@ test('a cell without a resource site is described explicitly', async ({ page }) 
   await expect(resource).toContainText('still has its biome');
 });
 
+test('an empty cell distinguishes its result from resources elsewhere in the highlighted province', async ({ page }) => {
+  const canvas = await ready(page);
+  const { world } = await (await page.request.get('/api/atlas')).json() as { world: AtlasWorld };
+  const mixed = world.provinces.map(province => ({
+    province,
+    cells: world.cells.filter(cell => cell.provinceId === province.id),
+  })).find(candidate => candidate.cells.some(cell => cell.resource === null)
+    && candidate.cells.some(cell => cell.resource === 'stone')
+    && candidate.cells.some(cell => cell.resource === 'game'))!;
+  const emptyCell = mixed.cells.find(cell => cell.resource === null)!;
+  const stoneCell = mixed.cells.find(cell => cell.resource === 'stone')!;
+  const resourceCounts = Object.fromEntries(Object.keys(RESOURCES).map(resource => [
+    resource,
+    mixed.cells.filter(cell => cell.resource === resource).length,
+  ])) as Record<keyof typeof RESOURCES, number>;
+
+  await clickAtlasCell(canvas, world, emptyCell.id);
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toContainText('No resource site in this cell');
+  const provinceResources = page.getByRole('region', { name: 'Province resources' });
+  await expect(provinceResources).toContainText(mixed.province.name);
+  for (const resource of ['stone', 'game'] as const) {
+    const item = provinceResources.locator('li').filter({ hasText: RESOURCES[resource].label });
+    await expect(item.locator('.atlas-province-resource-count')).toHaveText(String(resourceCounts[resource]));
+  }
+
+  const before = await provinceResources.textContent();
+  await clickAtlasCell(canvas, world, stoneCell.id);
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toContainText('Stone');
+  await page.getByLabel('Resource filter', { exact: true }).selectOption('stone');
+  await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
+  await page.getByRole('checkbox', { name: 'Provinces', exact: true }).check();
+  await expect(provinceResources).toHaveText(before!);
+
+  await page.getByRole('button', { name: 'Clear cell selection' }).click();
+  await expect(provinceResources).toHaveCount(0);
+  await clickAtlasCell(canvas, world, emptyCell.id);
+  await expect(provinceResources).toBeVisible();
+  const waterCell = world.cells.find(cell => cell.provinceId === null && cell.resource === null)!;
+  await clickAtlasCell(canvas, world, waterCell.id);
+  await expect(provinceResources).toHaveCount(0);
+  await clickAtlasCell(canvas, world, emptyCell.id);
+  await expect(provinceResources).toBeVisible();
+  const retainedProvince = await provinceResources.textContent();
+  await page.route('**/api/atlas', route => route.fulfill({ json: { protocolVersion: 3, world: { cells: [] } } }));
+  await page.getByRole('button', { name: 'Reset atlas', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('atlas response');
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(emptyCell.id));
+  await expect(provinceResources).toHaveText(retainedProvince!);
+  await page.unroute('**/api/atlas');
+  await page.getByRole('button', { name: 'Retry atlas', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('restored');
+  await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
+  await expect(provinceResources).toHaveCount(0);
+});
+
+test('a valid province with no sites shows zero until reset restores host resources', async ({ page }) => {
+  const original = await (await page.request.get('/api/atlas')).json() as { world: AtlasWorld };
+  const province = original.world.provinces.find(candidate => {
+    const cells = original.world.cells.filter(cell => cell.provinceId === candidate.id);
+    return cells.some(cell => cell.resource === null) && cells.some(cell => cell.resource !== null);
+  })!;
+  const provinceCells = original.world.cells.filter(cell => cell.provinceId === province.id);
+  const selectedCell = provinceCells.find(cell => cell.resource === null)!;
+  const originalSiteCount = provinceCells.filter(cell => cell.resource !== null).length;
+
+  await page.route('**/api/atlas', async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    for (const cell of payload.world.cells) if (cell.provinceId === province.id) cell.resource = null;
+    await route.fulfill({ response, json: payload });
+  });
+  const canvas = await ready(page);
+  await clickAtlasCell(canvas, original.world, selectedCell.id);
+  const provinceResources = page.getByRole('region', { name: 'Province resources' });
+  await expect(provinceResources).toContainText(province.name);
+  await expect(provinceResources).toContainText('No resource sites in this province');
+  await expect(provinceResources.locator('.atlas-province-site-total')).toHaveText('0 sites');
+
+  await page.unroute('**/api/atlas');
+  await page.getByRole('button', { name: 'Reset atlas', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('restored');
+  await clickAtlasCell(canvas, original.world, selectedCell.id);
+  await expect(provinceResources.locator('.atlas-province-site-total')).toHaveText(`${originalSiteCount} sites`);
+  await expect(provinceResources).not.toContainText('No resource sites in this province');
+});
+
 test('the hosted atlas shows every sparse site and its extraction requirement', async ({ page }) => {
   const canvas = await ready(page);
   const response = await page.request.get('/api/atlas');

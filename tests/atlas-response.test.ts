@@ -62,6 +62,78 @@ test('an atlas without special sites retains valid geography and zero resource c
   assert.equal(summary.landKm2, 16);
 });
 
+function twoProvinceWorld() {
+  const payload = response();
+  return parseAtlasResponse({
+    ...payload,
+    world: {
+      ...payload.world,
+      countries: [{ id: 'country-1', name: 'Example country' }],
+      provinces: [
+        { id: 'a', name: 'Province A', countryId: 'country-1' },
+        { id: '__proto__', name: 'Province B', countryId: 'country-1' },
+      ],
+      cells: payload.world.cells.map(cell => {
+        if (cell.id === 1) return { ...cell, resource: null };
+        if (cell.id === 2 || cell.id === 5) {
+          return { ...cell, biome: 'mountain', elevation: 2000, resource: 'stone', provinceId: '__proto__' };
+        }
+        return cell;
+      }),
+    },
+  });
+}
+
+test('province summaries count constituent cells and sites independently of shared ownership and sea resources', () => {
+  const world = twoProvinceWorld();
+  const before = structuredClone(world);
+  const summary = summarizeAtlas(world);
+  assert.ok(summary.provinces instanceof Map, 'summaries must include provinces keyed by their actual IDs');
+  assert.equal(summary.provinces.size, 2);
+  const a = summary.provinces.get('a');
+  const b = summary.provinces.get('__proto__');
+  assert.ok(a);
+  assert.ok(b);
+  assert.equal(a.cellCount, 2);
+  assert.equal(a.areaKm2, 8);
+  assert.equal(a.resourceSites, 1);
+  assert.deepEqual(a.resources, {
+    fish: 0, grain: 0, timber: 0, game: 0, stone: 0, iron: 1,
+    copper: 0, gold: 0, salt: 0, coal: 0, uranium: 0,
+  });
+  assert.equal(b.cellCount, 2);
+  assert.equal(b.areaKm2, 8);
+  assert.equal(b.resourceSites, 2);
+  assert.deepEqual(b.resources, { ...a.resources, iron: 0, stone: 2 });
+  assert.equal(summary.resourceSites, 5);
+  assert.equal(summary.resources.fish, 1);
+  assert.equal(summary.resources.salt, 1);
+  assert.deepEqual(world, before, 'summarizing must not change the authoritative cell data');
+});
+
+test('a replacement atlas rebuilds province totals and represents a province without sites', () => {
+  const world = twoProvinceWorld();
+  const original = summarizeAtlas(world);
+  const replacement = {
+    ...world,
+    cellAreaKm2: 9,
+    cells: world.cells.map(cell => cell.provinceId === 'a' ? { ...cell, resource: null } : cell),
+  };
+  const updated = summarizeAtlas(replacement);
+  assert.ok(updated.provinces instanceof Map, 'replacement summaries must include provinces');
+  const empty = updated.provinces.get('a');
+  assert.ok(empty);
+  assert.equal(empty.cellCount, 2);
+  assert.equal(empty.areaKm2, 18);
+  assert.equal(empty.resourceSites, 0);
+  assert.ok(Object.values(empty.resources).every(count => count === 0));
+  assert.equal(updated.provinces.get('__proto__')?.resourceSites, 2);
+  assert.equal(updated.resourceSites, 4);
+  assert.equal(original.provinces.get('a')?.resourceSites, 1);
+  assert.equal(original.provinces.get('a')?.areaKm2, 8);
+  assert.equal(world.cells[4].resource, 'iron');
+});
+
 test('a country can own two distinct connected provinces without replacing cell membership', () => {
   const original = response();
   const payload = {

@@ -52,7 +52,7 @@ Every cell has a stable row-major ID, integral elevation in metres, a biome, an 
 | `shared/terrain.ts` | Retained protocol-1 Aster terrain contract |
 | `shared/studies.ts` | Fixed authored-study identifiers for disposable compute jobs |
 | `src/fixtures/verdant-reach.ts` | The actual shared regional fixture, deterministic resource assignment, and connected province construction |
-| `src/world/atlas.ts` | Biome/resource display catalogs and summaries derived from cell data |
+| `src/world/atlas.ts` | Biome/resource display catalogs and atlas/province summaries derived together in one cell pass |
 | `src/world/resources.ts` | Renewable/mineral site kinds and required extraction technology, independent of visual styling |
 | `server/workers/terrain-worker.ts` | Construct the selected shared fixture, validate its matching contract, and encode bounded JSON |
 | `src/api/atlas.ts` | Request the atlas and validate the response before rendering |
@@ -60,7 +60,7 @@ Every cell has a stable row-major ID, integral elevation in metres, a biome, an 
 | `src/renderer/biome-atlas.ts` | Canvas geography/texture, overlays, bounded camera, and picking; independent of React |
 | `src/App.tsx`, `src/components/LegacyTerrainLab.tsx` | Select the new default view or the retained Aster study at `?scenario=aster` |
 
-Annotations and site positions belong to fixture data. The resource layer and inspector read actual site presence; ordinary cells show no resource site. Extraction requirements are catalog metadata displayed for review, not a claim that an actor knows a technology or can currently produce goods. The preview shows all sites; research, discovery, production, labor, and stocks need later contracts. The `cell → province → country` inspector displays real references, including unclaimed land and water without a province. Future sovereignty, occupation, habitation, and lifecycle operations still need their own mechanics and contracts.
+Annotations and site positions belong to fixture data. The resource layer and inspector read actual site presence; ordinary cells explicitly show no resource site in that cell. A separate province section totals sites across its constituent cells, matching the province highlight even when the selected cell is ordinary. These totals are derived once per received world, independent of display filters/layers, and exclude water cells without a province. Extraction requirements are catalog metadata displayed for review, not a claim that an actor knows a technology or can currently produce goods. The preview shows all sites; research, discovery, production, labor, and stocks need later contracts. The `cell → province → country` inspector displays real references, including unclaimed land and water without a province. Future sovereignty, occupation, habitation, and lifecycle operations still need their own mechanics and contracts.
 
 ## Growth and dependency decisions
 

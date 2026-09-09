@@ -33,6 +33,7 @@ export function RegionalAtlas() {
   const summary = useMemo(() => world ? summarizeAtlas(world) : null, [world]);
   const cell = selectedCellId === null ? null : world?.cells[selectedCellId] ?? null;
   const province = cell?.provinceId ? world?.provinces.find(candidate => candidate.id === cell.provinceId) : null;
+  const provinceSummary = province ? summary?.provinces.get(province.id) ?? null : null;
   const country = province?.countryId ? world?.countries.find(candidate => candidate.id === province.countryId) : null;
   const onError = useCallback((cause: unknown) => {
     setAtlas(current => ({ ...current, error: errorMessage(cause), loading: false, renderFailed: true }));
@@ -118,7 +119,7 @@ export function RegionalAtlas() {
           </section>
 
           <aside className="atlas-inspector" aria-labelledby="atlas-inspector-title">
-            <p className="atlas-section-index">02 / Inspect</p><div className="atlas-section-heading"><h2 id="atlas-inspector-title">Cell detail</h2>{cell && <button className="atlas-clear-selection" type="button" onClick={() => setSelectedCellId(null)} aria-label="Clear cell selection">×</button>}</div>
+            <p className="atlas-section-index">02 / Inspect</p><div className="atlas-section-heading"><h2 id="atlas-inspector-title">Cell and province</h2>{cell && <button className="atlas-clear-selection" type="button" onClick={() => setSelectedCellId(null)} aria-label="Clear cell selection">×</button>}</div>
             {cell ? <div className="atlas-selected-cell" data-selected-cell={cell.id} aria-live="polite">
               <div className="atlas-cell-biome" style={{ borderColor: BIOMES[cell.biome].color }}><p>Cell {number.format(cell.id)}</p><h3>{BIOMES[cell.biome].label}</h3></div>
               <dl className="atlas-cell-facts"><div><dt>Elevation</dt><dd>{number.format(cell.elevation)} m</dd></div><div><dt>Cell area</dt><dd>{number.format(world!.cellAreaKm2)} km²</dd></div></dl>
@@ -127,8 +128,13 @@ export function RegionalAtlas() {
                 <dl className="atlas-resource-facts"><div><dt>Site type</dt><dd>{RESOURCE_RULES[cell.resource].kind === 'renewable' ? 'Renewable' : 'Mineral'}</dd></div><div><dt>Required extraction technology</dt><dd>{RESOURCE_RULES[cell.resource].extractionTechnology}</dd></div></dl>
                 <p className="atlas-panel-note">This site is natural potential; extraction and production are not active.</p>
               </> : <>
-                <p className="atlas-detail-label">Natural potential</p><p className="atlas-resource-empty">No resource site</p><p className="atlas-panel-note">This cell still has its biome. It has no special resource site in this study.</p>
+                <p className="atlas-detail-label">Natural potential</p><p className="atlas-resource-empty">No resource site in this cell</p><p className="atlas-panel-note">This cell still has its biome. It has no special resource site in this study.</p>
               </>}</section>
+              {province && provinceSummary && <section className="atlas-province-resources" aria-label="Province resources">
+                <div className="atlas-province-resource-heading"><div><p className="atlas-detail-label">Province resources</p><h3>{province.name}</h3></div><span className="atlas-province-site-total">{number.format(provinceSummary.resourceSites)} {provinceSummary.resourceSites === 1 ? 'site' : 'sites'}</span></div>
+                {provinceSummary.resourceSites ? <ul>{resourceEntries.filter(([resource]) => provinceSummary.resources[resource] > 0).map(([resource, detail]) => <li key={resource}><span className="atlas-resource-symbol"><ResourceIcon resource={resource} /></span><span>{detail.label}</span><strong className="atlas-province-resource-count">{number.format(provinceSummary.resources[resource])}</strong></li>)}</ul> : <p className="atlas-province-resource-empty">No resource sites in this province</p>}
+                <p className="atlas-panel-note">Across {number.format(provinceSummary.cellCount)} cells · {number.format(provinceSummary.areaKm2)} km². Totals include every recorded site in the province.</p>
+              </section>}
               <dl className="atlas-geography-tree"><div><dt>Cell</dt><dd>#{number.format(cell.id)}</dd></div><div><dt>Province</dt><dd>{province?.name ?? 'Open water'}</dd></div><div><dt>Country</dt><dd>{country?.name ?? (province ? 'Unclaimed' : 'No country')}</dd></div></dl>
             </div> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Click a cell on the map to inspect its biome, elevation, resources, and province.</p><span>Cells form provinces.<br />Provinces can belong to countries.</span></div>}
             <div className="atlas-unclaimed-note"><span aria-hidden="true">◇</span><p>All provinces are unclaimed in this study. Countries and living systems come later.</p></div>
