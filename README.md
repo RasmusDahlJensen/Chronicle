@@ -2,6 +2,8 @@
 
 A living-world atlas, built one small, reviewable slice at a time.
 
+Chronicle is intended to grow into a substantial simulation project. Features arrive gradually, with shared modules, established infrastructure packages, and automated checks protecting the architecture as it grows.
+
 The React + TypeScript + Vite browser lab displays **Aster Island**: an authored terrain fixture with water, plains, shaded hills, and a reset button. A local Node/Fastify backend constructs, validates, and encodes the sample in a bounded worker pool, then sends it to the browser. Seeded generation, simulation, saves, accounts, and persistent worlds for separate users are future slices.
 
 ## First setup on your PC
@@ -47,7 +49,7 @@ Frontend edits update the browser automatically through Vite. After changing bac
 npm run check
 ```
 
-This runs TypeScript checks, automated tests, and a production build.
+This runs architecture checks, TypeScript checks, automated tests, and a production build. The architecture checks use Biome to detect import cycles, undeclared dependencies, development packages in runtime code, and imports that cross the browser/core/backend boundaries. To run just those checks, use `npm run check:architecture`. Installation remains part of the normal `npm ci`; no additional global tool is needed.
 
 For browser checks, install Chromium once (and again after a Playwright update), then run:
 

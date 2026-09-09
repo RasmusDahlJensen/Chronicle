@@ -1,0 +1,317 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+  "files": {
+    "includes": [
+      "src/**",
+      "shared/**",
+      "server/**",
+      "scripts/**"
+    ]
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": false
+  },
+  "linter": {
+    "rules": {
+      "recommended": false,
+      "suspicious": {
+        "noImportCycles": {
+          "level": "error",
+          "options": {
+            "ignoreTypes": false
+          }
+        }
+      },
+      "correctness": {
+        "noUndeclaredDependencies": {
+          "level": "error",
+          "options": {
+            "devDependencies": false
+          }
+        }
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "src/**",
+        "!src/world/**",
+        "!src/fixtures/**",
+        "!src/simulation/**",
+        "!src/renderer/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "**/server/**",
+                      "fastify",
+                      "@fastify/**",
+                      "piscina",
+                      "**/fixtures/**",
+                      "**/simulation/**",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**"
+                    ],
+                    "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          },
+          "correctness": {
+            "noNodejsModules": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "src/world/**",
+        "src/fixtures/**",
+        "src/simulation/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "**/server/**",
+                      "fastify",
+                      "@fastify/**",
+                      "piscina",
+                      "react",
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "**/components/**",
+                      "**/renderer/**",
+                      "**/api/**",
+                      "**/App.tsx",
+                      "**/main.tsx",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**"
+                    ],
+                    "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          },
+          "correctness": {
+            "noNodejsModules": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "shared/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "**/server/**",
+                      "fastify",
+                      "@fastify/**",
+                      "piscina",
+                      "react",
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "**/components/**",
+                      "**/renderer/**",
+                      "**/api/**",
+                      "**/App.tsx",
+                      "**/main.tsx",
+                      "**/src/**",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**"
+                    ],
+                    "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          },
+          "correctness": {
+            "noNodejsModules": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "src/renderer/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "**/server/**",
+                      "fastify",
+                      "@fastify/**",
+                      "piscina",
+                      "react",
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "**/fixtures/**",
+                      "**/simulation/**",
+                      "**/api/**",
+                      "**/components/**",
+                      "**/App.tsx",
+                      "**/main.tsx",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**"
+                    ],
+                    "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          },
+          "correctness": {
+            "noNodejsModules": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "server/**",
+        "!server/workers/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "react",
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "**/components/**",
+                      "**/renderer/**",
+                      "**/api/**",
+                      "**/App.tsx",
+                      "**/main.tsx",
+                      "**/fixtures/**",
+                      "**/simulation/**",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**"
+                    ],
+                    "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "server/workers/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "react",
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "**/components/**",
+                      "**/renderer/**",
+                      "**/api/**",
+                      "**/App.tsx",
+                      "**/main.tsx",
+                      "fastify",
+                      "@fastify/**",
+                      "piscina",
+                      "**/app.ts",
+                      "**/compute.ts",
+                      "**/config.ts",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**"
+                    ],
+                    "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "scripts/**"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": {
+              "level": "error",
+              "options": {
+                "devDependencies": true
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

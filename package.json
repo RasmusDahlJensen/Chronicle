@@ -13,12 +13,14 @@
     "preview": "node scripts/start.ts --preview",
     "serve": "node scripts/start.ts --serve",
     "typecheck": "tsc --noEmit",
+    "check:architecture": "biome lint src shared server scripts",
     "test": "node --test tests/*.test.ts",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "npm run check:architecture && npm run typecheck && npm test && npm run build",
     "test:browser": "playwright test",
     "bench:backend": "node scripts/bench-backend.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.12",
     "@playwright/test": "1.63.0",
     "@types/node": "24.13.3",
     "@types/react": "19.2.18",

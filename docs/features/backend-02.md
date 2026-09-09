@@ -2,13 +2,15 @@
 
 Status: implemented and verified, 9 September 2026. Awaiting user review.
 
+Growth clarification, 9 September: the user authorizes package/tool installation for Chronicle's long-term needs and explicitly rejects treating the eventual game as a small project. The follow-up adds automated module-boundary enforcement to the same foundation and records that small slices govern delivery size. The original runtime results below belong to checkpoint `351d417`; follow-up evidence is recorded at the end of this brief.
+
 ## Outcome and scope
 
 Establish a researched, executable backend foundation for Chronicle's PC-hosted independent worlds. The existing terrain screen remains the review scenario. The current instruction authorizes researching and implementing this baseline immediately; it supersedes earlier deferral of foundational worker execution and server infrastructure.
 
 The baseline adds Fastify, a bounded Piscina compute pool, shared validated transport, configuration/error/logging conventions, a standalone built-app server, lifecycle checks, and a reproducible load benchmark. Keep Node 24, React/Vite, one repository, and `npm ci` / `npm start`. Preserve deterministic fixture output and every applicable browser acceptance check.
 
-Research record: `docs/BACKEND_RESEARCH.md`. Architecture decisions: `docs/ARCHITECTURE.md`. Storage is selected as local SQLite for the first persistent-world slice; no empty database or fabricated simulation/save behavior is introduced here. Accounts, persistent world identity, simulation steps, deployment, remote access, and a full scheduler remain separate features.
+Research record: `docs/BACKEND_RESEARCH.md`. Architecture decisions: `docs/ARCHITECTURE.md`. Storage provisionally targets local SQLite, to be reassessed against representative workloads before the first persistent-world slice; no empty database or fabricated simulation/save behavior is introduced here. Accounts, persistent world identity, simulation steps, deployment, remote access, and a full scheduler remain separate features.
 
 ## Contracts and plan
 
@@ -54,4 +56,14 @@ If an older lab terminal is running, stop it with Ctrl+C. From the repository, r
 
 The previous app process on port 5173 was left running for the user; it needs a restart to load the new backend. All temporary verification servers were stopped. This checkpoint is local; nothing has been deployed, pushed, or exposed to other PCs.
 
-User review remains pending. The next proposed slice is independent world identity and recovery, adding local SQLite alongside meaningful persistent state. Accounts, remote access, resident-world scheduling, simulation, and disconnect save/resume are not implemented here. Do not start the next slice automatically.
+User review remains pending. The next proposed slice is independent world identity and recovery, selecting and adding storage alongside meaningful persistent state. Accounts, remote access, resident-world scheduling, simulation, and disconnect save/resume are not implemented here. Do not start the next slice automatically.
+
+## Growth and tooling follow-up
+
+Based on `351d417`, the local checkpoint titled `chore: enforce architecture for Chronicle growth` adds Biome 2.5.12 as a locked development dependency. `npm run check:architecture` checks the existing TypeScript/TSX source, import cycles including type-only cycles, undeclared dependencies, Node imports in portable code, and configured layer boundaries. It is part of `npm run check`. Biome uses its own parser; compatibility was established by scanning the real files and rejecting deliberately broken examples, rather than relying on an exit code from an empty scan.
+
+Architecture/workflow/agent instructions now explicitly target a substantial project delivered incrementally and authorize needed packages/tools. Before persistence implementation, reassess the provisional SQLite choice against representative save sizes, histories, and concurrent writes. Keep one coherent application with boundaries that permit future process/storage changes; migrations still need explicit design and verification.
+
+Verification on Node 24.20.0 / Linux: `npm ci` passed; `npm run check` passed with **16 source files checked, 40 automated tests, TypeScript checking, and the build**. The architecture regression uses a valid miniature project and then rejects separate examples of type-only UI coupling, dynamic Node imports, browser-to-server/fixture imports, renderer coupling, HTTP-to-generation imports, worker-to-HTTP imports, contract coupling, and type cycles. No runtime application code or launch behavior changed. Chromium and benchmark results above were not rerun for this tooling-only follow-up. Independent follow-up review found and verified the fix for a Vite import gap: runtime layers explicitly reject Vite, and development-only dependencies are generally prohibited outside composition scripts. Positive and negative scenarios cover that distinction; no material findings remain. `git diff --check` passed.
+
+The README remains current, and `npm start` remains the launch command. User review of the backend is still the next action. Larger world identity, persistence, and simulation remain scoped implementation work rather than assumed completed capabilities.
