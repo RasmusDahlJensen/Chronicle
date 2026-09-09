@@ -73,6 +73,24 @@ Periodic checkpoints must define recovery after abrupt host failure; a shutdown 
 
 The host currently binds to loopback only. The PC must remain awake and the process running for simulation or remote access to work. Before allowing access from other PCs, define authenticated sessions, per-world authorization, TLS, bounded subscriptions, and session revocation. Unattended startup and OS service management need their own scoped implementation; Docker is not a prerequisite.
 
-The accepted Atlas 01 and React 01 slices remain the visible baseline. Backend 01 established the first browser/host connection; Backend 02 is the active researched runtime slice. Routine checks, Chromium scenarios, a built-app browser smoke check, and independent review are complete; the active brief records their exact scope and results. Next action: run the lab and review the terrain loading/reset behavior using that brief. User testing remains pending.
+The accepted Atlas 01 and React 01 slices remain the visible baseline. Backend 01 established the first browser/host connection; Backend 02 implemented the runtime and growth safeguards. The active brief records the actual verification. The user has now requested next-step planning; that request does not add manual browser-test evidence or authorize implementing all subsequent features.
 
-After that review, propose a narrow world-identity and recovery slice using two explicitly labelled local test owners and real shared world data. Reassess storage for representative world sizes and save concurrency before implementing persistence. Verify independent reset/replacement, second-tab attachment, and restart restoration before remote exposure. Define completed-step pause and save/load continuation as soon as real simulation stepping exists. Do not start those features automatically or add decorative simulation state to demonstrate infrastructure.
+## Proposed next slices
+
+The next recommendation is **seeded elevation and land/water generation**. This changes the existing worker workload into real world-generation work and gives world identity and storage representative data to own. It brings visible progress toward M1. This proposed ordering refines the earlier suggestion to add identities around the single authored fixture first.
+
+| Order | Slice | Observable outcome |
+|---|---|---|
+| 1 | Seeded landforms | Enter a seed, generate coastlines and relief, and regenerate the same data from the same seed/settings/generator version. |
+| 2 | Atlas navigation and inspection | Pan, zoom, and inspect a cell's actual terrain, elevation, and area. Define and verify wrapping for the chosen map topology. |
+| 3 | Independent world instances | Two labelled local lab worlds have separate identities and replacement histories; another tab attaches to the same instance without duplicating it. |
+| 4 | Checkpoints and restart recovery | Restart the host and recover the correct world. Reassess storage using representative sizes and concurrent saves before implementation. |
+| 5 | Geography pipeline, in separate slices | Add drainage, then climate/biomes, then resources in dependency order. |
+| 6 | Provinces, then founding settlements | Connected province groups first; viable, distributed starts after habitat data exists, with real initial population accounting. |
+| 7 | First living-settlement scenario | Introduce committed simulation steps with a real local food/population system; add the relevant scheduling, pause, and save/resume lifecycle around actual state changes. |
+
+These are sequenced proposals, not one implementation task. World identity can follow the first generator independently of atlas navigation; geographic enrichment and first simulation work must each be split into focused briefs. Authentication, remote access, and unattended hosting remain separate work before opening access to other PCs. A single settlement scenario does not complete M2.
+
+For the first generation brief, explicitly separate a **landform generation stage** from the existing province-complete `TerrainWorld` contract. Preserve Aster Island and its invariants; do not invent province membership or reuse authored-fixture identity for generated terrain. Seed/settings/generator identity is distinct from a future world-instance ID. Define topology, units, the initial development preset, and generator input limits before implementation; do not silently promote a local terrain study to an Earth-scale globe. Reuse the renderer through its actual terrain-view needs and move fixture-specific annotations out of generic rendering.
+
+The first slice's acceptance should cover repeatability across workers and host restarts, visibly different selected seeds, valid dimensions/elevations/area totals, preservation of loading/failure/cancellation behavior and the last valid map, and measured generation/transfer/rendering costs. No rivers, climate, provinces, tribes, persistence, or simulation are required to declare that landform slice complete. Start implementation only after the next slice is selected.
