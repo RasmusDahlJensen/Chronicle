@@ -36,7 +36,7 @@ A [browser observation](../benchmarks/atlas-02-browser.json) records a 1440 × 1
 
 ## User review
 
-1. Stop the existing Chronicle terminal with Ctrl+C, then run `npm start`. Backend and fixture changes require this restart.
+1. Run `npm start` if the lab is not already running. A terminal started before [Dev 01](dev-01.md) needs one Ctrl+C and relaunch; subsequent backend and fixture edits restart automatically.
 2. Open `http://127.0.0.1:5173/`. Compare the two large landmasses, northern cold region, and southern archipelago; inspect the biome textures at closer zoom.
 3. Drag to explore, scroll or use +/− to zoom, and select land and water cells. Their resource and province/country information must match the map. Filter Iron or Uranium; turn on province borders and the cell grid.
 4. Choose Fit map, then Reset atlas. Reset reproduces the same study and clears selection/restores the camera. The Aster Island header link retains the original study for comparison.

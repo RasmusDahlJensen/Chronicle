@@ -8,7 +8,7 @@ async function ready(page: import('@playwright/test').Page) {
   return canvas;
 }
 
-test('the default atlas renders a larger biome/resource map and reports real host data', async ({ page }) => {
+test('the default atlas renders a larger biome/resource map and reports real host data', async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   const canvas = await ready(page);
@@ -29,7 +29,7 @@ test('the default atlas renders a larger biome/resource map and reports real hos
   });
   expect(image.colors).toBeGreaterThan(150);
   expect(image.saturated).toBeGreaterThan(200);
-  await page.screenshot({ path: 'test-results/biomes-desktop.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('biomes-desktop.png'), fullPage: true });
   // Sample the actual cells so neutral letterboxing or colorful icons cannot
   // hide a broken terrain palette (the first visual pass caught this bug).
   await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
@@ -56,7 +56,7 @@ test('the default atlas renders a larger biome/resource map and reports real hos
   expect(errors).toEqual([]);
 });
 
-test('zoom, resource layers and cell selection read the same atlas cells', async ({ page }) => {
+test('zoom, resource layers and cell selection read the same atlas cells', async ({ page }, testInfo) => {
   const canvas = await ready(page);
   const original = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
   await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
@@ -79,7 +79,7 @@ test('zoom, resource layers and cell selection read the same atlas cells', async
   const province = world.provinces.find((province: { id: string }) => province.id === world.cells[id].provinceId);
   await expect(page.locator('[data-selected-cell]')).toContainText(province?.name ?? 'Open water');
   await expect(page.locator('[data-selected-cell]')).toContainText(province ? 'Unclaimed' : 'No country');
-  await page.screenshot({ path: 'test-results/biomes-inspected.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('biomes-inspected.png'), fullPage: true });
 });
 
 test('drag and cancelled gestures do not pick cells; repeated reset restores camera and one renderer', async ({ page }) => {
@@ -157,7 +157,7 @@ test('missing canvas support reports a visible error without uncaught failures',
   expect(errors).toEqual([]);
 });
 
-test('resource filtering and province/grid layers change the map without changing cell data', async ({ page }) => {
+test('resource filtering and province/grid layers change the map without changing cell data', async ({ page }, testInfo) => {
   const canvas = await ready(page);
   const before = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
   await page.getByLabel('Resource filter', { exact: true }).selectOption('iron');
@@ -167,7 +167,7 @@ test('resource filtering and province/grid layers change the map without changin
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(filtered);
   await page.getByRole('checkbox', { name: 'Cell grid', exact: true }).check();
   for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  await page.screenshot({ path: 'test-results/biomes-detail.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('biomes-detail.png'), fullPage: true });
 });
 
 test('failed atlas replacement preserves the map and retry restores the original study', async ({ page }) => {
@@ -183,7 +183,7 @@ test('failed atlas replacement preserves the map and retry restores the original
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(before);
 });
 
-test('the atlas fits mobile and keyboard controls remain usable', async ({ page }) => {
+test('the atlas fits mobile and keyboard controls remain usable', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const canvas = await ready(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -192,14 +192,18 @@ test('the atlas fits mobile and keyboard controls remain usable', async ({ page 
   await expect(canvas).not.toHaveAttribute('data-zoom', '1.00');
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('[data-selected-cell]')).toBeVisible();
-  await page.screenshot({ path: 'test-results/biomes-mobile.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('biomes-mobile.png'), fullPage: true });
 });
 
-test('high-density displays preserve tap tolerance in CSS pixels', async ({ browser }) => {
-  const context = await browser.newContext({ deviceScaleFactor: 2, viewport: { width: 1440, height: 1000 } });
+test('high-density displays preserve tap tolerance in CSS pixels', async ({ browser }, testInfo) => {
+  const context = await browser.newContext({
+    baseURL: testInfo.project.use.baseURL,
+    deviceScaleFactor: 2,
+    viewport: { width: 1440, height: 1000 },
+  });
   try {
     const page = await context.newPage();
-    await page.goto('http://127.0.0.1:4173/');
+    await page.goto('/');
     const canvas = page.locator('#world-canvas');
     await expect(canvas).toHaveAttribute('data-rendered', 'true');
     const box = (await canvas.boundingBox())!;

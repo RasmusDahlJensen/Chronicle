@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('terrain renders, reset restores the same image, and the page reports no errors', async ({ page }) => {
+test('terrain renders, reset restores the same image, and the page reports no errors', async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/?scenario=aster');
@@ -35,7 +35,7 @@ test('terrain renders, reset restores the same image, and the page reports no er
   await page.getByRole('button', { name: 'Reset terrain' }).click();
   await expect(page.locator('#terrain-status')).toContainText('restored');
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(original);
-  await page.screenshot({ path: 'test-results/atlas-desktop.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('atlas-desktop.png'), fullPage: true });
   expect(errors).toEqual([]);
 });
 
@@ -89,7 +89,7 @@ test('resizing an open atlas preserves the terrain and restores its original ren
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(original.image);
 });
 
-test('the terrain fits a narrow screen and supports keyboard reset', async ({ page }) => {
+test('the terrain fits a narrow screen and supports keyboard reset', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?scenario=aster');
   const canvas = page.locator('#terrain-canvas');
@@ -101,5 +101,5 @@ test('the terrain fits a narrow screen and supports keyboard reset', async ({ pa
   await page.getByRole('button', { name: 'Reset terrain' }).focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('#terrain-status')).toContainText('restored');
-  await page.screenshot({ path: 'test-results/atlas-mobile.png', fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('atlas-mobile.png'), fullPage: true });
 });

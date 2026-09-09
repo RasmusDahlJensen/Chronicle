@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { parseAtlasResponse } from '../shared/atlas.ts';
 
 const launcherPath = fileURLToPath(new URL('../scripts/start.ts', import.meta.url));
 
@@ -88,7 +89,7 @@ async function launch(t: TestContext, args: string[], options: { includeBuild?: 
 }
 
 for (const [mode, signal] of [['development', 'SIGINT'], ['development', 'SIGTERM'], ['preview', 'SIGTERM'], ['serve', 'SIGINT']] as const) {
-  test(`${mode} launcher serves frontend and terrain, then closes on ${signal}`, async t => {
+  test(`${mode} launcher serves frontend and both map APIs, then closes on ${signal}`, async t => {
     const standalone = mode !== 'development';
     const port = await reservePort();
     const app = await launch(t, [...(standalone ? [`--${mode}`] : []), '--port', String(port)], { forbidVite: standalone });
@@ -103,6 +104,12 @@ for (const [mode, signal] of [['development', 'SIGINT'], ['development', 'SIGTER
     const terrain = await fetch(`${origin}/api/terrain`);
     assert.equal(terrain.headers.get('cache-control'), 'no-store');
     assert.equal((await terrain.json()).world.cells.length, 27_648);
+    const atlas = await fetch(`${origin}/api/atlas`);
+    assert.equal(atlas.status, 200);
+    assert.equal(atlas.headers.get('cache-control'), 'no-store');
+    const world = parseAtlasResponse(await atlas.json());
+    assert.equal(world.fixtureId, 'verdant-reach');
+    assert.equal(world.cells.length, 64_000);
     app.child.kill(signal);
     await app.waitUntilExited();
     assert.equal(app.child.exitCode, 0, app.output());

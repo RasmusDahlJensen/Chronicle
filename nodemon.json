@@ -1,0 +1,15 @@
+{
+  "watch": [
+    "scripts/",
+    "server/",
+    "shared/",
+    "src/{world,fixtures,simulation}/**/*",
+    "vite.config.ts",
+    "tsconfig.json",
+    "package.json",
+    "package-lock.json"
+  ],
+  "ext": "ts,tsx,js,mjs,cjs,json",
+  "signal": "SIGTERM",
+  "delay": 200
+}

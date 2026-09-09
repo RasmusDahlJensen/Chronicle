@@ -1,6 +1,6 @@
 # Chronicle architecture decisions
 
-Updated 9 September 2026. Atlas 02 adds Verdant Reach as the default regional biome/resource atlas on the Backend 02 runtime foundation. Its implementation, verification, and user-review status are recorded in the [active atlas brief](features/atlas-02.md). The original Aster Island study and protocol remain available. [Backend 02](features/backend-02.md) retains the foundation's evidence; [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives, primary sources, and future contracts.
+Updated 9 September 2026. Dev 01 adds synchronized development restarts and connected regression checks around the Atlas 02/Backend 02 foundation. Current verification belongs in the [development reliability brief](features/dev-01.md); the [atlas brief](features/atlas-02.md) retains visual review status. The original Aster Island study and protocol remain available. [Backend 02](features/backend-02.md) retains the foundation's evidence; [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives, primary sources, and future contracts.
 
 ## Confirmed hosting direction
 
@@ -22,10 +22,23 @@ Each future world must have independent identity, state, configuration/seed, RNG
 | Built assets | @fastify/static 10.1.3 | Serve the built frontend directly through the host |
 | Shared core | Browser-independent TypeScript world/fixture modules | Actual world data and rules reused by the host, renderer, and automated scenarios |
 | Architecture checks | Biome 2.5.12, configured in `biome.json` | Check import boundaries, cycles, Node-only dependencies, and undeclared packages during routine verification |
+| Development supervision | Nodemon 3.1.14, configured in `nodemon.json` | Restart the combined application after host/core/fixture edits, including changes used only by worker imports |
 
 The user authorized proper research and immediate implementation of this baseline. Fastify replaces the first slice's native HTTP routing; a bounded worker pool replaces synchronous fixture construction on the request thread. The current modular application provides the HTTP and compute foundation while keeping deployment and installation straightforward.
 
-`npm start` launches Fastify and Vite in one Node process, with worker threads for CPU work. The development backend binds to an automatically assigned loopback port; Vite proxies `/api` through the browser origin at port 5173. `npm run build`, then `npm run serve`, starts the built frontend and API together on port 4173 through Fastify without a Vite runtime. `npm run preview` aliases that built-app mode. Ctrl+C closes listeners and workers. React changes use Vite hot updates; backend, worker, shared transport, and fixture changes require a restart. [README](../README.md) is the canonical setup, launch, and configuration guide.
+`npm start` runs the nodemon supervisor around `scripts/start.ts`, which launches Fastify and Vite in one Node application process with worker threads for CPU work. The development backend binds to an automatically assigned loopback port; Vite proxies `/api` through the browser origin at port 5173. `npm run build`, then `npm run serve`, starts the built frontend and API together on port 4173 through Fastify without Vite or nodemon. `npm run preview` aliases that built-app mode. Ctrl+C closes listeners and workers. [README](../README.md) is the canonical setup, launch, and configuration guide.
+
+## Development reload and verification boundaries
+
+Vite hot updates alone cannot refresh Node's backend or worker module caches. The missing-map incident demonstrated this: an existing process served the new React interface but still returned 404 for its new atlas endpoint. The development supervisor now watches `server`, `shared`, `scripts`, `src/world`, `src/fixtures`, `src/simulation`, and relevant root configuration files. A 200 ms debounce coalesces saves; SIGTERM invokes the existing bounded shutdown before a replacement process recreates the HTTP host and worker pool. Vite reconnects and reloads the open tab at the same public origin. Browser component/style changes retain Vite hot updates. Invalid host code leaves the application unavailable until corrected; the watcher stays alive to recover on the next edit.
+
+Nodemon is pinned as a development dependency (MIT, compatible with Node 24), uses explicit `node` execution for native TypeScript, and supplies process supervision instead of adding a custom restart manager. Its default TypeScript executable and restart signal are overridden to match Chronicle. Native Node watch-path behavior on this Linux installation differs from its versioned platform documentation, so it was not selected as the portable baseline. [Nodemon configuration](https://github.com/remy/nodemon/tree/v3.1.14), [package compatibility](https://github.com/remy/nodemon/blob/v3.1.14/package.json), [Node 24 watch-path documentation](https://github.com/nodejs/node/blob/v24.20.0/doc/api/cli.md#--watch-path).
+
+New server/core module directories must be included in the watch scopes and exercised by a source-edit regression. Dependency/runtime upgrades and watch-configuration changes require restarting the supervisor itself. Production processes are not watched. Current restarts reconstruct the stateless authored study; a future mutable world requires save/recovery contracts before development restarts can safely discard its process state.
+
+The core watch glob uses the existing `src` parent so a newly created nested `src/simulation` directory remains watched after its first import. Browser regression coverage also checks that writing generated test reports preserves a running review session and its selection.
+
+`npm run check` is the complete implementation-iteration gate: architecture, types, headless tests, build, and Chromium tests against both development and built serving. The GitHub workflow runs the same command with the pinned Node and lockfile and retains failure artifacts. Tests for live updates copy actual application source into temporary projects and share only installed dependencies; their file edits never reach the running user lab. They verify behavior through the real worker, HTTP, proxy, and browser paths, including recovery and cleanup. Keep tests aligned with new behavior and connections as the project grows. A passing fresh-server suite alone does not establish that an existing review session has updated.
 
 ## Current regional atlas and module ownership
 

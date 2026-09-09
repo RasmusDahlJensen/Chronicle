@@ -49,7 +49,9 @@ For keyboard exploration, focus the map with Tab: arrow keys select neighboring 
 
 The original **Aster Island** study remains available through the header link or **http://127.0.0.1:5173/?scenario=aster**. It retains its water/plains/hills map and **Reset terrain** control.
 
-Frontend edits update the browser automatically through Vite. After changing backend files, worker code, shared transport schemas, launch scripts, or terrain fixtures, press **Ctrl+C** in the launch terminal, run `npm start` again, and refresh the browser.
+Frontend component and style edits update through Vite. `npm start` also watches the backend, workers, shared contracts, world/fixture modules, and launch configuration: relevant changes restart the combined application and its worker pool, then Vite reloads the open browser tab. You keep the same browser address. The development study is reconstructed after a restart, so map selection and camera state reset.
+
+If an edit contains an error, the terminal reports it and the watcher waits for a correction. Save the corrected file to restart automatically. After dependency installation, Node upgrades, or changes to the watch configuration itself, stop the terminal with Ctrl+C and run `npm start` again. Built serving with `npm run serve` or `npm run preview` requires an explicit rebuild/restart when code changes.
 
 ## Verify
 
@@ -57,16 +59,31 @@ Frontend edits update the browser automatically through Vite. After changing bac
 npm run check
 ```
 
-This runs architecture checks, TypeScript checks, automated tests, and a production build. The architecture checks use Biome to detect import cycles, undeclared dependencies, development packages in runtime code, and imports that cross the browser/core/backend boundaries. To run just those checks, use `npm run check:architecture`. Installation remains part of the normal `npm ci`; no additional global tool is needed.
+This is the required check before handing off each implementation iteration. It runs architecture checks, TypeScript, headless world/backend/process tests, a production build, and Chromium scenarios against both development and built serving. Live-edit regressions run isolated copies of the real application; they never edit the map you are reviewing. Install Chromium using the command below before the first complete check.
 
-For browser checks, install Chromium once (and again after a Playwright update), then run:
+The architecture checks use Biome to detect import cycles, undeclared dependencies, development packages in runtime code, and imports that cross the browser/core/backend boundaries. For focused work, use `npm run check:architecture`, `npm run typecheck`, or `npm test`; finish the iteration with the complete `npm run check`.
+
+Install Chromium once (and again after a Playwright update). To run just the build and browser scenarios:
 
 ```sh
 npx playwright install chromium
 npm run test:browser
 ```
 
-Browser tests start their own local server on port **4173**; stop any built-app or preview server using that port first. On Linux, Playwright's installer reports any missing system browser dependencies. Browser screenshots are written to `test-results/`.
+Browser checks need ports **4173 and 4174** free; the normal lab can continue on 5173. Failures retain traces/screenshots under `test-results/` and an HTML report under `playwright-report/`. A browser regression checks that generating reports preserves the open map and selection. The GitHub workflow in `.github/workflows/check.yml` installs the pinned Node/dependencies/Chromium and runs the same `npm run check` on pushes and pull requests once the workflow is pushed.
+
+Extend the suite alongside each change, especially when data crosses a module or process boundary:
+
+| Connection or rule | Regression coverage |
+|---|---|
+| Cells → provinces → countries; biome/resource data | `tests/atlas-world.test.ts`, `tests/atlas-response.test.ts` |
+| Workers → validated HTTP responses; admission and shutdown | `tests/compute.test.ts`, `tests/server.test.ts`, `tests/atlas-server.test.ts` |
+| Launcher → proxy/built server; live source changes → new workers | `tests/launcher.test.ts`, `tests/dev-reload.test.ts` |
+| HTTP → browser validation → visible map, inspection, reset/retry | `tests/browser/`, run against development and production serving |
+
+Every reproduced bug gets a regression that fails for that bug. Preserve existing checks and add tests for new behavior and its connections; passing checks do not replace visual review of the actual running lab.
+
+On Linux, Playwright's installer reports any missing system browser dependencies.
 
 ## Run the built application
 
@@ -121,14 +138,15 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - **`package.json` cannot be found:** move into the Chronicle repository folder before running npm commands.
 - **Port 5173 or 4173 is busy:** stop the existing lab or built-app terminal with Ctrl+C, then retry. The commands above keep their stated ports instead of silently choosing another one.
 - **The map cannot load:** choose **Retry atlas**, or **Retry terrain** in the Aster study. If it still fails, check the launch terminal for errors, stop it with Ctrl+C, and run `npm start` again.
-- **The new interface appears but the atlas is unavailable after an update:** Vite can update the frontend while the previous backend remains running. Stop the lab with Ctrl+C, run `npm start`, and refresh the page to load both from the current code.
+- **The new interface appears but the atlas is unavailable after an update:** check the terminal for a failed restart or source error. A lab started before automatic watching was installed needs one Ctrl+C and `npm start`; subsequent host-side source edits restart automatically.
 - **Production build is missing:** run `npm run build` before `npm run serve` or `npm run preview`.
 - **A `CHRONICLE_...` configuration value is rejected:** correct or remove that environment variable, then restart. Ordinary launches need none of these variables.
 - **Canvas rendering fails:** reset is disabled when the browser cannot draw the map. Reload the page or try another browser.
 
 ## Project record
 
-- [Active atlas slice and review status](docs/features/atlas-02.md)
+- [Active development reliability slice and verification](docs/features/dev-01.md)
+- [Atlas slice and visual review status](docs/features/atlas-02.md)
 - [Backend foundation and verification evidence](docs/features/backend-02.md)
 - [Backend research and technology decisions](docs/BACKEND_RESEARCH.md)
 - [Original local backend slice](docs/features/backend-01.md)
@@ -147,6 +165,7 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - `src/components/LegacyTerrainLab.tsx` and `TerrainMap.tsx`: retained Aster study.
 - `src/api/atlas.ts` and `terrain.ts`: browser requests and validation for their respective map contracts.
 - `scripts/start.ts`: combined development launcher and standalone built-app launcher.
+- `nodemon.json`: host-side development watch scopes and graceful restart settings, used by `npm start` and `npm run dev`.
 - `server/app.ts`: Fastify API, static serving, request limits, and lifecycle.
 - `server/config.ts`: validated backend configuration.
 - `server/compute.ts` and `server/workers/`: bounded execution of disposable terrain jobs.
