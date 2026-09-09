@@ -2,6 +2,8 @@
 
 Status: implemented, locally verified, and accepted by the user, 9 September 2026.
 
+The subsequently authorized backend slice is recorded in `docs/features/backend-01.md`; see that brief and README for the current host connection and launch behavior.
+
 ## Outcome and scope
 
 Run `npm start` in the existing Chronicle repository and see the same Aster Island lab through React + TypeScript + Vite. Preserve the authored terrain, map styling, area legend, accessible reset, responsive layout, shared world/renderer modules, tests, and project documents. The user's request to move the existing work into the selected project setup authorizes this migration and launch documentation.

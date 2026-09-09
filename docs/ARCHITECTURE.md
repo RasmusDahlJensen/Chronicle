@@ -1,6 +1,6 @@
 # Chronicle architecture decisions
 
-Updated 9 September 2026. The terrain lab now uses the confirmed React + TypeScript + Vite frontend. Hosting direction and pause/save on disconnect are confirmed for later implementation; backend technologies remain recommendations.
+Updated 9 September 2026. The terrain lab uses React + TypeScript + Vite and a local Node.js + TypeScript terrain host. Separate user worlds and pause/save on disconnect remain confirmed directions for later implementation.
 
 ## Confirmed hosting direction
 
@@ -18,11 +18,13 @@ The user selected React + TypeScript + Vite for the browser interface. Keep worl
 |---|---|---|
 | Browser interface | **Implemented for the terrain lab:** React + TypeScript + Vite | Current terrain legend and reset; later panels, selection, observer controls, and connection state |
 | Atlas renderer | **Existing baseline:** Canvas 2D; benchmark larger maps before choosing the full-world renderer | Draw terrain and committed world views locally; remain separate from React |
-| Host service | **Recommended:** Node.js + TypeScript | World ownership, connections, scheduling, and persistence |
+| Host service | **Implemented for the terrain lab:** Node.js + TypeScript with native HTTP | Constructs and returns the stateless fixture; ownership, scheduling, and persistence follow later |
 | Compute | **Recommended:** a bounded set of Node worker threads | Run generation and simulation away from request handling |
 | Shared core | Browser-independent TypeScript modules, extending the existing separation | Deterministic rules and world data used by the host and test scenarios |
 
-Node is already installed for the existing Vite project. A simulation host is new application code, not something Vite currently provides. Keep one repository and avoid introducing a database, additional language, or service framework until a specific slice needs it.
+`npm start` launches the terrain HTTP server and Vite in one Node process. Each launch owns a backend bound to an automatically assigned loopback port; Vite proxies `/api` through the same origin as the browser app. `npm run preview` uses the same host with the built frontend. Ctrl+C closes both. Frontend edits use Vite hot updates; backend and fixture edits require a restart. Keep one repository and avoid introducing a database, additional language, or service framework until a specific slice needs it.
+
+The first transport is an uncached `GET /api/terrain` returning `{ protocolVersion: 1, world }`. The browser validates the payload before rendering and can retry failed requests without losing the last displayed map. This temporary full-fixture transport is bounded to 100,000 cells; larger world delivery requires a measured contract. The small authored fixture is constructed synchronously on request. This does not establish scheduling or throughput for simulation workloads.
 
 Use persistent workers with an explicit limit; decide their assignment to worlds after measurement. A browser connection is not a unit of compute allocation. Within each world, retain one ordered authority for mutations. Parallel execution of different worlds must not affect their individual results.
 
@@ -44,7 +46,7 @@ The PC must remain awake and the host process running for simulations to advance
 
 1. **Done:** define the React migration brief in `docs/features/react-01.md`.
 2. **Implemented, verified, and accepted:** migrate the terrain screen to React. The user confirmed it runs correctly and the island looks acceptable.
-3. Settle the host technology and introduce a local host that constructs and returns the same terrain fixture, with loading/failure behavior in the browser. This establishes the browser/host boundary.
+3. **Implemented and verified; user review pending:** the local Node host constructs and returns the same terrain fixture, with browser loading/failure/retry behavior. See `docs/features/backend-01.md`.
 4. Use two independent test worlds to verify ownership, reset isolation, and reconnect behavior before allowing access from other PCs.
 5. Add measured generation/simulation workloads and define scheduling/persistence behavior in separate slices.
 
@@ -52,8 +54,8 @@ The order and scope of implementation require a feature brief. Atlas 01 remains 
 
 ## Current evidence and handoff
 
-Original baseline: commit `066aa78` on `feat/atlas-01`. The app now uses React components around the same Canvas 2D renderer and browser-constructed fixed fixture. Migration verification passed type checks, four world tests, five Chromium tests, and a production build; desktop/mobile screenshots matched the original pixels. No simulation backend, accounts, or hosted-world lifecycle exists yet. The original timing measures rendering only and cannot establish backend capacity.
+Original baseline: commit `066aa78` on `feat/atlas-01`; accepted React migration: `54af29f`. The app uses React components around the same Canvas 2D renderer, with the fixed fixture now constructed by the local host. The original timing measures rendering only and cannot establish backend capacity. Accounts, persistent user worlds, simulation, and hosted-world lifecycle are not implemented yet.
 
-See `docs/features/react-01.md` for the migration checkpoint, verified commands, and current handoff. Next action: agree the host-fixture slice; the user has accepted the React lab. Backend technology, disconnect detection, and hosting capacity remain to be resolved in their respective slices. README is the maintained guide for launching the current project.
+See `docs/features/backend-01.md` for current verification and handoff. Backend 01 passed 19 automated tests, 12 Chromium scenarios, and the production build. Next action: user review of the local backend slice. Disconnect detection, storage, worker scheduling, and hosting capacity remain to be resolved in their respective slices. README is the maintained guide for launching the current project.
 
 Node's [worker-thread documentation](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html) supports using workers for CPU-intensive JavaScript and reusing workers to avoid repeated startup overhead. It does not establish Chronicle's capacity or a speedup over browser workers.

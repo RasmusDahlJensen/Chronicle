@@ -7,10 +7,10 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "start": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "start": "node scripts/start.ts",
+    "dev": "node scripts/start.ts",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "preview": "node scripts/start.ts --preview",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.ts",
     "check": "npm run typecheck && npm test && npm run build",

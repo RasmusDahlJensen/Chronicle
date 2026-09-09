@@ -315,6 +315,17 @@ h1 {
   background: var(--water);
 }
 
+.map-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 1rem;
+  color: #fff8e6;
+  text-align: center;
+}
+
 .map-plate figcaption {
   display: flex;
   justify-content: space-between;

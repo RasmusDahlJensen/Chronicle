@@ -264,6 +264,8 @@ Archive founding, extinction, lineage, major wars and territorial settlements du
 
 **Frontend decision, 9 September 2026:** React + TypeScript + Vite is confirmed for the browser interface. The remaining infrastructure choices below are recommendations. Keep one repository and one package initially; split modules without creating unnecessary services or a complex monorepo.
 
+**Backend foundation, 9 September 2026:** the first local host uses Node.js + TypeScript with native HTTP to construct the authored terrain fixture. `npm start` launches it with the browser app. This establishes the browser/host connection; worker scheduling, independent user worlds, and persistence remain later implementation work.
+
 - TypeScript simulation and UI integration.
 - React components for interface panels and observer controls, built with Vite; atlas rendering remains separate.
 - Canvas or WebGL rendering for the atlas; choose after a rendering benchmark, not by fashion.
@@ -283,7 +285,8 @@ src/
   persistence/   # serialization, validation, migrations
   worker/        # messages, batching, snapshots/deltas
   config/        # named balance configurations
-scripts/         # headless scenarios and benchmark entry points
+server/          # host HTTP contracts and world lifecycle as implemented
+scripts/         # combined local launch, headless scenarios and benchmarks
 tests/           # invariant, scenario, save/load and browser checks
 docs/            # design decisions, roadmap, feature briefs
 ```
