@@ -1,11 +1,11 @@
 # Working on Chronicle
 
-Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the active feature brief, currently `docs/features/react-01.md`. The original terrain slice is recorded in `docs/features/atlas-01.md`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
+Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief. The latest completed brief is `docs/features/react-01.md`; no new slice is selected. The original terrain slice is recorded in `docs/features/atlas-01.md`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
 
 ## Scope and collaboration
 
 - At task startup, inspect working-tree changes and relevant files; reconcile them with the active brief instead of assuming its status is current.
-- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. The authorized React + TypeScript + Vite migration and simple PC launch guide are implemented and verified, awaiting user review. Hosted simulation is a later slice.
+- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. The authorized React + TypeScript + Vite migration and simple PC launch guide are implemented, verified, and accepted by the user. Hosted simulation is a later slice.
 - Keep one active slice with an observable outcome and concrete acceptance checks. Do not treat a whole milestone or the full specification as one task.
 - Complete authorized work and its verification autonomously. Ask about consequential scope or contract changes, not routine reversible choices.
 - Prepare a runnable review with exact steps. Do not start the next feature automatically; record when user testing is still pending.

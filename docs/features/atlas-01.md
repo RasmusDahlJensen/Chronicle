@@ -1,6 +1,6 @@
 # Atlas 01 — Aster Island
 
-Status: implemented and locally verified on 9 September 2026; user review pending.
+Status: implemented, locally verified, and accepted by the user on 9 September 2026.
 
 This records the original terrain implementation. Its UI integration and launch instructions are superseded by `docs/features/react-01.md` and the root README; terrain contracts and acceptance scenarios remain in force.
 
@@ -51,8 +51,8 @@ Starting revision: `cb04516`; the project documents were uncommitted before this
 - Production preview smoke check reported no page errors. On Linux, AMD Ryzen 7 7800X3D, Node 24.20.0, Chromium 153.0.8010.12, 1440 × 1000 viewport at DPR 1, the 192 × 144 fixture's initial raster/draw took 99.4 ms. Five reset raster/draw samples were 96.2, 88.8, 83.9, 83.9, and 83.6 ms. This measures synchronous rendering, excluding fixture construction and browser presentation; it is not an input-latency, FPS, or full-world benchmark.
 - Independent code review found no material issues. Minor follow-ups: move fixture-specific map labels to fixture annotations when adding a second scenario; strengthen browser assertions against swapped individual terrain labels (current assertions verify reconciliation; the unit test independently verifies category totals).
 
-How to try it: `npm run dev`, open the printed URL (normally http://127.0.0.1:5173/), inspect the terrain and legend, press Reset terrain, and resize the window. Browser coverage is Chromium only; user experience acceptance, Firefox, and Safari have not been checked.
+How to try it: `npm run dev`, open the printed URL (normally http://127.0.0.1:5173/), inspect the terrain and legend, press Reset terrain, and resize the window. Browser coverage is Chromium only; Firefox and Safari have not been checked. The user subsequently accepted the terrain appearance in the React lab.
 
-Handoff: original implementation and verification complete. The subsequently authorized React migration preserves this fixture; see `docs/features/react-01.md` for current status and next action. User review of the terrain's appearance remains pending.
+Handoff: original implementation and verification complete. The subsequently authorized React migration preserves this fixture; see `docs/features/react-01.md` for current status and next action. The user confirmed the terrain's appearance is acceptable.
 
 Follow-up ideas: camera navigation, then seeded land/water generation. Each needs its own agreed slice.

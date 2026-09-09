@@ -43,7 +43,7 @@ The PC must remain awake and the host process running for simulations to advance
 ## Small next steps under discussion
 
 1. **Done:** define the React migration brief in `docs/features/react-01.md`.
-2. **Implemented and verified:** migrate the terrain screen to React. User visual acceptance is pending.
+2. **Implemented, verified, and accepted:** migrate the terrain screen to React. The user confirmed it runs correctly and the island looks acceptable.
 3. Settle the host technology and introduce a local host that constructs and returns the same terrain fixture, with loading/failure behavior in the browser. This establishes the browser/host boundary.
 4. Use two independent test worlds to verify ownership, reset isolation, and reconnect behavior before allowing access from other PCs.
 5. Add measured generation/simulation workloads and define scheduling/persistence behavior in separate slices.
@@ -54,6 +54,6 @@ The order and scope of implementation require a feature brief. Atlas 01 remains 
 
 Original baseline: commit `066aa78` on `feat/atlas-01`. The app now uses React components around the same Canvas 2D renderer and browser-constructed fixed fixture. Migration verification passed type checks, four world tests, five Chromium tests, and a production build; desktop/mobile screenshots matched the original pixels. No simulation backend, accounts, or hosted-world lifecycle exists yet. The original timing measures rendering only and cannot establish backend capacity.
 
-See `docs/features/react-01.md` for the migration checkpoint, verified commands, and current handoff. Next action: user review of the React lab, then agree the host-fixture slice. Backend technology, disconnect detection, and hosting capacity remain to be resolved in their respective slices. README is the maintained guide for launching the current project.
+See `docs/features/react-01.md` for the migration checkpoint, verified commands, and current handoff. Next action: agree the host-fixture slice; the user has accepted the React lab. Backend technology, disconnect detection, and hosting capacity remain to be resolved in their respective slices. README is the maintained guide for launching the current project.
 
 Node's [worker-thread documentation](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html) supports using workers for CPU-intensive JavaScript and reusing workers to avoid repeated startup overhead. It does not establish Chronicle's capacity or a speedup over browser workers.

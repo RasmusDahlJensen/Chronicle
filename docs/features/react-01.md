@@ -1,6 +1,6 @@
 # React 01 — existing terrain lab migration
 
-Status: implemented and locally verified, 9 September 2026; user review pending.
+Status: implemented, locally verified, and accepted by the user, 9 September 2026.
 
 ## Outcome and scope
 
@@ -29,8 +29,10 @@ Starting revision: `066aa78`, branch `feat/atlas-01`, with architecture decision
 - Desktop (1440 × 1000 viewport) and mobile (390 × 844 viewport) screenshots were inspected and compared with the pre-migration captures: no changed pixels. Screenshots are in `test-results/` and remain generated artifacts.
 - `npm start` served http://127.0.0.1:5173/ and `npm run preview` served http://127.0.0.1:4173/. A Chromium smoke check at both URLs displayed the terrain and completed reset with correct area totals and no page errors.
 - Starting a second instance of either server exited with a clear port-in-use error, as documented. Both verification servers were then stopped so the user can launch from their own terminal.
-- Independent code review found no material issues. `git diff --check` passed. Browser coverage is Chromium only; user visual acceptance, Firefox, and Safari remain unverified. No new simulation performance claim is made.
+- Independent code review found no material issues. `git diff --check` passed. Browser coverage is Chromium only; Firefox and Safari remain unverified. No new simulation performance claim is made.
 
-Handoff checkpoint: `refactor: migrate the terrain lab to React` on `feat/atlas-01`, including the original architecture documentation changes. Next action: run `npm start`, open http://127.0.0.1:5173/, inspect Aster Island, reset it, and resize the browser. Agree a separate host-fixture slice after review; the backend is not implemented by this migration.
+User review: the user confirmed that the app runs correctly and the island looks acceptable. This accepts the current authored terrain sample and React migration; it does not establish procedural generation or full-world simulation readiness.
+
+Handoff checkpoint: `54af29f` (`refactor: migrate the terrain lab to React`) on `feat/atlas-01`, including the original architecture documentation changes. Latest runtime evidence remains the checks above; this follow-up updates acceptance records only. Next action: agree a separate host-fixture slice. The backend is not implemented by this migration.
 
 References used for the adapter and build integration: [React effect setup and cleanup](https://react.dev/reference/react/useEffect), [Vite React plugin](https://vite.dev/plugins/#vitejs-plugin-react).
