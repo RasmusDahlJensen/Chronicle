@@ -2,20 +2,40 @@
 
 A living-world atlas, built one small, reviewable slice at a time.
 
-The first browser lab displays **Aster Island**: a fixed terrain study with water, plains, shaded hills, and a reset button. It is an authored fixture, not a seeded world generator. Camera navigation and living systems are later slices.
+The React + TypeScript + Vite browser lab displays **Aster Island**: an authored terrain fixture with water, plains, shaded hills, and a reset button. Procedural generation and living systems are future slices. Hosted simulation on the owner's PC is planned but is not implemented; the current lab needs no backend service.
 
-## Run locally
+## First setup on your PC
 
-Use Node **24.20.0** (`nvm use` if you use nvm).
+Open a terminal in the **Chronicle repository folder**, where `package.json` lives. Use Node **24.20.0**, also recorded in `.nvmrc`. Check your installed version with:
+
+```sh
+node --version
+```
+
+If you already use nvm, it can install and select that version:
+
+```sh
+nvm install
+nvm use
+```
+
+Install the project's locked dependencies on first setup and after dependency updates:
 
 ```sh
 npm ci
-npm run dev
 ```
 
-Open the local URL printed by Vite, normally **http://127.0.0.1:5173/**. The development server listens on this machine only.
+## Start the lab
 
-Look at the coastline and hill relief, compare the terrain legend, and press **Reset terrain**. The original island is reconstructed. Resizing the browser fits the same map into the available space.
+From the Chronicle folder, run:
+
+```sh
+npm start
+```
+
+Open **http://127.0.0.1:5173/** in your browser. Keep the terminal running while you use the lab; press **Ctrl+C** in that terminal to stop it. Source edits update the browser automatically. `npm run dev` starts the same development server.
+
+Look at the coastline and hill relief, compare the terrain legend, and press **Reset terrain** to reconstruct the original island. Resizing the browser fits the same map into the available space. The server listens on this PC only.
 
 ## Verify
 
@@ -23,24 +43,46 @@ Look at the coastline and hill relief, compare the terrain legend, and press **R
 npm run check
 ```
 
-This runs TypeScript checks, four world/fixture tests, and a production build.
+This runs TypeScript checks, world/fixture tests, and a production build.
 
-For actual browser checks, install the test browser once, then run:
+For browser checks, install Chromium once (and again after a Playwright update), then run:
 
 ```sh
 npx playwright install chromium
 npm run test:browser
 ```
 
-On Linux, Playwright may also need system browser dependencies; its installer reports any missing ones. Browser tests use port 4173 and cover rendering, area reconciliation, reset, live resizing, and keyboard use on a narrow screen. Desktop/mobile screenshots are written to `test-results/`.
+Browser tests start their own local server on port **4173**; stop any preview server using that port first. On Linux, Playwright's installer reports any missing system browser dependencies. Browser screenshots are written to `test-results/`.
 
-`npm run preview` serves the built application locally after a build. No deployment, account, API key, or external image/font service is required.
+## Preview a production build
+
+```sh
+npm run build
+npm run preview
+```
+
+Open **http://127.0.0.1:4173/**. This serves the built app on this PC only. Rebuild to include later source changes, and press **Ctrl+C** to stop the preview.
+
+## Troubleshooting
+
+- **`node` or `npm` is not found:** install Node 24.20.0, reopen the terminal, and retry. If nvm is already installed, use the commands above.
+- **`package.json` cannot be found:** move into the Chronicle repository folder before running npm commands.
+- **Port 5173 or 4173 is busy:** stop the existing lab or preview terminal with Ctrl+C, then retry. The commands above keep their stated ports instead of silently choosing another one.
 
 ## Project record
 
-- [Active feature and verification evidence](docs/features/atlas-01.md)
+- [Active React migration and verification evidence](docs/features/react-01.md)
+- [Original terrain slice](docs/features/atlas-01.md)
+- [Architecture decisions](docs/ARCHITECTURE.md)
 - [Development workflow](docs/WORKFLOW.Md)
 - [Product specification](docs/CHRONICLE_SPEC.md)
 - [Agent instructions](AGENTS.md)
 
-Shared world types and area calculations live in `src/world/`; the authored sample in `src/fixtures/`; read-only rendering in `src/renderer/`. `src/main.ts` connects those parts to the browser view.
+## Code map
+
+- `src/main.tsx`: React entry point.
+- `src/App.tsx`: browser view and UI state.
+- `src/components/TerrainMap.tsx`: React adapter for the canvas renderer.
+- `src/world/`: shared world types and area calculations.
+- `src/fixtures/`: the authored terrain sample.
+- `src/renderer/`: atlas rendering, independent of React.

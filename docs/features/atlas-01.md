@@ -2,6 +2,8 @@
 
 Status: implemented and locally verified on 9 September 2026; user review pending.
 
+This records the original terrain implementation. Its UI integration and launch instructions are superseded by `docs/features/react-01.md` and the root README; terrain contracts and acceptance scenarios remain in force.
+
 ## Outcome and scope
 
 Open a local browser lab and see a fixed island with blue water, parchment-toned plains, a detailed coastline, and shaded hills. Reset reconstructs the original terrain. This implements the first terrain sample agreed in conversation, not the whole M1 milestone.
@@ -51,6 +53,6 @@ Starting revision: `cb04516`; the project documents were uncommitted before this
 
 How to try it: `npm run dev`, open the printed URL (normally http://127.0.0.1:5173/), inspect the terrain and legend, press Reset terrain, and resize the window. Browser coverage is Chromium only; user experience acceptance, Firefox, and Safari have not been checked.
 
-Handoff: implementation and verification complete on the feature branch; next action is user review of the terrain's appearance. Preserve the current fixture while discussing changes. No next slice is authorized.
+Handoff: original implementation and verification complete. The subsequently authorized React migration preserves this fixture; see `docs/features/react-01.md` for current status and next action. User review of the terrain's appearance remains pending.
 
 Follow-up ideas: camera navigation, then seeded land/water generation. Each needs its own agreed slice.

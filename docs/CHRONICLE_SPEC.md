@@ -19,13 +19,15 @@ Evidence register:
 | Dynamic Territory Expansion, 8 September, recent-chat summary | Countries contain provinces containing cells; conquest transfers provinces; cells support local resources and movement; more evenly spread founding tribes; faster early conquest; Fantasy Map Simulator named as a visual reference |
 | Edit Country Relations, 8 September, recent-chat summary | Country → province → cell click selection; visible alliances, wars, occupation and subject relationships; faster early expansion; correct land-coverage reporting |
 | Local-development discussion, 9 September | Develop with Codex locally in manageable stages; executable simulation independent of renderer; repository documentation; reproducible testing |
+| Local hosting decision, 9 September | Each person has a separate world; world generation and simulation run on the user's PC; worlds pause and save when the person leaves, then resume on return |
+| Frontend choice, 9 September | React + TypeScript + Vite for the browser interface; atlas rendering and hosted simulation remain separate |
 
 Precedence: newer explicit user choices override older choices. In particular:
 
 1. Evenly dispersed viable starts replace the earlier strong clustering around fertile regions. Geography still constrains habitability.
 2. Cells and provinces are distinct. The earlier target of tens of thousands of “provinces” must not become an accidental requirement for tens of thousands of province groups each containing thousands of cells.
 3. Early expansion should be lively and competitive, replacing the prototype’s frustratingly slow consolidation. Population and travel accounting still apply.
-4. Local development replaces Sites as the primary workflow. Hosting is a later delivery decision.
+4. Local development replaces Sites as the primary workflow. Separate worlds will be hosted on the user's PC; access and deployment details remain to be defined.
 
 Requirement labels: **Required** means a recorded product direction. **Proposed default** means a concrete engineering or balance choice introduced here, changeable after measurement. **Deferred** means outside the first release.
 
@@ -258,15 +260,17 @@ Archive founding, extinction, lineage, major wars and territorial settlements du
 
 ## 13. Proposed technical architecture
 
-These are recommendations, not recovered user requirements. Keep one repository and one package initially; split modules without creating unnecessary services or a complex monorepo.
+**Hosting update, 9 September 2026:** the user confirmed separate worlds per person, with world generation and simulation hosted on the user's PC. Worlds pause and save when the person leaves and resume on return. This replaces the original browser-worker/no-server proposal. It does not introduce shared-world multiplayer. See `docs/ARCHITECTURE.md` for the decision record and unresolved details.
+
+**Frontend decision, 9 September 2026:** React + TypeScript + Vite is confirmed for the browser interface. The remaining infrastructure choices below are recommendations. Keep one repository and one package initially; split modules without creating unnecessary services or a complex monorepo.
 
 - TypeScript simulation and UI integration.
-- Lightweight local web app build, with a familiar component framework for panels if useful.
+- React components for interface panels and observer controls, built with Vite; atlas rendering remains separate.
 - Canvas or WebGL rendering for the atlas; choose after a rendering benchmark, not by fashion.
-- Web Worker for simulation; main thread for input and rendering.
+- A host backend owns each independent world; background compute handles generation and simulation, while browsers handle input and rendering.
 - Node-compatible headless runner importing the same simulation core.
-- Local indexed persistence suitable for large saves; JSON or compressed export with explicit schema/version metadata.
-- No server required for single-observer v1. Hosting is independent of the simulation.
+- Host-side persistence suitable for independent large saves; JSON or compressed export with explicit schema/version metadata.
+- Keep the simulation core independent of its host. Access from other PCs, per-world ownership, scheduling limits, and reconnect behavior require explicit contracts.
 
 Suggested layout:
 

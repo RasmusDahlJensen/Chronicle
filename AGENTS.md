@@ -1,11 +1,11 @@
 # Working on Chronicle
 
-Read `docs/WORKFLOW.Md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the active feature brief, currently `docs/features/atlas-01.md`. Read architecture decisions when present. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
+Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the active feature brief, currently `docs/features/react-01.md`. The original terrain slice is recorded in `docs/features/atlas-01.md`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
 
 ## Scope and collaboration
 
 - At task startup, inspect working-tree changes and relevant files; reconcile them with the active brief instead of assuming its status is current.
-- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. Atlas 01 is implemented and awaiting user review. Subsequent slices are not authorized.
+- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. The authorized React + TypeScript + Vite migration and simple PC launch guide are implemented and verified, awaiting user review. Hosted simulation is a later slice.
 - Keep one active slice with an observable outcome and concrete acceptance checks. Do not treat a whole milestone or the full specification as one task.
 - Complete authorized work and its verification autonomously. Ask about consequential scope or contract changes, not routine reversible choices.
 - Prepare a runnable review with exact steps. Do not start the next feature automatically; record when user testing is still pending.
@@ -27,4 +27,5 @@ Read `docs/WORKFLOW.Md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and 
 - For failures, preserve the scenario and reproducible inputs before fixing behavior or balance. If repeated fixes yield no new evidence, return to diagnosis rather than stacking speculative patches. Broaden testing when evidence or milestone gates require it.
 - Obtain independent agent review for consequential code changes and resolve material findings; record a gap if that review is unavailable. Follow the workflow's review package when handing the slice to the user.
 - Before stopping or handing off, update the active brief with revision/uncommitted work, last verified result, unresolved issue, and exact next action. Preserve working checkpoints and unrelated user changes.
-- Use Node 24.20.0 and `npm ci` with the committed lockfile. `npm run dev` starts the local lab; `npm run check` runs type checks, world tests, and the production build. `npm run test:browser` runs Chromium checks after `npx playwright install chromium`. See README for details. Later GitHub automation should reuse these commands.
+- Keep README accurate in the same change whenever prerequisites, installation, launch commands, ports, configuration, or verification steps change. Run affected documented commands before handing off. Keep everyday setup and launch simple: `npm ci`, then `npm start`.
+- Use Node 24.20.0 and `npm ci` with the committed lockfile. `npm start` starts the local lab; `npm run check` runs type checks, world tests, and the production build. `npm run test:browser` runs Chromium checks after `npx playwright install chromium`. See README for details. Later GitHub automation should reuse these commands.

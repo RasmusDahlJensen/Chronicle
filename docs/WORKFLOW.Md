@@ -2,7 +2,7 @@
 
 ## Current stage and agreed direction
 
-As of 9 September 2026, the first terrain sample is implemented and locally verified; user review is pending. Active brief: `docs/features/atlas-01.md` (relative to the repository root). This authorization does not extend to subsequent atlas slices or the full M1 milestone.
+As of 9 September 2026, the existing terrain lab has been migrated to React + TypeScript + Vite and locally verified. Active brief: `docs/features/react-01.md`; original terrain record: `docs/features/atlas-01.md`. The user requested simple PC launch commands and an accurate, maintained README. User visual acceptance remains pending. The confirmed hosting direction is separate worlds per person, with generation and simulation on the user's PC, pausing and saving on departure and resuming on return. That backend remains a later slice. See `docs/ARCHITECTURE.md` for implemented choices, proposed backend technologies, and open decisions. Paths in this paragraph are relative to the repository root.
 
 The user has chosen small, gradual feature delivery and a **browser lab with repeatable scenarios, visual inspection, and automated checks**. The lab grows alongside Chronicle. The first slice is defined in the active brief; later capabilities need their own scoped work.
 
@@ -34,6 +34,7 @@ Task authorization covers its necessary verification and routine fixes. A new ap
 
 - **Resume from evidence:** at task startup, inspect the working-tree changes and relevant files, then reconcile them with the active brief. Distinguish intended behavior from implemented behavior and pre-existing failures. Before stopping or handing off, update the brief with the current revision and uncommitted work, last verified result, unresolved issue, and exact next action. Keep this in the brief rather than a separate session log.
 - **Make verification reproducible:** once application setup is authorized, document the supported runtime, commit the dependency lockfile, and provide one command for routine checks. Record the tested revision, any uncommitted changes, scenario/configuration, and actual results. Later, run the same routine command in GitHub automation; keep expensive scenario suites separate. These are setup requirements, not claims that tooling exists today.
+- **Keep launch instructions current:** README is the canonical PC setup and run guide. Update it in the same change as prerequisites, commands, ports, configuration, or verification steps, and run the affected instructions before handing off. Keep first setup and everyday launch simple: `npm ci`, then `npm start`.
 - **Protect acceptance criteria:** derive checks from agreed behavior and invariants. Never skip failing scenarios, weaken assertions or tolerances, or replace expected results merely to obtain a pass. If an expectation is wrong or the intended behavior changes, explain the evidence and resolve the change explicitly. A population-accounting failure cannot be fixed by increasing the permitted error.
 - **Review consequential changes independently:** use a second agent to examine the brief, code changes, and tests for missing cases, incorrect assumptions, and regressions. Give it the evidence to assess the work directly. Resolve material findings before presenting the slice as ready; if independent review is unavailable, record that gap. The user still judges the behavior in the lab. Routine documentation and cosmetic changes need only a proportionate review.
 - **Recover from unsuccessful fixes:** when repeated fixes produce no new evidence, return to diagnosis. Preserve the failing scenario, isolate the cause, record what was tried, and reconsider the assumption before making another change. Avoid accumulating speculative patches. Keep a known working Git checkpoint and preserve unrelated user work when backing out a failed attempt. Continue diagnosis within the authorized slice; discuss any necessary scope change before proceeding with it.
@@ -56,7 +57,7 @@ Keep the lab small. A scenario builder, plugin system, general debug dashboard, 
 
 ## First lab slice
 
-The active brief records the minimum world-data and rendering contracts for displaying and resetting one small authored terrain fixture. The implementation uses the shared world representation and atlas rendering code. Full M0 and M1 gates remain incomplete.
+The original brief, `docs/features/atlas-01.md`, records the minimum world-data and rendering contracts for displaying and resetting one small authored terrain fixture. The React migration preserves those behaviors and shared modules. Full M0 and M1 gates remain incomplete.
 
 Acceptance checks:
 
@@ -90,4 +91,4 @@ Use extra architecture notes only for durable decisions shared across features. 
 
 Use focused invariant/scenario tests for simulation behavior, browser interaction checks for UI behavior, and benchmarks for performance claims. Do not add tests that merely restate implementation or run expensive seed suites for documentation or cosmetic changes. Broaden checks when core interactions, balance, failures, or milestone gates justify it.
 
-Report correctness, visual/user experience, balance, and performance separately. Record actual commands and results; mark untested behavior honestly. Run `npm ci` to install locked dependencies, `npm run dev` to view the lab, `npm run check` for routine verification, and `npm run test:browser` for Chromium scenarios. The root README records runtime and browser setup; the active brief records actual results.
+Report correctness, visual/user experience, balance, and performance separately. Record actual commands and results; mark untested behavior honestly. Run `npm ci` to install locked dependencies, `npm start` to view the lab, `npm run check` for routine verification, and `npm run test:browser` for Chromium scenarios. The root README records runtime and browser setup; the active brief records actual results.
