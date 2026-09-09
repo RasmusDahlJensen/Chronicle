@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { createVerdantReach } from '../src/fixtures/verdant-reach.ts';
 import { isWaterBiome, parseAtlasResponse } from '../shared/atlas.ts';
@@ -13,10 +14,54 @@ test('the authored regional atlas is repeatable, independent, and bounded to its
   assert.equal(first.cells.length, 64_000);
   assert.equal(first.cellAreaKm2, 4);
   assert.equal(first.cells.length * first.cellAreaKm2, 256_000);
+  assert.equal(first.fixtureVersion, 2);
   first.cells[0].elevation = 99_999;
   assert.notEqual(first.cells[0].elevation, second.cells[0].elevation);
-  assert.ok(Buffer.byteLength(JSON.stringify({ protocolVersion: 2, world: second })) < 8 * 1024 * 1024);
-  assert.equal(parseAtlasResponse({ protocolVersion: 2, world: second }), second);
+  assert.ok(Buffer.byteLength(JSON.stringify({ protocolVersion: 3, world: second })) < 8 * 1024 * 1024);
+  assert.equal(parseAtlasResponse({ protocolVersion: 3, world: second }), second);
+});
+
+test('special resource sites are sparse, spaced, and make strategic minerals rarer than common resources', () => {
+  const world = createVerdantReach();
+  const sites = world.cells.filter(cell => cell.resource !== null);
+  assert.ok(world.cells.filter(cell => cell.resource === null).length > world.cells.length * 0.99,
+    'more than 99% of cells have no special resource site');
+  assert.ok(sites.length >= 200 && sites.length <= 500, `${sites.length} sites in the regional study`);
+  assert.ok(sites.filter(cell => !isWaterBiome(cell.biome)).length > sites.length * 0.8,
+    'most sites are on land');
+  assert.ok(sites.some(cell => cell.biome === 'coast' && cell.resource === 'fish'), 'coastal fishing exists');
+  assert.ok(sites.some(cell => cell.biome === 'ocean' && cell.resource === 'fish'), 'ocean fishing exists');
+  const counts = new Map<string, number>();
+  for (const cell of sites) {
+    assert.notEqual(cell.resource, null);
+    counts.set(cell.resource!, (counts.get(cell.resource!) ?? 0) + 1);
+  }
+  const gold = counts.get('gold') ?? 0;
+  const uranium = counts.get('uranium') ?? 0;
+  assert.ok(gold >= 1 && gold <= 8, `${gold} gold sites`);
+  assert.ok(uranium >= 1 && uranium <= 4, `${uranium} uranium sites`);
+  for (const resource of ['fish', 'grain', 'timber', 'game', 'stone']) {
+    assert.ok((counts.get(resource) ?? 0) > Math.max(gold, uranium), `${resource} is more common than rare minerals`);
+  }
+  for (let first = 0; first < sites.length; first++) {
+    for (let second = first + 1; second < sites.length; second++) {
+      const dx = sites[first].id % world.width - sites[second].id % world.width;
+      const dy = Math.floor(sites[first].id / world.width) - Math.floor(sites[second].id / world.width);
+      assert.ok(dx * dx + dy * dy >= 64, `sites ${sites[first].id} and ${sites[second].id} stay at least 8 cells apart`);
+    }
+  }
+});
+
+test('resource placement preserves the accepted geography and province identities', () => {
+  const world = createVerdantReach();
+  const geography = {
+    cells: world.cells.map(({ id, elevation, biome, provinceId }) => ({ id, elevation, biome, provinceId })),
+    provinces: world.provinces,
+    countries: world.countries,
+    annotations: world.annotations,
+  };
+  assert.equal(createHash('sha256').update(JSON.stringify(geography)).digest('hex'),
+    '46afaa497fd8b1c0ed9d3d40bdf6a6253fe887fc72afc789e79745f3eac9f954');
 });
 
 test('several substantial landmasses and smaller islands are separated by actual water', () => {
@@ -37,6 +82,10 @@ test('several substantial landmasses and smaller islands are separated by actual
         }
       }
     }
+    if (pending.length >= 1_000) {
+      assert.ok(pending.some(id => world.cells[id].resource !== null),
+        `landmass with ${pending.length} cells has a resource site`);
+    }
     components.push(pending.length);
   }
   assert.ok(components.filter(size => size >= 1_000).length >= 3, 'three substantial landmasses');
@@ -49,7 +98,7 @@ test('several substantial landmasses and smaller islands are separated by actual
   }
 });
 
-test('every biome has a real region and primary resources match their terrain', () => {
+test('every biome has a real region and nonempty resource sites match their terrain', () => {
   const world = createVerdantReach();
   const allowed: Record<string, string[]> = {
     ocean: ['fish'], coast: ['fish', 'salt'], grassland: ['grain', 'game', 'stone', 'coal'],
@@ -62,10 +111,12 @@ test('every biome has a real region and primary resources match their terrain', 
   const biomes = new Map<string, number>();
   const resources = new Set<string>();
   for (const cell of world.cells) {
-    assert.ok(allowed[cell.biome]?.includes(cell.resource), `${cell.biome}: ${cell.resource}`);
+    if (cell.resource !== null) {
+      assert.ok(allowed[cell.biome]?.includes(cell.resource), `${cell.biome}: ${cell.resource}`);
+      resources.add(cell.resource);
+    }
     assert.equal(isWaterBiome(cell.biome), cell.elevation < 0);
     biomes.set(cell.biome, (biomes.get(cell.biome) ?? 0) + 1);
-    resources.add(cell.resource);
   }
   for (const biome of Object.keys(allowed)) assert.ok((biomes.get(biome) ?? 0) >= 40, `${biome} has a visible region`);
   assert.deepEqual([...resources].sort(), ['fish', 'grain', 'timber', 'game', 'stone', 'iron', 'copper', 'gold', 'salt', 'coal', 'uranium'].sort());

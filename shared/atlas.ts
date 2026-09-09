@@ -3,6 +3,7 @@ import { Check } from 'typebox/value';
 
 export const MAX_ATLAS_CELLS = 100_000;
 export const MAX_ATLAS_BYTES = 8 * 1024 * 1024;
+export const ATLAS_PROTOCOL_VERSION = 3;
 export const BIOME_IDS = ['ocean', 'coast', 'grassland', 'forest', 'rainforest', 'desert', 'savanna', 'wetland', 'tundra', 'mountain', 'snow'] as const;
 export const RESOURCE_IDS = ['fish', 'grain', 'timber', 'game', 'stone', 'iron', 'copper', 'gold', 'salt', 'coal', 'uranium'] as const;
 const label = () => Type.String({ minLength: 1, maxLength: 96 });
@@ -12,7 +13,9 @@ export const ResourceSchema = Type.Enum(RESOURCE_IDS);
 export const AtlasCellSchema = Type.Object({
   id: Type.Integer({ minimum: 0, maximum: MAX_ATLAS_CELLS - 1 }),
   elevation: Type.Integer({ minimum: -12_000, maximum: 12_000 }),
-  biome: BiomeSchema, resource: ResourceSchema, provinceId: nullableId(),
+  biome: BiomeSchema,
+  // Site presence is geography. Null is no special site, not hidden knowledge or zero biome productivity.
+  resource: Type.Union([ResourceSchema, Type.Null()]), provinceId: nullableId(),
 }, { additionalProperties: false });
 export const AtlasProvinceSchema = Type.Object({ id: label(), name: label(), countryId: nullableId() }, { additionalProperties: false });
 export const AtlasCountrySchema = Type.Object({ id: label(), name: label() }, { additionalProperties: false });
@@ -31,7 +34,7 @@ export const AtlasWorldSchema = Type.Object({
   countries: Type.Array(AtlasCountrySchema, { maxItems: MAX_ATLAS_CELLS }),
   annotations: Type.Array(AtlasAnnotationSchema, { maxItems: 100 }),
 }, { additionalProperties: false });
-export const AtlasResponseSchema = Type.Object({ protocolVersion: Type.Literal(2), world: AtlasWorldSchema }, { additionalProperties: false });
+export const AtlasResponseSchema = Type.Object({ protocolVersion: Type.Literal(ATLAS_PROTOCOL_VERSION), world: AtlasWorldSchema }, { additionalProperties: false });
 export type Biome = Static<typeof BiomeSchema>;
 export type Resource = Static<typeof ResourceSchema>;
 export type AtlasCell = Static<typeof AtlasCellSchema>;

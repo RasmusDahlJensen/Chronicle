@@ -55,11 +55,6 @@ interface DrawMetrics {
   pixelsPerCell: number;
 }
 
-interface ResourceCandidate {
-  index: number;
-  score: number;
-}
-
 type Rgb = readonly [number, number, number];
 
 const DEFAULT_LAYERS: AtlasLayers = {
@@ -163,10 +158,13 @@ export function createBiomeAtlasRenderer(
     if (layers.provinces) drawProvinceBoundaries(context, world, camera, metrics, selectedCellId, indexByCellId);
     if (layers.grid) drawGrid(context, world, camera, metrics);
     drawAnnotations(context, world, camera, metrics);
-    if (layers.resources) drawResources(context, world, camera, metrics, layers.resourceFilter);
+    const resourceMarkers = layers.resources
+      ? drawResources(context, world, camera, metrics, layers.resourceFilter)
+      : 0;
 
     canvas.dataset.rendered = 'true';
     canvas.dataset.renderMs = (performance.now() - started).toFixed(1);
+    canvas.dataset.resourceMarkers = String(resourceMarkers);
     canvas.dataset.zoom = camera.zoom.toFixed(2);
     if (selectedCellId === null) delete canvas.dataset.selectedCellId;
     else canvas.dataset.selectedCellId = String(selectedCellId);
@@ -213,6 +211,24 @@ export function createBiomeAtlasRenderer(
     const y = Math.floor(camera.y + (screenY - metrics.height / 2) / metrics.pixelsPerCell);
     if (x < 0 || y < 0 || x >= world.width || y >= world.height) return undefined;
     return world.cells[y * world.width + x];
+  }
+
+  function hitResourceMarker(screenX: number, screenY: number) {
+    if (!world || !layers.resources) return undefined;
+    const metrics = measure();
+    if (!metrics) return undefined;
+    const radius = resourceMarkerRadius(metrics);
+    const radiusSquared = radius * radius;
+    const bounds = visibleBounds(world, camera, metrics, 2);
+    let nearest: { index: number; distance: number } | undefined;
+    forEachVisible(bounds, world.width, (index, x, y) => {
+      const resource = world!.cells[index].resource;
+      if (resource === null || (layers.resourceFilter !== null && resource !== layers.resourceFilter)) return;
+      const point = worldToScreen(x + 0.5, y + 0.5, camera, metrics);
+      const distance = (point.x - screenX) ** 2 + (point.y - screenY) ** 2;
+      if (distance <= radiusSquared && (!nearest || distance < nearest.distance)) nearest = { index, distance };
+    });
+    return nearest ? world.cells[nearest.index] : undefined;
   }
 
   function chooseCell(cellId: number) {
@@ -264,7 +280,7 @@ export function createBiomeAtlasRenderer(
     gesture = undefined;
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     if (!wasDragged) {
-      const cell = hitCell(point.x, point.y);
+      const cell = hitResourceMarker(point.x, point.y) ?? hitCell(point.x, point.y);
       if (cell) chooseCell(cell.id);
     }
   }
@@ -691,31 +707,13 @@ function drawResources(
   filter: Resource | null,
 ) {
   const bounds = visibleBounds(world, camera, metrics, 2);
-  const cellCssPixels = metrics.pixelsPerCell / metrics.ratio;
-  const showEveryCell = cellCssPixels >= 9;
   const candidates: number[] = [];
+  forEachVisible(bounds, world.width, (index) => {
+    const resource = world.cells[index].resource;
+    if (resource !== null && (filter === null || resource === filter)) candidates.push(index);
+  });
 
-  if (showEveryCell) {
-    forEachVisible(bounds, world.width, (index) => {
-      const resource = world.cells[index].resource;
-      if (resource !== null && (filter === null || resource === filter)) candidates.push(index);
-    });
-  } else {
-    const buckets = new Map<string, ResourceCandidate>();
-    const bucketSize = 50 * metrics.ratio;
-    forEachVisible(bounds, world.width, (index, x, y) => {
-      const cell = world.cells[index];
-      if (cell.resource === null || (filter !== null && cell.resource !== filter)) return;
-      const point = worldToScreen(x + 0.5, y + 0.5, camera, metrics);
-      const key = `${Math.floor(point.x / bucketSize)}:${Math.floor(point.y / bucketSize)}`;
-      const score = hash(cell.id, resourceOrdinal(cell.resource));
-      const current = buckets.get(key);
-      if (!current || score > current.score) buckets.set(key, { index, score });
-    });
-    for (const candidate of buckets.values()) candidates.push(candidate.index);
-  }
-
-  const iconRadius = clamp((showEveryCell ? cellCssPixels * 0.34 : 5.2) * metrics.ratio, 4.2 * metrics.ratio, 9 * metrics.ratio);
+  const iconRadius = resourceMarkerRadius(metrics);
   for (const index of candidates) {
     const cell = world.cells[index];
     if (cell.resource === null) continue;
@@ -724,6 +722,13 @@ function drawResources(
     const point = worldToScreen(x + 0.5, y + 0.5, camera, metrics);
     drawAtlasResourceIcon(context, cell.resource, point.x, point.y, iconRadius);
   }
+  return candidates.length;
+}
+
+function resourceMarkerRadius(metrics: DrawMetrics) {
+  const cellCssPixels = metrics.pixelsPerCell / metrics.ratio;
+  const overviewRadius = clamp(2.7 + cellCssPixels * 0.55, 3.4, 5.2);
+  return (cellCssPixels >= 9 ? clamp(cellCssPixels * 0.34, 4.2, 9) : overviewRadius) * metrics.ratio;
 }
 
 /** Draws the same authored natural-resource mark used by the atlas overlay. */
@@ -946,11 +951,6 @@ function keyDirection(key: string) {
 
 function isWater(biome: Biome) {
   return biome === 'ocean' || biome === 'coast';
-}
-
-function resourceOrdinal(resource: Resource) {
-  const resources = Object.keys(RESOURCES) as Resource[];
-  return resources.indexOf(resource) + 1;
 }
 
 function parseColor(color: string): Rgb {

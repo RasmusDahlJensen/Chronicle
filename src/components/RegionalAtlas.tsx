@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AtlasWorld, Biome, Resource } from '../../shared/atlas.ts';
 import { loadAtlas } from '../api/atlas.ts';
 import { BIOMES, RESOURCES, summarizeAtlas } from '../world/atlas.ts';
+import { RESOURCE_RULES } from '../world/resources.ts';
 import { AtlasCanvas, type AtlasLayers } from './AtlasCanvas.tsx';
 import { ResourceIcon } from './ResourceIcon.tsx';
 
@@ -103,9 +104,9 @@ export function RegionalAtlas() {
               <ul className="atlas-biome-legend">{biomeEntries.map(([biome, detail]) => <li key={biome}><span className="atlas-biome-name"><span className="atlas-biome-swatch" style={{ backgroundColor: detail.color }} aria-hidden="true" />{detail.label}</span><span>{summary ? number.format(summary.biomes[biome]) : '—'}</span></li>)}</ul>
             </section>
             <section className="atlas-panel-section atlas-resource-section" aria-labelledby="atlas-resources-title">
-              <h2 id="atlas-resources-title">Natural resources</h2><p className="atlas-panel-note">Initial potential in each cell. These are not produced stockpiles.</p>
-              <ul className="atlas-resource-legend">{resourceEntries.map(([resource, detail]) => <li key={resource} title={`${detail.label}: ${summary ? number.format(summary.resources[resource]) : '—'} cells`}><span className="atlas-resource-symbol"><ResourceIcon resource={resource} /></span><span>{detail.label}</span></li>)}</ul>
-              <p className="atlas-panel-note atlas-marker-note">Zoom in for more markers. Select any cell for its exact resource.</p>
+              <h2 id="atlas-resources-title">Natural resources</h2><p className="atlas-panel-note">Scattered sites of initial natural potential. Counts are sites, not produced stockpiles.</p>
+              <ul className="atlas-resource-legend">{resourceEntries.map(([resource, detail]) => <li key={resource}><span className="atlas-resource-symbol"><ResourceIcon resource={resource} /></span><span className="atlas-resource-name">{detail.label}</span><span className="atlas-resource-count" aria-label={`${summary ? number.format(summary.resources[resource]) : '—'} ${detail.label} sites`}>{summary ? number.format(summary.resources[resource]) : '—'}</span></li>)}</ul>
+              <p className="atlas-panel-note atlas-marker-note">{summary ? number.format(summary.resourceSites) : '—'} resource sites in this study. This preview reveals every resource type.</p>
             </section>
           </aside>
 
@@ -121,14 +122,20 @@ export function RegionalAtlas() {
             {cell ? <div className="atlas-selected-cell" data-selected-cell={cell.id} aria-live="polite">
               <div className="atlas-cell-biome" style={{ borderColor: BIOMES[cell.biome].color }}><p>Cell {number.format(cell.id)}</p><h3>{BIOMES[cell.biome].label}</h3></div>
               <dl className="atlas-cell-facts"><div><dt>Elevation</dt><dd>{number.format(cell.elevation)} m</dd></div><div><dt>Cell area</dt><dd>{number.format(world!.cellAreaKm2)} km²</dd></div></dl>
-              <section className="atlas-cell-resource" aria-label="Selected cell resource"><p className="atlas-detail-label">Natural potential</p><p className="atlas-resource-value"><span><ResourceIcon resource={cell.resource} /></span>{RESOURCES[cell.resource].label}</p><p className="atlas-panel-note">A resource opportunity; extraction and production are not active.</p></section>
+              <section className="atlas-cell-resource" aria-label="Selected cell resource">{cell.resource !== null ? <>
+                <p className="atlas-detail-label">Resource site</p><p className="atlas-resource-value"><span><ResourceIcon resource={cell.resource} /></span>{RESOURCES[cell.resource].label}</p>
+                <dl className="atlas-resource-facts"><div><dt>Site type</dt><dd>{RESOURCE_RULES[cell.resource].kind === 'renewable' ? 'Renewable' : 'Mineral'}</dd></div><div><dt>Required extraction technology</dt><dd>{RESOURCE_RULES[cell.resource].extractionTechnology}</dd></div></dl>
+                <p className="atlas-panel-note">This site is natural potential; extraction and production are not active.</p>
+              </> : <>
+                <p className="atlas-detail-label">Natural potential</p><p className="atlas-resource-empty">No resource site</p><p className="atlas-panel-note">This cell still has its biome. It has no special resource site in this study.</p>
+              </>}</section>
               <dl className="atlas-geography-tree"><div><dt>Cell</dt><dd>#{number.format(cell.id)}</dd></div><div><dt>Province</dt><dd>{province?.name ?? 'Open water'}</dd></div><div><dt>Country</dt><dd>{country?.name ?? (province ? 'Unclaimed' : 'No country')}</dd></div></dl>
             </div> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Click a cell on the map to inspect its biome, elevation, resources, and province.</p><span>Cells form provinces.<br />Provinces can belong to countries.</span></div>}
             <div className="atlas-unclaimed-note"><span aria-hidden="true">◇</span><p>All provinces are unclaimed in this study. Countries and living systems come later.</p></div>
           </aside>
         </div>
       </main>
-      <footer className="atlas-footer"><span>Chronicle / World studies</span><span>Authored regional atlas · Initial resource potential</span></footer>
+      <footer className="atlas-footer"><span>Chronicle / World studies</span><span>Authored regional atlas · Scattered resource sites</span></footer>
     </div>
   );
 }

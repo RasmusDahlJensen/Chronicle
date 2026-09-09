@@ -15,9 +15,13 @@ test('the atlas endpoint returns the complete worker-built biome/resource map th
   assert.equal(response.statusCode, 200);
   assert.equal(response.headers['cache-control'], 'no-store');
   assert.ok(Buffer.byteLength(response.body) <= MAX_ATLAS_BYTES);
-  const world = parseAtlasResponse(response.json());
+  const payload = response.json();
+  assert.equal(payload.protocolVersion, 3);
+  const world = parseAtlasResponse(payload);
   assert.deepEqual(world, createVerdantReach());
   assert.equal(world.cells.length, 64_000);
+  assert.ok(world.cells.some(cell => cell.resource === null), 'resource-free cells survive worker serialization and HTTP');
+  assert.ok(world.cells.some(cell => cell.resource === 'uranium'), 'rare sites survive the same delivery path');
   assert.equal((await app.inject('/api/terrain')).json().world.fixtureId, 'aster-island');
   const ready = (await app.inject('/api/ready')).json();
   assert.equal(ready.compute.workers, 1);

@@ -1,0 +1,37 @@
+# Resources 01 — scattered resource sites
+
+Status: implemented and locally verified on 9 September 2026; awaiting user review of density and readability. The user's atlas review replaces the prior requirement for a resource on every cell with scattered Civilization-inspired resource sites and technology requirements for exploitation.
+
+## Outcome and scope
+
+Most cells have no special resource site. Resource icons identify actual sparse sites in the world data, with appropriate terrain and rare strategic minerals. Selecting a site shows its resource and required extraction technology; selecting an ordinary cell explicitly shows no resource site. A cell without a site still has its biome: absence of a special site does not imply barren land or no future base productivity.
+
+Keep the current authored geography, cell IDs, and province hierarchy. Use a deterministic, spaced distribution for this study, aiming for roughly 200–500 sites across its 64,000 cells. All current resource types remain inspectable, with gold and uranium rarer than common resources. Distribution parameters are reviewable fixture choices, not a completed world generator or economy balance.
+
+The shared cell contract becomes `resource: Resource | null`, using protocol 3 and fixture version 2 so older clients cannot silently interpret the new semantics. Keep a core catalog of extraction requirements separate from visual styles. The stated atlas-preview default shows all sites with their requirements. Research progression, production, inventories, buildings, depletion, and country knowledge remain later slices. Zero or one displayed site per cell is this slice's scope, not a permanent restriction on multiple deposits in a place.
+
+## Implementation and acceptance
+
+1. Capture failing resource-free cell and sparse-distribution regressions before changing the schema and fixture. Keep geography, hierarchy, transport limits, and repeatability checks intact.
+2. Update the contract, worker envelope, resource summaries, and fixture placement. Missing or unknown resources are invalid; explicit null is valid. Reject incompatible protocol versions.
+3. Update map/legend/inspection to display sparse sites and their technology requirements accurately, including ordinary land/water cells. Clicking a visible resource glyph selects its site even when the glyph extends beyond that small cell; outside markers, with the resource layer hidden, and with keyboard movement, retain exact cell inspection. Preserve resource filters, zoom, reset/retry, and legacy Aster behavior.
+4. Test actual host data reaching the visible map and inspector, empty-cell rendering, requirements, filtering, and reset in development and built serving. Preserve live-edit regressions through the contract/fixture update.
+5. Obtain independent review, run the complete `npm run check`, inspect the live port 5173 map, and update README, spec, architecture, workflow, and this record with actual results before checkpointing.
+
+## Results and verification
+
+- The study now has **329 resource sites** (0.514% of its 64,000 cells) and **63,671 ordinary cells**. Sites include 296 on land and 33 on water, with a minimum distance of eight cells. All substantial landmasses contain sites; access is not made uniform per province.
+- Counts: grain 60, timber 52, game 46, stone 40, fish 30, iron 28, coal 24, copper 22, salt 18, gold 6, uranium 3. These are site counts, not yields or stored quantities.
+- All elevations, biomes, cell/province IDs, province membership, countries, and annotations match the prior geography. An independent comparison and a preserved geography checksum verify that the change affects resource presence only. Reset reproduces the same site layout.
+- Protocol 3 and fixture version 2 pass through the actual worker, API, browser validation, and renderer. Explicit null cells and an entirely site-free atlas validate and summarize correctly; omitted/unknown resource values and older envelopes are rejected. The current serialized atlas is 5,216,684 bytes, within the existing 8 MiB limit.
+- The legend shows actual counts, the layer draws actual sites, and selection shows either a site's kind and extraction requirement or **No resource site**. The preview reveals every resource type. Required technologies are declared metadata; country knowledge, research, and production remain unimplemented.
+- Captured failing regressions before their fixes: the original fixture populated every cell; schema validation rejected null; resource summaries created a `null: NaN` entry; selecting an accepted null cell crashed the inspector. Independent review also found marker-edge selection: the failing browser scenario expected site 755 but selected neighboring cell 756. Pointer picking now uses the same marker radius/position as drawing, respects visibility/filtering, and falls back to ordinary cell picking. Keyboard cell navigation remains exact.
+- New browser checks verify actual site pixels appear when resources are enabled, an isolated ordinary-cell patch remains unchanged, actual host site/empty-cell selection and requirements, filtering, and marker-edge clicks at desktop/mobile sizes. Existing map, retry/reset, hierarchy, worker, shutdown, and source-reload regressions remain intact.
+- Final **`npm run check` passed** on Node 24.20.0/Linux: architecture checks over 27 files, TypeScript, **60 headless tests** with no failures/skips, production build, and **53 Chromium scenarios** (28 development, 25 built serving). Headless tests took 19.4 seconds; browser scenarios took 46.1 seconds on this PC. `git diff --check` passed. CI was not executed remotely.
+- Independent data/contract and UI/renderer review reported no remaining material findings after the marker-picking fix. The development host at **http://127.0.0.1:5173/** updated automatically and serves protocol 3, fixture version 2, and 329 sites. Live Chromium inspection verified an ordinary grassland cell, a uranium site's **Advanced mining** requirement, filtering, successful reset, and no page errors. Overview, selected-site, and empty-cell screenshots were inspected; automated browser scenarios cover mobile. Temporary browser test servers stopped; the watched user lab remains running.
+
+## Handoff and user review
+
+Starting revision: `55f370d`, clean working tree. Baseline complete gate: 55 headless tests and 47 browser scenarios. The complete Resources 01 working tree was verified before committing its implementation, tests, and this record together; no unrelated user changes were present. Setup commands and dependencies are unchanged.
+
+Open port 5173 (or run `npm start` if stopped), zoom in, and inspect ordinary cells and marked resource sites. Filter Iron or Uranium to inspect their distribution and requirements. Hide Resources for exact terrain-cell picking beneath an icon. Review the density and resource readability before choosing the next slice. No known implementation issue remains from these checks; research, extraction, and richer resource/knowledge contracts require later scoped work.

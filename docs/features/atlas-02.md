@@ -2,6 +2,8 @@
 
 Status: implemented and verified; awaiting user review of the visual direction. The user's visual feedback supersedes the proposed seed-generator-first sequence.
 
+Later review correction: [Resources 01](resources-01.md) replaces the every-cell resource model recorded below with scattered sites, optional cell resources, and extraction technology requirements. This brief retains Atlas 02's original implementation and measurement evidence.
+
 ## Outcome
 
 Replace the default single-island presentation with a larger, richly textured regional map containing several landmasses, an archipelago, distinct biomes, and visible cell resources. The map must be useful for evaluating the eventual atlas: pan/zoom, select a cell, inspect its biome/elevation/resource and province/country relationship, and toggle resource/province/cell layers.

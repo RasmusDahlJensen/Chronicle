@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
+import type { AtlasCell, AtlasWorld } from '../../shared/atlas.ts';
 import { BIOMES, RESOURCES } from '../../src/world/atlas.ts';
+import { RESOURCE_RULES } from '../../src/world/resources.ts';
 
 async function ready(page: import('@playwright/test').Page) {
   await page.goto('/');
@@ -75,11 +77,115 @@ test('zoom, resource layers and cell selection read the same atlas cells', async
   expect(Number.isInteger(id)).toBe(true);
   await expect(page.locator('[data-selected-cell]')).toContainText(world.cells[id].elevation.toLocaleString('en'));
   await expect(page.locator('[data-selected-cell]')).toContainText(BIOMES[world.cells[id].biome as keyof typeof BIOMES].label);
-  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toContainText(RESOURCES[world.cells[id].resource as keyof typeof RESOURCES].label);
+  const selectedResource = world.cells[id].resource as keyof typeof RESOURCES | null;
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toContainText(
+    selectedResource === null ? 'No resource site' : RESOURCES[selectedResource].label,
+  );
   const province = world.provinces.find((province: { id: string }) => province.id === world.cells[id].provinceId);
   await expect(page.locator('[data-selected-cell]')).toContainText(province?.name ?? 'Open water');
   await expect(page.locator('[data-selected-cell]')).toContainText(province ? 'Unclaimed' : 'No country');
   await page.screenshot({ path: testInfo.outputPath('biomes-inspected.png'), fullPage: true });
+});
+
+test('a cell without a resource site is described explicitly', async ({ page }) => {
+  const centerCellId = 100 * 320 + 160;
+  await page.route('**/api/atlas', async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.world.cells[centerCellId].resource = null;
+    await route.fulfill({ response, json: payload });
+  });
+
+  const canvas = await ready(page);
+  const box = (await canvas.boundingBox())!;
+  const scale = Math.min(box.width / 320, box.height / 200);
+  await canvas.click({ position: {
+    x: (box.width - 320 * scale) / 2 + 160.5 * scale,
+    y: (box.height - 200 * scale) / 2 + 100.5 * scale,
+  } });
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(centerCellId));
+  const resource = page.getByRole('region', { name: 'Selected cell resource' });
+  await expect(resource).toContainText('No resource site');
+  await expect(resource).toContainText('still has its biome');
+});
+
+test('the hosted atlas shows every sparse site and its extraction requirement', async ({ page }) => {
+  const canvas = await ready(page);
+  const response = await page.request.get('/api/atlas');
+  const payload = await response.json() as { protocolVersion: number; world: AtlasWorld };
+  expect(payload.protocolVersion).toBe(3);
+  const sites = payload.world.cells.filter(cell => cell.resource !== null);
+  const ordinaryCells = payload.world.cells.filter(cell => cell.resource === null);
+  expect(sites.length).toBeGreaterThanOrEqual(200);
+  expect(sites.length).toBeLessThanOrEqual(500);
+  expect(ordinaryCells.length).toBe(payload.world.cells.length - sites.length);
+  expect(new Set(sites.map(cell => cell.resource))).toEqual(new Set(Object.keys(RESOURCES)));
+
+  await expect(canvas).toHaveAttribute('data-resource-markers', String(sites.length));
+  const allSitesImage = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
+  const selectedSite = nearestToCenter(sites, payload.world);
+  const ordinaryCell = nearestToCenter(
+    ordinaryCells.filter(cell => hasNoNearbySite(cell, sites, payload.world, 4)),
+    payload.world,
+  );
+  const selectedSiteCount = sites.filter(cell => cell.resource === selectedSite.resource).length;
+  const legendItem = page.locator('.atlas-resource-legend li').filter({ hasText: RESOURCES[selectedSite.resource!].label });
+  await expect(legendItem.locator('.atlas-resource-count')).toHaveText(selectedSiteCount.toLocaleString('en'));
+  const siteWithResources = await atlasCellPatch(canvas, payload.world, selectedSite.id);
+  const emptyWithResources = await atlasCellPatch(canvas, payload.world, ordinaryCell.id);
+  await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
+  await expect(canvas).toHaveAttribute('data-resource-markers', '0');
+  expect(await atlasCellPatch(canvas, payload.world, selectedSite.id)).not.toEqual(siteWithResources);
+  expect(await atlasCellPatch(canvas, payload.world, ordinaryCell.id)).toEqual(emptyWithResources);
+  await page.getByRole('checkbox', { name: 'Resources', exact: true }).check();
+  await expect(canvas).toHaveAttribute('data-resource-markers', String(sites.length));
+
+  await page.getByLabel('Resource filter', { exact: true }).selectOption(selectedSite.resource!);
+  await expect(canvas).toHaveAttribute('data-resource-markers', String(selectedSiteCount));
+  expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).not.toBe(allSitesImage);
+
+  await clickAtlasCell(canvas, payload.world, selectedSite.id);
+  const selected = page.locator('[data-selected-cell]');
+  await expect(selected).toHaveAttribute('data-selected-cell', String(selectedSite.id));
+  const resource = page.getByRole('region', { name: 'Selected cell resource' });
+  await expect(resource).toContainText(RESOURCES[selectedSite.resource!].label);
+  await expect(resource).toContainText('Required extraction technology');
+  await expect(resource).toContainText(RESOURCE_RULES[selectedSite.resource!].extractionTechnology);
+
+  await clickAtlasCell(canvas, payload.world, ordinaryCell.id);
+  await expect(selected).toHaveAttribute('data-selected-cell', String(ordinaryCell.id));
+  await expect(resource).toContainText('No resource site');
+
+  await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
+  await expect(canvas).toHaveAttribute('data-resource-markers', '0');
+});
+
+test('the visible edge of a resource marker selects its site only while that marker is shown', async ({ page }) => {
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const canvas = await ready(page);
+    const response = await page.request.get('/api/atlas');
+    const { world } = await response.json() as { world: AtlasWorld };
+    const site = world.cells.find(cell => {
+      const x = cell.id % world.width;
+      return cell.resource !== null && x < world.width - 1 && world.cells[cell.id + 1].resource === null;
+    })!;
+    const terrainCellId = site.id + 1;
+
+    await clickAtlasMarkerEdge(canvas, world, site.id);
+    const selected = page.locator('[data-selected-cell]');
+    await expect(selected).toHaveAttribute('data-selected-cell', String(site.id));
+
+    await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
+    await clickAtlasMarkerEdge(canvas, world, site.id);
+    await expect(selected).toHaveAttribute('data-selected-cell', String(terrainCellId));
+
+    await page.getByRole('checkbox', { name: 'Resources', exact: true }).check();
+    const excludedResource = Object.keys(RESOURCES).find(resource => resource !== site.resource)!;
+    await page.getByLabel('Resource filter', { exact: true }).selectOption(excludedResource);
+    await clickAtlasMarkerEdge(canvas, world, site.id);
+    await expect(selected).toHaveAttribute('data-selected-cell', String(terrainCellId));
+  }
 });
 
 test('drag and cancelled gestures do not pick cells; repeated reset restores camera and one renderer', async ({ page }) => {
@@ -173,7 +279,7 @@ test('resource filtering and province/grid layers change the map without changin
 test('failed atlas replacement preserves the map and retry restores the original study', async ({ page }) => {
   const canvas = await ready(page);
   const before = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
-  await page.route('**/api/atlas', route => route.fulfill({ json: { protocolVersion: 2, world: { cells: [] } } }));
+  await page.route('**/api/atlas', route => route.fulfill({ json: { protocolVersion: 3, world: { cells: [] } } }));
   await page.getByRole('button', { name: 'Reset atlas', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('atlas response');
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(before);
@@ -222,3 +328,58 @@ test('high-density displays preserve tap tolerance in CSS pixels', async ({ brow
     await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
   } finally { await context.close(); }
 });
+
+function nearestToCenter(cells: AtlasCell[], world: AtlasWorld) {
+  const centerX = world.width / 2;
+  const centerY = world.height / 2;
+  return cells.reduce((nearest, cell) => {
+    const x = cell.id % world.width;
+    const y = Math.floor(cell.id / world.width);
+    const nearestX = nearest.id % world.width;
+    const nearestY = Math.floor(nearest.id / world.width);
+    return Math.hypot(x - centerX, y - centerY) < Math.hypot(nearestX - centerX, nearestY - centerY) ? cell : nearest;
+  });
+}
+
+function hasNoNearbySite(cell: AtlasCell, sites: AtlasCell[], world: AtlasWorld, radius: number) {
+  const x = cell.id % world.width;
+  const y = Math.floor(cell.id / world.width);
+  return sites.every(site => Math.hypot(site.id % world.width - x, Math.floor(site.id / world.width) - y) > radius);
+}
+
+async function atlasCellPatch(canvas: import('@playwright/test').Locator, world: AtlasWorld, cellId: number) {
+  return canvas.evaluate((element: HTMLCanvasElement, { world, cellId }) => {
+    const scale = Math.min(element.width / world.width, element.height / world.height);
+    const x = (element.width - world.width * scale) / 2 + (cellId % world.width + 0.5) * scale;
+    const y = (element.height - world.height * scale) / 2 + (Math.floor(cellId / world.width) + 0.5) * scale;
+    const radius = Math.ceil(scale * 2);
+    return Array.from(element.getContext('2d')!.getImageData(
+      Math.floor(x) - radius,
+      Math.floor(y) - radius,
+      radius * 2 + 1,
+      radius * 2 + 1,
+    ).data);
+  }, { world: { width: world.width, height: world.height }, cellId });
+}
+
+async function clickAtlasCell(canvas: import('@playwright/test').Locator, world: AtlasWorld, cellId: number) {
+  const box = (await canvas.boundingBox())!;
+  const scale = Math.min(box.width / world.width, box.height / world.height);
+  const x = cellId % world.width;
+  const y = Math.floor(cellId / world.width);
+  await canvas.click({ position: {
+    x: (box.width - world.width * scale) / 2 + (x + 0.5) * scale,
+    y: (box.height - world.height * scale) / 2 + (y + 0.5) * scale,
+  } });
+}
+
+async function clickAtlasMarkerEdge(canvas: import('@playwright/test').Locator, world: AtlasWorld, cellId: number) {
+  const box = (await canvas.boundingBox())!;
+  const scale = Math.min(box.width / world.width, box.height / world.height);
+  const x = cellId % world.width;
+  const y = Math.floor(cellId / world.width);
+  await canvas.click({ position: {
+    x: (box.width - world.width * scale) / 2 + (x + 1.6) * scale,
+    y: (box.height - world.height * scale) / 2 + (y + 0.5) * scale,
+  } });
+}

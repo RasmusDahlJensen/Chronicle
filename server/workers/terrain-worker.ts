@@ -1,14 +1,14 @@
 import { createAsterIsland } from '../../src/fixtures/aster-island.ts';
 import { createVerdantReach } from '../../src/fixtures/verdant-reach.ts';
 import { MAX_TERRAIN_BYTES, parseTerrainResponse } from '../../shared/terrain.ts';
-import { parseAtlasResponse } from '../../shared/atlas.ts';
+import { ATLAS_PROTOCOL_VERSION, parseAtlasResponse } from '../../shared/atlas.ts';
 import type { TerrainStudy } from '../../shared/studies.ts';
 
 /** Construct, validate, and encode either study away from HTTP handling. */
 export default function generateTerrain(study: TerrainStudy = 'aster'): string {
   if (study !== 'aster' && study !== 'verdant') throw new Error('Unknown terrain study.');
   const payload = study === 'verdant'
-    ? { protocolVersion: 2, world: createVerdantReach() }
+    ? { protocolVersion: ATLAS_PROTOCOL_VERSION, world: createVerdantReach() }
     : { protocolVersion: 1, world: createAsterIsland() };
   if (study === 'verdant') parseAtlasResponse(payload);
   else parseTerrainResponse(payload);

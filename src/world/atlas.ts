@@ -23,11 +23,15 @@ export function summarizeAtlas(world: AtlasWorld) {
   const biomes = Object.fromEntries(BIOME_IDS.map(id => [id, 0])) as Record<Biome, number>;
   const resources = Object.fromEntries(RESOURCE_IDS.map(id => [id, 0])) as Record<Resource, number>;
   let waterKm2 = 0;
+  let resourceSites = 0;
   for (const cell of world.cells) {
     biomes[cell.biome] += world.cellAreaKm2;
-    resources[cell.resource]++;
+    if (cell.resource !== null) {
+      resources[cell.resource]++;
+      resourceSites++;
+    }
     if (isWaterBiome(cell.biome)) waterKm2 += world.cellAreaKm2;
   }
   const totalKm2 = world.cells.length * world.cellAreaKm2;
-  return { totalKm2, waterKm2, landKm2: totalKm2 - waterKm2, biomes, resources };
+  return { totalKm2, waterKm2, landKm2: totalKm2 - waterKm2, biomes, resources, resourceSites, cellsWithoutResource: world.cells.length - resourceSites };
 }

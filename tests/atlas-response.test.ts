@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseAtlasResponse } from '../shared/atlas.ts';
+import { summarizeAtlas } from '../src/world/atlas.ts';
 
 function response() {
-  return { protocolVersion: 2, world: {
+  return { protocolVersion: 3, world: {
     fixtureId: 'small-study', fixtureVersion: 1, name: 'Small study', width: 3, height: 2,
     cellAreaKm2: 4, topology: 'bounded', countries: [], annotations: [],
     provinces: [{ id: 'a', name: 'Province A', countryId: null }],
@@ -21,6 +22,44 @@ function response() {
 test('atlas validation preserves actual biome, resource, area and hierarchy data', () => {
   const payload = response();
   assert.deepEqual(parseAtlasResponse(payload), payload.world);
+});
+
+test('ordinary land and water cells retain geography with no resource site', () => {
+  const payload = response();
+  Object.assign(payload.world.cells[0], { resource: null });
+  Object.assign(payload.world.cells[1], { resource: null });
+  const world = parseAtlasResponse(payload);
+  assert.equal(world.cells[0].resource, null);
+  assert.equal(world.cells[1].resource, null);
+  assert.equal(world.cells[1].biome, 'grassland');
+  assert.equal(world.cells[1].provinceId, 'a');
+  assert.equal(world.cells[4].resource, 'iron');
+});
+
+test('resource summaries count actual sites without treating ordinary terrain as resources', () => {
+  const payload = response();
+  Object.assign(payload.world.cells[0], { resource: null });
+  Object.assign(payload.world.cells[1], { resource: null });
+  const summary = summarizeAtlas(parseAtlasResponse(payload));
+  assert.deepEqual(summary.resources, {
+    fish: 0, grain: 0, timber: 1, game: 0, stone: 1, iron: 1,
+    copper: 0, gold: 0, salt: 1, coal: 0, uranium: 0,
+  });
+  assert.equal(summary.resourceSites, 4);
+  assert.equal(summary.cellsWithoutResource, 2);
+  assert.equal(summary.totalKm2, 24);
+  assert.equal(summary.landKm2, 16);
+  assert.equal(summary.biomes.grassland, 4);
+});
+
+test('an atlas without special sites retains valid geography and zero resource counts', () => {
+  const payload = response();
+  for (const cell of payload.world.cells) Object.assign(cell, { resource: null });
+  const summary = summarizeAtlas(parseAtlasResponse(payload));
+  assert.equal(summary.resourceSites, 0);
+  assert.equal(summary.cellsWithoutResource, 6);
+  assert.ok(Object.values(summary.resources).every(count => count === 0));
+  assert.equal(summary.landKm2, 16);
 });
 
 test('a country can own two distinct connected provinces without replacing cell membership', () => {
@@ -49,7 +88,7 @@ test('a country can own two distinct connected provinces without replacing cell 
 
 test('malformed cell resources, biomes, IDs, elevation and water membership are rejected', () => {
   for (const patch of [
-    { id: 0 }, { biome: 'unknown' }, { resource: null }, { resource: 'invented' },
+    { id: 0 }, { biome: 'unknown' }, { resource: undefined }, { resource: 'invented' }, { resource: '' }, { resource: [] },
     { elevation: NaN }, { elevation: -1 }, { provinceId: null }, { provinceId: 'missing' },
   ]) {
     const payload = response(); Object.assign(payload.world.cells[1], patch);
@@ -67,7 +106,7 @@ test('atlas boundary rejects incompatible envelopes, dimensions, ownership and d
   disconnected.world.cells[2].provinceId = 'b'; disconnected.world.cells[4].provinceId = 'b';
   const empty = response(); empty.world.provinces.push({ id: 'b', name: 'Empty province', countryId: null });
   const duplicates = response(); duplicates.world.provinces.push({ ...duplicates.world.provinces[0] });
-  for (const payload of [null, { ...response(), protocolVersion: 1 }, badSize, owner, disconnected, empty, duplicates]) {
+  for (const payload of [null, { ...response(), protocolVersion: 1 }, { ...response(), protocolVersion: 2 }, badSize, owner, disconnected, empty, duplicates]) {
     assert.throws(() => parseAtlasResponse(payload), /atlas response/);
   }
 });

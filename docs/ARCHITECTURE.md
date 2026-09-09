@@ -1,6 +1,6 @@
 # Chronicle architecture decisions
 
-Updated 9 September 2026. Dev 01 adds synchronized development restarts and connected regression checks around the Atlas 02/Backend 02 foundation. Current verification belongs in the [development reliability brief](features/dev-01.md); the [atlas brief](features/atlas-02.md) retains visual review status. The original Aster Island study and protocol remain available. [Backend 02](features/backend-02.md) retains the foundation's evidence; [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives, primary sources, and future contracts.
+Updated 9 September 2026. Resources 01 replaces ubiquitous cell resources with scattered sites and extraction requirements. Current verification belongs in the [resource brief](features/resources-01.md); [Dev 01](features/dev-01.md) records automatic restarts and the complete regression gate. The original Aster Island study and protocol remain available. [Backend 02](features/backend-02.md) retains the foundation's evidence; [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives, primary sources, and future contracts.
 
 ## Confirmed hosting direction
 
@@ -44,22 +44,23 @@ The core watch glob uses the existing `src` parent so a newly created nested `sr
 
 Verdant Reach is a deterministic **authored regional study** with a bounded 320 × 200 topology. Its 64,000 square cells each cover 4 km², giving 256,000 km² in total. The study contains several substantial landmasses and a southern archipelago, eleven biome types, eleven resource types, and 77 connected unclaimed provinces. Its fixed elevation and climate fields produce coherent regions for atlas evaluation; they do not establish a user-seeded planet generator or a complete drainage/climate model.
 
-Every cell has a stable row-major ID, integral elevation in metres, a biome, one primary natural resource/potential, and a nullable province ID. Ocean and shallow-coast cells have negative elevation and no province. Every land cell belongs to one connected province. A province's nullable `countryId` is a separate hierarchy link; the initial country list is empty. Resource potential is neither an inventory nor an extraction/production rate. Camera movement, layers, and selection do not modify world data or ownership.
+Every cell has a stable row-major ID, integral elevation in metres, a biome, an optional resource site, and a nullable province ID. `resource: null` means no special site, not zero biome productivity, an undiscovered resource, or depletion. The version-2 fixture distributes a few hundred terrain-appropriate sites with spacing; gold and uranium are rarer than common resources. Ocean and shallow-coast cells have negative elevation and no province. Every land cell belongs to one connected province. A province's nullable `countryId` is a separate hierarchy link; the initial country list is empty. Resource presence is neither an inventory nor an extraction/production rate. Camera movement, layers, and selection do not modify world data or ownership.
 
 | Module | Responsibility |
 |---|---|
-| `shared/atlas.ts` | Protocol-2 world, cell, biome, resource, province, country, and annotation schemas/types; dimension, identity, reference, water/land, and province-connectivity validation |
+| `shared/atlas.ts` | Protocol-3 world, cell, biome, nullable resource, province, country, and annotation schemas/types; dimension, identity, reference, water/land, and province-connectivity validation |
 | `shared/terrain.ts` | Retained protocol-1 Aster terrain contract |
 | `shared/studies.ts` | Fixed authored-study identifiers for disposable compute jobs |
 | `src/fixtures/verdant-reach.ts` | The actual shared regional fixture, deterministic resource assignment, and connected province construction |
 | `src/world/atlas.ts` | Biome/resource display catalogs and summaries derived from cell data |
+| `src/world/resources.ts` | Renewable/mineral site kinds and required extraction technology, independent of visual styling |
 | `server/workers/terrain-worker.ts` | Construct the selected shared fixture, validate its matching contract, and encode bounded JSON |
 | `src/api/atlas.ts` | Request the atlas and validate the response before rendering |
 | `src/components/RegionalAtlas.tsx`, `src/components/AtlasCanvas.tsx` | React loading/reset state, legends, layers, cell inspector, and renderer lifecycle |
 | `src/renderer/biome-atlas.ts` | Canvas geography/texture, overlays, bounded camera, and picking; independent of React |
 | `src/App.tsx`, `src/components/LegacyTerrainLab.tsx` | Select the new default view or the retained Aster study at `?scenario=aster` |
 
-Annotations belong to fixture data. Overview resource markers are sampled for readability; closer views expose more markers, and selecting a cell reveals its exact stored resource. The `cell → province → country` inspector displays real references, including unclaimed land and water without a province. Future sovereignty, occupation, habitation, and lifecycle operations still need their own mechanics and contracts.
+Annotations and site positions belong to fixture data. The resource layer and inspector read actual site presence; ordinary cells show no resource site. Extraction requirements are catalog metadata displayed for review, not a claim that an actor knows a technology or can currently produce goods. The preview shows all sites; research, discovery, production, labor, and stocks need later contracts. The `cell → province → country` inspector displays real references, including unclaimed land and water without a province. Future sovereignty, occupation, habitation, and lifecycle operations still need their own mechanics and contracts.
 
 ## Growth and dependency decisions
 
@@ -79,10 +80,12 @@ The uncached map endpoints have separate versioned contracts:
 
 | Endpoint | Payload | Browser study |
 |---|---|---|
-| `GET /api/atlas` | `{ protocolVersion: 2, world: AtlasWorld }` | Verdant Reach, the default view |
+| `GET /api/atlas` | `{ protocolVersion: 3, world: AtlasWorld }` | Verdant Reach, the default view |
 | `GET /api/terrain` | `{ protocolVersion: 1, world: TerrainWorld }` | Aster Island at `?scenario=aster` |
 
 Workers construct the selected authored fixture, validate the matching contract, and serialize its JSON. The browser checks the shared structural and semantic contract before rendering. Invalid replacement data or failed requests preserve the last valid map. Each full-fixture payload is limited independently to **100,000 cells** and **8 MiB of JSON**; larger world delivery needs a measured contract.
+
+Protocol 3 explicitly changes the cell resource contract to a resource ID or null. The worker uses the shared protocol constant; the browser rejects older envelopes instead of silently interpreting them. Fixture version 2 records the changed site layout. There are no saved-world migrations in this stateless lab; future persistence must version and migrate resource state separately.
 
 Both endpoints share one pool: two workers, or one when only one processor is available, with four waiting jobs and an eight-second deadline that includes queue time. Total admitted map responses across both routes are bounded to worker count plus queue allowance, with admission retained until the response finishes or closes. This also constrains work retained for slow clients after computation completes. Configuration is validated on startup; defaults and allowed ranges are recorded in README.
 
@@ -114,8 +117,8 @@ Periodic checkpoints must define recovery after abrupt host failure; a shutdown 
 
 The host currently binds to loopback only. The PC must remain awake and the process running for simulation or remote access to work. Before allowing access from other PCs, define authenticated sessions, per-world authorization, TLS, bounded subscriptions, and session revocation. Unattended startup and OS service management need their own scoped implementation; Docker is not a prerequisite.
 
-The user's visual feedback selected Atlas 02 before the previously proposed seed-generator-first sequence. Verdant Reach is now the default atlas; the accepted Atlas 01/React 01 study remains accessible at `?scenario=aster`. Backend 01 established the browser/host connection, and Backend 02 supplies the runtime and growth safeguards. The active atlas brief owns verification evidence and the exact user-review steps. Review of this visual direction is still required before choosing the next slice.
+The user's visual feedback selected Atlas 02 before the previously proposed seed-generator-first sequence, then Resources 01 corrected its resource distribution. Verdant Reach remains the default atlas; the accepted Atlas 01/React 01 study remains accessible at `?scenario=aster`. Backend 01 established the browser/host connection, and Backend 02 supplies the runtime and growth safeguards. The active resource brief owns verification evidence and the exact user-review steps. Review of the revised sites and visual direction is still required before choosing the next slice.
 
 Future scoped work includes user-seeded geography, a full drainage/climate/resource pipeline, independent world instances, restart recovery, founding settlements, and committed simulation steps with meaningful population/resource accounting. The authored regions and province groups in Atlas 02 provide data to inspect; they do not complete those future generation or simulation systems. Authentication, remote access, and unattended hosting remain separate work before opening access to other PCs.
 
-A future generator must distinguish seed/settings/generator identity from both authored-fixture identity and persistent world-instance identity. Define stage outputs, topology, units, and input limits before connecting incomplete generation stages to province-complete world contracts. Preserve the original studies and their invariants, verify repeatability across workers and host restarts, and measure generation, transfer, and rendering costs with the actual workload. Select the next observable outcome and its brief after Atlas 02 review.
+A future generator must distinguish seed/settings/generator identity from both authored-fixture identity and persistent world-instance identity. Define stage outputs, topology, units, and input limits before connecting incomplete generation stages to province-complete world contracts. Preserve the original studies and their invariants, verify repeatability across workers and host restarts, and measure generation, transfer, and rendering costs with the actual workload. Select the next observable outcome and its brief after review of the resource correction.

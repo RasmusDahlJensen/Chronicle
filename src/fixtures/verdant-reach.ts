@@ -48,12 +48,13 @@ export function createVerdantReach(): AtlasWorld {
       const temperature = v * 1.4 - 0.12 - Math.max(0, elevation) / 5_200
         + (noise(u * 13, v * 13) - 0.5) * 0.12;
       const biome = classify(elevation, inland, temperature, moisture, u, v);
-      cells.push({ id: y * WIDTH + x, elevation, biome, resource: resourceFor(biome, x, y), provinceId: null });
+      cells.push({ id: y * WIDTH + x, elevation, biome, resource: null, provinceId: null });
     }
   }
 
+  placeResourceSites(cells);
   return {
-    fixtureId: 'verdant-reach', fixtureVersion: 1, name: 'The Verdant Reach',
+    fixtureId: 'verdant-reach', fixtureVersion: 2, name: 'The Verdant Reach',
     width: WIDTH, height: HEIGHT, cellAreaKm2: 4, topology: 'bounded', cells,
     provinces: assignProvinces(cells), countries: [],
     annotations: [
@@ -83,23 +84,50 @@ function classify(elevation: number, inland: number, temperature: number, moistu
   return 'grassland';
 }
 
-/** Primary natural potential only: these are neither stockpiles nor production rates. */
-function resourceFor(biome: Biome, x: number, y: number): Resource {
-  const deposit = value(x + 730, y + 290);
-  switch (biome) {
-    case 'ocean': return 'fish';
-    case 'coast': return deposit < 0.3 ? 'salt' : 'fish';
-    case 'grassland': return deposit < 0.04 ? 'coal' : deposit < 0.14 ? 'stone' : deposit < 0.28 ? 'game' : 'grain';
-    case 'forest': return deposit < 0.04 ? 'iron' : deposit < 0.10 ? 'coal' : deposit < 0.26 ? 'game' : 'timber';
-    case 'rainforest': return deposit < 0.025 ? 'gold' : deposit < 0.21 ? 'game' : 'timber';
-    case 'desert': return deposit < 0.006 ? 'uranium' : deposit < 0.02 ? 'gold'
-      : deposit < 0.23 ? 'copper' : deposit < 0.65 ? 'salt' : 'stone';
-    case 'savanna': return deposit < 0.09 ? 'copper' : deposit < 0.48 ? 'game' : 'grain';
-    case 'wetland': return deposit < 0.63 ? 'fish' : 'grain';
-    case 'tundra': return deposit < 0.12 ? 'iron' : deposit < 0.43 ? 'stone' : 'game';
-    case 'snow': return deposit < 0.008 ? 'uranium' : deposit < 0.03 ? 'gold' : deposit < 0.21 ? 'iron' : 'stone';
-    case 'mountain': return deposit < 0.009 ? 'uranium' : deposit < 0.038 ? 'gold'
-      : deposit < 0.27 ? 'iron' : deposit < 0.45 ? 'copper' : deposit < 0.55 ? 'coal' : 'stone';
+/** Reviewable site budgets for this authored study, not production or economy balance. */
+const RESOURCE_SITES: { resource: Resource; count: number; biomes: Biome[] }[] = [
+  { resource: 'uranium', count: 3, biomes: ['desert', 'mountain', 'snow'] },
+  { resource: 'gold', count: 6, biomes: ['rainforest', 'desert', 'mountain', 'snow'] },
+  { resource: 'fish', count: 12, biomes: ['coast'] },
+  { resource: 'fish', count: 14, biomes: ['ocean'] },
+  { resource: 'fish', count: 4, biomes: ['wetland'] },
+  { resource: 'iron', count: 28, biomes: ['forest', 'tundra', 'mountain', 'snow'] },
+  { resource: 'copper', count: 22, biomes: ['desert', 'savanna', 'mountain'] },
+  { resource: 'coal', count: 24, biomes: ['grassland', 'forest', 'mountain'] },
+  { resource: 'salt', count: 18, biomes: ['coast', 'desert'] },
+  { resource: 'grain', count: 60, biomes: ['grassland', 'savanna', 'wetland'] },
+  { resource: 'timber', count: 52, biomes: ['forest', 'rainforest'] },
+  { resource: 'game', count: 46, biomes: ['grassland', 'forest', 'rainforest', 'savanna', 'tundra'] },
+  { resource: 'stone', count: 40, biomes: ['grassland', 'desert', 'tundra', 'mountain', 'snow'] },
+];
+
+/** Only a site's cell receives a resource; ordinary cells retain their biome and no special site. */
+function placeResourceSites(cells: AtlasCell[]): void {
+  const minimumSpacing = 8;
+  const blocked = new Uint8Array(cells.length);
+  for (const [index, plan] of RESOURCE_SITES.entries()) {
+    // Ranking uses the existing deterministic fixture hash, independent of render order or runtime RNG.
+    const candidates = cells.filter(cell => plan.biomes.includes(cell.biome)).map(cell => ({
+      id: cell.id,
+      rank: value(cell.id % WIDTH + 730 + index * 137, Math.floor(cell.id / WIDTH) + 290),
+    }));
+    candidates.sort((a, b) => a.rank - b.rank || a.id - b.id);
+    let placed = 0;
+    for (const { id } of candidates) {
+      if (blocked[id]) continue;
+      cells[id].resource = plan.resource;
+      const x = id % WIDTH;
+      const y = Math.floor(id / WIDTH);
+      for (let dy = -minimumSpacing + 1; dy < minimumSpacing; dy++) {
+        for (let dx = -minimumSpacing + 1; dx < minimumSpacing; dx++) {
+          if (dx * dx + dy * dy >= minimumSpacing * minimumSpacing) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && nx < WIDTH && ny >= 0 && ny < HEIGHT) blocked[ny * WIDTH + nx] = 1;
+        }
+      }
+      if (++placed === plan.count) break;
+    }
   }
 }
 

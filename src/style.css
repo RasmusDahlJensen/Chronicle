@@ -531,9 +531,11 @@ h1 {
 .atlas-biome-swatch { flex: 0 0 9px; width: 9px; height: 9px; border-radius: 2px; box-shadow: inset 0 0 0 1px #20382b20; }
 .atlas-panel-note { margin: -.1rem 0 .8rem; font-size: .64rem; line-height: 1.6; color: var(--atlas-muted); }
 .atlas-resource-legend { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem .35rem; }
-.atlas-resource-legend li { display: flex; align-items: center; gap: .4rem; font-size: .65rem; }
+.atlas-resource-legend li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: .4rem; font-size: .65rem; }
 .atlas-resource-symbol { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex: 0 0 24px; border-radius: 50%; background: #233b35; font: 600 11px Georgia, serif; }
 .atlas-resource-icon { display: block; width: 100%; height: 100%; }
+.atlas-resource-name { min-width: 0; }
+.atlas-resource-count { color: var(--atlas-muted); font-variant-numeric: tabular-nums; }
 .atlas-marker-note { margin: .95rem 0 0; }
 .atlas-map-stage { min-width: 0; }
 .atlas-map-card { overflow: hidden; border: 1px solid #233e33; border-radius: 4px; background: #174d69; box-shadow: 0 8px 22px #233a2912; }
@@ -590,6 +592,11 @@ h1 {
 .atlas-detail-label { margin: 0 0 .65rem; color: var(--atlas-muted); font-size: .59rem; text-transform: uppercase; letter-spacing: .06em; }
 .atlas-resource-value { display: flex; align-items: center; gap: .6rem; margin: 0 0 .65rem; font: 1rem Georgia, serif; }
 .atlas-resource-value > span { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #233b35; font: 600 13px Georgia, serif; }
+.atlas-resource-empty { margin: 0 0 .65rem; font: 1rem Georgia, serif; color: #596458; }
+.atlas-resource-facts { display: grid; gap: .5rem; margin: 0 0 .8rem; }
+.atlas-resource-facts > div { display: grid; gap: .2rem; }
+.atlas-resource-facts dt { color: var(--atlas-muted); font-size: .56rem; line-height: 1.35; text-transform: uppercase; letter-spacing: .045em; }
+.atlas-resource-facts dd { margin: 0; color: var(--atlas-ink); font-size: .7rem; line-height: 1.4; }
 .atlas-cell-resource .atlas-panel-note { margin: 0; }
 .atlas-geography-tree { display: grid; gap: 1rem; margin: 1.3rem 0; padding-left: .8rem; border-left: 1px solid #c1cbb7; }
 .atlas-geography-tree dt { color: var(--atlas-muted); font-size: .59rem; text-transform: uppercase; letter-spacing: .04em; }

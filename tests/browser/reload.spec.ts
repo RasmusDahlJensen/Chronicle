@@ -18,7 +18,7 @@ test('worker fixture edits and failures reach the same open development page', a
 
     const source = await project.read(FIXTURE_PATH);
     const edited = source
-      .replace("fixtureVersion: 1, name: 'The Verdant Reach',", `fixtureVersion: 1, name: '${RELOADED_NAME}',`)
+      .replace("fixtureVersion: 2, name: 'The Verdant Reach',", `fixtureVersion: 2, name: '${RELOADED_NAME}',`)
       .replace('width: WIDTH, height: HEIGHT, cellAreaKm2: 4,', 'width: WIDTH, height: HEIGHT, cellAreaKm2: 5,');
     expect(edited).not.toBe(source);
     expect(edited).toContain(`name: '${RELOADED_NAME}'`);

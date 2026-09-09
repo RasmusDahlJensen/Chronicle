@@ -4,9 +4,9 @@ A living-world atlas, built one small, reviewable slice at a time.
 
 Chronicle is intended to grow into a substantial simulation project. Features arrive gradually, with shared modules, established infrastructure packages, and automated checks protecting the architecture as it grows.
 
-The React + TypeScript + Vite browser lab opens **Verdant Reach**, an authored regional atlas with several landmasses, an archipelago, textured biomes, and cell resources. Its bounded 320 × 200 map contains **64,000 square cells at 4 km² each**, eleven biome types, eleven resource types, and **77 connected, unclaimed provinces**. Pan, zoom, and inspect the actual geography and cell → province → country relationship.
+The React + TypeScript + Vite browser lab opens **Verdant Reach**, an authored regional atlas with several landmasses, an archipelago, textured biomes, and scattered resources. Its bounded 320 × 200 map contains **64,000 square cells at 4 km² each**, eleven biome types, **329 resource sites** across eleven resource types, and **77 connected, unclaimed provinces**. Pan, zoom, and inspect the actual geography and cell → province → country relationship.
 
-A local Node/Fastify backend constructs, validates, and encodes the atlas in a bounded worker pool, then sends it to the browser. Every cell has one primary natural resource or potential; resources are not produced stockpiles. Countries are absent in this study. User-seeded planet generation, simulation, saves, accounts, and persistent worlds for separate users remain future slices.
+A local Node/Fastify backend constructs, validates, and encodes the atlas in a bounded worker pool, then sends it to the browser. Most cells have no special resource site. Scattered mineral deposits and renewable resource concentrations have terrain-appropriate locations and a required extraction technology. The atlas preview shows all sites for inspection; research, extraction, stockpiles, and country knowledge are not running yet. Ordinary land and sea retain their biomes without a special resource marker. User-seeded planet generation, simulation, saves, accounts, and persistent worlds for separate users remain future slices.
 
 ## First setup on your PC
 
@@ -41,7 +41,7 @@ Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chro
 
 The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, database, Docker, or separate service installation is needed. Both servers listen on this PC only.
 
-Drag the map to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. Click a cell to inspect its biome, elevation, resource, province, and unclaimed country status. Toggle **Resources**, **Provinces**, or **Cell grid**, and use **Resource filter** to locate a particular resource. Overview resource markers are sampled; zoom in for more markers, or select any cell for its exact resource.
+Drag the map to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. Click a cell to inspect its biome, elevation, resource site or absence, province, and unclaimed country status. Select a site to see its required extraction technology. Toggle **Resources**, **Provinces**, or **Cell grid**, and use **Resource filter** to locate a particular resource.
 
 Choose **Reset atlas** to fetch a freshly constructed copy of Verdant Reach. Loading failures offer **Retry atlas**; a failed reload retains the last displayed map. The atlas is a fixed regional study, so reset reproduces the same geography and resources.
 
@@ -100,7 +100,7 @@ The local API is available through either running browser URL:
 
 - `/api/health` returns `{ "status": "ok" }` when the HTTP service responds.
 - `/api/ready` reports worker activity, admission usage, and configured limits. It returns HTTP 503 when busy or unavailable.
-- `/api/atlas` returns Verdant Reach as `{ "protocolVersion": 2, "world": … }`.
+- `/api/atlas` returns Verdant Reach as `{ "protocolVersion": 3, "world": … }`; `cell.resource` is a resource ID or explicit `null` for no site.
 - `/api/terrain` retains Aster Island as `{ "protocolVersion": 1, "world": … }`.
 
 Both map payloads are independently bounded to 100,000 cells and 8 MiB of JSON. Their requests share the same worker pool and admission allowance.
@@ -145,7 +145,8 @@ Map response admission is also bounded to worker count plus queue allowance unti
 
 ## Project record
 
-- [Active development reliability slice and verification](docs/features/dev-01.md)
+- [Active scattered-resource slice and verification](docs/features/resources-01.md)
+- [Development reliability and verification](docs/features/dev-01.md)
 - [Atlas slice and visual review status](docs/features/atlas-02.md)
 - [Backend foundation and verification evidence](docs/features/backend-02.md)
 - [Backend research and technology decisions](docs/BACKEND_RESEARCH.md)
@@ -169,10 +170,11 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - `server/app.ts`: Fastify API, static serving, request limits, and lifecycle.
 - `server/config.ts`: validated backend configuration.
 - `server/compute.ts` and `server/workers/`: bounded execution of disposable terrain jobs.
-- `shared/atlas.ts`: biome/resource atlas types, protocol-2 schema, hierarchy/connectivity validation, and size limits.
+- `shared/atlas.ts`: biome/resource atlas types, protocol-3 schema with nullable resource sites, hierarchy/connectivity validation, and size limits.
 - `shared/terrain.ts`: retained protocol-1 terrain schema and validation.
 - `shared/studies.ts`: fixed authored study identifiers accepted by compute.
 - `shared/http.ts`: API error schemas and browser validation.
 - `src/world/atlas.ts`: biome/resource catalogs and area/resource summaries; `terrain.ts` retains the original terrain summaries.
+- `src/world/resources.ts`: resource site kinds and extraction technology requirements, separate from visual styling.
 - `src/fixtures/verdant-reach.ts` and `aster-island.ts`: deterministic authored regional and original island fixtures.
 - `src/renderer/biome-atlas.ts`: biome textures, layers, bounded camera, and cell selection, independent of React; `atlas.ts` retains the original renderer.

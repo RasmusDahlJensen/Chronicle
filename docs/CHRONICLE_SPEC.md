@@ -22,6 +22,7 @@ Evidence register:
 | Local hosting decision, 9 September | Each person has a separate world; world generation and simulation run on the user's PC; worlds pause and save when the person leaves, then resume on return |
 | Frontend choice, 9 September | React + TypeScript + Vite for the browser interface; atlas rendering and hosted simulation remain separate |
 | Atlas visual correction, 9 September | Prioritize a larger map with several landmasses, richer textures and distinct biomes; display a primary natural resource on every cell and preserve cell → province → country relationships. Include uranium as resource potential; no extraction or nuclear mechanics implied. |
+| Resource distribution correction, later on 9 September | Replace resources on every cell with scattered resource sites that require appropriate technology to exploit, inspired by Civilization. Most cells have no special site; preserve ordinary biome productivity as a separate concept. |
 
 Precedence: newer explicit user choices override older choices. In particular:
 
@@ -29,6 +30,7 @@ Precedence: newer explicit user choices override older choices. In particular:
 2. Cells and provinces are distinct. The earlier target of tens of thousands of “provinces” must not become an accidental requirement for tens of thousands of province groups each containing thousands of cells.
 3. Early expansion should be lively and competitive, replacing the prototype’s frustratingly slow consolidation. Population and travel accounting still apply.
 4. Local development replaces Sites as the primary workflow. Separate worlds will be hosted on the user's PC; access and deployment details remain to be defined.
+5. Scattered resource sites replace the earlier request to attach a resource to every cell. Technology determines exploitation; presence, knowledge, productivity, extraction, and stockpiles are distinct.
 
 Requirement labels: **Required** means a recorded product direction. **Proposed default** means a concrete engineering or balance choice introduced here, changeable after measurement. **Deferred** means outside the first release.
 
@@ -148,7 +150,7 @@ Acceptance: population ledger reconciles; food shortages can cause decline; migr
 
 **Required:** Multiple resources per place; labor and technology determine exploitation; trade supplies missing materials; resource access is not a global shared inventory.
 
-**Current atlas slice:** Following the newer visual request, Atlas 02 exposes one primary resource per cell for map inspection. This is initial natural potential, with no quantities, extraction, or stockpiles. Additional deposits and renewable capacities remain an economy contract to define; the singular display resource does not impose a permanent one-resource limit on a place.
+**Current atlas slice:** Resources 01 replaces Atlas 02's ubiquitous resources with sparse, terrain-appropriate mineral deposits and renewable concentrations. Cells have either one displayed resource site or no site; absence of a special site does not mean zero fertility, timber, or future base productivity. The atlas preview shows sites and their required extraction technology for review. These requirements are catalog data; there is no running research, extraction, depletion, or stockpile system. Visibility by country knowledge remains a future observer/technology contract. Additional deposits and renewable capacities remain an economy contract to define; the singular display resource does not impose a permanent one-resource limit on a place.
 
 **Proposed resource set:** food, timber, stone, copper, tin, iron, horses, and one or two luxury categories. Introduce additional goods only when a mechanic uses them. Distinguish deposits, extraction rates, finite stockpiles, and renewable productivity.
 
