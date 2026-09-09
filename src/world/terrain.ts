@@ -1,23 +1,5 @@
-export type Terrain = 'water' | 'plains' | 'hills';
-
-export interface TerrainCell {
-  id: number;
-  terrain: Terrain;
-  /** Metres above sea level; negative values are sea depth. */
-  elevation: number;
-  provinceId: string | null;
-}
-
-export interface TerrainWorld {
-  fixtureId: string;
-  fixtureVersion: number;
-  name: string;
-  width: number;
-  height: number;
-  cellAreaKm2: number;
-  cells: TerrainCell[];
-  provinces: { id: string; name: string; sovereignId: string | null }[];
-}
+import type { TerrainWorld } from '../../shared/terrain.ts';
+export type { Terrain, TerrainCell, TerrainWorld } from '../../shared/terrain.ts';
 
 export function summarizeTerrain(world: TerrainWorld) {
   const areas = { totalKm2: 0, landKm2: 0, waterKm2: 0, plainsKm2: 0, hillsKm2: 0 };

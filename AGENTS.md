@@ -1,11 +1,11 @@
 # Working on Chronicle
 
-Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief, currently `docs/features/backend-01.md`. The accepted React and terrain slices are recorded in `docs/features/react-01.md` and `docs/features/atlas-01.md`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
+Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief, currently `docs/features/backend-02.md`. The accepted React and terrain slices are recorded in `docs/features/react-01.md` and `docs/features/atlas-01.md`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
 
 ## Scope and collaboration
 
 - At task startup, inspect working-tree changes and relevant files; reconcile them with the active brief instead of assuming its status is current.
-- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. The authorized local terrain backend and combined launch flow in Backend 01 are implemented and verified, awaiting user review. Hosted simulation, independent user worlds, and saves are later slices.
+- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. The user authorized immediate research and implementation of Backend 02: a bounded, validated backend runtime and standalone serving. Hosted simulation, independent user worlds, and saves are later slices.
 - Keep one active slice with an observable outcome and concrete acceptance checks. Do not treat a whole milestone or the full specification as one task.
 - Complete authorized work and its verification autonomously. Ask about consequential scope or contract changes, not routine reversible choices.
 - Prepare a runnable review with exact steps. Do not start the next feature automatically; record when user testing is still pending.

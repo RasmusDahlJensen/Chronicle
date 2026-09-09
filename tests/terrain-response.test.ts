@@ -43,7 +43,7 @@ test('malformed or incompatible responses cannot become renderer input', () => {
 
 test('invalid cell IDs, terrain, elevation, and province references are rejected', () => {
   for (const patch of [
-    { id: 0 }, { terrain: 'lava' }, { elevation: NaN },
+    { id: 0 }, { terrain: 'lava' }, { elevation: NaN }, { elevation: Infinity },
     { provinceId: 'missing' }, { provinceId: null },
   ]) {
     const payload = response();
@@ -53,4 +53,15 @@ test('invalid cell IDs, terrain, elevation, and province references are rejected
   const waterWithProvince = response();
   waterWithProvince.world.cells[0]!.provinceId = 'island';
   assert.throws(() => parseTerrainResponse(waterWithProvince), /terrain response/i);
+});
+
+test('the shared schema rejects unknown fields, oversized labels, and duplicate province IDs', () => {
+  for (const patch of [{ debug: 'not part of protocol 1' }, { name: 'x'.repeat(257) }]) {
+    const payload = response();
+    Object.assign(payload.world, patch);
+    assert.throws(() => parseTerrainResponse(payload), /terrain response/i);
+  }
+  const duplicate = response();
+  duplicate.world.provinces.push({ ...duplicate.world.provinces[0]! });
+  assert.throws(() => parseTerrainResponse(duplicate), /terrain response/i);
 });

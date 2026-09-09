@@ -1,61 +1,63 @@
 # Chronicle architecture decisions
 
-Updated 9 September 2026. The terrain lab uses React + TypeScript + Vite and a local Node.js + TypeScript terrain host. Separate user worlds and pause/save on disconnect remain confirmed directions for later implementation.
+Updated 9 September 2026. Backend 02 implements the researched local runtime foundation around the accepted terrain lab. Automated checks, browser verification, and independent review are complete; user review is pending. The [active brief](features/backend-02.md) records actual results and the review steps. [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives, primary sources, and future contracts.
 
 ## Confirmed hosting direction
 
-The user chose: each person has a separate world, with all world generation and simulation running on the user's PC. Browsers display the atlas and send observer controls. Worlds do not interact with one another.
+Each person has a separate world, with all world generation and simulation running on the user's PC. Browsers display the atlas and send observer controls. Worlds do not interact. This supersedes the specification's original browser-simulation proposal while preserving the observer-only experience.
 
-This supersedes the specification's original proposal to run simulation in each browser. It preserves the observer-only experience and does not introduce shared-world multiplayer.
+Each future world must have independent identity, state, configuration/seed, RNG state, clock, command ordering, history, and saves. Reconnecting returns to the appropriate world; another connection attaches to the same simulation. Requests and subscriptions must be checked against the person's access to that world.
 
-Each world must have independent state, configuration/seed, RNG state, clock, command ordering, history, and saves. Reconnecting must return to the appropriate world; opening another connection must not create a second simulation of that world. Requests and subscriptions must be checked against the person's access to the world.
+**Confirmed lifecycle:** pause and save on departure, restore and resume on return, preserve manual pause, and perform no offline catch-up. These are requirements for future persistent worlds, not behavior provided by the current stateless fixture.
 
-## Technical choices
+## Implemented runtime foundation
 
-The user selected React + TypeScript + Vite for the browser interface. Keep world rules and atlas rendering independent of React components.
-
-| Part | Choice and status | Responsibility |
+| Part | Choice | Responsibility |
 |---|---|---|
-| Browser interface | **Implemented for the terrain lab:** React + TypeScript + Vite | Current terrain legend and reset; later panels, selection, observer controls, and connection state |
-| Atlas renderer | **Existing baseline:** Canvas 2D; benchmark larger maps before choosing the full-world renderer | Draw terrain and committed world views locally; remain separate from React |
-| Host service | **Implemented for the terrain lab:** Node.js + TypeScript with native HTTP | Constructs and returns the stateless fixture; ownership, scheduling, and persistence follow later |
-| Compute | **Recommended:** a bounded set of Node worker threads | Run generation and simulation away from request handling |
-| Shared core | Browser-independent TypeScript modules, extending the existing separation | Deterministic rules and world data used by the host and test scenarios |
+| Browser interface | React + TypeScript + Vite | Terrain legend, reset, loading/failure/retry, and later observer controls |
+| Atlas renderer | Existing Canvas 2D | Draw the accepted terrain independently of React; benchmark larger worlds before selecting another renderer |
+| Host service | Node 24.20.0 + TypeScript + Fastify 5.12.3 | HTTP contracts, errors, request IDs/logging, limits, health/readiness, and lifecycle |
+| Compute | Piscina 5.3.2 with persistent bounded Node workers | Construct, validate, and encode disposable terrain jobs away from HTTP handling |
+| Shared transport | TypeBox 1.3.30 JSON schemas plus semantic validation | Common payload types and validation for host workers and browser |
+| Built assets | @fastify/static 10.1.3 | Serve the built frontend directly through the host |
+| Shared core | Browser-independent TypeScript world/fixture modules | Actual world data and rules reused by the host, renderer, and automated scenarios |
 
-`npm start` launches the terrain HTTP server and Vite in one Node process. Each launch owns a backend bound to an automatically assigned loopback port; Vite proxies `/api` through the same origin as the browser app. `npm run preview` uses the same host with the built frontend. Ctrl+C closes both. Frontend edits use Vite hot updates; backend and fixture edits require a restart. Keep one repository and avoid introducing a database, additional language, or service framework until a specific slice needs it.
+The user authorized proper research and immediate implementation of this baseline. Fastify replaces the first slice's native HTTP routing; a bounded worker pool replaces synchronous fixture construction on the request thread. These choices now meet concrete runtime needs. They do not require another language, repository, database service, or container runtime.
 
-The first transport is an uncached `GET /api/terrain` returning `{ protocolVersion: 1, world }`. The browser validates the payload before rendering and can retry failed requests without losing the last displayed map. This temporary full-fixture transport is bounded to 100,000 cells; larger world delivery requires a measured contract. The small authored fixture is constructed synchronously on request. This does not establish scheduling or throughput for simulation workloads.
+`npm start` launches Fastify and Vite in one Node process, with worker threads for CPU work. The development backend binds to an automatically assigned loopback port; Vite proxies `/api` through the browser origin at port 5173. `npm run build`, then `npm run serve`, starts the built frontend and API together on port 4173 through Fastify without a Vite runtime. `npm run preview` aliases that built-app mode. Ctrl+C closes listeners and workers. React changes use Vite hot updates; backend, worker, shared transport, and fixture changes require a restart. [README](../README.md) is the canonical setup, launch, and configuration guide.
 
-Use persistent workers with an explicit limit; decide their assignment to worlds after measurement. A browser connection is not a unit of compute allocation. Within each world, retain one ordered authority for mutations. Parallel execution of different worlds must not affect their individual results.
+## Transport and capacity boundaries
 
-Browsers receive an initial world view and bounded updates with world/version identifiers. Reconnection needs a way to resynchronize after missing updates. Keep static geography separate from frequent changes and avoid sending the entire world every tick. Browser rendering still consumes client CPU/GPU resources.
+The uncached `GET /api/terrain` contract remains `{ protocolVersion: 1, world }`. Workers construct the existing authored fixture, validate it, and serialize its JSON. The browser checks the shared structural and semantic contract before rendering. Invalid replacement data or failed requests preserve the last valid map. This full-fixture transport is limited independently to **100,000 cells** and **8 MiB of JSON**; larger world delivery needs a measured contract.
 
-The host must bound active worlds, generation jobs, resident memory, and outgoing update queues. Overload should queue or defer work with an understandable status. Exact capacities are unmeasured; no simultaneous-user or simulation-speed promise is established.
+The initial pool uses two workers, or one when only one processor is available, with four waiting jobs and an eight-second deadline that includes queue time. Total admitted terrain responses are bounded to worker count plus queue allowance, with admission retained until the response finishes or closes. This also constrains work retained for slow clients after computation completes. Configuration is validated on startup; defaults and allowed ranges are recorded in README.
+
+Request parsing, sockets, deadlines, and compute admission have explicit limits. Overload and timeouts return retryable failures. Disconnect cancels disposable terrain work; worker failure returns an error and does not fall back to computing on the HTTP thread. Structured logs and server-generated request IDs support diagnosis. `/api/health` establishes HTTP responsiveness; `/api/ready` reports worker/admission diagnostics and returns 503 when busy or unavailable. Startup exercises the actual worker path before announcing readiness.
+
+These are conservative engineering defaults. Worker heap limits and payload bounds are not a total process-memory guarantee. The backend benchmark measures the fixture pipeline and HTTP responsiveness, recording configuration, hardware, latency, request outcomes, event-loop delay, and memory observations. It cannot establish simultaneous-world capacity, generation performance, or simulation speed. Actual measurements and checks belong in the active brief.
+
+## Future world execution
+
+The current pool runs disposable jobs. Cancelling a running Piscina task can terminate its worker; that policy must not be applied automatically to the only copy of a mutable world. A resident-world scheduler needs its own scoped design and measurements.
+
+Within each world, retain one ordered mutation authority and bounded batches of completed simulation steps. A browser connection is not a unit of compute allocation. Parallel execution of separate worlds must not affect their individual results. Separate simulation from rendering, keep rules independent of browser and host APIs, and preserve seeded RNG state, stable update order, explicit accounting, and versioned rules/configuration.
+
+Future subscriptions need initial views and bounded updates with world/incarnation/revision identifiers, plus resynchronization after missed updates. Keep static geography separate from frequent changes and avoid sending a full world every tick. Reset must invalidate stale jobs and messages. Bound active worlds, generation work, resident memory, and outgoing queues; choose capacities from representative workloads.
 
 ## Persistence and lifecycle
 
-Hosted worlds need separately identified, versioned saves on the host. Define recovery from interrupted generation and server restarts in the relevant implementation slice. Saving and loading must preserve committed state and deterministic continuation.
+**Selected for the first persistent-world slice: local SQLite. No Chronicle save database is installed or created in Backend 02.** The stateless authored fixture has no user-specific progress to protect. Add meaningful persistent world identity and state before implementing its storage, and add recovery before users accumulate progress. The research report compares SQLite with PostgreSQL and the Node SQLite drivers, and defines durability, migration, and backup checks.
 
-**Confirmed:** pause and save when the person leaves; restore and resume when they return.
+The first store can use versioned world metadata and checkpoint payloads with an atomic current-checkpoint update. Simulation state remains owned by the shared core. Save only at a completed step, including the RNG, clock, identity, in-flight work, and history required for deterministic continuation. Validate a candidate load before replacing a running world; unsupported versions and migration failures must preserve a recoverable checkpoint.
 
-Proposed lifecycle details: detect the loss of the last relevant connection, allowing a short reconnect grace period whose duration is still to be chosen. Pause at a completed simulation step, save that committed state, and release its compute allocation. Reopening another tab must not duplicate the simulation. Retain whether the user had manually paused: only a previously running world resumes automatically. Do not simulate elapsed offline time. Evict idle world data only after its save succeeds; record and retain recoverable state if saving fails.
+Track loss of the last relevant connection with a host-side expiry and a short reconnect grace period whose duration remains to be chosen. Pause at a completed step, save durably, then release compute. Only a previously running world resumes automatically. Preserve manual pause and never simulate elapsed offline time. If saving fails, retain recoverable state and remain paused; do not evict it or discard the last good checkpoint.
 
-The PC must remain awake and the host process running for simulations to advance and for remote access to work. Access from other machines, host startup management, and user identification need scoped implementation work; nothing is being exposed to the network as part of this decision.
+Periodic checkpoints must define recovery after abrupt host failure; a shutdown save alone cannot protect against power loss. Test interrupted writes and backup restoration. Prevent two host processes from advancing the same persistent world: SQLite transaction locks do not provide simulation ownership.
 
-## Small next steps under discussion
+## Remote access and next action
 
-1. **Done:** define the React migration brief in `docs/features/react-01.md`.
-2. **Implemented, verified, and accepted:** migrate the terrain screen to React. The user confirmed it runs correctly and the island looks acceptable.
-3. **Implemented and verified; user review pending:** the local Node host constructs and returns the same terrain fixture, with browser loading/failure/retry behavior. See `docs/features/backend-01.md`.
-4. Use two independent test worlds to verify ownership, reset isolation, and reconnect behavior before allowing access from other PCs.
-5. Add measured generation/simulation workloads and define scheduling/persistence behavior in separate slices.
+The host currently binds to loopback only. The PC must remain awake and the process running for simulation or remote access to work. Before allowing access from other PCs, define authenticated sessions, per-world authorization, TLS, bounded subscriptions, and session revocation. Unattended startup and OS service management need their own scoped implementation; Docker is not a prerequisite.
 
-The order and scope of implementation require a feature brief. Atlas 01 remains available as the working baseline; do not combine these steps into one large implementation.
+The accepted Atlas 01 and React 01 slices remain the visible baseline. Backend 01 established the first browser/host connection; Backend 02 is the active researched runtime slice. Routine checks, Chromium scenarios, a built-app browser smoke check, and independent review are complete; the active brief records their exact scope and results. Next action: run the lab and review the terrain loading/reset behavior using that brief. User testing remains pending.
 
-## Current evidence and handoff
-
-Original baseline: commit `066aa78` on `feat/atlas-01`; accepted React migration: `54af29f`. The app uses React components around the same Canvas 2D renderer, with the fixed fixture now constructed by the local host. The original timing measures rendering only and cannot establish backend capacity. Accounts, persistent user worlds, simulation, and hosted-world lifecycle are not implemented yet.
-
-See `docs/features/backend-01.md` for current verification and handoff. Backend 01 passed 19 automated tests, 12 Chromium scenarios, and the production build. Next action: user review of the local backend slice. Disconnect detection, storage, worker scheduling, and hosting capacity remain to be resolved in their respective slices. README is the maintained guide for launching the current project.
-
-Node's [worker-thread documentation](https://nodejs.org/docs/latest-v24.x/api/worker_threads.html) supports using workers for CPU-intensive JavaScript and reusing workers to avoid repeated startup overhead. It does not establish Chronicle's capacity or a speedup over browser workers.
+After that review, propose a narrow world-identity and recovery slice using two explicitly labelled local test owners and real shared world data. Verify independent reset/replacement, second-tab attachment, and restart restoration before remote exposure. Define completed-step pause and save/load continuation as soon as real simulation stepping exists. Do not start those features automatically or add decorative simulation state to demonstrate infrastructure.

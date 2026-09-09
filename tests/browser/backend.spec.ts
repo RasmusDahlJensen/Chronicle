@@ -92,3 +92,19 @@ test('keyboard focus survives a host reset so Enter can reset again', async ({ p
   await page.keyboard.press('Enter');
   await expect(page.getByRole('status')).toHaveText('Original terrain restored · 2');
 });
+
+test('a busy host explains the failure and retry preserves the existing map', async ({ page }) => {
+  await page.goto('/');
+  const canvas = page.locator('#terrain-canvas');
+  await expect(canvas).toHaveAttribute('data-rendered', 'true');
+  const original = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
+  await page.route('**/api/terrain', route => route.fulfill({ status: 503, json: {
+    error: { code: 'OVERLOADED', message: 'Busy', requestId: 'test-request' },
+  } }));
+  await page.getByRole('button', { name: 'Reset terrain' }).click();
+  await expect(page.getByRole('alert')).toContainText('host is busy');
+  expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(original);
+  await page.unroute('**/api/terrain');
+  await page.getByRole('button', { name: 'Retry terrain' }).click();
+  await expect(page.getByRole('status')).toHaveText('Original terrain restored · 1');
+});

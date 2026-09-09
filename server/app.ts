@@ -1,0 +1,133 @@
+import { randomUUID } from 'node:crypto';
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply } from 'fastify';
+import fastifyStatic from '@fastify/static';
+import { Type } from 'typebox';
+import { TerrainResponseSchema } from '../shared/terrain.ts';
+import type { ApiError } from '../shared/http.ts';
+import { readBackendConfig, type BackendConfig } from './config.ts';
+import { createTerrainCompute, ComputeClosedError, ComputeOverloadedError, ComputeTimeoutError, type TerrainCompute } from './compute.ts';
+
+interface AppOptions {
+  config?: BackendConfig;
+  compute?: TerrainCompute;
+  staticRoot?: string;
+  logger?: boolean;
+}
+
+function failure(reply: FastifyReply, status: number, code: ApiError['error']['code'], message: string) {
+  return reply.code(status).send({ error: { code, message, requestId: reply.request.id } });
+}
+
+/** Build and warm a host independently of its listener; closing it owns all compute. */
+export async function buildApp(options: AppOptions = {}): Promise<FastifyInstance> {
+  const config = options.config ?? readBackendConfig();
+  const app = Fastify({
+    logger: options.logger === false ? false : {
+      level: config.logLevel, redact: ['req.headers.authorization', 'req.headers.cookie'],
+    },
+    requestIdHeader: false,
+    genReqId: () => randomUUID(),
+    bodyLimit: 64 * 1024,
+    requestTimeout: 10_000,
+    connectionTimeout: 15_000,
+    keepAliveTimeout: 5_000,
+    maxRequestsPerSocket: 100,
+    forceCloseConnections: true,
+    exposeHeadRoutes: false,
+    ajv: { customOptions: { removeAdditional: false, coerceTypes: false } },
+  });
+  app.server.headersTimeout = 10_000;
+  const compute = options.compute ?? createTerrainCompute(config);
+  const controllers = new Set<AbortController>();
+  const admissionLimit = config.workers + config.maxQueue;
+  let stopping = false;
+
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('x-request-id', request.id).header('x-content-type-options', 'nosniff');
+    const path = request.url.split('?')[0];
+    if (path === '/api' || path.startsWith('/api/')) reply.header('cache-control', 'no-store');
+    if (['/api/health', '/api/ready', '/api/terrain'].includes(path) && request.method !== 'GET') {
+      reply.header('allow', 'GET');
+      return failure(reply, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
+    }
+  });
+  app.setNotFoundHandler((_request, reply) => failure(reply, 404, 'NOT_FOUND', 'Not found.'));
+  app.setErrorHandler<FastifyError>((error, request, reply) => {
+    if (error.validation || error.statusCode === 400) return failure(reply, 400, 'INVALID_REQUEST', 'Invalid request.');
+    if (error.statusCode === 413) return failure(reply, 413, 'REQUEST_TOO_LARGE', 'Request is too large.');
+    if (error.statusCode === 415) return failure(reply, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported content type.');
+    if (error instanceof ComputeOverloadedError || error instanceof ComputeClosedError) {
+      reply.header('retry-after', '1');
+      return failure(reply, 503, error instanceof ComputeClosedError ? 'UNAVAILABLE' : 'OVERLOADED', error.message);
+    }
+    if (error instanceof ComputeTimeoutError) {
+      reply.header('retry-after', '1');
+      return failure(reply, 504, 'COMPUTE_TIMEOUT', error.message);
+    }
+    request.log.error({ err: error }, 'Request failed');
+    return failure(reply, 500, 'INTERNAL_ERROR', 'Unable to construct terrain. Try again.');
+  });
+
+  const querystring = Type.Object({}, { additionalProperties: false });
+  app.get('/api/health', { schema: { querystring } }, async () => ({ status: 'ok' }));
+  app.get('/api/ready', { schema: { querystring } }, async (_request, reply) => {
+    const snapshot = compute.snapshot();
+    const ready = !stopping && snapshot.workers > 0 && controllers.size < admissionLimit;
+    if (!ready) reply.code(503).header('retry-after', '1');
+    return {
+      status: ready ? 'ready' : 'busy', compute: snapshot,
+      admitted: controllers.size,
+      limits: { workers: config.workers, queued: config.maxQueue, admitted: admissionLimit, jobTimeoutMs: config.jobTimeoutMs },
+    };
+  });
+  app.get('/api/terrain', { schema: { querystring, response: { 200: TerrainResponseSchema } } }, async (request, reply) => {
+    if (stopping) throw new ComputeClosedError();
+    if (controllers.size >= admissionLimit) throw new ComputeOverloadedError();
+    const controller = new AbortController();
+    controllers.add(controller);
+    const release = () => {
+      controllers.delete(controller);
+      request.raw.off('aborted', cancel);
+      reply.raw.off('finish', release);
+      reply.raw.off('close', onClose);
+    };
+    const cancel = () => controller.abort(new Error('Terrain request disconnected.'));
+    const onClose = () => {
+      if (!reply.raw.writableFinished) cancel();
+      release();
+    };
+    request.raw.once('aborted', cancel);
+    reply.raw.once('finish', release);
+    reply.raw.once('close', onClose);
+    try {
+      const body = await compute.generate(controller.signal);
+      // This is validated and encoded in the worker, avoiding a large stringify here.
+      return reply.type('application/json; charset=utf-8').send(body);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        reply.hijack();
+        reply.raw.destroy();
+        return reply;
+      }
+      throw error;
+    }
+  });
+
+  app.addHook('preClose', async () => {
+    stopping = true;
+    // Current jobs are disposable generation; future committed world saves need their own drain.
+    for (const controller of controllers) controller.abort(new ComputeClosedError());
+  });
+  app.addHook('onClose', async () => { await compute.close(); });
+  try {
+    if (options.staticRoot) await app.register(fastifyStatic, {
+      root: options.staticRoot, index: ['index.html'], maxAge: 0,
+    });
+    await compute.ready();
+    await app.ready();
+    return app;
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
+}

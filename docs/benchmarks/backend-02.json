@@ -1,0 +1,126 @@
+{
+  "benchmark": "Chronicle authored terrain HTTP pipeline; not simulation capacity",
+  "measuredAt": "2026-09-09T09:22:15.898Z",
+  "runtime": {
+    "node": "v24.20.0",
+    "platform": "linux",
+    "architecture": "x64",
+    "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+    "availableParallelism": 16
+  },
+  "mode": "Fastify loopback API with real generation workers; no Vite or browser",
+  "fixture": {
+    "id": "aster-island",
+    "version": 1,
+    "cells": 27648
+  },
+  "limits": {
+    "workers": 2,
+    "queued": 4,
+    "admitted": 6,
+    "jobTimeoutMs": 8000
+  },
+  "memory": {
+    "scope": "Host process, worker threads, and this HTTP client/probe harness; excludes other processes",
+    "sampleIntervalMs": 25,
+    "initialRssBytes": 108265472,
+    "peakRssBytes": 429948928
+  },
+  "notes": [
+    "Each timed terrain response is read completely.",
+    "One untimed HTTP warmup precedes both phases.",
+    "Serial health probes run during each terrain phase with a 10 ms interval.",
+    "HTTP 503 overload is counted separately and is expected during the default burst.",
+    "No throughput or latency acceptance threshold is inferred from this fixture."
+  ],
+  "phases": [
+    {
+      "name": "normal",
+      "requests": 12,
+      "concurrency": 2,
+      "durationMs": 1131.05,
+      "statuses": {
+        "200": 12
+      },
+      "successful": 12,
+      "rejected": 0,
+      "unexpectedResponses": 0,
+      "transportFailures": 0,
+      "successfulTerrainLatencyMs": {
+        "count": 12,
+        "p50": 178.75,
+        "p95": 216.03,
+        "max": 216.03
+      },
+      "rejectedTerrainLatencyMs": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "max": null
+      },
+      "successfulResponseBytes": {
+        "min": 1915493,
+        "max": 1915493
+      },
+      "health": {
+        "failures": 0,
+        "latencyMs": {
+          "count": 97,
+          "p50": 1.44,
+          "p95": 1.84,
+          "max": 6.5
+        }
+      },
+      "eventLoopDelayMs": {
+        "p95": 10.77,
+        "max": 13.25
+      },
+      "errors": []
+    },
+    {
+      "name": "burst",
+      "requests": 12,
+      "concurrency": 12,
+      "durationMs": 529.53,
+      "statuses": {
+        "200": 6,
+        "503": 6
+      },
+      "successful": 6,
+      "rejected": 6,
+      "unexpectedResponses": 0,
+      "transportFailures": 0,
+      "successfulTerrainLatencyMs": {
+        "count": 6,
+        "p50": 339.69,
+        "p95": 528.81,
+        "max": 528.81
+      },
+      "rejectedTerrainLatencyMs": {
+        "count": 6,
+        "p50": 3.31,
+        "p95": 3.81,
+        "max": 3.81
+      },
+      "successfulResponseBytes": {
+        "min": 1915493,
+        "max": 1915493
+      },
+      "health": {
+        "failures": 0,
+        "latencyMs": {
+          "count": 46,
+          "p50": 1.41,
+          "p95": 3.95,
+          "max": 6.05
+        }
+      },
+      "eventLoopDelayMs": {
+        "p95": 10.67,
+        "max": 12.03
+      },
+      "errors": []
+    }
+  ],
+  "passed": true
+}
