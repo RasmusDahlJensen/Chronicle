@@ -15,8 +15,23 @@ async function begin(panel: Locator, placement = 'Tribes 1') {
   await expect(panel).toContainText('Day 1, Year 1');
 }
 
+test('a fresh world has no civilization or marker before Begin tribe', async ({ page }) => {
+  const actorRequests: string[] = [];
+  page.on('request', request => {
+    if (request.url().includes('/api/world/civilization') || request.url().includes('/api/simulation/')) actorRequests.push(request.url());
+  });
+  const panel = await openLab(page);
+  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveCount(0, { timeout: 5000 });
+  await expect(panel.getByRole('button', { name: 'Begin tribe', exact: true })).toBeEnabled();
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-civilization-id', '');
+  await expect(panel.locator('[data-tribe-name]')).toHaveCount(0);
+  expect(actorRequests).toEqual([]);
+});
+
 test('Begin saves its identity before opening and refresh restores the same tribe and completed day', async ({ page }, testInfo) => {
   const opens: SimulationOpen[] = [];
+  const legacyRequests: string[] = [];
+  page.on('request', request => { if (request.url().includes('/api/world/civilization')) legacyRequests.push(request.url()); });
   await page.route('**/api/simulation/open', async route => {
     const body = route.request().postDataJSON() as SimulationOpen;
     expect(await page.evaluate(id => Object.values(localStorage).includes(id), body.instanceId), 'Remember the instance before the host can create it').toBe(true);
@@ -24,7 +39,8 @@ test('Begin saves its identity before opening and refresh restores the same trib
   });
   const panel = await openLab(page);
   expect(opens).toHaveLength(0);
-  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveCount(0);
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-civilization-id', '');
   await begin(panel, 'Coastal beginning');
   const instance = await panel.getAttribute('data-instance-id');
   const name = await panel.locator('[data-tribe-name]').textContent();
@@ -43,6 +59,7 @@ test('Begin saves its identity before opening and refresh restores the same trib
   await expect(panel.getByRole('button', { name: 'Play tribe', exact: true })).toBeEnabled();
   expect(new Set(opens.map(value => value.instanceId))).toEqual(new Set([instance]));
   expect(opens.every(value => value.placementSeed === 'Coastal beginning')).toBe(true);
+  expect(legacyRequests).toEqual([]);
 });
 
 test('play, speed, manual pause and confirmed reset keep the tribe population accounted for', async ({ page }, testInfo) => {

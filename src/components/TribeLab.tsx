@@ -6,7 +6,7 @@ import './tribe-lab.css';
 
 interface Props {
   world: WorldManifest;
-  onTribeChange: (world: WorldManifest, tribe: SimulationState['tribe'] | null, hasInstance: boolean) => void;
+  onTribeChange: (world: WorldManifest, tribe: SimulationState['tribe'] | null) => void;
   onLocate: () => void;
   mapAvailable: boolean;
 }
@@ -49,8 +49,8 @@ export function TribeLab({ world, onTribeChange, onLocate, mapAvailable }: Props
   const act = useRef<(action: Action, recoverSave?: boolean) => void>(() => {});
 
   useEffect(() => {
-    onTribeChange(world, view?.state.tribe ?? null, target !== null);
-  }, [world, view?.state.tribe, target, onTribeChange]);
+    onTribeChange(world, view?.state.tribe ?? null);
+  }, [world, view?.state.tribe, onTribeChange]);
 
   useEffect(() => {
     if (!target) return;

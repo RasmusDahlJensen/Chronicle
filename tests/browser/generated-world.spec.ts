@@ -8,7 +8,7 @@ test('generated world draws real climate layers, exact cells, and a reproducible
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   await expect(page.locator('#world-resolution')).toHaveText('1,024 × 512');
-  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-civilization-id', '');
   const original = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
   await page.getByRole('radio', { name: 'Temperature', exact: true }).check();
   await expect(canvas).toHaveAttribute('data-layer', 'temperature');
@@ -37,7 +37,7 @@ test('generated world draws real climate layers, exact cells, and a reproducible
   await page.getByRole('button', { name: 'Regenerate world', exact: true }).click();
   await expect(page.locator('#world-status')).toContainText('World ready');
   await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
-  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-civilization-id', '');
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(original);
   await page.screenshot({ path: testInfo.outputPath('generated-world-desktop.png'), fullPage: true });
   expect(errors).toEqual([]);
@@ -47,7 +47,7 @@ test('failed replacement preserves the map and retry loads the requested seed', 
   await page.goto('/?scenario=world');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
-  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-civilization-id', '');
   const original = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
   await page.route('**/api/world?**', route => route.fulfill({ status: 503, json: { error: { code: 'OVERLOADED', message: 'Busy', requestId: 'test-busy' } } }));
   await page.getByLabel('World seed').fill('New continent');

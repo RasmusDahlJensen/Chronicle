@@ -1,6 +1,6 @@
 # Civilization 01 — one beginning
 
-Status: implemented, verified locally and accepted by the user. Tribe 01 is now the active slice. Baseline `51d3390`, clean at startup. User accepts the geography baseline and wants one civilization with a name and color, then to develop its internal growth/decisions before inter-civilization war, trade or diplomacy.
+Status: historical identity/location slice, superseded in the browser by Tribe 01. User review of 014191c requires removing this automatic preview: tribes begin first and later develop into civilizations. Backend identity contracts remain for compatibility; current browser marker coverage follows real tribes. Baseline `51d3390`, clean at startup. User accepts the geography baseline and wants one civilization with a name and color, then to develop its internal growth/decisions before inter-civilization war, trade or diplomacy.
 
 ## Outcome and design
 

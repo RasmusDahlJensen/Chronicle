@@ -130,9 +130,9 @@ test('biome texture and relief remain identical across detail tile arrivals', as
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   await canvas.focus(); for (let index = 0; index < 3; index++) await page.keyboard.press('+');
   await expect.poll(() => requests).toBe(4);
-  // The separately loaded founding marker can change Biomes pixels. Let that
-  // overlay settle before comparing terrain across held detail-tile arrivals.
-  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveAttribute('aria-busy', 'false');
+  // Fresh geography has no actor until Begin tribe; detail tiles must not
+  // introduce a marker or change the existing terrain pixels.
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-civilization-id', '');
   const before = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
   release(); await expect.poll(() => complete).toBe(4);
   await page.waitForLoadState('networkidle');
