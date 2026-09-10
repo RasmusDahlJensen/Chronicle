@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { worldKey } from '../../shared/generated-world.ts';
 
 test('generated world draws real climate layers, exact cells, and a reproducible reset', async ({ page }, testInfo) => {
   const errors: string[] = [];
@@ -53,7 +54,7 @@ test('failed replacement preserves the map and retry loads the requested seed', 
   expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(original);
   await page.unroute('**/api/world?**');
   await page.getByRole('button', { name: 'Retry generation' }).click();
-  await expect(canvas).toHaveAttribute('data-world-key', 'climate-1:large:New continent');
+  await expect(canvas).toHaveAttribute('data-world-key', worldKey({ seed: 'New continent', size: 'large' }));
 });
 
 test('tile failure keeps overview visible and retries only when requested', async ({ page }) => {
@@ -91,7 +92,7 @@ test('a later seed wins over a delayed earlier response', async ({ page }) => {
   await pending;
   await page.getByLabel('World seed').fill('Latest');
   await page.getByRole('button', { name: 'Regenerate world', exact: true }).click();
-  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-world-key', 'climate-1:large:Latest');
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-world-key', worldKey({ seed: 'Latest', size: 'large' }));
   release!();
   await expect(page.locator('#world-status')).toContainText('World ready');
   await expect(page.locator('#world-current-seed')).toHaveText('Latest');
@@ -148,8 +149,8 @@ test('real resource glyph edges select the site and hidden glyphs do not capture
   await expect(page.locator('[data-selected-cell]')).not.toHaveAttribute('data-selected-cell', String(cellId));
   await page.getByLabel('Resource sites', { exact: true }).check();
   await page.mouse.click(enlarged.x, enlarged.y);
-  await expect.poll(async () => Number(await canvas.getAttribute('data-texture-count'))).toBeGreaterThan(0);
-  expect(Number(await canvas.getAttribute('data-texture-count'))).toBeLessThanOrEqual(16);
+  await expect.poll(async () => Number(await canvas.getAttribute('data-loaded-tile-count'))).toBeGreaterThan(0);
+  expect(Number(await canvas.getAttribute('data-loaded-tile-count'))).toBeLessThanOrEqual(16);
   await page.screenshot({ path: testInfo.outputPath('generated-world-detail.png'), fullPage: true });
 });
 
@@ -203,6 +204,9 @@ test('delayed offscreen tiles cannot evict a stationary viewport after panning a
   await page.goto('/?scenario=world');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
+  // Biomes now retain full terrain independently of tiles. Temperature still needs exact detail,
+  // so it exposes any eviction that silently replaces the current viewport with sampled pixels.
+  await page.getByRole('radio', { name: 'Temperature', exact: true }).check();
   await canvas.focus();
   for (let index = 0; index < 3; index++) await page.keyboard.press('+');
   await expect(canvas).toHaveAttribute('data-detail', 'true');

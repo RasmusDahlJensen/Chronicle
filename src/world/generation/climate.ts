@@ -37,7 +37,32 @@ export function moistureField(width: number, height: number, elevation: Int16Arr
       previous = high;
     }
   }
-  return result;
+  // Approximate crosswind mixing of annual moisture. Independent zonal rows
+  // otherwise turn tiny coastal/ridge differences into long one-cell stripes.
+  // Latitude distances keep this smoothing consistent between resolutions;
+  // terrain weighting preserves mountain barriers and land/sea boundaries.
+  const mixed = new Uint16Array(result.length);
+  const radius = Math.ceil(height / 128);
+  const latitudes = Array.from({ length: height }, (_, y) => latitudeAt((y + 0.5) / height));
+  for (let y = 0; y < height; y++) {
+    const neighbors: { row: number; weight: number }[] = [];
+    for (let row = Math.max(0, y - radius); row <= Math.min(height - 1, y + radius); row++) {
+      const weight = Math.exp(-0.5 * ((latitudes[row] - latitudes[y]) / 0.45) ** 2);
+      if (weight > 0.001) neighbors.push({ row, weight });
+    }
+    for (let x = 0; x < width; x++) {
+      const id = y * width + x;
+      let moisture = 0, weights = 0;
+      for (const neighbor of neighbors) {
+        const other = neighbor.row * width + x;
+        if ((elevation[id] < 0) !== (elevation[other] < 0)) continue;
+        const weight = neighbor.weight / (1 + ((elevation[id] - elevation[other]) / 900) ** 2);
+        moisture += result[other] * weight; weights += weight;
+      }
+      mixed[id] = Math.round(moisture / weights);
+    }
+  }
+  return mixed;
 }
 
 export function classifyClimate(elevation: number, temperature: number, moisture: number): WorldBiome {

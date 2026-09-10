@@ -2,6 +2,7 @@ import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { WORLD_BIOMES, type WorldBiome, type WorldFields, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
 import { BIOMES } from '../world/atlas.ts';
 import { drawAtlasResourceIcon } from './biome-atlas.ts';
+import { createWorldTerrainTexture } from './world-terrain-texture.ts';
 
 export const WORLD_BIOME_STYLE: Record<WorldBiome, { label: string; color: string }> = {
   ...BIOMES, boreal: { label: 'Boreal forest', color: '#567766' },
@@ -54,6 +55,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
   let tiles: WorldTile[] = [];
   let overview: HTMLCanvasElement | null = null;
+  let terrain: ReturnType<typeof createWorldTerrainTexture> | undefined;
   const textures = new Map<string, HTMLCanvasElement>();
   let destroyed = false;
   let frame = 0;
@@ -62,34 +64,14 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
 
   function texture(fields: WorldFields, width: number, height: number) {
     const surface = document.createElement('canvas');
-    const detail = width === 128 && layer === 'biomes' ? 2 : 1;
-    surface.width = width * detail; surface.height = height * detail;
+    surface.width = width; surface.height = height;
     const paint = surface.getContext('2d');
     if (!paint) throw new Error('World canvas detail could not be drawn. Use Retry canvas.');
-    const pixels = paint.createImageData(surface.width, surface.height);
+    const pixels = paint.createImageData(width, height);
     for (let at = 0; at < width * height; at++) {
-      const color = layer === 'temperature' ? blend(temperatureStops, fields.temperature[at] / 10)
-        : layer === 'moisture' ? blend(moistureStops, fields.moisture[at] / 1000) : biomeColors[fields.biome[at]];
-      const column = at % width, row = Math.floor(at / width);
-      const biome = WORLD_BIOMES[fields.biome[at]];
-      // Relief changes the ink only: climate layers retain their literal legend colours.
-      const elevation = fields.elevation[at];
-      const slope = fields.elevation[row * width + Math.max(0, column - 1)]
-        + fields.elevation[Math.max(0, row - 1) * width + column]
-        - fields.elevation[row * width + Math.min(width - 1, column + 1)]
-        - fields.elevation[Math.min(height - 1, row + 1) * width + column];
-      const relief = layer !== 'biomes' ? 0 : elevation < 0
-        ? clamp(elevation / 28000, -0.16, 0) : clamp(slope / (width === 128 ? 5000 : 10000), -0.2, 0.19);
-      for (let y = 0; y < detail; y++) for (let x = 0; x < detail; x++) {
-        const stipple = detail === 1 || elevation < 0 ? 0
-          : biome === 'forest' || biome === 'rainforest' || biome === 'boreal'
-            ? (x === (at % 2) && y === ((Math.floor(at / width) + at) % 2) ? -0.09 : 0.02)
-            : biome === 'desert' || biome === 'steppe' ? (y === (column % 2) ? 0.025 : -0.025)
-            : biome === 'mountain' || biome === 'snow' ? (x === y ? 0.035 : -0.035) : 0;
-        const offset = ((row * detail + y) * surface.width + column * detail + x) * 4;
-        for (let channel = 0; channel < 3; channel++) pixels.data[offset + channel] = clamp(Math.round(color[channel] * (1 + relief + stipple)), 0, 255);
-        pixels.data[offset + 3] = 255;
-      }
+      const colour = layer === 'temperature' ? blend(temperatureStops, fields.temperature[at] / 10)
+        : blend(moistureStops, fields.moisture[at] / 1000);
+      pixels.data.set([...colour, 255], at * 4);
     }
     paint.putImageData(pixels, 0, 0);
     return surface;
@@ -127,14 +109,16 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     ctx.setTransform(m.ratio, 0, 0, m.ratio, 0, 0);
     ctx.fillStyle = '#d9e0d9'; ctx.fillRect(0, 0, m.width, m.height);
     const left = m.width / 2 - centerX * m.scale, top = m.height / 2 - centerY * m.scale;
-    overview ??= texture(world.overview.fields, world.overview.width, world.overview.height);
+    const background = layer === 'biomes'
+      ? (terrain ??= createWorldTerrainTexture(world, biomeColors)).plate
+      : (overview ??= texture(world.overview.fields, world.overview.width, world.overview.height));
     const startCopy = Math.floor((-left) / (world.width * m.scale));
     const endCopy = Math.floor((m.width - left) / (world.width * m.scale));
     ctx.imageSmoothingEnabled = false;
     for (let copy = startCopy; copy <= endCopy; copy++) {
       const origin = left + copy * world.width * m.scale;
-      ctx.drawImage(overview, origin, top, world.width * m.scale, world.height * m.scale);
-      if (m.detail) for (const tile of tiles) {
+      ctx.drawImage(background, origin, top, world.width * m.scale, world.height * m.scale);
+      if (m.detail && layer !== 'biomes') for (const tile of tiles) {
         const x = origin + tile.x * 128 * m.scale, y = top + tile.y * 128 * m.scale;
         const edge = 128 * m.scale;
         if (x + edge < 0 || x > m.width || y + edge < 0 || y > m.height) continue;
@@ -142,18 +126,23 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
         let surface = textures.get(key);
         if (!surface) { surface = texture(tile.fields, 128, 128); textures.set(key, surface); }
         ctx.drawImage(surface, x, y, edge, edge);
-        if (resources && m.scale >= 5) {
-          for (let at = 0; at < tile.fields.resource.length; at++) {
-            const resource = RESOURCE_IDS[tile.fields.resource[at] - 1];
-            if (!resource) continue;
-            const pointX = x + (at % 128 + 0.5) * m.scale, pointY = y + (Math.floor(at / 128) + 0.5) * m.scale;
-            if (pointX < -12 || pointX > m.width + 12 || pointY < -12 || pointY > m.height + 12) continue;
-            ctx.beginPath(); ctx.arc(pointX, pointY, 8, 0, Math.PI * 2); ctx.fillStyle = '#f4f3e5dc'; ctx.fill();
-            drawAtlasResourceIcon(ctx, resource, pointX, pointY, 6);
-          }
+      }
+      if (layer === 'biomes') terrain!.patterns(ctx, origin, top, m.scale, m.width, m.height);
+      if (m.detail && resources && m.scale >= 5) for (const tile of tiles) {
+        const x = origin + tile.x * 128 * m.scale, y = top + tile.y * 128 * m.scale;
+        const edge = 128 * m.scale;
+        if (x + edge < 0 || x > m.width || y + edge < 0 || y > m.height) continue;
+        for (let at = 0; at < tile.fields.resource.length; at++) {
+          const resource = RESOURCE_IDS[tile.fields.resource[at] - 1];
+          if (!resource) continue;
+          const pointX = x + (at % 128 + 0.5) * m.scale, pointY = y + (Math.floor(at / 128) + 0.5) * m.scale;
+          if (pointX < -12 || pointX > m.width + 12 || pointY < -12 || pointY > m.height + 12) continue;
+          ctx.beginPath(); ctx.arc(pointX, pointY, 8, 0, Math.PI * 2); ctx.fillStyle = '#f4f3e5dc'; ctx.fill();
+          drawAtlasResourceIcon(ctx, resource, pointX, pointY, 6);
         }
       }
     }
+
     if (zoom <= 3) {
       ctx.save(); ctx.strokeStyle = '#f4f2d936'; ctx.lineWidth = 1; ctx.setLineDash([3, 7]);
       for (const latitude of [-60, -30, 0, 30, 60]) {
@@ -173,6 +162,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     canvas.dataset.rendered = 'true'; canvas.dataset.worldKey = world.worldKey; canvas.dataset.layer = layer;
     canvas.dataset.zoom = String(zoom); canvas.dataset.centerX = String(centerX); canvas.dataset.centerY = String(centerY);
     canvas.dataset.scale = String(m.scale); canvas.dataset.detail = String(m.detail);
+    canvas.dataset.loadedTileCount = String(tiles.length);
     canvas.dataset.textureCount = String(textures.size); canvas.dataset.renderMs = (performance.now() - started).toFixed(2);
   }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
@@ -288,7 +278,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); tiles = []; overview = null; canvas.style.touchAction = '';
+      textures.clear(); tiles = []; overview = null; terrain = undefined; canvas.style.touchAction = '';
     },
   };
 }

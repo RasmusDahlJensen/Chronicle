@@ -4,9 +4,9 @@ A living-world atlas, built one small, reviewable slice at a time.
 
 Chronicle is intended to grow into a substantial simulation project. Features arrive gradually, with shared modules, established infrastructure packages, and automated checks protecting the architecture as it grows.
 
-The React + TypeScript + Vite browser lab opens a **seeded world preview** with continents, islands, mountain ranges, cold northern and southern poles, and warmer tropical regions. The large preset has **1,024 × 512 cells (524,288)**; standard has 512 × 256. Biomes follow annual temperature and moisture, with elevation cooling and mountain rain shadows. Inspect the biome, temperature and moisture layers and exact cell data.
+The React + TypeScript + Vite browser lab opens a **seeded world preview** with varied continent sizes and coastlines, mixed island groups, localized mountain ranges, cold northern and southern poles, and warmer tropical regions. The large preset has **1,024 × 512 cells (524,288)**; standard has 512 × 256. Biomes follow annual temperature and moisture, with elevation cooling and mountain rain shadows. Inspect the biome, temperature and moisture layers and exact cell data.
 
-A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives a small overview, then requests detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; research, extraction, stockpiles and country knowledge are not running yet. Detailed drainage/rivers, seasonal weather, simulation, saves, accounts and persistent worlds for separate users remain future slices.
+A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives full-resolution terrain for the overview, then requests climate and resource detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; research, extraction, stockpiles and country knowledge are not running yet. Detailed drainage/rivers, seasonal weather, simulation, saves, accounts and persistent worlds for separate users remain future slices.
 
 The generated world starts without political provinces. Countries will create them around capital settlements, with additional towns supporting production. Capturing a provincial capital will immediately transfer that province's ownership while cell-level resistance can remain. Settlement, capital and conquest mechanics are not implemented. The retained Verdant study's 77 provinces are authored test groups. See [the province design](docs/CHRONICLE_SPEC.md#3-world-hierarchy-and-ownership).
 
@@ -43,11 +43,11 @@ Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chro
 
 The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, database, Docker, or separate service installation is needed. Both servers listen on this PC only.
 
-The default seed is **Chronicle**, at **Large · 1,024 × 512** resolution. Enter another **World seed** and choose **Regenerate world** to try different geography. The same seed, resolution and generator version reproduce the same world. Standard resolution is available for quicker checks. Both presets cover 510 million km² including oceans; large cells cover about 973 km² each. These are equal-area map cells, with stretched polar shapes; screen distances are not uniform ground distances.
+The default seed is **Chronicle**, at **Large · 1,024 × 512** resolution. Enter another **World seed** and choose **Regenerate world** to try different geography. The same seed, resolution and generator version reproduce the same world. Generator 2 replaces the earlier repetitive landmass layouts and restores a textured, full-detail biome overview. Standard resolution is available for quicker checks. Both presets cover 510 million km² including oceans; large cells cover about 973 km² each. These are equal-area map cells, with stretched polar shapes; screen distances are not uniform ground distances.
 
 Choose **Biomes**, **Temperature**, or **Moisture** to inspect the climate. The temperature layer shows annual mean °C. Moisture is a relative annual availability index, not measured rainfall. The preview models latitude, elevation cooling, broad wind/moisture regions and mountain rain shadows; it does not simulate seasons or weather.
 
-Drag to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. The world wraps east–west and stops at the poles. Zoom in to load finer geography and reveal **Resource sites**. Click any cell for its exact latitude, elevation, temperature, moisture, biome, resource site and extraction requirement. Most cells have no special site. The overview is sampled; inspection always loads the exact cell's detail tile.
+Drag to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. The world wraps east–west and stops at the poles. Zoom in to see terrain textures and reveal **Resource sites**. Click any cell for its exact latitude, elevation, temperature, moisture, biome, resource site and extraction requirement. Most cells have no special site. The biome overview preserves every terrain cell; climate overview values are sampled. Inspection always loads the exact cell's detail tile.
 
 For keyboard exploration, focus the map with Tab: arrows inspect neighboring cells, Enter selects the focused location, Shift + arrows pan, + / − zoom, Home fits the map, and Escape clears selection.
 
@@ -124,10 +124,10 @@ The local API is available through either running browser URL:
 - `/api/ready` reports worker activity, admission usage, and configured limits. It returns HTTP 503 when busy or unavailable.
 - `/api/atlas` returns Verdant Reach as `{ "protocolVersion": 3, "world": … }`; `cell.resource` is a resource ID or explicit `null` for no site.
 - `/api/terrain` retains Aster Island as `{ "protocolVersion": 1, "world": … }`.
-- `/api/world?seed=Chronicle&size=large` returns a generated-world protocol-1 manifest with a 256 × 128 overview, units, settings, version and biome counts.
+- `/api/world?seed=Chronicle&size=large` returns a generated-world protocol-2 manifest with full-resolution elevation/biome surface data, a 256 × 128 climate overview, units, settings, generator version and biome counts.
 - `/api/world/tile?seed=Chronicle&size=large&x=0&y=0` returns the corresponding 128 × 128 detail tile. Coordinates are tile indices. `size` accepts `standard` or `large`; seeds accept 1–64 ASCII letters, numbers, spaces, dots, underscores and hyphens.
 
-The authored atlas/terrain payloads retain their 100,000-cell and 8 MiB limits. Generated-world manifests are bounded to 1 MiB, detail tiles to 512 KiB, and complete worker bundles to 20 MiB. The host retains at most two immutable generation bundles, including jobs in progress, and shares requests for the same seed/settings. A failed job can be retried; disconnecting the last waiting observer cancels unfinished work. All map requests share the same worker pool and response admission allowance.
+The authored atlas/terrain payloads retain their 100,000-cell and 8 MiB limits. Generated-world manifests are bounded to 3 MiB, detail tiles to 512 KiB, and complete worker bundles to 20 MiB. The host retains at most two immutable generation bundles, including jobs in progress, and shares requests for the same seed/settings. A failed job can be retried; disconnecting the last waiting observer cancels unfinished work. All map requests share the same worker pool and response admission allowance.
 
 For example, open **http://127.0.0.1:5173/api/ready** during development. The terminal includes structured request logs; an `x-request-id` response header connects a request to its log entry. Overload and computation deadlines produce explicit retryable failures while the browser retains its last valid map.
 
@@ -214,4 +214,5 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - `src/world/atlas.ts`: biome/resource catalogs and area/resource summaries; `terrain.ts` retains the original terrain summaries.
 - `src/world/resources.ts`: resource site kinds and extraction technology requirements, separate from visual styling.
 - `src/fixtures/verdant-reach.ts` and `aster-island.ts`: deterministic authored regional and original island fixtures.
+- `src/renderer/world-terrain-texture.ts`: full-resolution generated terrain shading and world-coordinate land/water textures.
 - `src/renderer/biome-atlas.ts`: biome textures, layers, bounded camera, and cell selection, independent of React; `atlas.ts` retains the original renderer.

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
 import { createWorldTileClient, loadGeneratedWorld } from '../src/api/generated-world.ts';
-import { WORLD_BIOMES, MAX_WORLD_MANIFEST_BYTES, type WorldManifest, type WorldTile } from '../shared/generated-world.ts';
+import { WORLD_BIOMES, WORLD_PROTOCOL_VERSION, WORLD_GENERATOR_VERSION, MAX_WORLD_MANIFEST_BYTES, worldKey, type WorldManifest, type WorldTile } from '../shared/generated-world.ts';
 
 // Transport fixture: a complete, explicitly ocean-only planet, not generated geography.
 function fields(count: number) {
@@ -10,10 +10,13 @@ function fields(count: number) {
     moisture: Array<number>(count).fill(500), biome: Array<number>(count).fill(0), resource: Array<number>(count).fill(0) };
 }
 const manifest: WorldManifest = {
-  protocolVersion: 1, generatorVersion: 1, worldKey: 'climate-1:large:Chronicle', settings: { seed: 'Chronicle', size: 'large' },
+  protocolVersion: WORLD_PROTOCOL_VERSION, generatorVersion: WORLD_GENERATOR_VERSION,
+  worldKey: worldKey({ seed: 'Chronicle', size: 'large' }), settings: { seed: 'Chronicle', size: 'large' },
   width: 1024, height: 512, tileSize: 128, topology: 'wrap-x', projection: 'cylindrical-equal-area', areaKm2: 510_000_000,
   landCells: 0, resourceSites: 0, biomeCounts: WORLD_BIOMES.map((_, index) => index === 0 ? 524_288 : 0),
   overview: { width: 256, height: 128, fields: fields(32768) },
+  surface: { width: 1024, height: 512, encoding: 'elevation-i16le-biome-u8',
+    data: Buffer.alloc(1024 * 512 * 3, Buffer.from([24, 252, 0])).toString('base64') },
 };
 const tileFields = fields(16384);
 function tileAt(input: string | URL | Request): WorldTile {
@@ -21,7 +24,7 @@ function tileAt(input: string | URL | Request): WorldTile {
   assert.equal(url.pathname, '/api/world/tile');
   assert.equal(url.searchParams.get('seed'), 'Chronicle');
   assert.equal(url.searchParams.get('size'), 'large');
-  return { protocolVersion: 1, worldKey: manifest.worldKey, x: Number(url.searchParams.get('x')), y: Number(url.searchParams.get('y')), width: 128, height: 128, fields: tileFields };
+  return { protocolVersion: WORLD_PROTOCOL_VERSION, worldKey: manifest.worldKey, x: Number(url.searchParams.get('x')), y: Number(url.searchParams.get('y')), width: 128, height: 128, fields: tileFields };
 }
 
 test('world client rejects a valid response for a different requested seed', async t => {
@@ -81,7 +84,7 @@ test('a malformed tile never enters the cache and is retried only after explicit
   let requests = 0;
   t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
     requests++; const tile = tileAt(input);
-    return Response.json(requests === 1 ? { ...tile, worldKey: 'climate-1:large:Other' } : tile);
+    return Response.json(requests === 1 ? { ...tile, worldKey: worldKey({ seed: 'Other', size: 'large' }) } : tile);
   });
   const client = createWorldTileClient(manifest); t.after(() => client.destroy());
   await assert.rejects(client.request(0, 0), /invalid/);
@@ -89,6 +92,24 @@ test('a malformed tile never enters the cache and is retried only after explicit
   assert.equal(client.tiles.length, 0); assert.equal(requests, 1);
   client.retryFailures();
   assert.equal((await client.request(0, 0)).worldKey, manifest.worldKey);
+  assert.equal(requests, 2);
+});
+
+test('a validly shaped tile that contradicts the terrain surface never enters the detail cache', async t => {
+  let requests = 0;
+  t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+    requests++;
+    const tile = structuredClone(tileAt(input));
+    if (requests === 1) { tile.fields.elevation[0] = 100; tile.fields.biome[0] = WORLD_BIOMES.indexOf('grassland'); }
+    return Response.json(tile);
+  });
+  const client = createWorldTileClient(manifest); t.after(() => client.destroy());
+  await assert.rejects(client.request(0, 0), /invalid/);
+  assert.equal(client.tiles.length, 0);
+  await assert.rejects(client.request(0, 0), /invalid/);
+  assert.equal(requests, 1);
+  client.retryFailures();
+  assert.equal((await client.request(0, 0)).fields.elevation[0], -1000);
   assert.equal(requests, 2);
 });
 

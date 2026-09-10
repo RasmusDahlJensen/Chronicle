@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildApp } from '../server/app.ts';
 import { readBackendConfig } from '../server/config.ts';
-import { parseWorldManifest, parseWorldTile, inspectWorldCell, MAX_WORLD_MANIFEST_BYTES, MAX_WORLD_TILE_BYTES } from '../shared/generated-world.ts';
+import { parseWorldManifest, parseWorldTile, inspectWorldCell, decodeWorldSurface, MAX_WORLD_MANIFEST_BYTES, MAX_WORLD_TILE_BYTES } from '../shared/generated-world.ts';
 
 test('large generated world travels through actual workers, manifest, cache and exact cell tiles', async t => {
   const app = await buildApp({ logger: false, config: { ...readBackendConfig({}), workers: 1 } });
@@ -22,6 +22,12 @@ test('large generated world travels through actual workers, manifest, cache and 
   assert.equal(tileResponse.statusCode, 200);
   assert.ok(Buffer.byteLength(tileResponse.body) < MAX_WORLD_TILE_BYTES);
   const tile = parseWorldTile(tileResponse.json(), world, 4, 2);
+  const surface = decodeWorldSurface(world.surface);
+  for (let at = 0; at < tile.width * tile.height; at++) {
+    const id = (tile.y * 128 + Math.floor(at / 128)) * world.width + tile.x * 128 + at % 128;
+    assert.equal(tile.fields.elevation[at], surface.elevation[id]);
+    assert.equal(tile.fields.biome[at], surface.biome[id]);
+  }
   const cell = inspectWorldCell(world, tile, 512, 256);
   assert.equal(cell.id, 262656);
   assert.ok(cell.temperature > 15);

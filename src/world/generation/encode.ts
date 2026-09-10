@@ -22,12 +22,24 @@ export function encodeGeneratedWorld(world: GeneratedWorld): WorldBundle {
     if (world.fields.elevation[id] >= 0) landCells++;
     if (world.fields.resource[id]) resourceSites++;
   }
+  const surfaceBytes = new Uint8Array(world.width * world.height * 3);
+  const surfaceView = new DataView(surfaceBytes.buffer);
+  for (let id = 0; id < world.fields.biome.length; id++) {
+    surfaceView.setInt16(id * 3, world.fields.elevation[id], true);
+    surfaceBytes[id * 3 + 2] = world.fields.biome[id];
+  }
+  // Chunk conversion bounds argument counts and works in the shared core without Node imports.
+  const chunks: string[] = [];
+  for (let offset = 0; offset < surfaceBytes.length; offset += 8192) {
+    chunks.push(String.fromCharCode(...surfaceBytes.subarray(offset, offset + 8192)));
+  }
   const manifest: WorldManifest = {
     protocolVersion: WORLD_PROTOCOL_VERSION, generatorVersion: WORLD_GENERATOR_VERSION, worldKey: worldKey(world.settings),
     settings: world.settings, width: world.width, height: world.height, tileSize: WORLD_TILE_SIZE,
     topology: 'wrap-x', projection: 'cylindrical-equal-area', areaKm2: WORLD_AREA_KM2,
     landCells, resourceSites, biomeCounts,
     overview: { width: 256, height: 128, fields: section(0, 0, 256, 128, world.width / 256) },
+    surface: { width: world.width, height: world.height, encoding: 'elevation-i16le-biome-u8', data: btoa(chunks.join('')) },
   };
   parseWorldManifest(manifest);
   const manifestBody = JSON.stringify(manifest);

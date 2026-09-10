@@ -854,14 +854,14 @@ export function drawAtlasResourceIcon(
   context.restore();
 }
 
-function drawWave(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
+export function drawWave(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
   context.beginPath();
   context.moveTo(x - 2, y); context.quadraticCurveTo(x - 1, y - 1, x, y);
   context.quadraticCurveTo(x + 1, y + 1, x + 2, y);
   context.strokeStyle = color; context.lineWidth = 0.55; context.stroke();
 }
 
-function drawGrass(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
+export function drawGrass(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
   context.beginPath();
   context.moveTo(x, y + 1.4); context.lineTo(x, y - 1.2);
   context.moveTo(x, y + 0.5); context.lineTo(x - 1.1, y - 0.3);
@@ -869,7 +869,7 @@ function drawGrass(context: CanvasRenderingContext2D, x: number, y: number, colo
   context.strokeStyle = color; context.lineWidth = 0.55; context.stroke();
 }
 
-function drawPine(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
+export function drawPine(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
   context.beginPath();
   context.moveTo(x, y - 2.1); context.lineTo(x - 1.7, y + 1.1);
   context.lineTo(x - 0.45, y + 0.8); context.lineTo(x - 1.1, y + 2);
@@ -878,21 +878,21 @@ function drawPine(context: CanvasRenderingContext2D, x: number, y: number, color
   context.fillStyle = color; context.fill();
 }
 
-function drawCanopy(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
+export function drawCanopy(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
   context.beginPath();
   context.arc(x - 0.8, y, 1.25, 0, Math.PI * 2);
   context.arc(x + 0.7, y - 0.35, 1.45, 0, Math.PI * 2);
   context.fillStyle = color; context.fill();
 }
 
-function drawDune(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
+export function drawDune(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
   context.beginPath();
   context.moveTo(x - 2, y + 0.8);
   context.quadraticCurveTo(x - 0.5, y - 1.7, x + 1.8, y + 0.5);
   context.strokeStyle = color; context.lineWidth = 0.6; context.stroke();
 }
 
-function drawReeds(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
+export function drawReeds(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
   context.beginPath();
   context.moveTo(x - 1, y + 1.6); context.lineTo(x - 0.8, y - 1.3);
   context.moveTo(x, y + 1.6); context.lineTo(x, y - 1.8);
@@ -900,14 +900,14 @@ function drawReeds(context: CanvasRenderingContext2D, x: number, y: number, colo
   context.strokeStyle = color; context.lineWidth = 0.55; context.stroke();
 }
 
-function drawStone(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
+export function drawStone(context: CanvasRenderingContext2D, x: number, y: number, color: string) {
   context.beginPath();
   context.moveTo(x - 1.5, y + 1); context.lineTo(x - 0.6, y - 1.1);
   context.lineTo(x + 1.2, y - 0.6); context.lineTo(x + 1.5, y + 1);
   context.closePath(); context.strokeStyle = color; context.lineWidth = 0.55; context.stroke();
 }
 
-function drawCrag(context: CanvasRenderingContext2D, x: number, y: number, color: string, snow: boolean) {
+export function drawCrag(context: CanvasRenderingContext2D, x: number, y: number, color: string, snow: boolean) {
   context.beginPath();
   context.moveTo(x - 2, y + 1.7); context.lineTo(x, y - 2.1); context.lineTo(x + 2, y + 1.7);
   context.moveTo(x, y - 2.1); context.lineTo(x + 0.15, y + 1.4);

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { latitudeAt, baselineTemperature, classifyClimate, moistureField } from '../src/world/generation/climate.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
-import { WORLD_BIOMES, parseWorldManifest, parseWorldTile } from '../shared/generated-world.ts';
+import { WORLD_BIOMES, MAX_WORLD_MANIFEST_BYTES, parseWorldManifest, parseWorldTile, decodeWorldSurface } from '../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../shared/atlas.ts';
 import { hashNoise, smoothNoise } from '../src/world/generation/noise.ts';
 
@@ -127,7 +127,10 @@ test('large world encodes a bounded overview and exact tiles without losing clim
   assert.equal(manifest.height, 512);
   assert.equal(manifest.areaKm2, 510000000);
   assert.equal(manifest.overview.fields.biome.length, 32768);
-  assert.ok(Buffer.byteLength(bundle.manifest) < 1024 * 1024);
+  assert.ok(Buffer.byteLength(bundle.manifest) < MAX_WORLD_MANIFEST_BYTES);
+  const surface = decodeWorldSurface(manifest.surface);
+  assert.deepEqual(surface.elevation, world.fields.elevation);
+  assert.deepEqual(surface.biome, world.fields.biome);
   assert.equal(bundle.tiles.length, 32);
   const counts = new Array(WORLD_BIOMES.length).fill(0);
   for (const body of bundle.tiles) {
