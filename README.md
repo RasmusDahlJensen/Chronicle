@@ -4,11 +4,11 @@ A living-world atlas, built one small, reviewable slice at a time.
 
 Chronicle is intended to grow into a substantial simulation project. Features arrive gradually, with shared modules, established infrastructure packages, and automated checks protecting the architecture as it grows.
 
-The React + TypeScript + Vite browser lab opens **Verdant Reach**, an authored regional atlas with several landmasses, an archipelago, textured biomes, and scattered resources. Its bounded 320 × 200 map contains **64,000 square cells at 4 km² each**, eleven biome types, **329 resource sites** across eleven resource types, and **77 connected, unclaimed provinces**. Pan, zoom, and inspect the actual geography and cell → province → country relationship.
+The React + TypeScript + Vite browser lab opens a **seeded world preview** with continents, islands, mountain ranges, cold northern and southern poles, and warmer tropical regions. The large preset has **1,024 × 512 cells (524,288)**; standard has 512 × 256. Biomes follow annual temperature and moisture, with elevation cooling and mountain rain shadows. Inspect the biome, temperature and moisture layers and exact cell data.
 
-A local Node/Fastify backend constructs, validates, and encodes the atlas in a bounded worker pool, then sends it to the browser. Most cells have no special resource site. Scattered mineral deposits and renewable resource concentrations have terrain-appropriate locations and a required extraction technology. The atlas preview shows all sites for inspection; research, extraction, stockpiles, and country knowledge are not running yet. Ordinary land and sea retain their biomes without a special resource marker. User-seeded planet generation, simulation, saves, accounts, and persistent worlds for separate users remain future slices.
+A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives a small overview, then requests detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; research, extraction, stockpiles and country knowledge are not running yet. Detailed drainage/rivers, seasonal weather, simulation, saves, accounts and persistent worlds for separate users remain future slices.
 
-The agreed game design has countries create provinces around capital settlements, with additional towns supporting production. Capturing a provincial capital will immediately transfer that province's ownership while cell-level resistance can remain. This is future gameplay: the current atlas's 77 pre-generated provinces are test groups, and settlement, capital, and conquest mechanics are not implemented. See [the province design](docs/CHRONICLE_SPEC.md#3-world-hierarchy-and-ownership).
+The generated world starts without political provinces. Countries will create them around capital settlements, with additional towns supporting production. Capturing a provincial capital will immediately transfer that province's ownership while cell-level resistance can remain. Settlement, capital and conquest mechanics are not implemented. The retained Verdant study's 77 provinces are authored test groups. See [the province design](docs/CHRONICLE_SPEC.md#3-world-hierarchy-and-ownership).
 
 ## First setup on your PC
 
@@ -43,15 +43,29 @@ Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chro
 
 The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, database, Docker, or separate service installation is needed. Both servers listen on this PC only.
 
-Drag the map to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. **Click land once to select its province**, highlighting the whole province and showing its area, cell count, country status, and resource-site totals. **Click inside that province again to select a cell**, highlighting only that cell and showing its biome, elevation, area, and resource site or absence. **Click that selected cell again to return to its province.** A site also shows its required extraction technology. Clicking a different cell in the same province selects that cell; clicking a different province starts at province level again. You can also use **Back to province** or **Clear selection**. Water cells open directly because they have no province.
+The default seed is **Chronicle**, at **Large · 1,024 × 512** resolution. Enter another **World seed** and choose **Regenerate world** to try different geography. The same seed, resolution and generator version reproduce the same world. Standard resolution is available for quicker checks. Both presets cover 510 million km² including oceans; large cells cover about 973 km² each. These are equal-area map cells, with stretched polar shapes; screen distances are not uniform ground distances.
+
+Choose **Biomes**, **Temperature**, or **Moisture** to inspect the climate. The temperature layer shows annual mean °C. Moisture is a relative annual availability index, not measured rainfall. The preview models latitude, elevation cooling, broad wind/moisture regions and mountain rain shadows; it does not simulate seasons or weather.
+
+Drag to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return to the overview. The world wraps east–west and stops at the poles. Zoom in to load finer geography and reveal **Resource sites**. Click any cell for its exact latitude, elevation, temperature, moisture, biome, resource site and extraction requirement. Most cells have no special site. The overview is sampled; inspection always loads the exact cell's detail tile.
+
+For keyboard exploration, focus the map with Tab: arrows inspect neighboring cells, Enter selects the focused location, Shift + arrows pan, + / − zoom, Home fits the map, and Escape clears selection.
+
+If generation fails, **Retry generation** retries the requested seed while retaining any previous map. If a detail request fails, the overview remains visible and **Retry detail** retries it. A rendering error offers **Retry canvas**.
+
+### Retained studies
+
+**Verdant Reach** remains available through **Regional atlas study** or **http://127.0.0.1:5173/?scenario=verdant**. This authored regional map has 64,000 cells at 4 km² each, 329 sites and 77 connected unclaimed province groups. **Click land once to select its province**, highlighting the whole province and showing its area, cell count, country status and resource totals. **Click inside that province again to select a cell**; **click that selected cell again to return to its province**. A different cell inside the province moves cell selection, and a different province starts at province level again. **Back to province** and **Clear selection** are also available. Water opens directly at cell scope.
 
 **Province resources** counts sites, not quantities or yields. Toggle **Resources**, **Provinces**, or **Cell grid**, and use **Resource filter** to locate a particular resource; display filters do not change province totals or selection level.
 
 Choose **Reset atlas** to fetch a freshly constructed copy of Verdant Reach. Loading failures offer **Retry atlas**; a failed reload retains the last displayed map. The atlas is a fixed regional study, so reset reproduces the same geography and resources.
 
-For keyboard exploration, focus the map with Tab: arrow keys directly inspect neighboring cells, Enter or Space selects the focused location (the map center initially) through the province → cell → province cycle, Escape moves back a level, Shift + arrows pan, + / − zoom, and Home fits the map.
+In Verdant, keyboard arrows inspect cells, Enter or Space follows the province → cell → province cycle, and Escape moves back a level. Shift + arrows pan, + / − zoom, and Home fits the map.
 
-The original **Aster Island** study remains available through the header link or **http://127.0.0.1:5173/?scenario=aster**. It retains its water/plains/hills map and **Reset terrain** control.
+The original **Aster Island** study remains available through Verdant's header link or **http://127.0.0.1:5173/?scenario=aster**. It retains its water/plains/hills map and **Reset terrain** control.
+
+### Development updates
 
 Frontend component and style edits update through Vite. `npm start` also watches the backend, workers, shared contracts, world/fixture modules, and launch configuration: relevant changes restart the combined application and its worker pool, then Vite reloads the open browser tab. You keep the same browser address. The development study is reconstructed after a restart, so map selection and camera state reset.
 
@@ -80,6 +94,9 @@ Extend the suite alongside each change, especially when data crosses a module or
 
 | Connection or rule | Regression coverage |
 |---|---|
+| Seed/elevation/climate → biomes, coherent islands, sparse resources and exact tiles | `tests/world-generation.test.ts` |
+| Generated-world workers → bounded cache → HTTP, cancellation and restart | `tests/generated-world-server.test.ts`, `tests/generated-world-store.test.ts`, `tests/generated-world-reload.test.ts` |
+| Overview/detail HTTP → bounded browser cache → climate layers and cell inspection | `tests/world-client.test.ts`, `tests/browser/generated-world.spec.ts` |
 | Cells → provinces → countries; biome/resource data and province site totals | `tests/atlas-world.test.ts`, `tests/atlas-response.test.ts` |
 | Click/back selection → matching province/cell highlight and inspector | `tests/atlas-selection.test.ts`, `tests/browser/biomes.spec.ts` |
 | Workers → validated HTTP responses; admission and shutdown | `tests/compute.test.ts`, `tests/server.test.ts`, `tests/atlas-server.test.ts` |
@@ -107,10 +124,20 @@ The local API is available through either running browser URL:
 - `/api/ready` reports worker activity, admission usage, and configured limits. It returns HTTP 503 when busy or unavailable.
 - `/api/atlas` returns Verdant Reach as `{ "protocolVersion": 3, "world": … }`; `cell.resource` is a resource ID or explicit `null` for no site.
 - `/api/terrain` retains Aster Island as `{ "protocolVersion": 1, "world": … }`.
+- `/api/world?seed=Chronicle&size=large` returns a generated-world protocol-1 manifest with a 256 × 128 overview, units, settings, version and biome counts.
+- `/api/world/tile?seed=Chronicle&size=large&x=0&y=0` returns the corresponding 128 × 128 detail tile. Coordinates are tile indices. `size` accepts `standard` or `large`; seeds accept 1–64 ASCII letters, numbers, spaces, dots, underscores and hyphens.
 
-Both map payloads are independently bounded to 100,000 cells and 8 MiB of JSON. Their requests share the same worker pool and admission allowance.
+The authored atlas/terrain payloads retain their 100,000-cell and 8 MiB limits. Generated-world manifests are bounded to 1 MiB, detail tiles to 512 KiB, and complete worker bundles to 20 MiB. The host retains at most two immutable generation bundles, including jobs in progress, and shares requests for the same seed/settings. A failed job can be retried; disconnecting the last waiting observer cancels unfinished work. All map requests share the same worker pool and response admission allowance.
 
 For example, open **http://127.0.0.1:5173/api/ready** during development. The terminal includes structured request logs; an `x-request-id` response header connects a request to its log entry. Overload and computation deadlines produce explicit retryable failures while the browser retains its last valid map.
+
+To measure the large seeded world, overview and detail delivery:
+
+```sh
+npm run bench:world
+```
+
+This runs the actual application and workers without opening a network listener, validates every returned tile, and reports local timing, payload and memory measurements. It measures one immutable world, not simultaneous simulation capacity. [Worldgen 01](docs/features/worldgen-01.md) records the results.
 
 To measure the Verdant Reach fixture pipeline:
 
@@ -124,7 +151,7 @@ The original Aster Island benchmark remains available for comparison with the re
 npm run bench:backend
 ```
 
-Each command starts and stops a temporary loopback server and reports the selected fixture, runtime, hardware, configuration, request outcomes, health latency, event-loop delay, and process memory. These are measurements of fixture delivery and HTTP responsiveness; future simulation throughput needs its own workload. The [Atlas 02 brief](docs/features/atlas-02.md) records atlas results, and [Backend 02](docs/features/backend-02.md) retains the earlier baseline evidence.
+The fixture benchmark commands start and stop a temporary loopback server and report the selected fixture, runtime, hardware, configuration, request outcomes, health latency, event-loop delay and process memory. These measure fixture delivery and HTTP responsiveness; future simulation throughput needs its own workload. The [Atlas 02 brief](docs/features/atlas-02.md) records atlas results, and [Backend 02](docs/features/backend-02.md) retains the earlier baseline evidence.
 
 The defaults need no configuration. For development measurements, these environment variables are read when the host starts; invalid values stop startup:
 
@@ -142,15 +169,16 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - **`node` or `npm` is not found:** install Node 24.20.0, reopen the terminal, and retry. If nvm is already installed, use the commands above.
 - **`package.json` cannot be found:** move into the Chronicle repository folder before running npm commands.
 - **Port 5173 or 4173 is busy:** stop the existing lab or built-app terminal with Ctrl+C, then retry. The commands above keep their stated ports instead of silently choosing another one.
-- **The map cannot load:** choose **Retry atlas**, or **Retry terrain** in the Aster study. If it still fails, check the launch terminal for errors, stop it with Ctrl+C, and run `npm start` again.
+- **The map cannot load:** choose **Retry generation** in the world preview, **Retry atlas** in Verdant, or **Retry terrain** in Aster. For missing generated-world detail, use **Retry detail**. If it still fails, check the launch terminal for errors, stop it with Ctrl+C, and run `npm start` again.
 - **The new interface appears but the atlas is unavailable after an update:** check the terminal for a failed restart or source error. A lab started before automatic watching was installed needs one Ctrl+C and `npm start`; subsequent host-side source edits restart automatically.
 - **Production build is missing:** run `npm run build` before `npm run serve` or `npm run preview`.
 - **A `CHRONICLE_...` configuration value is rejected:** correct or remove that environment variable, then restart. Ordinary launches need none of these variables.
-- **Canvas rendering fails:** reset is disabled when the browser cannot draw the map. Reload the page or try another browser.
+- **Canvas rendering fails:** the generated world offers **Retry canvas**. If it still fails, reload the page or try another browser. In retained studies, rendering failure disables reset until the page is reloaded.
 
 ## Project record
 
-- [Active scattered-resource slice and verification](docs/features/resources-01.md)
+- [Active world generation slice and verification](docs/features/worldgen-01.md)
+- [Scattered resources and province/cell selection](docs/features/resources-01.md)
 - [Development reliability and verification](docs/features/dev-01.md)
 - [Atlas slice and visual review status](docs/features/atlas-02.md)
 - [Backend foundation and verification evidence](docs/features/backend-02.md)
@@ -166,7 +194,8 @@ Map response admission is also bounded to worker count plus queue allowance unti
 ## Code map
 
 - `src/main.tsx`: React entry point.
-- `src/App.tsx`: selects the default regional atlas or `?scenario=aster` legacy study.
+- `src/App.tsx`: selects the default generated world, `?scenario=verdant` regional study, or `?scenario=aster` original study.
+- `src/components/GeneratedWorldLab.tsx`, `src/api/generated-world.ts`, and `src/renderer/generated-world.ts`: world preview controls, bounded tile loading, and map rendering.
 - `src/components/RegionalAtlas.tsx` and `AtlasCanvas.tsx`: atlas controls, cell inspection, and the React canvas adapter.
 - `src/components/LegacyTerrainLab.tsx` and `TerrainMap.tsx`: retained Aster study.
 - `src/api/atlas.ts` and `terrain.ts`: browser requests and validation for their respective map contracts.
@@ -177,7 +206,10 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - `server/compute.ts` and `server/workers/`: bounded execution of disposable terrain jobs.
 - `shared/atlas.ts`: biome/resource atlas types, protocol-3 schema with nullable resource sites, hierarchy/connectivity validation, and size limits.
 - `shared/terrain.ts`: retained protocol-1 terrain schema and validation.
-- `shared/studies.ts`: fixed authored study identifiers accepted by compute.
+- `shared/studies.ts`: authored study identifiers and seeded-world jobs accepted by compute.
+- `shared/generated-world.ts`: generated-world identity, settings, compact numeric fields, manifest/tile validation, limits and exact cell inspection.
+- `src/world/generation/`: seeded geography, climate, sparse resources and tile encoding; imported by workers, never the browser or HTTP layer.
+- `server/generated-world-store.ts`: bounded immutable generation cache and shared-request cancellation.
 - `shared/http.ts`: API error schemas and browser validation.
 - `src/world/atlas.ts`: biome/resource catalogs and area/resource summaries; `terrain.ts` retains the original terrain summaries.
 - `src/world/resources.ts`: resource site kinds and extraction technology requirements, separate from visual styling.

@@ -63,7 +63,8 @@
                       "**/simulation/**",
                       "vite",
                       "vite/**",
-                      "@vitejs/**"
+                      "@vitejs/**",
+                      "**/world/generation/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -199,7 +200,8 @@
                       "**/main.tsx",
                       "vite",
                       "vite/**",
-                      "@vitejs/**"
+                      "@vitejs/**",
+                      "**/world/generation/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -242,7 +244,8 @@
                       "**/simulation/**",
                       "vite",
                       "vite/**",
-                      "@vitejs/**"
+                      "@vitejs/**",
+                      "**/world/generation/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }

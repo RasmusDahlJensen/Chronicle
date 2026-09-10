@@ -13,7 +13,7 @@ test('worker fixture edits and failures reach the same open development page', a
   try {
     const app = await startProject(project);
     const page = await context.newPage();
-    await page.goto(app.origin);
+    await page.goto(`${app.origin}/?scenario=verdant`);
     await expect(page.getByRole('heading', { name: 'The Verdant Reach', exact: true })).toBeVisible();
     await expect(page.locator('#atlas-land-area')).toHaveText('134,108');
 
@@ -59,7 +59,7 @@ test('worker fixture edits and failures reach the same open development page', a
     await expect(page.getByRole('status')).toHaveText('Atlas ready to explore');
     await expect(page.getByRole('alert')).toHaveCount(0);
     expect(await atlasIdentity(app)).toEqual({ name: RECOVERED_NAME, cellAreaKm2: 5 });
-    expect(page.url()).toBe(`${app.origin}/`);
+    expect(page.url()).toBe(`${app.origin}/?scenario=verdant`);
   } finally {
     await context.close();
     await project.dispose();
@@ -75,7 +75,7 @@ test('frontend edits use HMR without restarting the API or losing inspection sta
     const backendOrigin = app.output().match(/Terrain host ready at (http:\/\/127\.0\.0\.1:\d+)\//)?.[1];
     expect(backendOrigin).toBeTruthy();
     const page = await context.newPage();
-    await page.goto(app.origin);
+    await page.goto(`${app.origin}/?scenario=verdant`);
     const canvas = page.locator('#world-canvas');
     await expect(canvas).toHaveAttribute('data-rendered', 'true');
     await inspectLandCell(page, canvas);
@@ -116,7 +116,7 @@ test('generated browser artifacts do not reload an open development page', async
     await project.write('test-results/browser/result.html', '<!doctype html><title>Existing browser result</title>');
     const app = await startProject(project);
     const page = await context.newPage();
-    await page.goto(app.origin);
+    await page.goto(`${app.origin}/?scenario=verdant`);
     const canvas = page.locator('#world-canvas');
     await expect(canvas).toHaveAttribute('data-rendered', 'true');
     await inspectLandCell(page, canvas);

@@ -4,13 +4,13 @@ import { BIOMES, RESOURCES } from '../../src/world/atlas.ts';
 import { RESOURCE_RULES } from '../../src/world/resources.ts';
 
 async function ready(page: import('@playwright/test').Page) {
-  await page.goto('/');
+  await page.goto('/?scenario=verdant');
   const canvas = page.locator('#world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   return canvas;
 }
 
-test('the default atlas renders a larger biome/resource map and reports real host data', async ({ page }, testInfo) => {
+test('the retained regional atlas renders its biome/resource map and reports real host data', async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   const canvas = await ready(page);
@@ -442,7 +442,7 @@ test('drag and cancelled gestures do not pick cells; repeated reset restores cam
 
 test('initial host failure can be retried and uses the replacement host name and area', async ({ page }) => {
   await page.route('**/api/atlas', route => route.abort('connectionrefused'));
-  await page.goto('/');
+  await page.goto('/?scenario=verdant');
   await expect(page.getByRole('alert')).toContainText('could not be loaded');
   await expect(page.locator('#world-canvas')).toHaveCount(0);
   await page.unroute('**/api/atlas');
@@ -465,7 +465,7 @@ test('missing canvas support reports a visible error without uncaught failures',
   await page.addInitScript(() => {
     Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', { value: () => null });
   });
-  await page.goto('/');
+  await page.goto('/?scenario=verdant');
   await expect(page.getByRole('alert')).toContainText('could not open the atlas canvas');
   await expect(page.getByRole('status')).toHaveText('Atlas unavailable');
   await expect(page.getByRole('button', { name: 'Reset atlas' })).toBeDisabled();
@@ -536,7 +536,7 @@ test('high-density displays preserve tap tolerance in CSS pixels', async ({ brow
   });
   try {
     const page = await context.newPage();
-    await page.goto('/');
+    await page.goto('/?scenario=verdant');
     const canvas = page.locator('#world-canvas');
     await expect(canvas).toHaveAttribute('data-rendered', 'true');
     await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();

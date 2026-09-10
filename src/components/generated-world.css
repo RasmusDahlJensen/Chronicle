@@ -1,0 +1,65 @@
+.generated-world-lab .atlas-workspace { grid-template-columns: 190px minmax(0, 1fr) 220px; gap: 1.4rem; }
+.generated-world-lab .atlas-description { max-width: 530px; }
+.generated-world-lab .atlas-overview { gap: 1.5rem; }
+.generated-world-lab .atlas-overview dd { font-size: 1.5rem; }
+.generated-world-lab .atlas-overview .atlas-unit { font-size: .66rem; }
+.generated-world-lab .atlas-canvas-frame { height: clamp(420px, 57vh, 760px); min-height: 0; background: #d9e0d9; }
+#generated-world-canvas { width: 100%; height: 100%; display: block; cursor: crosshair; outline-offset: -4px; }
+#generated-world-canvas:focus-visible { outline: 3px solid #ac8a51; }
+.generated-world-lab .atlas-loading-map { min-height: 420px; }
+.world-generation-controls form { display: grid; gap: .5rem; }
+.world-generation-controls label { font-size: .62rem; color: var(--atlas-muted); }
+.world-generation-controls input, .world-generation-controls select { width: 100%; min-width: 0; border: 1px solid #c5cbbd; border-radius: 3px; background: #fbfaf3; color: var(--atlas-ink); font: .7rem system-ui, sans-serif; padding: .6rem; margin: 0 0 .3rem; }
+.world-generate-button { display: flex; align-items: center; justify-content: space-between; border: 1px solid #365440; border-radius: 3px; background: #365440; color: #faf8ea; font: 600 .68rem system-ui, sans-serif; padding: .7rem; cursor: pointer; }
+.world-generate-button:hover { background: #294434; }
+.world-generate-button span { font-size: 1rem; }
+.world-layer-options { display: grid; margin: 0; padding: 0; border: 0; gap: .3rem; }
+.world-layer-options label { display: flex; align-items: center; gap: .6rem; padding: .55rem .6rem; border: 1px solid transparent; border-radius: 3px; cursor: pointer; font-size: .71rem; color: #687263; }
+.world-layer-options .world-layer-selected { background: #e7eadf; border-color: #c9d0bf; color: #304d39; }
+.world-layer-options input, .world-resource-toggle input { accent-color: #486b4e; margin: 0; }
+.world-resource-toggle { display: flex; gap: .6rem; align-items: center; margin-top: .9rem; font-size: .7rem; cursor: pointer; }
+.generated-world-lab .world-legend .atlas-biome-legend { gap: .53rem; }
+.world-climate-gradient { height: 12px; border: 1px solid #30483826; border-radius: 2px; margin: .5rem 0; }
+.world-climate-scale { display: flex; justify-content: space-between; color: #6c786c; font-size: .61rem; }
+.world-climate-note { display: flex; gap: .9rem; border-top: 1px solid var(--atlas-line); padding-top: .7rem; margin-top: .9rem; color: var(--atlas-muted); }
+.world-climate-note > span { font-size: 1.9rem; color: #829778; line-height: 1.4; }
+.world-climate-note p { margin: 0; font-size: .67rem; line-height: 1.75; max-width: 650px; }
+.world-cell-facts { display: grid; grid-template-columns: 1fr; gap: .9rem; }
+.world-cell-facts > div { display: flex; justify-content: space-between; gap: .5rem; }
+.world-cell-facts dt { font-size: .61rem; }
+.world-cell-facts dd { margin: 0; font-size: .71rem; white-space: nowrap; }
+.world-identity { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid #cfd4c4; overflow-wrap: anywhere; }
+.world-identity strong { display: block; font: 1.1rem Georgia, serif; margin: .4rem 0; }
+.world-identity p:not(.atlas-detail-label) { color: #5e6d5f; font-size: .66rem; line-height: 1.6; margin: .5rem 0; }
+.world-identity > span { color: var(--atlas-muted); font-size: .58rem; }
+.world-projection-note { margin-top: 1.1rem; }
+.world-inline-error { display: flex; align-items: center; justify-content: space-between; gap: .7rem; }
+.world-inline-error .atlas-reset-button { flex-shrink: 0; }
+.world-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#world-status { margin: 0; color: #65775f; font-size: .68rem; line-height: 1.6; }
+@media (min-width: 1800px) { .generated-world-lab .atlas-workspace { grid-template-columns: 215px minmax(0, 1fr) 245px; gap: 2rem; } }
+@media (max-width: 1150px) {
+  .generated-world-lab .atlas-workspace { grid-template-columns: 180px minmax(0, 1fr); }
+  .generated-world-lab .atlas-overview dd { font-size: 1.2rem; }
+  .world-selected-cell { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.5rem; }
+  .world-cell-facts { grid-column: 1; }
+  .world-selected-cell .atlas-cell-resource { grid-row: 1 / span 2; grid-column: 2; }
+}
+@media (max-width: 850px) {
+  .generated-world-lab .atlas-workspace { grid-template-columns: 1fr; }
+  .generated-world-lab .atlas-canvas-frame { height: auto; min-height: 0; aspect-ratio: 8 / 5; }
+  .generated-world-lab .atlas-sidebar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .generated-world-lab .atlas-inspector { grid-column: 1; }
+  .generated-world-lab .atlas-loading-map { min-height: 300px; }
+}
+@media (max-width: 540px) {
+  .generated-world-lab .atlas-sidebar { grid-template-columns: 1fr 1fr; }
+  .world-legend { grid-column: 1 / -1; }
+  .generated-world-lab .world-legend .atlas-biome-legend { grid-template-columns: 1fr 1fr; gap: .65rem 1rem; }
+  .generated-world-lab .atlas-overview { gap: .7rem; }
+  .generated-world-lab .atlas-overview dd { font-size: 1rem; }
+  .generated-world-lab .atlas-overview .atlas-unit { font-size: .52rem; }
+  .world-selected-cell { grid-template-columns: 1fr; }
+  .world-selected-cell .atlas-cell-resource { grid-column: 1; grid-row: auto; }
+  .world-climate-note p { font-size: .62rem; }
+}

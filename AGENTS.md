@@ -1,11 +1,11 @@
 # Working on Chronicle
 
-Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief, currently `docs/features/resources-01.md`. Earlier development, atlas, backend, React, and terrain slices remain recorded in `docs/features/`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
+Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief, currently `docs/features/worldgen-01.md`. Earlier resource, development, atlas, backend, React, and terrain slices remain recorded in `docs/features/`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
 
 ## Scope and collaboration
 
 - At task startup, inspect working-tree changes and relevant files; reconcile them with the active brief instead of assuming its status is current.
-- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. Resources 01 and the province → cell → province click cycle are implemented and verified, awaiting user review. First click selects a province, another click inside selects a cell, and clicking that selected land cell again returns to its province. Dev 01's automatic restarts and complete regression gate remain required. Hosted simulation, independent user worlds, and saves remain later slices.
+- Follow the current stage and authorized scope in the workflow; update the recorded stage when that changes. Worldgen 01 is implemented and locally verified, awaiting user review: larger seeded climate/geography, tiled transport and browser inspection. Verdant and Aster remain regression studies; the province → cell → province click cycle belongs to the authored Verdant scenario. Dev 01's automatic restarts and complete regression gate remain required. Hosted simulation, independent user worlds, and saves remain later slices.
 - The 10 September province design is agreed but unimplemented: countries create provinces around capital settlements; capturing a provincial capital immediately transfers province sovereignty while cell military control remains separate. Read specification §§3–4 and §9. Protocol 3's fixed unclaimed province groups remain an authored test study; do not mistake its all-land-has-a-province validation for the future game rule. Define the next founding-capital slice before implementing settlement, ownership, or conquest contracts.
 - Keep one active slice with an observable outcome and concrete acceptance checks. Do not treat a whole milestone or the full specification as one task.
 - Design for Chronicle as a substantial, growing game. Small slices govern delivery size; they do not justify throwaway architecture, fixture-sized data assumptions, or rebuilding established infrastructure by hand.
@@ -19,7 +19,7 @@ Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/
 
 - Share world and simulation modules between the browser lab, the observer application, and automated scenarios. Never build a second simulation for tests.
 - Keep browser, renderer, shared core/contracts, HTTP, and compute dependencies separated. `npm run check:architecture` enforces current import rules through Biome; extend those rules and their negative scenarios when adding new module boundaries. Keep runtime verification for globals, worker entrypoints, and behavior beyond static imports.
-- Keep simulation state independent of rendering and browser APIs. Preserve seeded, reproducible stepping and explicit population/resource accounting.
+- Keep simulation state independent of rendering and browser APIs. Preserve seeded, reproducible stepping and explicit population/resource accounting. When changing released generation rules or tuning, increment `WORLD_GENERATOR_VERSION`; incompatible manifest/tile layouts or numeric code meanings also need a protocol version change. Preserve old authored-study contracts and tests.
 - Keep cells, provinces, sovereignty, occupation, and habitation distinct. Use canonical transfer and lifecycle operations; preserve stable IDs and historical identity.
 - Do not substitute decorative statistics, cosmetic ownership changes, or silent accounting exceptions for missing mechanics.
 - Label test fixtures and development controls clearly. They do not change Chronicle's observer-only product scope.

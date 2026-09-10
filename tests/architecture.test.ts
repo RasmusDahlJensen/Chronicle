@@ -21,6 +21,7 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   await source('shared/contract.ts', 'export type World = { id: string };');
   await source('src/world/state.ts', "export type { World } from '../../shared/contract.ts';");
   await source('src/fixtures/island.ts', 'export const island = {};');
+  await source('src/world/generation/generate.ts', 'export const generate = () => ({});');
   await source('src/components/view.tsx', "import type { World } from '../world/state.ts'; export type Widget = World; export const view = <main />;");
   await source('src/api/terrain.ts', 'export const load = () => {};');
   await source('server/workers/terrain.ts', "export { island } from '../../src/fixtures/island.ts';");
@@ -35,7 +36,7 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   }
   const valid = check();
   assert.equal(valid.status, 0, valid.output);
-  assert.match(valid.output, /Checked 8 files/);
+  assert.match(valid.output, /Checked 9 files/);
 
   await source('src/world/leak.ts', "import type { Widget } from '../components/view.tsx'; export type Leak = Widget;");
   await source('src/world/node.ts', "export const fs = import('node:fs');");
@@ -47,6 +48,9 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   await source('src/components/generation.ts', "import '../fixtures/island.ts';");
   await source('src/renderer/map.ts', "import type { ReactNode } from 'react'; export type View = ReactNode;");
   await source('src/renderer/network.ts', "import '../api/terrain.ts';");
+  await source('src/components/world-generator.ts', "import '../world/generation/generate.ts';");
+  await source('src/renderer/world-generator.ts', "import '../world/generation/generate.ts';");
+  await source('server/world-generator.ts', "import '../src/world/generation/generate.ts';");
   await source('server/app.ts', "export { island } from '../src/fixtures/island.ts';");
   await source('server/workers/terrain.ts', "import '../app.ts';");
   await source('shared/leak.ts', "import '../src/world/state.ts';");
@@ -54,7 +58,7 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   await source('shared/b.ts', "import type { A } from './a.ts'; export type B = { a: A };");
   const invalid = check();
   assert.equal(invalid.status, 1, invalid.output);
-  for (const path of ['src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
+  for (const path of ['src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
     assert.ok(invalid.output.includes(path), `Missing boundary diagnostic for ${path}: ${invalid.output}`);
   }
   assert.match(invalid.output, /noRestrictedImports/);

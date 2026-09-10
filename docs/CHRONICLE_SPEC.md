@@ -1,7 +1,7 @@
 # Chronicle — A Living World
 ## Product specification and local development playbook
 
-Version 1.1 · 10 September 2026 · Country-created provinces and capital capture
+Version 1.2 · 10 September 2026 · Seeded worlds and regional climate
 
 This document defines intended behavior, not a claim that the existing Site implements it. Use it as the source of truth for planning, implementation, and acceptance checks. Preserve the existing prototype before replacing anything.
 
@@ -100,13 +100,17 @@ Use direct country holdings and subject-inclusive imperial holdings as distinct 
 
 **Required:** Earth-comparable geographic scale, hundreds of founding tribes, substantial detail, large oceans and continents.
 
-**Proposed initial targets:** Development preset around 10,000 land cells; large preset around 60,000 land cells; benchmark roughly 2,000–5,000 provinces in developed large-world scenarios. Province counts emerge from settlement and growth rather than an initial geographic partition. These are starting targets for benchmarking, not approved performance promises or hard gameplay laws. Design the data model to support larger worlds later.
+**Approved geography preview targets:** Standard resolution 512 × 256 cells; large resolution 1,024 × 512 cells (524,288), including water. Both represent the same 510 million km² fictional planet. This supersedes the earlier 10,000/60,000-land-cell preview proposals; actual land count depends on generated geography. These are geography benchmarks, not promises about simultaneous simulation capacity. **Proposed later benchmark:** roughly 2,000–5,000 provinces in developed large-world scenarios. Province counts emerge from settlement and growth rather than an initial geographic partition. Support greater detail through measured future contracts.
 
 Do not conflate map dimensions with surface area. Assign real area weights and a consistent travel-distance model. If using an equal-area cylindrical atlas, document its polar distortion and do not treat all rendered horizontal lengths as equal ground distances. A 510 million km² planet includes water; do not assign that total to its land alone.
 
 ## 4. World generation and starts
 
 **Required:** Seeded fictional continents, islands, varied coasts, mountain ranges, rivers, lakes, climate, fertility, forests, deserts, cold regions, and geographically coherent resources. Same seed, settings, and generator version reproduce the initial world.
+
+**Agreed climate model:** Use global latitude: cold near both poles, gradually warmer average lowland temperatures toward the equator, and cooling with elevation. Regional moisture must depend on broad circulation, ocean exposure and mountain barriers, including wetter windward slopes and drier rain shadows. Derive biomes from temperature, moisture and terrain; do not assign every island a quota of every biome. Small islands commonly contain one or a few related biomes; broad continents can span many. Keep regional variation and coherent transitions without treating biome boundaries as arbitrary random patches. Deserts depend on dryness, not simply proximity to the equator.
+
+**Worldgen 01 delivery:** A simplified annual climate preview with seeded continents/islands/ridges, temperature, normalized moisture availability, polar sea ice, biomes and sparse potential resource sites. Moisture is an index, not claimed rainfall in millimetres. Expose biome, temperature and moisture layers plus exact cell inspection. Generate on the host PC and send an overview and bounded detail tiles to the browser. Seed, resolution, generator version, topology and units form the reproducibility contract. Initially unclaimed geography has no political provinces. Detailed drainage/rivers, seasonality, ocean currents, geology, fertility, founding settlements and living-world stepping are not completed by this preview; they retain the full milestone requirements below.
 
 Generate geography and cell data in dependency order: elevation and landmass → water drainage → climate/biomes → resources → viable settlement candidates. Then place founding tribes/countries, their capital settlements, and their initial provinces. Leave remaining unclaimed land without political province membership; additional provinces arise during expansion.
 

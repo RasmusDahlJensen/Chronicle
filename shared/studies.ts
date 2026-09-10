@@ -1,2 +1,4 @@
-/** Fixed lab inputs accepted by the host's disposable generation worker. */
-export type TerrainStudy = 'aster' | 'verdant';
+import type { WorldSettings } from './generated-world.ts';
+
+/** Disposable worker jobs: authored studies or a versioned seeded geography preview. */
+export type TerrainStudy = 'aster' | 'verdant' | ({ kind: 'world' } & WorldSettings);

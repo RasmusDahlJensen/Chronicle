@@ -1,6 +1,6 @@
 # Chronicle architecture decisions
 
-Updated 10 September 2026. Resources 01 provides scattered sites, extraction requirements, and the province/cell click cycle. Country-created provinces and immediate ownership transfer on provincial-capital capture are agreed design, awaiting implementation. Current verification belongs in the [resource brief](features/resources-01.md); [Dev 01](features/dev-01.md) records automatic restarts and the complete regression gate. The original Aster Island study and protocol remain available. [Backend 02](features/backend-02.md) retains the foundation's evidence; [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives, primary sources, and future contracts.
+Updated 10 September 2026. Worldgen 01 introduces seeded geography with global climate and bounded detail delivery. Current implementation/verification belongs in the [world generation brief](features/worldgen-01.md). Resources 01 retains the authored study's scattered sites, extraction requirements and province/cell cycle. Country-created provinces and immediate ownership transfer on provincial-capital capture remain agreed future gameplay. [Dev 01](features/dev-01.md) records automatic restarts and the complete regression gate. [Backend 02](features/backend-02.md) retains the foundation's evidence; [BACKEND_RESEARCH.md](BACKEND_RESEARCH.md) explains alternatives and future contracts.
 
 ## Confirmed hosting direction
 
@@ -40,7 +40,21 @@ The core watch glob uses the existing `src` parent so a newly created nested `sr
 
 `npm run check` is the complete implementation-iteration gate: architecture, types, headless tests, build, and Chromium tests against both development and built serving. The GitHub workflow runs the same command with the pinned Node and lockfile and retains failure artifacts. Tests for live updates copy actual application source into temporary projects and share only installed dependencies; their file edits never reach the running user lab. They verify behavior through the real worker, HTTP, proxy, and browser paths, including recovery and cleanup. Keep tests aligned with new behavior and connections as the project grows. A passing fresh-server suite alone does not establish that an existing review session has updated.
 
-## Current regional atlas and module ownership
+## Seeded geography and bounded detail delivery
+
+The default browser scenario is the seeded annual-climate preview. `src/world/generation/` contains deterministic noise, continent/island elevation, climate, sparse resource sites and encoding. The worker is the only runtime application layer importing generation. Browser, renderer and HTTP imports of this directory are rejected by Biome and exercised by negative architecture tests. The directory is inside the existing nested world watch scope; a source-edit regression verifies climate changes invalidate cached generation at the same proxy origin.
+
+World generation protocol 1 is independent of authored atlas protocol 3. `shared/generated-world.ts` specifies settings (seed plus standard/large resolution), generator version, immutable geography identity, a manifest, and 128 × 128 tiles. Numeric columns carry elevation in metres, temperature in tenths °C, moisture in thousandths, biome codes and resource codes (zero means no site). Manifest and tile validators check shape, lengths, ranges, water/elevation consistency, identity, tile coordinates and summary accounting before publication/use. Row-major cell IDs remain stable within an identity. There are no province, country, settlement or occupation fields in this geographic contract.
+
+Both presets cover 510 million km² including ocean. Standard has 512 × 256 cells; large has 1,024 × 512. Equal-area cylindrical latitude is `asin(1 − 2v)`, with horizontal wrapping and bounded poles. Cell areas are uniform, while apparent map lengths and shapes are distorted near the poles. Future travel mechanics require geodesic or explicit land-travel distances; rendered cell edges are not uniform ground lengths. Resolution is not a separate planet area setting in this preview.
+
+The climate is a reproducible annual approximation: a symmetric latitude baseline and elevation cooling, broad moisture bands, ocean replenishment, finite wind transport and moisture loss on rising slopes. Biomes follow those values rather than per-island quotas. Sea ice is a cold-water classification; snow is a land biome. Full drainage, rivers, seasonal weather, ocean currents and geology remain future stages. Resource sites use suitable terrain and sparse spacing across the longitude seam, with independent rarity choices; extraction remains catalog metadata only.
+
+The worker validates and pre-encodes a 256 × 128 sampled overview and all detail tiles into an immutable bundle. `server/generated-world-store.ts` retains at most two bundles, including unfinished jobs. It shares in-flight generation for identical settings, evicts only completed least-recently-used entries, removes failed entries for retry, and cancels unfinished work only after its last waiting observer disconnects. Closing the app cancels unfinished generation and clears the cache. This is a disposable geography cache, not saved user worlds. The main thread unpacks bounded bundle strings and validates the manifest; generation and tile encoding stay in workers.
+
+The browser receives the overview first and requests exact detail for visible tiles or selected cells. Its client caps requests at four concurrently and its data cache at sixteen tiles. Current viewport tiles are protected from eviction by late offscreen responses; protection moves with the view and clears at overview. The renderer bounds detail textures to retained tiles and clears textures when changing climate layer. World replacement cancels the prior client; revision checks prevent late data from changing selection or replacing a newer world. Failed replacement keeps the displayed world; failed detail keeps the overview and requires an explicit retry. Cell inspection reads a full-resolution tile even when the map is showing sampled overview data. Pan, zoom and inspection are observer views, not world mutations.
+
+## Retained regional atlas and module ownership
 
 Verdant Reach is a deterministic **authored regional study** with a bounded 320 × 200 topology. Its 64,000 square cells each cover 4 km², giving 256,000 km² in total. The study contains several substantial landmasses and a southern archipelago, eleven biome types, eleven resource types, and 77 connected unclaimed provinces. Its fixed elevation and climate fields produce coherent regions for atlas evaluation; they do not establish a user-seeded planet generator or a complete drainage/climate model.
 
@@ -50,16 +64,16 @@ Every cell has a stable row-major ID, integral elevation in metres, a biome, an 
 |---|---|
 | `shared/atlas.ts` | Protocol-3 world, cell, biome, nullable resource, province, country, and annotation schemas/types; dimension, identity, reference, water/land, and province-connectivity validation |
 | `shared/terrain.ts` | Retained protocol-1 Aster terrain contract |
-| `shared/studies.ts` | Fixed authored-study identifiers for disposable compute jobs |
+| `shared/studies.ts` | Authored-study identifiers and seeded-world settings for disposable compute jobs |
 | `src/fixtures/verdant-reach.ts` | The actual shared regional fixture, deterministic resource assignment, and connected province construction |
 | `src/world/atlas.ts` | Biome/resource display catalogs and atlas/province summaries derived together in one cell pass |
 | `src/world/resources.ts` | Renewable/mineral site kinds and required extraction technology, independent of visual styling |
-| `server/workers/terrain-worker.ts` | Construct the selected shared fixture, validate its matching contract, and encode bounded JSON |
+| `server/workers/terrain-worker.ts` | Construct the selected authored or generated geography, validate its matching contract, and encode bounded JSON |
 | `src/api/atlas.ts` | Request the atlas and validate the response before rendering |
 | `src/components/RegionalAtlas.tsx`, `src/components/AtlasCanvas.tsx` | React loading/reset state, legends, layers, province/cell inspectors, controlled selection, and renderer lifecycle |
 | `src/renderer/atlas-selection.ts` | Pure province → cell view-selection transitions and parent navigation; independent of React/Canvas and world mutation |
 | `src/renderer/biome-atlas.ts` | Canvas geography/texture, overlays, bounded camera, and picking; independent of React |
-| `src/App.tsx`, `src/components/LegacyTerrainLab.tsx` | Select the new default view or the retained Aster study at `?scenario=aster` |
+| `src/App.tsx`, `src/components/LegacyTerrainLab.tsx` | Select the generated-world default, Verdant at `?scenario=verdant`, or Aster at `?scenario=aster` |
 
 Annotations and site positions belong to fixture data. The resource layer and inspector read actual site presence; ordinary cells explicitly show no resource site in that cell. Province totals are derived once per received world, independent of display filters/layers, and exclude water cells without a province. Extraction requirements are catalog metadata displayed for review, not a claim that an actor knows a technology or can currently produce goods. The preview shows all sites; research, discovery, production, labor, and stocks need later contracts. The hierarchy inspector displays real references, including unclaimed land and water without a province. Future sovereignty, occupation, habitation, and lifecycle operations still need their own mechanics and contracts.
 
@@ -85,18 +99,20 @@ Runtime modules also reject development-only package imports; composition script
 
 ## Transport and capacity boundaries
 
-The uncached map endpoints have separate versioned contracts:
+Map endpoints have separate versioned contracts and use `Cache-Control: no-store` for HTTP responses:
 
 | Endpoint | Payload | Browser study |
 |---|---|---|
-| `GET /api/atlas` | `{ protocolVersion: 3, world: AtlasWorld }` | Verdant Reach, the default view |
+| `GET /api/world` | Generated-world protocol-1 manifest and overview | Default generated geography |
+| `GET /api/world/tile` | Generated-world protocol-1 exact detail tile | Requested as needed by the default view |
+| `GET /api/atlas` | `{ protocolVersion: 3, world: AtlasWorld }` | Verdant Reach at `?scenario=verdant` |
 | `GET /api/terrain` | `{ protocolVersion: 1, world: TerrainWorld }` | Aster Island at `?scenario=aster` |
 
-Workers construct the selected authored fixture, validate the matching contract, and serialize its JSON. The browser checks the shared structural and semantic contract before rendering. Invalid replacement data or failed requests preserve the last valid map. Each full-fixture payload is limited independently to **100,000 cells** and **8 MiB of JSON**; larger world delivery needs a measured contract.
+Workers construct geography, validate the matching contract, and serialize its JSON. The browser checks the shared structural and semantic contract before rendering. Invalid replacement data or failed requests preserve the last valid map. Each full-fixture payload remains limited independently to **100,000 cells** and **8 MiB of JSON**. Generated-world manifests are capped at **1 MiB**, detail tiles at **512 KiB**, and worker bundles at **20 MiB**; the browser does not fetch the complete bundle.
 
 Protocol 3 explicitly changes the cell resource contract to a resource ID or null. The worker uses the shared protocol constant; the browser rejects older envelopes instead of silently interpreting them. Fixture version 2 records the changed site layout. There are no saved-world migrations in this stateless lab; future persistence must version and migrate resource state separately.
 
-Both endpoints share one pool: two workers, or one when only one processor is available, with four waiting jobs and an eight-second deadline that includes queue time. Total admitted map responses across both routes are bounded to worker count plus queue allowance, with admission retained until the response finishes or closes. This also constrains work retained for slow clients after computation completes. Configuration is validated on startup; defaults and allowed ranges are recorded in README.
+All map endpoints share one pool: two workers, or one when only one processor is available, with four waiting jobs and an eight-second deadline that includes queue time. Total admitted map responses across the routes are bounded to worker count plus queue allowance, with admission retained until the response finishes or closes. This also constrains work retained for slow clients after computation completes. Generated-world cache admission also limits simultaneous uncached seeds to two. Configuration is validated on startup; defaults and allowed ranges are recorded in README.
 
 Request parsing, sockets, deadlines, and compute admission have explicit limits. Overload and timeouts return retryable failures. Disconnect cancels disposable terrain work; worker failure returns an error and does not fall back to computing on the HTTP thread. Structured logs and server-generated request IDs support diagnosis. `/api/health` establishes HTTP responsiveness; `/api/ready` reports worker/admission diagnostics and returns 503 when busy or unavailable. Startup exercises the actual worker path before announcing readiness.
 
@@ -128,6 +144,6 @@ The host currently binds to loopback only. The PC must remain awake and the proc
 
 The user's visual feedback selected Atlas 02 before the previously proposed seed-generator-first sequence, then Resources 01 corrected its resource distribution. Verdant Reach remains the default atlas; the accepted Atlas 01/React 01 study remains accessible at `?scenario=aster`. Backend 01 established the browser/host connection, and Backend 02 supplies the runtime and growth safeguards. The active resource brief owns verification evidence and the exact user-review steps. Review of the revised sites and visual direction is still required before choosing the next slice.
 
-Future scoped work includes user-seeded geography, a full drainage/climate/resource pipeline, independent world instances, restart recovery, founding settlements, and committed simulation steps with meaningful population/resource accounting. The authored regions and province groups in Atlas 02 provide data to inspect; they do not complete those future generation or simulation systems. Authentication, remote access, and unattended hosting remain separate work before opening access to other PCs.
+Future scoped work includes a full drainage/seasonal-climate/geology pipeline, independent persistent world instances, restart recovery, founding settlements and committed simulation steps with meaningful population/resource accounting. Worldgen 01 establishes seeded geographic previews; authored Atlas 02 province groups remain inspection fixtures. Neither completes the full M1 founding-world gates or living simulation. Authentication, remote access and unattended hosting remain separate work before opening access to other PCs.
 
-A future generator must distinguish seed/settings/generator identity from both authored-fixture identity and persistent world-instance identity. Define stage outputs, topology, units, and input limits; generate geography independently, then initialize founding settlements and country-created provinces around them. Preserve the original studies and their invariants, verify repeatability across workers and host restarts, and measure generation, transfer, and rendering costs with the actual workload. The proposed next bounded outcome is one founding country with a capital and an initial connected province; select its brief and claim/accounting rules before implementation. Expansion, extra towns, and conquest follow as separate slices.
+The generated geography's seed/settings/version identity is distinct from authored-fixture identity and any future persistent world-instance identity. Later initialize founding settlements and country-created provinces around this geography using new explicit contracts. Preserve the original studies and their invariants, verify repeatability across workers and host restarts, and measure costs with actual workloads. After user review of Worldgen 01, choose the next slice together; founding-country claim/accounting rules still need definition before implementation. Expansion, extra towns and conquest remain separate slices.
