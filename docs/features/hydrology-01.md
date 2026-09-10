@@ -1,6 +1,6 @@
 # Hydrology 01 — rivers, lakes and freshwater
 
-Status: user rejected the revised river appearance; structural diagnosis completed, 10 September 2026. Runtime checkpoint remains `ffce09d`; no further simulation or rendering change has been made. The user likes the simulation but rejected the noisy, angular river rendering. Baseline `0e9444b` passed 131 headless and 91 browser tests; that pass did not establish visual acceptance. Baseline `7ad1bde`, clean at startup. Worldgen 01 (`ee7f7d3`) is visually accepted. The user approved the proposed next slice of visible rivers/lakes, freshwater inspection and connected/reproducible drainage, and wants geography completed gradually before settlements.
+Status: visually accepted and considered done by the user, 10 September 2026. Runtime checkpoint remains `ffce09d` (135 headless/process tests and 95 browser scenarios passed). The user said “That looks great” and considers this area done; select the next geography slice without reopening river/drainage changes. No drainage morphology prototype was implemented.
 
 ## Outcome and boundaries
 
@@ -131,7 +131,7 @@ Actual browser review at `http://127.0.0.1:5173/` inspected Chronicle, Elsewhere
 3. Click a river or lake cell. Check mapped freshwater, lake surface/bed/depth and closed versus open drainage.
 4. Try Elsewhere, Harbors and Sundown, and compare fit/detail views. Temperature and moisture retain literal climate colors.
 
-User acceptance of the rivers/lakes remains pending. Continue geography after that review; seasonal water, further climate detail or terrain refinements can be separate slices. Fertility, settlements and political provinces are not started here.
+The user has now accepted the rivers/lakes and considers this area done. Continue geography after that review; seasonal water, further climate detail or terrain refinements can be separate slices. Fertility, settlements and political provinces are not started here.
 
 
 ## River rendering correction — current iteration
@@ -144,13 +144,20 @@ Acceptance: smooth connected bends, legible larger rivers, substantially fewer m
 
 Visual checks at the exact running lab covered Chronicle, Elsewhere, Harbors and Sundown at fit plus Chronicle detail. The final pass also strengthened major overview strokes after visual inspection; final screenshots are `/tmp/chronicle-river-style-final-{fit,detail}.png`. The Chronicle graph still has 4,202 channel/outlet edges; 341 are eligible for overview drawing under the display threshold, and all become eligible at detail. This reduces tiny marks without changing the generated graph or water facts. The lab returned `climate-4:large:Chronicle` with no page errors. Diagnostic last-frame timings were 1.30 ms at fit and 7.40 ms at detail under concurrent verification load; these are not a benchmark of sustained frame rate.
 
-Baseline is `0e9444b`; the river-style checkpoint is the commit containing this correction record. No generator, shared contract, or resource-generation file changed. README and the river-control note explain the zoom hierarchy; launch remains `npm start`. Exact next action: the user refreshes `http://127.0.0.1:5173/`, compares overview/detail and judges the revised river appearance. Visual acceptance remains pending; further geography stays separate.
+Baseline is `0e9444b`; the river-style checkpoint is the commit containing this correction record. No generator, shared contract, or resource-generation file changed. README and the river-control note explain the zoom hierarchy; launch remains `npm start`. User visual acceptance is now recorded; choose the next geography slice.
 
 
-### Follow-up visual rejection and diagnosis
+### Earlier visual rejection and diagnosis (superseded by user acceptance)
 
 The user still sees visual noise after the renderer correction. Their screenshots show the earlier bright outlined strokes. The user confirmed `http://127.0.0.1:5173/`; a fresh fetch from that address serves `riverPathCommands` and no old `#8ac5cf` stroke. Fresh browser captures show the muted renderer. A hard refresh was requested to distinguish a stale open tab from the current display; its result is pending. Do not assume the user has seen the updated renderer or treat refreshing as a solution to the broader design issue.
 
 Independent read-only analysis of the current cached Chronicle large manifest found 963 lakes, of which 589 are one cell and 843 occupy at most four cells. These remain visible when Rivers is disabled. The 956 river reaches have a median length of three edges. At fit, 79 reaches are visible, including 49 of only one to three edges; all reaches reappear by 4× zoom. Collapsing lakes to network nodes yields 386 separate drainage systems, 227 with at most five edges. Larger systems commonly terminate in closed lakes. These observations distinguish fragmented geographic structure from stroke appearance.
 
 Exact next action: resolve the refresh comparison, then discuss a bounded drainage morphology prototype if the user wants longer coherent main rivers and fewer tiny permanent basins. That would change generation and requires an explicit scope decision, generator-version bump, conservation/terrain/transport regressions and the full gate. Do not silently rewrite the simulation the user likes, manufacture decorative connections, or make another color-only pass. Existing tests establish consistency, not visual or geographic realism. No new tests were needed for this diagnosis; last runtime gate remains 135 headless and 95 browser scenarios at `ffce09d`. Fresh river-on/off captures are `/tmp/chronicle-river-diagnose-{fit,mid}-{on,off}.png`.
+
+
+### User acceptance and next direction
+
+The latest explicit user response is: “That looks great. And I'd consider that area done.” This closes Hydrology 01’s visual review. The hard-refresh outcome was not separately reported; do not claim that stale code was proven to be the cause. The structural observations above remain historical diagnostics, not an active request to redesign drainage. No runtime changes followed `ffce09d`.
+
+The user asks for entirely geographical next-step ideas. Discuss soils/fertility, landforms, coastal geography or geological resource coherence as separate small slices. No next feature is selected or authorized for implementation yet. Keep countries, settlements and simulation gameplay deferred. This acceptance update changes documentation only; no runtime checks were rerun.
