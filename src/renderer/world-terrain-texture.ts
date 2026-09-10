@@ -1,4 +1,4 @@
-import { WORLD_BIOMES, decodeWorldSurface, type WorldBiome, type WorldManifest } from '../../shared/generated-world.ts';
+import { WORLD_BIOMES, decodeWorldSurface, isWorldLake, isWorldWater, type WorldBiome, type WorldManifest } from '../../shared/generated-world.ts';
 import { drawCanopy, drawCrag, drawDune, drawGrass, drawPine, drawReeds, drawStone, drawWave } from './biome-atlas.ts';
 
 type Rgb = readonly [number, number, number];
@@ -16,6 +16,8 @@ function motif(context: CanvasRenderingContext2D, biome: WorldBiome) {
   switch (biome) {
     case 'ocean': drawWave(context, 0, 0, 'rgba(125,193,205,.38)'); break;
     case 'coast': drawWave(context, 0, 0, 'rgba(212,239,223,.58)'); break;
+    case 'lake': drawWave(context, 0, 0, 'rgba(195,237,229,.58)'); break;
+    case 'lakeIce': drawStone(context, 0, 0, 'rgba(67,124,140,.40)'); break;
     case 'grassland': drawGrass(context, 0, 0, 'rgba(43,79,40,.43)'); break;
     case 'savanna': drawGrass(context, 0, 0, 'rgba(91,78,36,.40)'); break;
     case 'steppe': drawGrass(context, 0, 0, 'rgba(107,94,62,.38)'); break;
@@ -34,6 +36,9 @@ function motif(context: CanvasRenderingContext2D, biome: WorldBiome) {
 /** One exact biome/elevation plate, with viewport-only decorative ink at several scales. */
 export function createWorldTerrainTexture(world: WorldManifest, colours: readonly Rgb[]) {
   const fields = decodeWorldSurface(world.surface);
+  const levels = fields.elevation.slice();
+  for (const lake of world.hydrology.lakes) for (const cell of lake.cells) levels[cell] = lake.level;
+  const water = (code: number) => isWorldWater(WORLD_BIOMES[code]);
   const plate = document.createElement('canvas');
   plate.width = world.width; plate.height = world.height;
   const context = plate.getContext('2d', { alpha: false });
@@ -43,12 +48,13 @@ export function createWorldTerrainTexture(world: WorldManifest, colours: readonl
   for (let y = 0; y < world.height; y++) for (let x = 0; x < world.width; x++) {
     const at = y * world.width + x, elevation = fields.elevation[at], biome = fields.biome[at];
     const colour = colours[biome];
-    const west = fields.elevation[index(x - 1, y)], east = fields.elevation[index(x + 1, y)];
-    const north = fields.elevation[index(x, y - 1)], south = fields.elevation[index(x, y + 1)];
-    const relief = elevation < 0 ? clamp(elevation / 30000, -.17, 0)
+    const neighbors = [index(x - 1, y), index(x + 1, y), index(x, y - 1), index(x, y + 1)];
+    const [west, east, north, south] = neighbors.map(at => levels[at]);
+    const wet = water(biome), lake = isWorldLake(WORLD_BIOMES[biome]);
+    const relief = wet ? clamp((lake ? elevation - levels[at] : elevation) / 30000, -.17, 0)
       : clamp((Math.max(0, west) - Math.max(0, east)) / 2400 + (Math.max(0, north) - Math.max(0, south)) / 3300, -.24, .23);
-    const ink = (grain(x, y) - .5) * (elevation < 0 ? .016 : .035);
-    const shoreline = elevation >= 0 && Math.min(west, east, north, south) < 0 ? -.07 : 0;
+    const ink = (grain(x, y) - .5) * (wet ? .016 : .035);
+    const shoreline = !wet && neighbors.some(at => water(fields.biome[at])) ? -.07 : 0;
     for (let channel = 0; channel < 3; channel++) image.data[at * 4 + channel] = clamp(Math.round(colour[channel] * (1 + relief + ink + shoreline)), 0, 255);
     image.data[at * 4 + 3] = 255;
   }

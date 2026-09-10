@@ -36,6 +36,7 @@ function textureFixture() {
     width, height, tileSize: 128, topology: 'wrap-x', projection: 'cylindrical-equal-area', areaKm2: 510_000_000,
     landCells, resourceSites: 0, biomeCounts, overview: { width: 256, height: 128, fields: fields(0, 0, 256, 128, 4) },
     surface: { width, height, encoding: 'elevation-i16le-biome-u8', data: packed.toString('base64') },
+    hydrology: { rivers: { cells: [], next: [], runoff: [] }, lakes: [], drySinks: [] },
   };
   function tile(x: number, y: number): WorldTile {
     return { protocolVersion: WORLD_PROTOCOL_VERSION, worldKey: manifest.worldKey, x, y, width: 128, height: 128, fields: fields(x * 128, y * 128, 128, 128) };

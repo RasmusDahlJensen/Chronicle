@@ -1,7 +1,7 @@
 import {
   WORLD_PROTOCOL_VERSION, WORLD_GENERATOR_VERSION, WORLD_TILE_SIZE, WORLD_AREA_KM2, WORLD_BIOMES,
   MAX_WORLD_MANIFEST_BYTES, MAX_WORLD_TILE_BYTES, MAX_WORLD_BUNDLE_BYTES,
-  worldKey, parseWorldManifest, parseWorldTile, type WorldFields, type WorldManifest, type WorldTile, type WorldBundle,
+  worldKey, isWorldWater, parseWorldManifest, parseWorldTile, type WorldFields, type WorldManifest, type WorldTile, type WorldBundle,
 } from '../../../shared/generated-world.ts';
 import type { GeneratedWorld } from './generate.ts';
 
@@ -19,7 +19,7 @@ export function encodeGeneratedWorld(world: GeneratedWorld): WorldBundle {
   let landCells = 0; let resourceSites = 0;
   for (let id = 0; id < world.fields.biome.length; id++) {
     biomeCounts[world.fields.biome[id]]++;
-    if (world.fields.elevation[id] >= 0) landCells++;
+    if (!isWorldWater(WORLD_BIOMES[world.fields.biome[id]])) landCells++;
     if (world.fields.resource[id]) resourceSites++;
   }
   const surfaceBytes = new Uint8Array(world.width * world.height * 3);
@@ -37,7 +37,7 @@ export function encodeGeneratedWorld(world: GeneratedWorld): WorldBundle {
     protocolVersion: WORLD_PROTOCOL_VERSION, generatorVersion: WORLD_GENERATOR_VERSION, worldKey: worldKey(world.settings),
     settings: world.settings, width: world.width, height: world.height, tileSize: WORLD_TILE_SIZE,
     topology: 'wrap-x', projection: 'cylindrical-equal-area', areaKm2: WORLD_AREA_KM2,
-    landCells, resourceSites, biomeCounts,
+    landCells, resourceSites, biomeCounts, hydrology: world.hydrology,
     overview: { width: 256, height: 128, fields: section(0, 0, 256, 128, world.width / 256) },
     surface: { width: world.width, height: world.height, encoding: 'elevation-i16le-biome-u8', data: btoa(chunks.join('')) },
   };

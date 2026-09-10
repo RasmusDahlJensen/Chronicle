@@ -13,6 +13,7 @@ const manifest: WorldManifest = {
   protocolVersion: WORLD_PROTOCOL_VERSION, generatorVersion: WORLD_GENERATOR_VERSION,
   worldKey: worldKey({ seed: 'Chronicle', size: 'large' }), settings: { seed: 'Chronicle', size: 'large' },
   width: 1024, height: 512, tileSize: 128, topology: 'wrap-x', projection: 'cylindrical-equal-area', areaKm2: 510_000_000,
+  hydrology: { drySinks: [] as number[], rivers: { cells: [], next: [], runoff: [] }, lakes: [] },
   landCells: 0, resourceSites: 0, biomeCounts: WORLD_BIOMES.map((_, index) => index === 0 ? 524_288 : 0),
   overview: { width: 256, height: 128, fields: fields(32768) },
   surface: { width: 1024, height: 512, encoding: 'elevation-i16le-biome-u8',

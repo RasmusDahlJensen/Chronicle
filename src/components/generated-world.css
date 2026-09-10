@@ -28,6 +28,14 @@
 .world-cell-facts > div { display: flex; justify-content: space-between; gap: .5rem; }
 .world-cell-facts dt { font-size: .61rem; }
 .world-cell-facts dd { margin: 0; font-size: .71rem; white-space: nowrap; }
+.world-river-note { margin-bottom: 0; }
+.world-cell-water { border-top: 1px solid var(--atlas-line); margin-top: 1rem; padding-top: 1rem; }
+.world-cell-water h3 { margin: .5rem 0 .3rem; font: 1.15rem Georgia, serif; color: #315d65; }
+.world-freshwater-value { font-size: .7rem; color: #3e6971; margin: .3rem 0 .9rem; }
+.world-water-facts { display: grid; gap: .65rem; margin: .8rem 0; }
+.world-water-facts > div { display: flex; justify-content: space-between; gap: .6rem; }
+.world-water-facts dt { font-size: .61rem; color: var(--atlas-muted); }
+.world-water-facts dd { margin: 0; font-size: .68rem; text-align: right; }
 .world-identity { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid #cfd4c4; overflow-wrap: anywhere; }
 .world-identity strong { display: block; font: 1.1rem Georgia, serif; margin: .4rem 0; }
 .world-identity p:not(.atlas-detail-label) { color: #5e6d5f; font-size: .66rem; line-height: 1.6; margin: .5rem 0; }

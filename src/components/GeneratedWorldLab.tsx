@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   DEFAULT_WORLD_SETTINGS, WORLD_BIOMES, inspectWorldCell, type InspectedWorldCell, type WorldManifest, type WorldSettings,
 } from '../../shared/generated-world.ts';
@@ -26,6 +26,7 @@ export function GeneratedWorldLab() {
   const [canvasRevision, setCanvasRevision] = useState(0);
   const [layer, setLayer] = useState<WorldLayer>('biomes');
   const [resources, setResources] = useState(true);
+  const [rivers, setRivers] = useState(true);
   const [view, setView] = useState({ zoom: 1, detail: false });
   const [cell, setCell] = useState<InspectedWorldCell | null>(null);
   const [inspecting, setInspecting] = useState(false);
@@ -96,7 +97,7 @@ export function GeneratedWorldLab() {
     };
   }, [world, canvasRevision]);
 
-  useEffect(() => { renderer.current?.setLayer(layer, resources); }, [layer, resources, world, canvasRevision]);
+  useEffect(() => { renderer.current?.setLayer(layer, resources, rivers); }, [layer, resources, rivers, world, canvasRevision]);
 
   function generate(event?: FormEvent) {
     event?.preventDefault();
@@ -106,7 +107,11 @@ export function GeneratedWorldLab() {
     : loadError ? (world ? 'Previous world retained · Generation failed' : 'World unavailable')
     : canvasError ? 'World canvas unavailable' : 'World ready to explore';
   const landPercent = world ? world.landCells / (world.width * world.height) * 100 : 0;
-  const climateDescription = cell ? `${cell.elevation < 0 ? 'This ocean cell' : cell.elevation >= 1500 ? 'This upland cell' : 'This lowland cell'} has ${cell.temperature < 0 ? 'a below-freezing annual mean' : cell.temperature < 10 ? 'cool annual temperatures' : cell.temperature < 20 ? 'mild annual temperatures' : 'warm annual temperatures'} and ${cell.moisture < 0.3 ? 'dry annual conditions' : cell.moisture > 0.7 ? 'plentiful annual moisture' : 'moderate annual moisture'}. ${cell.biome === 'seaIce' ? 'The cold supports sea ice.' : cell.biome === 'ocean' || cell.biome === 'coast' ? 'Water depth distinguishes shallow sea from deep ocean.' : 'Its temperature, moisture, and elevation together determine the biome.'}` : '';
+  const largestRunoff = useMemo(() => world ? world.hydrology.lakes.reduce((largest, lake) => Math.max(largest, lake.outlet?.runoff ?? 0),
+    world.hydrology.rivers.runoff.reduce((largest, runoff) => Math.max(largest, runoff), 1)) : 1, [world]);
+  const riverPercent = cell ? cell.water.runoff / largestRunoff * 100 : 0;
+  const freshwater = cell ? ({ none: 'No mapped freshwater', river: 'Freshwater river', lake: 'Freshwater lake', lakeshore: 'Freshwater lakeshore' } as const)[cell.water.freshwater] : '';
+  const climateDescription = cell ? `${cell.water.kind === 'lake' ? 'This lake cell' : cell.water.kind === 'ocean' ? 'This ocean cell' : cell.elevation >= 1500 ? 'This upland cell' : 'This lowland cell'} has ${cell.temperature < 0 ? 'a below-freezing annual mean' : cell.temperature < 10 ? 'cool annual temperatures' : cell.temperature < 20 ? 'mild annual temperatures' : 'warm annual temperatures'} and ${cell.moisture < 0.3 ? 'dry annual conditions' : cell.moisture > 0.7 ? 'plentiful annual moisture' : 'moderate annual moisture'}. ${cell.biome === 'lakeIce' ? 'The cold supports lake ice.' : cell.water.kind === 'lake' ? 'Lake depth is measured from the water surface to the bed.' : cell.biome === 'seaIce' ? 'The cold supports sea ice.' : cell.water.kind === 'ocean' ? 'Water depth distinguishes shallow sea from deep ocean.' : 'Its temperature, moisture, and elevation together determine the biome.'}` : '';
 
   return <div className="regional-atlas generated-world-lab">
     <header className="atlas-header">
@@ -116,7 +121,7 @@ export function GeneratedWorldLab() {
     </header>
     <main>
       <div className="atlas-intro">
-        <div><p className="atlas-eyebrow">Seeded geography &amp; annual climate</p><h1>A world taking shape</h1><p className="atlas-description">From frozen poles to tropical forests. Explore the land, climate, and natural potential of a fictional planet.</p></div>
+        <div><p className="atlas-eyebrow">Seeded geography &amp; annual climate</p><h1>A world taking shape</h1><p className="atlas-description">From frozen poles to tropical forests. Explore the land, waterways, climate, and natural potential of a fictional planet.</p></div>
         <dl className="atlas-overview" aria-label="World totals">
           <div><dt>Planet area</dt><dd>510<span className="atlas-unit"> million km²</span></dd></div>
           <div><dt>Resolution</dt><dd id="world-resolution">{world ? `${number.format(world.width)} × ${number.format(world.height)}` : '—'}</dd></div>
@@ -143,6 +148,8 @@ export function GeneratedWorldLab() {
             <fieldset className="world-layer-options"><legend className="world-sr-only">Map layer</legend>
               {(['biomes', 'temperature', 'moisture'] as const).map(value => <label key={value} className={layer === value ? 'world-layer-selected' : ''}><input type="radio" name="world-layer" value={value} checked={layer === value} onChange={() => setLayer(value)} /><span>{value === 'biomes' ? 'Biomes' : value === 'temperature' ? 'Temperature' : 'Moisture'}</span></label>)}
             </fieldset>
+            <label className="world-resource-toggle"><input type="checkbox" checked={rivers} onChange={event => setRivers(event.target.checked)} /> Rivers</label>
+            <p className="atlas-panel-note world-river-note">Rivers appear on the biome atlas. Wider channels carry more accumulated runoff.</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={resources} onChange={event => setResources(event.target.checked)} /> Resource sites</label>
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
           </section>
@@ -159,7 +166,7 @@ export function GeneratedWorldLab() {
               <button type="button" aria-label="Zoom in" disabled={!world || !!canvasError} onClick={() => renderer.current?.zoomBy(1.6)}>+</button>
               <button type="button" className="atlas-fit-button" disabled={!world || !!canvasError} onClick={() => renderer.current?.fit()}>Fit map</button>
             </div></div>
-            {world ? <div className="atlas-canvas-frame"><canvas ref={canvas} id="generated-world-canvas" tabIndex={0} role="img" aria-label="Generated planet: biomes, temperature, moisture and natural resource sites. Click to inspect a cell." aria-describedby="world-map-help">This world preview requires Canvas 2D support.</canvas><span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span></div>
+            {world ? <div className="atlas-canvas-frame"><canvas ref={canvas} id="generated-world-canvas" tabIndex={0} role="img" aria-label="Generated planet: biomes, rivers, lakes, temperature, moisture and natural resource sites. Click to inspect a cell." aria-describedby="world-map-help">This world preview requires Canvas 2D support.</canvas><span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span></div>
               : <div className="atlas-loading-map"><span className="atlas-loading-compass" aria-hidden="true">✦</span><p>{loadError ? 'The world is unavailable.' : 'A new geography is forming…'}</p><span>{loadError ? 'Use Retry generation to try again.' : 'Preparing continents, climate, and resource sites on the local host.'}</span></div>}
             <p id="world-map-help" className="atlas-map-help">Click to inspect · Drag to explore · Scroll to zoom. Keyboard: arrows inspect, Enter selects, Shift + arrows pan, + / − zoom, Home fits, Escape clears.</p>
           </div>
@@ -168,7 +175,7 @@ export function GeneratedWorldLab() {
           {loadError && <p className="atlas-error" role="alert">{loadError}</p>}
           {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={() => retryDetail.current()}>Retry detail</button></div>}
           {canvasError && <div className="world-inline-error"><p className="atlas-error" role="alert">{canvasError}</p><button className="atlas-reset-button" type="button" onClick={() => setCanvasRevision(current => current + 1)}>Retry canvas</button></div>}
-          <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A climate preview, before history begins. The poles are cold, tropical lowlands are warm, and regional moisture gives each landmass its character. Seasons, rivers, and living societies are still to come.</p></div>
+          <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A geographic preview, before history begins. Rivers connect their catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin. Seasons and living societies are still to come.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">
           <p className="atlas-section-index">03 / Inspect</p><div className="atlas-section-heading"><h2 id="world-inspector-title">{cell || inspecting ? 'Cell detail' : 'Read the landscape'}</h2>{(cell || inspecting) && <button className="atlas-clear-selection" type="button" aria-label="Clear selection" onClick={() => clearSelection.current()}>×</button>}</div>
@@ -176,15 +183,31 @@ export function GeneratedWorldLab() {
             <div className="atlas-cell-biome" style={{ borderColor: WORLD_BIOME_STYLE[cell.biome].color }}><p>Cell {number.format(cell.id)}</p><h3>{WORLD_BIOME_STYLE[cell.biome].label}</h3></div>
             <dl className="atlas-cell-facts world-cell-facts">
               <div><dt>Latitude</dt><dd>{Math.abs(Math.asin(1 - 2 * (cell.y + 0.5) / world.height) * 180 / Math.PI).toFixed(1)}° {cell.y < world.height / 2 ? 'N' : 'S'}</dd></div>
-              <div><dt>Elevation</dt><dd>{number.format(cell.elevation)} m</dd></div>
+              <div><dt>{cell.water.kind === 'lake' ? 'Bed elevation' : 'Elevation'}</dt><dd>{number.format(cell.elevation)} m</dd></div>
               <div><dt>Annual temperature</dt><dd id="cell-temperature">{cell.temperature.toFixed(1)} °C</dd></div>
               <div><dt>Moisture index</dt><dd id="cell-moisture">{Math.round(cell.moisture * 100)} / 100</dd></div>
               <div><dt>Cell area</dt><dd>{number.format(Math.round(world.areaKm2 / (world.width * world.height)))} km²</dd></div>
               <div><dt>Grid position</dt><dd>{cell.x}, {cell.y}</dd></div>
             </dl>
             <p className="atlas-panel-note world-cell-explanation">{climateDescription}</p>
+            <section className="world-cell-water" aria-label="Selected cell water">
+              <p className="atlas-detail-label">Water &amp; freshwater</p>
+              <h3>{({ dry: 'Dry land', ocean: 'Ocean', river: 'River', lake: 'Lake' } as const)[cell.water.kind]}</h3>
+              <p className="world-freshwater-value">{freshwater}</p>
+              {cell.water.kind === 'river' && <><dl className="world-water-facts">
+                <div><dt>Relative river size</dt><dd>{riverPercent < 1 ? '<1' : Math.round(riverPercent)}% of largest</dd></div>
+                <div><dt>Runoff index</dt><dd>{number.format(cell.water.runoff)}</dd></div>
+              </dl><p className="atlas-panel-note">Compared with this world’s largest mapped channel. Annual runoff accumulates from the upstream catchment; the index is not a measured discharge.</p></>}
+              {cell.water.kind === 'lake' && cell.water.lake && <><dl className="world-water-facts">
+                <div><dt>Lake area</dt><dd>{number.format(Math.round(cell.water.lake.areaKm2))} km²</dd></div>
+                <div><dt>Lake level</dt><dd>{number.format(cell.water.lake.level)} m</dd></div>
+                <div><dt>Water depth</dt><dd>{number.format(cell.water.lake.depth)} m</dd></div>
+                <div><dt>Drainage</dt><dd>{cell.water.lake.closed ? 'Closed basin' : 'One mapped outlet'}</dd></div>
+              </dl><p className="atlas-panel-note">{cell.water.lake.closed ? 'Salinity is not modeled. This enclosed lake is not marked as a freshwater source.' : 'This lake drains through a mapped outlet and supplies freshwater along its shore.'}</p></>}
+              {cell.water.freshwater === 'lakeshore' && <p className="atlas-panel-note">This cell borders a lake with a mapped outlet.</p>}
+            </section>
             <section className="atlas-cell-resource" aria-label="Selected cell resource">{cell.resource ? <><p className="atlas-detail-label">Resource site</p><p className="atlas-resource-value"><span><ResourceIcon resource={cell.resource} /></span>{RESOURCES[cell.resource].label}</p><dl className="atlas-resource-facts"><div><dt>Site type</dt><dd>{RESOURCE_RULES[cell.resource].kind === 'renewable' ? 'Renewable' : 'Mineral'}</dd></div><div><dt>Required extraction technology</dt><dd>{RESOURCE_RULES[cell.resource].extractionTechnology}</dd></div></dl><p className="atlas-panel-note">Natural potential. Extraction and production are not active.</p></> : <><p className="atlas-detail-label">Natural potential</p><p className="atlas-resource-empty">No resource site in this cell</p><p className="atlas-panel-note">Sites are scattered across suitable terrain. Most cells have no special site.</p></>}</section>
-          </div> : inspecting ? <p className="atlas-panel-note" role="status">Reading full-resolution cell data…</p> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Select any cell to inspect its biome, annual climate, elevation, and resource potential.</p><span>Zoom in to explore terrain textures and individual resource markers.</span></div>}
+          </div> : inspecting ? <p className="atlas-panel-note" role="status">Reading full-resolution cell data…</p> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Select any cell to inspect its biome, annual climate, water access, and resource potential.</p><span>Zoom in to explore terrain textures and individual resource markers.</span></div>}
           <div className="world-identity"><p className="atlas-detail-label">Current world</p><strong id="world-current-seed">{world?.settings.seed ?? 'Preparing…'}</strong><p>{world ? `${number.format(world.resourceSites)} scattered resource sites` : 'Geography is being generated'}</p><span>{world ? `Generator ${world.generatorVersion} · ${number.format(world.width * world.height)} cells` : 'Annual climate preview'}</span></div>
           <p className="atlas-panel-note world-projection-note">Equal-area cells; polar shapes are stretched. Map distances are not uniform ground distances. This geography has no political provinces.</p>
         </aside>

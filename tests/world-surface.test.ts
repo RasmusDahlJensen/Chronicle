@@ -14,7 +14,7 @@ function surfaceFixture(size: 'standard' | 'large'): GeneratedWorld {
     fields.elevation[id] = 11999;
     fields.biome[id] = contract.WORLD_BIOMES.indexOf('mountain');
   }
-  return { settings: { seed: 'Surface fidelity', size }, width, height, fields };
+  return { settings: { seed: 'Surface fidelity', size }, width, height, fields, hydrology: { drySinks: [] as number[], rivers: { cells: [], next: [], runoff: [] }, lakes: [] } };
 }
 
 test('overview preserves every terrain cell, including narrow coastlines and single-cell islands at both resolutions', () => {

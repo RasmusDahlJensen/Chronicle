@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { latitudeAt, baselineTemperature, classifyClimate, moistureField } from '../src/world/generation/climate.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
-import { WORLD_BIOMES, MAX_WORLD_MANIFEST_BYTES, parseWorldManifest, parseWorldTile, decodeWorldSurface } from '../shared/generated-world.ts';
+import { WORLD_BIOMES, isWorldLake, MAX_WORLD_MANIFEST_BYTES, parseWorldManifest, parseWorldTile, decodeWorldSurface } from '../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../shared/atlas.ts';
 import { hashNoise, smoothNoise } from '../src/world/generation/noise.ts';
 
@@ -113,7 +113,8 @@ test('islands inherit equatorial and polar climates while mountains add cooler e
     if (connected.length >= world.width * world.height * 0.01) continents++;
     if (connected.length >= 10 && connected.length < 2000) {
       islands++;
-      const lowlands = connected.filter(cell => world.fields.elevation[cell] < 700);
+      const exposed = connected.filter(cell => !isWorldLake(WORLD_BIOMES[world.fields.biome[cell]]));
+      const lowlands = exposed.filter(cell => world.fields.elevation[cell] < 700);
       const equatorial = lowlands.filter(cell => Math.abs(latitude(cell)) <= 10);
       const cold = lowlands.filter(cell => Math.abs(latitude(cell)) >= 55);
       if (equatorial.length) equatorialIslands++;
@@ -130,14 +131,14 @@ test('islands inherit equatorial and polar climates while mountains add cooler e
         assert.ok(['boreal', 'tundra', 'snow'].includes(WORLD_BIOMES[world.fields.biome[cell]]),
           'High-latitude islands must not repeat tropical ecosystems.');
       }
-      const highlands = connected.filter(cell => world.fields.elevation[cell] > 1800);
+      const highlands = exposed.filter(cell => world.fields.elevation[cell] > 1800);
       const latitudes = connected.map(latitude);
       if (lowlands.length && highlands.length && Math.max(...latitudes) - Math.min(...latitudes) < 3) {
         mountainIslands++;
         assert.ok(averageTemperature(highlands) < averageTemperature(lowlands) - 60,
           'Mountain zones should be substantially colder than the same island’s nearby lowlands.');
       }
-      for (const cell of connected) {
+      for (const cell of exposed) {
         assert.equal(WORLD_BIOMES[world.fields.biome[cell]], classifyClimate(
           world.fields.elevation[cell], world.fields.temperature[cell] / 10, world.fields.moisture[cell] / 1000,
         ), 'An elevated island may have more biomes only as a consequence of its actual climate/terrain.');

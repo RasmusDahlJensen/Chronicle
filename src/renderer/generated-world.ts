@@ -7,6 +7,7 @@ import { createWorldTerrainTexture } from './world-terrain-texture.ts';
 export const WORLD_BIOME_STYLE: Record<WorldBiome, { label: string; color: string }> = {
   ...BIOMES, boreal: { label: 'Boreal forest', color: '#567766' },
   steppe: { label: 'Dry steppe', color: '#b9ae83' }, seaIce: { label: 'Sea ice', color: '#c6dce0' },
+  lake: { label: 'Lake', color: '#4d92a0' }, lakeIce: { label: 'Frozen lake', color: '#b5dadd' },
 };
 export type WorldLayer = 'biomes' | 'temperature' | 'moisture';
 export interface WorldCoordinate { x: number; y: number }
@@ -50,6 +51,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   const ctx: CanvasRenderingContext2D = context;
   let layer: WorldLayer = 'biomes';
   let resources = true;
+  let rivers = true;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
@@ -57,6 +59,15 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let overview: HTMLCanvasElement | null = null;
   let terrain: ReturnType<typeof createWorldTerrainTexture> | undefined;
   const textures = new Map<string, HTMLCanvasElement>();
+  // Index authoritative edges spatially; a channel belongs to its source tile.
+  // Include the single mapped outlet edge of each open lake.
+  const riverColumns = world.width / 128;
+  const riverTiles: { cell: number; next: number; runoff: number }[][] = Array.from({ length: riverColumns * world.height / 128 }, () => []);
+  const addRiver = (cell: number, next: number, runoff: number) => {
+    riverTiles[Math.floor(Math.floor(cell / world.width) / 128) * riverColumns + Math.floor(cell % world.width / 128)].push({ cell, next, runoff });
+  };
+  world.hydrology.rivers.cells.forEach((cell, index) => addRiver(cell, world.hydrology.rivers.next[index], world.hydrology.rivers.runoff[index]));
+  for (const lake of world.hydrology.lakes) if (lake.outlet) addRiver(lake.outlet.cell, lake.outlet.next, lake.outlet.runoff);
   let destroyed = false;
   let frame = 0;
   let gesture: { id: number; startX: number; startY: number; x: number; y: number; dragged: boolean } | null = null;
@@ -100,6 +111,32 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     return [...found.values()];
   }
+  function drawRivers(left: number, top: number, scale: number, width: number, height: number, startCopy: number, endCopy: number) {
+    if (!rivers || layer !== 'biomes') return;
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (let copy = startCopy - 1; copy <= endCopy + 1; copy++) {
+      const origin = left + copy * world.width * scale;
+      const firstX = Math.max(0, Math.floor((-origin / scale - 2) / 128));
+      const lastX = Math.min(riverColumns - 1, Math.floor(((width - origin) / scale + 2) / 128));
+      const firstY = Math.max(0, Math.floor((-top / scale - 2) / 128));
+      const lastY = Math.min(world.height / 128 - 1, Math.floor(((height - top) / scale + 2) / 128));
+      for (let row = firstY; row <= lastY; row++) for (let column = firstX; column <= lastX; column++) {
+        for (const edge of riverTiles[row * riverColumns + column]) {
+          const sx = edge.cell % world.width, sy = Math.floor(edge.cell / world.width);
+          const dx = wrap(edge.next % world.width - sx + world.width / 2, world.width) - world.width / 2;
+          const x = origin + (sx + 0.5) * scale, y = top + (sy + 0.5) * scale;
+          const nextX = x + dx * scale, nextY = top + (Math.floor(edge.next / world.width) + 0.5) * scale;
+          if (Math.max(x, nextX) < -6 || Math.min(x, nextX) > width + 6 || Math.max(y, nextY) < -6 || Math.min(y, nextY) > height + 6) continue;
+          // Width compares accumulated runoff; it is not a measured channel width.
+          const ink = clamp((0.32 + Math.log2(1 + edge.runoff / 1000) * 0.12) * Math.sqrt(scale), 0.55, Math.min(5, scale * 0.7 + 1));
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(nextX, nextY);
+          ctx.strokeStyle = '#285e70'; ctx.lineWidth = ink + Math.min(0.55, scale * 0.55); ctx.stroke();
+          ctx.strokeStyle = '#8ac5cf'; ctx.lineWidth = ink; ctx.stroke();
+        }
+      }
+    }
+    ctx.restore();
+  }
   function draw() {
     if (destroyed) return;
     const started = performance.now();
@@ -128,6 +165,11 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
         ctx.drawImage(surface, x, y, edge, edge);
       }
       if (layer === 'biomes') terrain!.patterns(ctx, origin, top, m.scale, m.width, m.height);
+    }
+    // Draw after all world copies so the next background cannot erase a seam edge.
+    drawRivers(left, top, m.scale, m.width, m.height, startCopy, endCopy);
+    for (let copy = startCopy; copy <= endCopy; copy++) {
+      const origin = left + copy * world.width * m.scale;
       if (m.detail && resources && m.scale >= 5) for (const tile of tiles) {
         const x = origin + tile.x * 128 * m.scale, y = top + tile.y * 128 * m.scale;
         const edge = 128 * m.scale;
@@ -261,9 +303,9 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   changed();
   return {
     zoomBy, fit,
-    setLayer(next: WorldLayer, showResources: boolean) {
+    setLayer(next: WorldLayer, showResources: boolean, showRivers = true) {
       if (layer !== next) { layer = next; overview = null; textures.clear(); }
-      resources = showResources; safe(draw);
+      resources = showResources; rivers = showRivers; safe(draw);
     },
     setTiles(next: WorldTile[]) {
       tiles = next.slice(-16);
