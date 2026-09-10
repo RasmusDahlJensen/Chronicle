@@ -1,5 +1,5 @@
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
-import { WORLD_BIOMES, type WorldBiome, type WorldFields, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
+import { isWorldWater, WORLD_BIOMES, type WorldBiome, type WorldFields, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
 import { BIOMES } from '../world/atlas.ts';
 import { drawAtlasResourceIcon } from './biome-atlas.ts';
 import { createWorldTerrainTexture } from './world-terrain-texture.ts';
@@ -10,7 +10,7 @@ export const WORLD_BIOME_STYLE: Record<WorldBiome, { label: string; color: strin
   steppe: { label: 'Dry steppe', color: '#b9ae83' }, seaIce: { label: 'Sea ice', color: '#c6dce0' },
   lake: { label: 'Lake', color: '#4d92a0' }, lakeIce: { label: 'Frozen lake', color: '#b5dadd' },
 };
-export type WorldLayer = 'biomes' | 'temperature' | 'moisture';
+export type WorldLayer = 'biomes' | 'temperature' | 'moisture' | 'fertility';
 export interface WorldCoordinate { x: number; y: number }
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
@@ -24,8 +24,12 @@ const temperatureStops: readonly (readonly [number, Rgb])[] = [
   [10, [228, 229, 171]], [20, [229, 173, 91]], [30, [197, 90, 53]], [40, [131, 49, 48]],
 ];
 const moistureStops: readonly (readonly [number, Rgb])[] = [[0, [191, 151, 96]], [0.3, [219, 207, 160]], [0.5, [161, 195, 164]], [0.75, [70, 146, 141]], [1, [29, 78, 105]]];
+const fertilityStops: readonly (readonly [number, Rgb])[] = [[0, [151, 105, 76]], [50, [223, 212, 155]], [100, [47, 103, 65]]];
+const fertilityWater: Rgb = [143, 177, 184];
 export const TEMPERATURE_GRADIENT = 'linear-gradient(90deg, #464579 0%, #5f8fba 25%, #c5dcdc 50%, #e4e5ab 62.5%, #e5ad5b 75%, #c55a35 87.5%, #833130 100%)';
 export const MOISTURE_GRADIENT = 'linear-gradient(90deg, #bf9760, #dbcfa0 30%, #a1c3a4 50%, #46928d 75%, #1d4e69)';
+export const FERTILITY_GRADIENT = 'linear-gradient(90deg, #97694c, #dfd49b 50%, #2f6741)';
+export const FERTILITY_WATER_COLOR = '#8fb1b8';
 
 function blend(stops: readonly (readonly [number, Rgb])[], value: number): Rgb {
   if (value <= stops[0][0]) return stops[0][1];
@@ -82,6 +86,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     const pixels = paint.createImageData(width, height);
     for (let at = 0; at < width * height; at++) {
       const colour = layer === 'temperature' ? blend(temperatureStops, fields.temperature[at] / 10)
+        : layer === 'fertility' ? isWorldWater(WORLD_BIOMES[fields.biome[at]]) ? fertilityWater : blend(fertilityStops, fields.fertility[at])
         : blend(moistureStops, fields.moisture[at] / 1000);
       pixels.data.set([...colour, 255], at * 4);
     }

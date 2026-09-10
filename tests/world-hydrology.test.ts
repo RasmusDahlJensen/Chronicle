@@ -4,11 +4,13 @@ import {
   WORLD_PROTOCOL_VERSION, WORLD_GENERATOR_VERSION, WORLD_BIOMES, worldKey,
   parseWorldManifest, parseWorldTile, inspectWorldCell,
 } from '../shared/generated-world.ts';
+import { createFertilityContext, fertilityAt } from '../shared/fertility.ts';
 
 function fixture() {
   const width = 512, height = 256, count = width * height;
   const fields = { elevation: new Array(count).fill(100), temperature: new Array(count).fill(120),
-    moisture: new Array(count).fill(600), biome: new Array(count).fill(WORLD_BIOMES.indexOf('grassland')), resource: new Array(count).fill(0) };
+    moisture: new Array(count).fill(600), biome: new Array(count).fill(WORLD_BIOMES.indexOf('grassland')), resource: new Array(count).fill(0),
+    fertility: new Array(count).fill(0) };
   const cell = (x: number, y: number) => y * width + x;
   for (let x = 0; x < width; x++) { fields.elevation[x] = -100; fields.biome[x] = WORLD_BIOMES.indexOf('coast'); }
   const rivers = { cells: [] as number[], next: [] as number[], runoff: [] as number[] };
@@ -27,8 +29,11 @@ function fixture() {
     fields.biome[id] = (WORLD_BIOMES as readonly string[]).indexOf(lake.id === 1 ? 'lake' : 'lakeIce');
     if (lake.id === 2) fields.temperature[id] = -150;
   }
+  const hydrology = { drySinks: [] as number[], rivers, lakes };
+  const fertility = createFertilityContext(fields, { width, height, areaKm2: 510000000 }, hydrology, WORLD_BIOMES);
+  for (let id = 0; id < count; id++) fields.fertility[id] = fertilityAt(fertility, id, fields.temperature[id] / 10, fields.moisture[id] / 1000).score;
   function section(startX: number, startY: number, w: number, h: number, step = 1) {
-    const result = { elevation: [] as number[], temperature: [] as number[], moisture: [] as number[], biome: [] as number[], resource: [] as number[] };
+    const result = { elevation: [] as number[], temperature: [] as number[], moisture: [] as number[], biome: [] as number[], resource: [] as number[], fertility: [] as number[] };
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const id = cell(startX + x * step + Math.floor(step / 2), startY + y * step + Math.floor(step / 2));
       for (const key of Object.keys(result) as (keyof typeof result)[]) result[key].push(fields[key][id]);
@@ -44,7 +49,7 @@ function fixture() {
     width, height, tileSize: 128, topology: 'wrap-x', projection: 'cylindrical-equal-area', areaKm2: 510000000,
     landCells: count - 512 - 4, resourceSites: 0, biomeCounts,
     overview: { width: 256, height: 128, fields: section(0, 0, 256, 128, 2) },
-    surface: { width, height, encoding: 'elevation-i16le-biome-u8', data: bytes.toString('base64') }, hydrology: { drySinks: [] as number[], rivers, lakes } };
+    surface: { width, height, encoding: 'elevation-i16le-biome-u8', data: bytes.toString('base64') }, hydrology };
   const tile = { protocolVersion: WORLD_PROTOCOL_VERSION, worldKey: manifest.worldKey, x: 0, y: 0, width: 128, height: 128, fields: section(0, 0, 128, 128) };
   return { manifest, tile, cell };
 }

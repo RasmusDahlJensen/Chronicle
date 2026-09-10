@@ -21,6 +21,8 @@
 .generated-world-lab .world-legend .atlas-biome-legend { gap: .53rem; }
 .world-climate-gradient { height: 12px; border: 1px solid #30483826; border-radius: 2px; margin: .5rem 0; }
 .world-climate-scale { display: flex; justify-content: space-between; color: #6c786c; font-size: .61rem; }
+.world-water-key { display: flex; gap: .5rem; align-items: center; font-size: .62rem; color: #6c786c; margin: .9rem 0; }
+.world-water-key > span { width: 16px; height: 10px; border: 1px solid #30483826; border-radius: 2px; }
 .world-climate-note { display: flex; gap: .9rem; border-top: 1px solid var(--atlas-line); padding-top: .7rem; margin-top: .9rem; color: var(--atlas-muted); }
 .world-climate-note > span { font-size: 1.9rem; color: #829778; line-height: 1.4; }
 .world-climate-note p { margin: 0; font-size: .67rem; line-height: 1.75; max-width: 650px; }
@@ -31,6 +33,17 @@
 .world-river-note { margin-bottom: 0; }
 .world-cell-water { border-top: 1px solid var(--atlas-line); margin-top: 1rem; padding-top: 1rem; }
 .world-cell-water h3 { margin: .5rem 0 .3rem; font: 1.15rem Georgia, serif; color: #315d65; }
+.world-cell-fertility { border-top: 1px solid var(--atlas-line); padding-top: 1rem; margin-top: 1rem; }
+.world-cell-fertility h3 { margin: .5rem 0; font: 1.4rem Georgia, serif; color: #365a3f; }
+.world-cell-fertility summary { cursor: pointer; color: #365a3f; font-size: .68rem; padding: .35rem 0; }
+.world-fertility-factors { list-style: none; padding: 0; display: grid; gap: .8rem; margin: 1rem 0; }
+.world-fertility-factors li > div { display: flex; justify-content: space-between; font-size: .65rem; }
+.world-fertility-factors li > div > span { color: #64765e; font-variant-numeric: tabular-nums; }
+.world-fertility-factors meter { display: block; width: 100%; height: 8px; margin: .3rem 0; }
+.world-fertility-factors meter::-webkit-meter-bar { background: #e4e6d9; border: 0; border-radius: 2px; }
+.world-fertility-factors meter::-webkit-meter-optimum-value { background: #68815a; border-radius: 2px; }
+.world-fertility-factors meter::-moz-meter-bar { background: #68815a; border-radius: 2px; }
+.world-fertility-factors p { margin: 0; color: var(--atlas-muted); font-size: .59rem; line-height: 1.5; }
 .world-freshwater-value { font-size: .7rem; color: #3e6971; margin: .3rem 0 .9rem; }
 .world-water-facts { display: grid; gap: .65rem; margin: .8rem 0; }
 .world-water-facts > div { display: flex; justify-content: space-between; gap: .6rem; }

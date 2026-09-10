@@ -7,7 +7,8 @@ import { WORLD_BIOMES, WORLD_PROTOCOL_VERSION, WORLD_GENERATOR_VERSION, MAX_WORL
 // Transport fixture: a complete, explicitly ocean-only planet, not generated geography.
 function fields(count: number) {
   return { elevation: Array<number>(count).fill(-1000), temperature: Array<number>(count).fill(100),
-    moisture: Array<number>(count).fill(500), biome: Array<number>(count).fill(0), resource: Array<number>(count).fill(0) };
+    moisture: Array<number>(count).fill(500), biome: Array<number>(count).fill(0), resource: Array<number>(count).fill(0),
+    fertility: Array<number>(count).fill(0) };
 }
 const manifest: WorldManifest = {
   protocolVersion: WORLD_PROTOCOL_VERSION, generatorVersion: WORLD_GENERATOR_VERSION,

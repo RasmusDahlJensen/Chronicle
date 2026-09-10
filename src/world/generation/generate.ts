@@ -1,3 +1,4 @@
+import { createFertilityContext, fertilityAt } from '../../../shared/fertility.ts';
 import { parseWorldSettings, WORLD_SIZES, WORLD_BIOMES, WORLD_AREA_KM2, type WorldSettings } from '../../../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../../../shared/atlas.ts';
 import { baselineTemperature, classifyClimate, latitudeAt, moistureField } from './climate.ts';
@@ -9,7 +10,7 @@ import type { WorldHydrology } from '../../../shared/world-hydrology.ts';
 
 export interface GeneratedWorld {
   settings: WorldSettings; width: number; height: number; hydrology: WorldHydrology;
-  fields: { elevation: Int16Array; temperature: Int16Array; moisture: Uint16Array; biome: Uint8Array; resource: Uint8Array };
+  fields: { elevation: Int16Array; temperature: Int16Array; moisture: Uint16Array; biome: Uint8Array; resource: Uint8Array; fertility: Uint8Array };
 }
 
 export async function generateWorld(input: WorldSettings): Promise<GeneratedWorld> {
@@ -57,5 +58,8 @@ export async function generateWorld(input: WorldSettings): Promise<GeneratedWorl
       blocked[(cy + dy) * width + (cx + dx + width) % width] = 1;
     }
   }
-  return { settings, width, height, hydrology, fields: { elevation, temperature, moisture, biome, resource } };
+  const fertility = new Uint8Array(width * height);
+  const context = createFertilityContext({ elevation, biome }, { width, height, areaKm2: WORLD_AREA_KM2 }, hydrology, WORLD_BIOMES);
+  for (let id = 0; id < fertility.length; id++) fertility[id] = fertilityAt(context, id, temperature[id] / 10, moisture[id] / 1000).score;
+  return { settings, width, height, hydrology, fields: { elevation, temperature, moisture, biome, resource, fertility } };
 }

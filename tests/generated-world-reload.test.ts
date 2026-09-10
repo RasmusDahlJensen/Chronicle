@@ -26,6 +26,8 @@ test('editing nested climate code invalidates cached world generation through th
     assert.equal(updated.overview.fields.temperature[at], initial.overview.fields.temperature[at] - 100);
   }
   assert.notDeepEqual(updated.biomeCounts, initial.biomeCounts);
+  assert.notDeepEqual(updated.overview.fields.fertility, initial.overview.fields.fertility,
+    'Climate edits must rebuild derived growing potential through the actual worker and proxy.');
 });
 
 test('editing only the vendored runtime rebuilds cached terrain through the same running proxy', async t => {

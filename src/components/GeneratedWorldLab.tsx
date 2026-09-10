@@ -3,8 +3,9 @@ import {
   DEFAULT_WORLD_SETTINGS, WORLD_BIOMES, inspectWorldCell, type InspectedWorldCell, type WorldManifest, type WorldSettings,
 } from '../../shared/generated-world.ts';
 import { createWorldTileClient, loadGeneratedWorld } from '../api/generated-world.ts';
+import type { FertilityFacts } from '../../shared/fertility.ts';
 import {
-  MOISTURE_GRADIENT, TEMPERATURE_GRADIENT, WORLD_BIOME_STYLE, createGeneratedWorldRenderer, type WorldCoordinate, type WorldLayer,
+  FERTILITY_GRADIENT, FERTILITY_WATER_COLOR, MOISTURE_GRADIENT, TEMPERATURE_GRADIENT, WORLD_BIOME_STYLE, createGeneratedWorldRenderer, type WorldCoordinate, type WorldLayer,
 } from '../renderer/generated-world.ts';
 import { RESOURCES } from '../world/atlas.ts';
 import { RESOURCE_RULES } from '../world/resources.ts';
@@ -13,6 +14,39 @@ import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
+const layerLabels: Record<WorldLayer, string> = { biomes: 'Biomes', temperature: 'Temperature', moisture: 'Moisture', fertility: 'Fertility' };
+const soilLabels: Record<FertilityFacts['soil'], string> = { none: 'None', rocky: 'Rocky', shallow: 'Shallow', sandy: 'Sandy', alluvial: 'Alluvial', waterlogged: 'Waterlogged', cold: 'Cold', loamy: 'Loamy' };
+const fertilityFactors = [
+  { key: 'warmth', label: 'Warmth', description: 'Annual temperature suitability.' },
+  { key: 'moisture', label: 'Moisture', description: 'Moisture available without irrigation.' },
+  { key: 'soil', label: 'Soil', description: 'Estimated from terrain, climate, and rivers.' },
+  { key: 'slope', label: 'Slope', description: 'Steeper ground limits growing potential.' },
+  { key: 'drainage', label: 'Drainage', description: 'Persistent saturation reduces potential.' },
+] as const;
+
+function FertilityDetail({ facts, expanded }: { facts: FertilityFacts; expanded: boolean }) {
+  return <section className="world-cell-fertility" aria-label="Selected cell fertility">
+    <p className="atlas-detail-label">Natural growing potential</p>
+    <h3>{facts.applicable ? <span data-fertility-score>{facts.score} / 100</span> : 'Not growing land'}</h3>
+    {facts.applicable ? <>
+      <p className="atlas-panel-note">A natural estimate before cultivation, not a crop yield or production rate.</p>
+      <details open={expanded}>
+        <summary>Why this score?</summary>
+        <dl className="world-water-facts">
+          <div><dt>Estimated soil</dt><dd>{soilLabels[facts.soil]}</dd></div>
+          <div><dt>Regional slope</dt><dd>{facts.slopeDegrees.toFixed(1)}°</dd></div>
+          <div><dt>Mapped freshwater</dt><dd>{facts.freshwater ? 'Here or adjacent' : 'None nearby'}</dd></div>
+        </dl>
+        <ul className="world-fertility-factors">{fertilityFactors.map(factor => <li key={factor.key}>
+          <div><label htmlFor={`fertility-${factor.key}`}>{factor.label}</label><span>{facts.factors[factor.key]} / 100</span></div>
+          <meter id={`fertility-${factor.key}`} min={0} max={100} value={facts.factors[factor.key]} />
+          <p>{factor.description}</p>
+        </li>)}</ul>
+        <p className="atlas-panel-note">Factors combine multiplicatively: one strong limitation can keep the score low. Freshwater access describes the surroundings; it does not assume irrigation. Soil is an estimate, not a soil survey.</p>
+      </details>
+    </> : <p className="atlas-panel-note">Oceans, lakes, and frozen water have no terrestrial growing score.</p>}
+  </section>;
+}
 
 export function GeneratedWorldLab() {
   const [world, setWorld] = useState<WorldManifest | null>(null);
@@ -146,7 +180,7 @@ export function GeneratedWorldLab() {
           <section className="atlas-panel-section">
             <p className="atlas-section-index">02 / View</p><h2>Map layers</h2>
             <fieldset className="world-layer-options"><legend className="world-sr-only">Map layer</legend>
-              {(['biomes', 'temperature', 'moisture'] as const).map(value => <label key={value} className={layer === value ? 'world-layer-selected' : ''}><input type="radio" name="world-layer" value={value} checked={layer === value} onChange={() => setLayer(value)} /><span>{value === 'biomes' ? 'Biomes' : value === 'temperature' ? 'Temperature' : 'Moisture'}</span></label>)}
+              {(['biomes', 'temperature', 'moisture', 'fertility'] as const).map(value => <label key={value} className={layer === value ? 'world-layer-selected' : ''}><input type="radio" name="world-layer" value={value} checked={layer === value} onChange={() => setLayer(value)} /><span>{layerLabels[value]}</span></label>)}
             </fieldset>
             <label className="world-resource-toggle"><input type="checkbox" checked={rivers} onChange={event => setRivers(event.target.checked)} /> Rivers</label>
             <p className="atlas-panel-note world-river-note">Larger rivers stand out at world scale. Zoom in to see smaller streams.</p>
@@ -155,22 +189,23 @@ export function GeneratedWorldLab() {
           </section>
           <section className="atlas-panel-section world-legend" aria-label="Map legend">
             {layer === 'biomes' ? <><div className="atlas-section-heading"><h2>Biomes</h2><span>% of planet</span></div><ul className="atlas-biome-legend">{WORLD_BIOMES.map((biome, index) => <li key={biome}><span className="atlas-biome-name"><span className="atlas-biome-swatch" style={{ backgroundColor: WORLD_BIOME_STYLE[biome].color }} aria-hidden="true" />{WORLD_BIOME_STYLE[biome].label}</span><span>{world ? (world.biomeCounts[index] / (world.width * world.height) * 100).toFixed(1) : '—'}</span></li>)}</ul></>
+              : layer === 'fertility' ? <><h2>Natural growing potential</h2><div className="world-climate-gradient" style={{ background: FERTILITY_GRADIENT }} /><div className="world-climate-scale"><span>0 · Low</span><span>50</span><span>100 · High</span></div><p className="world-water-key"><span style={{ backgroundColor: FERTILITY_WATER_COLOR }} aria-hidden="true" />Water · not growing land</p><p className="atlas-panel-note">An estimated 0–100 index combining warmth, moisture, soil, slope, and drainage. It describes natural conditions, not crop yield.</p></>
               : <><h2>{layer === 'temperature' ? 'Annual mean temperature' : 'Annual moisture index'}</h2><div className="world-climate-gradient" style={{ background: layer === 'temperature' ? TEMPERATURE_GRADIENT : MOISTURE_GRADIENT }} /><div className="world-climate-scale"><span>{layer === 'temperature' ? '−40 °C' : '0 · Dry'}</span><span>{layer === 'temperature' ? '0' : '50'}</span><span>{layer === 'temperature' ? '40 °C' : '100 · Wet'}</span></div><p className="atlas-panel-note">{layer === 'temperature' ? 'Latitude, elevation, and regional variation shape the annual temperature. Higher ground is colder.' : 'A relative measure of annual moisture availability shaped by circulation, ocean winds, and mountains. This index is not rainfall in millimetres.'}</p></>}
           </section>
         </aside>
         <section className="atlas-map-stage" aria-label="Generated world map" aria-busy={loading}>
           <div className="atlas-map-card">
-            <div className="atlas-map-toolbar"><span className="atlas-map-mode"><span aria-hidden="true" />{layer === 'biomes' ? 'Biome atlas' : layer === 'temperature' ? 'Temperature atlas' : 'Moisture atlas'}</span><div className="atlas-zoom-controls" role="group" aria-label="Map view">
+            <div className="atlas-map-toolbar"><span className="atlas-map-mode"><span aria-hidden="true" />{layer === 'biomes' ? 'Biome' : layerLabels[layer]} atlas</span><div className="atlas-zoom-controls" role="group" aria-label="Map view">
               <button type="button" aria-label="Zoom out" disabled={!world || !!canvasError} onClick={() => renderer.current?.zoomBy(1 / 1.6)}>−</button>
               <span className="atlas-zoom-value">{Math.round(view.zoom * 100)}%</span>
               <button type="button" aria-label="Zoom in" disabled={!world || !!canvasError} onClick={() => renderer.current?.zoomBy(1.6)}>+</button>
               <button type="button" className="atlas-fit-button" disabled={!world || !!canvasError} onClick={() => renderer.current?.fit()}>Fit map</button>
             </div></div>
-            {world ? <div className="atlas-canvas-frame"><canvas ref={canvas} id="generated-world-canvas" tabIndex={0} role="img" aria-label="Generated planet: biomes, rivers, lakes, temperature, moisture and natural resource sites. Click to inspect a cell." aria-describedby="world-map-help">This world preview requires Canvas 2D support.</canvas><span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span></div>
+            {world ? <div className="atlas-canvas-frame"><canvas ref={canvas} id="generated-world-canvas" tabIndex={0} role="img" aria-label="Generated planet: biomes, rivers, lakes, temperature, moisture, fertility and natural resource sites. Click to inspect a cell." aria-describedby="world-map-help">This world preview requires Canvas 2D support.</canvas><span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span></div>
               : <div className="atlas-loading-map"><span className="atlas-loading-compass" aria-hidden="true">✦</span><p>{loadError ? 'The world is unavailable.' : 'A new geography is forming…'}</p><span>{loadError ? 'Use Retry generation to try again.' : 'Preparing continents, climate, and resource sites on the local host.'}</span></div>}
             <p id="world-map-help" className="atlas-map-help">Click to inspect · Drag to explore · Scroll to zoom. Keyboard: arrows inspect, Enter selects, Shift + arrows pan, + / − zoom, Home fits, Escape clears.</p>
           </div>
-          <div className="atlas-map-caption"><span>Equal-area atlas <span aria-hidden="true">·</span> East–west wrapping</span><span>{view.detail ? 'Full-resolution detail' : layer === 'biomes' ? 'Terrain overview' : 'Sampled climate overview'}</span></div>
+          <div className="atlas-map-caption"><span>Equal-area atlas <span aria-hidden="true">·</span> East–west wrapping</span><span>{view.detail ? 'Full-resolution detail' : layer === 'biomes' ? 'Terrain overview' : layer === 'fertility' ? 'Sampled fertility overview' : 'Sampled climate overview'}</span></div>
           <div className="atlas-status-row"><p id="world-status" role="status" aria-live="polite">{status}</p>{loadError && <button className="atlas-reset-button" type="button" onClick={() => setRequest(current => ({ ...current, revision: current.revision + 1 }))}>Retry generation</button>}</div>
           {loadError && <p className="atlas-error" role="alert">{loadError}</p>}
           {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={() => retryDetail.current()}>Retry detail</button></div>}
@@ -190,6 +225,7 @@ export function GeneratedWorldLab() {
               <div><dt>Grid position</dt><dd>{cell.x}, {cell.y}</dd></div>
             </dl>
             <p className="atlas-panel-note world-cell-explanation">{climateDescription}</p>
+            <FertilityDetail facts={cell.fertility} expanded={layer === 'fertility'} />
             <section className="world-cell-water" aria-label="Selected cell water">
               <p className="atlas-detail-label">Water &amp; freshwater</p>
               <h3>{({ dry: 'Dry land', ocean: 'Ocean', river: 'River', lake: 'Lake' } as const)[cell.water.kind]}</h3>
@@ -207,7 +243,7 @@ export function GeneratedWorldLab() {
               {cell.water.freshwater === 'lakeshore' && <p className="atlas-panel-note">This cell borders a lake with a mapped outlet.</p>}
             </section>
             <section className="atlas-cell-resource" aria-label="Selected cell resource">{cell.resource ? <><p className="atlas-detail-label">Resource site</p><p className="atlas-resource-value"><span><ResourceIcon resource={cell.resource} /></span>{RESOURCES[cell.resource].label}</p><dl className="atlas-resource-facts"><div><dt>Site type</dt><dd>{RESOURCE_RULES[cell.resource].kind === 'renewable' ? 'Renewable' : 'Mineral'}</dd></div><div><dt>Required extraction technology</dt><dd>{RESOURCE_RULES[cell.resource].extractionTechnology}</dd></div></dl><p className="atlas-panel-note">Natural potential. Extraction and production are not active.</p></> : <><p className="atlas-detail-label">Natural potential</p><p className="atlas-resource-empty">No resource site in this cell</p><p className="atlas-panel-note">Sites are scattered across suitable terrain. Most cells have no special site.</p></>}</section>
-          </div> : inspecting ? <p className="atlas-panel-note" role="status">Reading full-resolution cell data…</p> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Select any cell to inspect its biome, annual climate, water access, and resource potential.</p><span>Zoom in to explore terrain textures and individual resource markers.</span></div>}
+          </div> : inspecting ? <p className="atlas-panel-note" role="status">Reading full-resolution cell data…</p> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Select any cell to inspect its biome, annual climate, fertility, water access, and resource potential.</p><span>Zoom in to explore terrain textures and individual resource markers.</span></div>}
           <div className="world-identity"><p className="atlas-detail-label">Current world</p><strong id="world-current-seed">{world?.settings.seed ?? 'Preparing…'}</strong><p>{world ? `${number.format(world.resourceSites)} scattered resource sites` : 'Geography is being generated'}</p><span>{world ? `Generator ${world.generatorVersion} · ${number.format(world.width * world.height)} cells` : 'Annual climate preview'}</span></div>
           <p className="atlas-panel-note world-projection-note">Equal-area cells; polar shapes are stretched. Map distances are not uniform ground distances. This geography has no political provinces.</p>
         </aside>

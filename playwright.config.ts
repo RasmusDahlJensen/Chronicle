@@ -2,6 +2,9 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/browser',
+  // Scenarios share two bounded real hosts. CPU-count concurrency can overload
+  // response admission (including StrictMode mounts) before the map loads.
+  workers: 2,
   outputDir: 'test-results/playwright',
   reporter: [['list'], ['html', { open: 'never' }]],
   // Real tectonic generation has a 20s admission deadline; UI checks must allow

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { latitudeAt, baselineTemperature, classifyClimate, moistureField } from '../src/world/generation/climate.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
-import { WORLD_BIOMES, isWorldLake, MAX_WORLD_MANIFEST_BYTES, parseWorldManifest, parseWorldTile, decodeWorldSurface } from '../shared/generated-world.ts';
+import { WORLD_BIOMES, isWorldLake, MAX_WORLD_MANIFEST_BYTES, parseWorldManifest, parseWorldTile, decodeWorldSurface, inspectWorldCell } from '../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../shared/atlas.ts';
 import { hashNoise, smoothNoise } from '../src/world/generation/noise.ts';
 
@@ -153,7 +153,7 @@ test('islands inherit equatorial and polar climates while mountains add cooler e
   assert.ok(mountainIslands >= 1, 'Exercise altitude-driven climate zones on a small island.');
 });
 
-test('large world encodes a bounded overview and exact tiles without losing climate or resources', async () => {
+test('large world encodes a bounded overview and exact tiles without losing climate, resources or fertility', async () => {
   const world = await generateWorld({ seed: 'Chronicle', size: 'large' });
   assert.equal(world.width * world.height, 524288);
   const bundle = encodeGeneratedWorld(world);
@@ -172,9 +172,10 @@ test('large world encodes a bounded overview and exact tiles without losing clim
     assert.ok(Buffer.byteLength(body) < 512 * 1024);
     const raw = JSON.parse(body);
     const tile = parseWorldTile(raw, manifest, raw.x, raw.y);
+    assert.equal(inspectWorldCell(manifest, tile, tile.x * 128, tile.y * 128).fertility.score, tile.fields.fertility[0]);
     for (let at = 0; at < tile.fields.biome.length; at++) {
       const id = (tile.y * 128 + Math.floor(at / tile.width)) * world.width + tile.x * 128 + at % tile.width;
-      for (const field of ['elevation', 'temperature', 'moisture', 'biome', 'resource'] as const) {
+      for (const field of ['elevation', 'temperature', 'moisture', 'biome', 'resource', 'fertility'] as const) {
         assert.equal(tile.fields[field][at], world.fields[field][id]);
       }
       counts[tile.fields.biome[at]]++;

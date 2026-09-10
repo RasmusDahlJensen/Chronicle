@@ -8,7 +8,7 @@ import type { GeneratedWorld } from './generate.ts';
 /** Produce bounded, independently verifiable geographic sections in the generation worker. */
 export function encodeGeneratedWorld(world: GeneratedWorld): WorldBundle {
   function section(startX: number, startY: number, width: number, height: number, step = 1): WorldFields {
-    const fields: WorldFields = { elevation: [], temperature: [], moisture: [], biome: [], resource: [] };
+    const fields: WorldFields = { elevation: [], temperature: [], moisture: [], biome: [], resource: [], fertility: [] };
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
       const id = (startY + y * step + Math.floor(step / 2)) * world.width + startX + x * step + Math.floor(step / 2);
       for (const field of Object.keys(fields) as (keyof WorldFields)[]) fields[field].push(world.fields[field][id]);

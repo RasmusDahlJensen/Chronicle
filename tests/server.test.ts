@@ -105,10 +105,14 @@ test('HTTP health responds during real worker CPU work, excess admission is reje
 });
 
 test('a generation deadline has a retryable HTTP response and leaves health usable', async t => {
-  const compute = createTerrainCompute({ ...config, jobTimeoutMs: 100,
+  const options = { ...config,
     filename: new URL('./fixtures/compute-controlled.ts', import.meta.url),
-  });
+  };
+  const compute = createTerrainCompute(options);
+  t.after(() => compute.close());
   const app = await appFor(t, compute);
+  // Bootstrap uses the normal deadline; only the actual HTTP job gets 100 ms.
+  options.jobTimeoutMs = 100;
   const response = await app.inject('/api/terrain');
   assert.equal(response.statusCode, 504);
   assert.equal(response.json().error.code, 'COMPUTE_TIMEOUT');

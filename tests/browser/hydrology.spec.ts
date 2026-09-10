@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { createFertilityContext, fertilityAt } from '../../shared/fertility.ts';
 import { WORLD_BIOMES, WORLD_GENERATOR_VERSION, WORLD_PROTOCOL_VERSION, type WorldFields, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
 
 async function pixelSnapshot(canvas: Locator) {
@@ -97,18 +98,24 @@ function waterFixture() {
       temperature: lake === 3 ? -150 : 200 };
   }
   const packed = Buffer.alloc(width * height * 3), biomeCounts = WORLD_BIOMES.map(() => 0);
+  const surface = { elevation: new Int16Array(width * height), biome: new Uint8Array(width * height) };
+  const hydrology = { rivers, lakes, drySinks: [] };
   let landCells = 0;
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const value = cell(x, y), at = (y * width + x) * 3;
     packed.writeInt16LE(value.elevation, at); packed[at + 2] = value.biome; biomeCounts[value.biome]++;
+    surface.elevation[y * width + x] = value.elevation; surface.biome[y * width + x] = value.biome;
     if (y >= 40 && y < 472 && !lakeAt.has(y * width + x)) landCells++;
   }
+  const fertility = createFertilityContext(surface, { width, height, areaKm2: 510_000_000 }, hydrology, WORLD_BIOMES);
   function fields(left: number, top: number, columns: number, rows: number, step = 1): WorldFields {
-    const result: WorldFields = { elevation: [], biome: [], temperature: [], moisture: [], resource: [] };
+    const result: WorldFields = { elevation: [], biome: [], temperature: [], moisture: [], resource: [], fertility: [] };
     for (let y = 0; y < rows; y++) for (let x = 0; x < columns; x++) {
-      const value = cell(left + x * step + Math.floor(step / 2), top + y * step + Math.floor(step / 2));
+      const cellX = left + x * step + Math.floor(step / 2), cellY = top + y * step + Math.floor(step / 2);
+      const value = cell(cellX, cellY);
       result.elevation.push(value.elevation); result.biome.push(value.biome); result.temperature.push(value.temperature);
       result.moisture.push(500); result.resource.push(0);
+      result.fertility.push(fertilityAt(fertility, cellY * width + cellX, value.temperature / 10, .5).score);
     }
     return result;
   }
@@ -117,7 +124,7 @@ function waterFixture() {
     worldKey: `climate-${WORLD_GENERATOR_VERSION}:large:Chronicle`, settings: { seed: 'Chronicle', size: 'large' },
     width, height, tileSize: 128, topology: 'wrap-x', projection: 'cylindrical-equal-area', areaKm2: 510_000_000,
     landCells, resourceSites: 0, biomeCounts, overview: { width: 256, height: 128, fields: fields(0, 0, 256, 128, 4) },
-    surface: { width, height, encoding: 'elevation-i16le-biome-u8', data: packed.toString('base64') }, hydrology: { rivers, lakes, drySinks: [] },
+    surface: { width, height, encoding: 'elevation-i16le-biome-u8', data: packed.toString('base64') }, hydrology,
   };
   const tile = (x: number, y: number): WorldTile => ({ protocolVersion: WORLD_PROTOCOL_VERSION, worldKey: manifest.worldKey,
     x, y, width: 128, height: 128, fields: fields(x * 128, y * 128, 128, 128) });

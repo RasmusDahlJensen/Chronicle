@@ -1,10 +1,11 @@
 import { Type, type Static } from 'typebox';
 import { Check } from 'typebox/value';
+import { createFertilityContext, fertilityAt, type FertilityContext, type FertilityFacts } from './fertility.ts';
 import { BIOME_IDS, RESOURCE_IDS } from './atlas.ts';
 import { WorldHydrologySchema, validateWorldHydrology, inspectWorldWater, type HydrologyIndex, type WaterFacts } from './world-hydrology.ts';
 
-export const WORLD_PROTOCOL_VERSION = 3;
-export const WORLD_GENERATOR_VERSION = 4;
+export const WORLD_PROTOCOL_VERSION = 4;
+export const WORLD_GENERATOR_VERSION = 5;
 export const WORLD_TILE_SIZE = 128;
 export const WORLD_AREA_KM2 = 510_000_000;
 export const MAX_WORLD_MANIFEST_BYTES = 4 * 1024 * 1024;
@@ -29,7 +30,7 @@ function fieldsSchema(maxItems: number) {
   const values = (minimum: number, maximum: number) => Type.Array(Type.Integer({ minimum, maximum }), { minItems: 1, maxItems });
   return Type.Object({
     elevation: values(-12000, 12000), temperature: values(-1000, 600), moisture: values(0, 1000),
-    biome: values(0, WORLD_BIOMES.length - 1), resource: values(0, RESOURCE_IDS.length),
+    biome: values(0, WORLD_BIOMES.length - 1), resource: values(0, RESOURCE_IDS.length), fertility: values(0, 100),
   }, { additionalProperties: false });
 }
 const OverviewSchema = Type.Object({ width: Type.Literal(256), height: Type.Literal(128), fields: fieldsSchema(32768) }, { additionalProperties: false });
@@ -61,7 +62,7 @@ export type WorldFields = WorldTile['fields'];
 export interface WorldBundle { manifest: string; tiles: string[] }
 export interface InspectedWorldCell {
   id: number; x: number; y: number; elevation: number; temperature: number; moisture: number;
-  biome: WorldBiome; resource: typeof RESOURCE_IDS[number] | null; water: WaterFacts;
+  biome: WorldBiome; resource: typeof RESOURCE_IDS[number] | null; water: WaterFacts; fertility: FertilityFacts;
 }
 
 export function isWorldLake(biome: WorldBiome) { return biome === 'lake' || biome === 'lakeIce'; }
@@ -96,7 +97,19 @@ function validationSurface(manifest: WorldManifest) {
   return retainSurface(manifest, decodeWorldSurface(surface));
 }
 
-/** Protocol-3 terrain surface: row-major int16 little-endian elevation, then one biome byte per cell. */
+const fertilityContexts = new WeakMap<WorldManifest, FertilityContext>();
+function fertilityContext(manifest: WorldManifest) {
+  const surface = validationSurface(manifest), cached = fertilityContexts.get(manifest);
+  if (cached?.surface === surface) return cached;
+  const context = createFertilityContext(surface, manifest, manifest.hydrology, WORLD_BIOMES);
+  fertilityContexts.set(manifest, context);
+  return context;
+}
+function validateFertility(context: FertilityContext, fields: WorldFields, at: number, id: number) {
+  if (fields.fertility[at] !== fertilityAt(context, id, fields.temperature[at] / 10, fields.moisture[at] / 1000).score) throw invalid();
+}
+
+/** Protocol-4 terrain surface: row-major int16 little-endian elevation, then one biome byte per cell. */
 export function decodeWorldSurface(surface: WorldManifest['surface']) {
   const count = surface.width * surface.height;
   if (surface.data.length !== count * 4) throw invalid();
@@ -134,6 +147,12 @@ export function parseWorldManifest(payload: unknown): WorldManifest {
   }
   hydrologyIndexes.set(payload, validateWorldHydrology(payload.hydrology, payload, surface, lakeCode, marineCode));
   retainSurface(payload, surface);
+  fertilityContexts.delete(payload);
+  const context = fertilityContext(payload);
+  for (let at = 0; at < 32768; at++) {
+    const id = (Math.floor(at / 256) * step + Math.floor(step / 2)) * payload.width + (at % 256) * step + Math.floor(step / 2);
+    validateFertility(context, payload.overview.fields, at, id);
+  }
   return payload;
 }
 
@@ -142,10 +161,11 @@ export function parseWorldTile(payload: unknown, manifest: WorldManifest, x: num
   if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= manifest.width / WORLD_TILE_SIZE || y >= manifest.height / WORLD_TILE_SIZE) throw invalid();
   if (payload.worldKey !== manifest.worldKey || payload.x !== x || payload.y !== y) throw invalid();
   validateFields(payload.fields, WORLD_TILE_SIZE ** 2);
-  const surface = validationSurface(manifest);
+  const surface = validationSurface(manifest), context = fertilityContext(manifest);
   for (let at = 0; at < WORLD_TILE_SIZE ** 2; at++) {
     const id = (y * WORLD_TILE_SIZE + Math.floor(at / WORLD_TILE_SIZE)) * manifest.width + x * WORLD_TILE_SIZE + at % WORLD_TILE_SIZE;
     if (payload.fields.elevation[at] !== surface.elevation[id] || payload.fields.biome[at] !== surface.biome[id]) throw invalid();
+    validateFertility(context, payload.fields, at, id);
   }
   return payload;
 }
@@ -157,7 +177,7 @@ export function inspectWorldCell(manifest: WorldManifest, tile: WorldTile, x: nu
   const surface = validationSurface(manifest);
   let hydro = hydrologyIndexes.get(manifest);
   if (!hydro) { hydro = validateWorldHydrology(manifest.hydrology, manifest, surface, lakeCode, marineCode); hydrologyIndexes.set(manifest, hydro); }
-  return { id: y * manifest.width + x, x, y, water: inspectWorldWater(manifest.hydrology, hydro, manifest, surface, y * manifest.width + x, marineCode), elevation: tile.fields.elevation[at],
+  return { fertility: fertilityAt(fertilityContext(manifest), y * manifest.width + x, tile.fields.temperature[at] / 10, tile.fields.moisture[at] / 1000), id: y * manifest.width + x, x, y, water: inspectWorldWater(manifest.hydrology, hydro, manifest, surface, y * manifest.width + x, marineCode), elevation: tile.fields.elevation[at],
     temperature: tile.fields.temperature[at] / 10, moisture: tile.fields.moisture[at] / 1000,
     biome: WORLD_BIOMES[tile.fields.biome[at]], resource: RESOURCE_IDS[tile.fields.resource[at] - 1] ?? null };
 }
