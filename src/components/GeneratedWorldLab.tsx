@@ -149,7 +149,7 @@ export function GeneratedWorldLab() {
               {(['biomes', 'temperature', 'moisture'] as const).map(value => <label key={value} className={layer === value ? 'world-layer-selected' : ''}><input type="radio" name="world-layer" value={value} checked={layer === value} onChange={() => setLayer(value)} /><span>{value === 'biomes' ? 'Biomes' : value === 'temperature' ? 'Temperature' : 'Moisture'}</span></label>)}
             </fieldset>
             <label className="world-resource-toggle"><input type="checkbox" checked={rivers} onChange={event => setRivers(event.target.checked)} /> Rivers</label>
-            <p className="atlas-panel-note world-river-note">Rivers appear on the biome atlas. Wider channels carry more accumulated runoff.</p>
+            <p className="atlas-panel-note world-river-note">Larger rivers stand out at world scale. Zoom in to see smaller streams.</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={resources} onChange={event => setResources(event.target.checked)} /> Resource sites</label>
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
           </section>

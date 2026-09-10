@@ -1,6 +1,6 @@
 # Hydrology 01 — rivers, lakes and freshwater
 
-Status: implemented and fully verified locally; awaiting user visual review, 10 September 2026. Baseline `7ad1bde`, clean at startup. Worldgen 01 (`ee7f7d3`) is visually accepted. The user approved the proposed next slice of visible rivers/lakes, freshwater inspection and connected/reproducible drainage, and wants geography completed gradually before settlements.
+Status: visual correction implemented and fully verified locally; awaiting another user visual review, 10 September 2026. The user likes the simulation but rejected the noisy, angular river rendering. Baseline `0e9444b` passed 131 headless and 91 browser tests; that pass did not establish visual acceptance. Baseline `7ad1bde`, clean at startup. Worldgen 01 (`ee7f7d3`) is visually accepted. The user approved the proposed next slice of visible rivers/lakes, freshwater inspection and connected/reproducible drainage, and wants geography completed gradually before settlements.
 
 ## Outcome and boundaries
 
@@ -94,7 +94,7 @@ Files: modify `src/renderer/generated-world.ts`, `world-terrain-texture.ts`, `sr
 - [x] Run `npm run check`, `npm run bench:world` and multi-seed visual review at the exact running lab URL.
 - [x] Update README, architecture, workflow and this brief with verified results, measurements, revision and exact next action. Preserve a local checkpoint; user visual review remains the completion of this slice's experience assessment.
 
-## Current evidence and next action
+## Initial hydrology implementation evidence
 
 The final complete `npm run check` passed on the finished source: architecture (48 files), pinned Platec source/artifact integrity, TypeScript, **131 headless/process tests**, production build and **91 development/production Chromium scenarios**. Log: `/tmp/chronicle-hydrology-complete-check.log`. This is local verification; CI was not run here.
 
@@ -132,3 +132,16 @@ Actual browser review at `http://127.0.0.1:5173/` inspected Chronicle, Elsewhere
 4. Try Elsewhere, Harbors and Sundown, and compare fit/detail views. Temperature and moisture retain literal climate colors.
 
 User acceptance of the rivers/lakes remains pending. Continue geography after that review; seasonal water, further climate detail or terrain refinements can be separate slices. Fertility, settlements and political provinces are not started here.
+
+
+## River rendering correction — current iteration
+
+User feedback: rivers look like visual noise at overview and right-angle wiring at detail. Keep the accepted generation/drainage and exact inspection. This bounded correction changes renderer geometry and cartographic emphasis only; generator4/protocol3 and payloads remain unchanged.
+
+Build connected reaches once from the authoritative graph, splitting at forks and lake boundaries. Preserve shared junction/terminal centers; round ordinary bends between edge midpoints within the routed cell. Unwrap longitude before smoothing and draw each periodic copy after terrain. Use one quieter water-colored stroke with stronger/wider main rivers. Low-flow reaches are hidden at overview and revealed progressively through detail zoom; visibility remains monotone downstream. The original cells continue to drive selection and water facts.
+
+Acceptance: smooth connected bends, legible larger rivers, substantially fewer minor marks at overview, detail access to small streams, exact seam/lake/fork connections, unchanged climate colors/terrain/resource picking and tile-arrival pixels. Add focused geometry and browser regressions, inspect the actual four seeds, obtain independent review and rerun the full gate. Initial new overview suppression regression failed against the old renderer, then passed after implementation. Final `npm run check` passed: architecture (49 files), Platec integrity, types, **135 headless/process tests**, build and **95 development/production browser scenarios**. Log: `/tmp/chronicle-river-style-check.log`. New geometry tests cover edge preservation, shared forks, bounded bends, seams, lake outlet separation and width/visibility hierarchy. Browser tests verify weak streams disappear only at overview, remain inspectable, and reappear at detail while a strong river stays visible. Existing tests pass without skipped or weakened assertions. Independent review found no material issue.
+
+Visual checks at the exact running lab covered Chronicle, Elsewhere, Harbors and Sundown at fit plus Chronicle detail. The final pass also strengthened major overview strokes after visual inspection; final screenshots are `/tmp/chronicle-river-style-final-{fit,detail}.png`. The Chronicle graph still has 4,202 channel/outlet edges; 341 are eligible for overview drawing under the display threshold, and all become eligible at detail. This reduces tiny marks without changing the generated graph or water facts. The lab returned `climate-4:large:Chronicle` with no page errors. Diagnostic last-frame timings were 1.30 ms at fit and 7.40 ms at detail under concurrent verification load; these are not a benchmark of sustained frame rate.
+
+Baseline is `0e9444b`; the river-style checkpoint is the commit containing this correction record. No generator, shared contract, or resource-generation file changed. README and the river-control note explain the zoom hierarchy; launch remains `npm start`. Exact next action: the user refreshes `http://127.0.0.1:5173/`, compares overview/detail and judges the revised river appearance. Visual acceptance remains pending; further geography stays separate.

@@ -3,6 +3,7 @@ import { WORLD_BIOMES, type WorldBiome, type WorldFields, type WorldManifest, ty
 import { BIOMES } from '../world/atlas.ts';
 import { drawAtlasResourceIcon } from './biome-atlas.ts';
 import { createWorldTerrainTexture } from './world-terrain-texture.ts';
+import { buildRiverReaches, riverPathCommands, riverAppearance } from './river-paths.ts';
 
 export const WORLD_BIOME_STYLE: Record<WorldBiome, { label: string; color: string }> = {
   ...BIOMES, boreal: { label: 'Boreal forest', color: '#567766' },
@@ -59,15 +60,15 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let overview: HTMLCanvasElement | null = null;
   let terrain: ReturnType<typeof createWorldTerrainTexture> | undefined;
   const textures = new Map<string, HTMLCanvasElement>();
-  // Index authoritative edges spatially; a channel belongs to its source tile.
-  // Include the single mapped outlet edge of each open lake.
-  const riverColumns = world.width / 128;
-  const riverTiles: { cell: number; next: number; runoff: number }[][] = Array.from({ length: riverColumns * world.height / 128 }, () => []);
-  const addRiver = (cell: number, next: number, runoff: number) => {
-    riverTiles[Math.floor(Math.floor(cell / world.width) / 128) * riverColumns + Math.floor(cell % world.width / 128)].push({ cell, next, runoff });
-  };
-  world.hydrology.rivers.cells.forEach((cell, index) => addRiver(cell, world.hydrology.rivers.next[index], world.hydrology.rivers.runoff[index]));
-  for (const lake of world.hydrology.lakes) if (lake.outlet) addRiver(lake.outlet.cell, lake.outlet.next, lake.outlet.runoff);
+  const riverReaches = buildRiverReaches(world.hydrology, world.width).map(reach => {
+    const path = new Path2D();
+    for (const command of riverPathCommands(reach.points)) {
+      if (command.kind === 'move') path.moveTo(command.x, command.y);
+      else if (command.kind === 'line') path.lineTo(command.x, command.y);
+      else if (command.kind === 'curve') path.quadraticCurveTo(command.cx, command.cy, command.x, command.y);
+    }
+    return { path, runoff: reach.runoff, minX: reach.minX, maxX: reach.maxX, minY: reach.minY, maxY: reach.maxY };
+  });
   let destroyed = false;
   let frame = 0;
   let gesture: { id: number; startX: number; startY: number; x: number; y: number; dragged: boolean } | null = null;
@@ -111,28 +112,19 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     return [...found.values()];
   }
-  function drawRivers(left: number, top: number, scale: number, width: number, height: number, startCopy: number, endCopy: number) {
+  function drawRivers(left: number, top: number, scale: number, width: number, height: number) {
     if (!rivers || layer !== 'biomes') return;
-    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (let copy = startCopy - 1; copy <= endCopy + 1; copy++) {
-      const origin = left + copy * world.width * scale;
-      const firstX = Math.max(0, Math.floor((-origin / scale - 2) / 128));
-      const lastX = Math.min(riverColumns - 1, Math.floor(((width - origin) / scale + 2) / 128));
-      const firstY = Math.max(0, Math.floor((-top / scale - 2) / 128));
-      const lastY = Math.min(world.height / 128 - 1, Math.floor(((height - top) / scale + 2) / 128));
-      for (let row = firstY; row <= lastY; row++) for (let column = firstX; column <= lastX; column++) {
-        for (const edge of riverTiles[row * riverColumns + column]) {
-          const sx = edge.cell % world.width, sy = Math.floor(edge.cell / world.width);
-          const dx = wrap(edge.next % world.width - sx + world.width / 2, world.width) - world.width / 2;
-          const x = origin + (sx + 0.5) * scale, y = top + (sy + 0.5) * scale;
-          const nextX = x + dx * scale, nextY = top + (Math.floor(edge.next / world.width) + 0.5) * scale;
-          if (Math.max(x, nextX) < -6 || Math.min(x, nextX) > width + 6 || Math.max(y, nextY) < -6 || Math.min(y, nextY) > height + 6) continue;
-          // Width compares accumulated runoff; it is not a measured channel width.
-          const ink = clamp((0.32 + Math.log2(1 + edge.runoff / 1000) * 0.12) * Math.sqrt(scale), 0.55, Math.min(5, scale * 0.7 + 1));
-          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(nextX, nextY);
-          ctx.strokeStyle = '#285e70'; ctx.lineWidth = ink + Math.min(0.55, scale * 0.55); ctx.stroke();
-          ctx.strokeStyle = '#8ac5cf'; ctx.lineWidth = ink; ctx.stroke();
-        }
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#478b9b';
+    for (const reach of riverReaches) {
+      const style = riverAppearance(reach.runoff, zoom, scale);
+      if (!style.opacity || top + reach.maxY * scale < -4 || top + reach.minY * scale > height + 4) continue;
+      const worldPixels = world.width * scale;
+      const firstCopy = Math.ceil((-4 - left - reach.maxX * scale) / worldPixels);
+      const lastCopy = Math.floor((width + 4 - left - reach.minX * scale) / worldPixels);
+      for (let copy = firstCopy; copy <= lastCopy; copy++) {
+        ctx.save(); ctx.translate(left + copy * worldPixels, top); ctx.scale(scale, scale);
+        ctx.globalAlpha = style.opacity; ctx.lineWidth = style.width / scale;
+        ctx.stroke(reach.path); ctx.restore();
       }
     }
     ctx.restore();
@@ -167,7 +159,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       if (layer === 'biomes') terrain!.patterns(ctx, origin, top, m.scale, m.width, m.height);
     }
     // Draw after all world copies so the next background cannot erase a seam edge.
-    drawRivers(left, top, m.scale, m.width, m.height, startCopy, endCopy);
+    drawRivers(left, top, m.scale, m.width, m.height);
     for (let copy = startCopy; copy <= endCopy; copy++) {
       const origin = left + copy * world.width * m.scale;
       if (m.detail && resources && m.scale >= 5) for (const tile of tiles) {
@@ -320,7 +312,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); tiles = []; overview = null; terrain = undefined; canvas.style.touchAction = '';
+      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; canvas.style.touchAction = '';
     },
   };
 }

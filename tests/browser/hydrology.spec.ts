@@ -224,3 +224,29 @@ test('river and lake pixels stay identical when exact detail tiles arrive', asyn
   await expect(canvas).toHaveAttribute('data-loaded-tile-count', '4');
   expect(await pixelSnapshot(canvas)).toBe(before);
 });
+
+test('overview suppresses minor streams and reveals them at detail without changing inspection', async ({ page }) => {
+  const fixture = waterFixture(); await installWaterFixture(page, fixture);
+  const canvas = page.locator('#generated-world-canvas'), rivers = page.getByRole('checkbox', { name: 'Rivers', exact: true });
+  const overview = await pixelSnapshot(canvas);
+  await rivers.uncheck();
+  expect(await pixelSnapshot(canvas), 'Weak streams should not cover the overview in tiny blue marks.').toBe(overview);
+  await rivers.check();
+  await selectCell(page, 256 * 1024 + 490, fixture.manifest);
+  await expect(page.getByRole('region', { name: 'Selected cell water' })).toContainText('Freshwater river');
+  const detail = await pixelSnapshot(canvas);
+  await rivers.uncheck(); expect(await pixelSnapshot(canvas)).not.toBe(detail);
+  await expect(page.getByRole('region', { name: 'Selected cell water' })).toContainText('Freshwater river');
+});
+
+test('overview keeps a strong river visible while suppressing its minor neighbors', async ({ page }) => {
+  const fixture = waterFixture();
+  fixture.manifest.hydrology.rivers.runoff = fixture.manifest.hydrology.rivers.runoff.map(flow => flow * 30);
+  fixture.manifest.hydrology.lakes[0].outlet!.runoff *= 30;
+  await installWaterFixture(page, fixture);
+  const canvas = page.locator('#generated-world-canvas'), rivers = page.getByRole('checkbox', { name: 'Rivers', exact: true });
+  const trunk = await patch(canvas, 482, 255, 20, 3), stream = await patch(canvas, 1019, 229, 3, 3);
+  await rivers.uncheck();
+  expect(await patch(canvas, 482, 255, 20, 3)).not.toEqual(trunk);
+  expect(await patch(canvas, 1019, 229, 3, 3)).toEqual(stream);
+});
