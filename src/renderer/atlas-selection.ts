@@ -11,7 +11,8 @@ export function pickAtlasCell(world: AtlasWorld, selection: AtlasSelection, cell
   if (!cell) return selection;
   const activeProvinceId = selection?.kind === 'province' ? selection.provinceId
     : selection?.kind === 'cell' ? world.cells[selection.cellId]?.provinceId : null;
-  if (cell.provinceId !== null && cell.provinceId !== activeProvinceId) {
+  const clickedSelectedCell = selection?.kind === 'cell' && selection.cellId === cellId;
+  if (cell.provinceId !== null && (cell.provinceId !== activeProvinceId || clickedSelectedCell)) {
     return { kind: 'province', provinceId: cell.provinceId };
   }
   return { kind: 'cell', cellId };

@@ -101,14 +101,14 @@ export function AtlasCanvas({ world, layers, selection, onSelect, onReady, onErr
           id="world-canvas"
           role="img"
           tabIndex={0}
-          aria-label={`${world.name}: regional biome and natural resource atlas. Click to select a province, then click inside it to inspect a cell.`}
+          aria-label={`${world.name}: regional biome and natural resource atlas. Click to select a province, then click inside it to inspect a cell. Click the selected land cell again to return to its province.`}
           aria-describedby="atlas-map-help"
         >
           The regional atlas needs a browser with Canvas 2D support.
         </canvas>
         <span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span>
       </div>
-      <p id="atlas-map-help" className="atlas-map-help">Click a province, then click inside it to inspect a cell · Drag to explore · Scroll to zoom. Keyboard: arrows inspect cells, Enter selects, Escape goes back, Shift + arrows pan, + / − zoom, Home fits the map.</p>
+      <p id="atlas-map-help" className="atlas-map-help">Click a province, then a cell · Click the selected land cell again to return to its province · Drag to explore · Scroll to zoom. Keyboard: arrows inspect cells, Enter selects, Escape goes back, Shift + arrows pan, + / − zoom, Home fits the map.</p>
     </>
   );
 }

@@ -1,6 +1,6 @@
 # Resources 01 — scattered resource sites
 
-Status: sparse sites, province totals, and the clarified province → cell selection flow implemented and locally verified on 9 September 2026; awaiting user review. The user's atlas review replaces the prior requirement for a resource on every cell with scattered Civilization-inspired resource sites and technology requirements for exploitation.
+Status: sparse sites and the province → cell → province click cycle implemented and locally verified on 10 September 2026; awaiting user review. The user's atlas review replaces the prior requirement for a resource on every cell with scattered Civilization-inspired resource sites and technology requirements for exploitation.
 
 ## Outcome and scope
 
@@ -72,3 +72,13 @@ Results:
 - Live Chromium at **http://127.0.0.1:5173/** verified first-click **Skeld 3** province details (Stone 1, Game 1, 244 cells, 976 km²), second-click cell 2395 details with no province-resource panel, Back, and Escape. Desktop/mobile inspector screenshots were inspected with no page errors or mobile overflow. Final site 2081 checks confirmed visible outline pixels at both 1440px and 390px viewport widths; the full desktop map screenshot was inspected. Temporary test servers stopped and the watched user lab remains running.
 
 Handoff: starting revision `c610104`, initially clean. Source, tests, and docs are checkpointed together after verification; no unrelated user changes. No known issue remains from these checks. Next action: open port 5173, click land once to inspect its highlighted province, then click anywhere inside it again to inspect just that cell. Click another province to begin at province level or use **Back to province**. User review of the interaction and resource distribution is pending; country selection and simulation remain later slices.
+
+## Repeated-click cycle — 10 September 2026
+
+The user clarified that clicking the selected land cell again must return to its province: **province → cell → province**, repeating on further clicks. This replaces the prior same-cell-stays-selected expectation. Clicking a different cell in the active province still selects that cell; entering another province still starts at province level. Water remains a cell because it has no parent province. Enter/Space activation uses the same cycle, while arrow navigation stays exact-cell exploration.
+
+Starting revision `7839b05`, clean working tree. The new core regression failed on the third click, and an actual-host browser regression on cell 1760 failed with cell scope instead of province scope. The shared transition now handles the return without changing renderer/state contracts. Six focused core tests and six development/production browser scenarios passed; regressions cover restored province pixels and inspector, fourth-click cell inspection, land/water resource markers, and keyboard activation. Independent review found no material issues.
+
+Final **`npm run check` passed**: architecture checks over 28 files, TypeScript, **68 headless tests** with no failures/skips (19.7 seconds), production build, and **59 Chromium scenarios** (31 development, 28 built serving; 1.0 minute). `git diff --check` passed; remote CI was not run. Live Chromium at **http://127.0.0.1:5173/** verified five clicks on stone site 2081 produced province → cell → province → cell → province with matching inspectors and no page errors. The final map screenshot was inspected. The watched lab remains running; test servers stopped.
+
+Handoff: source, regressions, help text, and docs checkpointed together after verification; no unrelated changes, package changes, or launch changes. No known issue remains from these checks. Next action: click the same land location repeatedly in the running lab to review the cycle. Country selection and simulation remain later slices.

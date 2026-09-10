@@ -24,7 +24,18 @@ test('land selects its province first, then any cell inside that province', () =
   const site = pickAtlasCell(world, first, 4);
   assert.deepEqual(site, { kind: 'cell', cellId: 4 });
   assert.deepEqual(pickAtlasCell(world, site, 1), { kind: 'cell', cellId: 1 });
-  assert.deepEqual(pickAtlasCell(world, site, 4), site, 'clicking the selected cell stays at cell scope');
+});
+
+test('repeated clicks cycle from province to cell and back for ordinary cells and resource sites', () => {
+  for (const cellId of [1, 4]) {
+    let selection: AtlasSelection = null;
+    for (let cycle = 0; cycle < 3; cycle++) {
+      selection = pickAtlasCell(world, selection, cellId);
+      assert.deepEqual(selection, { kind: 'province', provinceId: 'a' });
+      selection = pickAtlasCell(world, selection, cellId);
+      assert.deepEqual(selection, { kind: 'cell', cellId });
+    }
+  }
 });
 
 test('entering another province starts at province scope even when clicking a resource', () => {
@@ -39,6 +50,7 @@ test('water has direct cell inspection and returning to land selects a province'
     assert.deepEqual(pickAtlasCell(world, selection, 0), { kind: 'cell', cellId: 0 });
   }
   assert.deepEqual(pickAtlasCell(world, { kind: 'cell', cellId: 0 }, 3), { kind: 'cell', cellId: 3 });
+  assert.deepEqual(pickAtlasCell(world, { kind: 'cell', cellId: 0 }, 0), { kind: 'cell', cellId: 0 });
   assert.deepEqual(pickAtlasCell(world, { kind: 'cell', cellId: 0 }, 4), { kind: 'province', provinceId: 'a' });
 });
 

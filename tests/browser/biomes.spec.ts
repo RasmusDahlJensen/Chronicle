@@ -76,7 +76,8 @@ test('land selection moves from province to cell without retaining province tint
   await expect(page.locator('[data-selected-cell]')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Province resources' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Selected cell resource' })).toHaveCount(0);
-  expect(await atlasCellPatch(canvas, world, remote.id)).not.toEqual(unselected);
+  const provinceHighlight = await atlasCellPatch(canvas, world, remote.id);
+  expect(provinceHighlight).not.toEqual(unselected);
 
   await clickAtlasCell(canvas, world, cell.id);
   await expect(canvas).toHaveAttribute('data-selection-kind', 'cell');
@@ -86,6 +87,16 @@ test('land selection moves from province to cell without retaining province tint
   await expect(page.locator('[data-selected-province]')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Province resources' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Selected cell resource' })).toBeVisible();
+  expect(await atlasCellPatch(canvas, world, remote.id)).toEqual(unselected);
+
+  await clickAtlasCell(canvas, world, cell.id);
+  await expect(canvas).toHaveAttribute('data-selection-kind', 'province');
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', cell.provinceId!);
+  await expect(page.getByRole('region', { name: 'Selected cell resource' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Province resources' })).toBeVisible();
+  expect(await atlasCellPatch(canvas, world, remote.id)).toEqual(provinceHighlight);
+  await clickAtlasCell(canvas, world, cell.id);
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(cell.id));
   expect(await atlasCellPatch(canvas, world, remote.id)).toEqual(unselected);
 
   await clickAtlasCell(canvas, world, remote.id);
@@ -344,6 +355,9 @@ test('the visible edge of a resource marker selects its site only while that mar
     await clickAtlasMarkerEdge(canvas, world, site.id);
     const selected = page.locator('[data-selected-cell]');
     await expect(selected).toHaveAttribute('data-selected-cell', String(site.id));
+    await clickAtlasMarkerEdge(canvas, world, site.id);
+    await expect(selected).toHaveAttribute('data-selected-cell', String(site.id));
+    await expect(page.locator('[data-selected-province]')).toHaveCount(0);
 
     await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
     await clickAtlasMarkerEdge(canvas, world, site.id);
@@ -367,6 +381,11 @@ test('the visible edge of a resource marker selects its site only while that mar
     await expect(selected).toHaveAttribute('data-selected-cell', String(landSite.id));
     expect(newHighlightPixels(unselectedSite, await atlasCellPatch(canvas, world, landSite.id)),
       'a selected stone site must gain a visible light outline above its resource glyph').toBeGreaterThan(0);
+    await clickAtlasMarkerEdge(canvas, world, landSite.id);
+    await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', landSite.provinceId!);
+    await expect(selected).toHaveCount(0);
+    await clickAtlasMarkerEdge(canvas, world, landSite.id);
+    await expect(selected).toHaveAttribute('data-selected-cell', String(landSite.id));
     await page.getByRole('checkbox', { name: 'Resources', exact: true }).uncheck();
     await clickAtlasMarkerEdge(canvas, world, landSite.id);
     await expect(selected).toHaveAttribute('data-selected-cell', String(landSite.id + 1));
@@ -489,6 +508,10 @@ test('the atlas fits mobile and keyboard controls remain usable', async ({ page 
   await canvas.focus();
   await page.keyboard.press('+');
   await expect(canvas).not.toHaveAttribute('data-zoom', '1.00');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', world.cells[centerId].provinceId!);
+  await page.keyboard.press('Space');
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(centerId));
   await page.keyboard.press('Enter');
   await expect(page.locator('[data-selected-province]')).toHaveAttribute('data-selected-province', world.cells[centerId].provinceId!);
   await page.keyboard.press('Space');
