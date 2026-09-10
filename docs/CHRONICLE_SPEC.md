@@ -1,7 +1,7 @@
 # Chronicle — A Living World
 ## Product specification and local development playbook
 
-Version 1.0 · 9 September 2026 · Design baseline for a local rebuild
+Version 1.1 · 10 September 2026 · Country-created provinces and capital capture
 
 This document defines intended behavior, not a claim that the existing Site implements it. Use it as the source of truth for planning, implementation, and acceptance checks. Preserve the existing prototype before replacing anything.
 
@@ -23,6 +23,7 @@ Evidence register:
 | Frontend choice, 9 September | React + TypeScript + Vite for the browser interface; atlas rendering and hosted simulation remain separate |
 | Atlas visual correction, 9 September | Prioritize a larger map with several landmasses, richer textures and distinct biomes; display a primary natural resource on every cell and preserve cell → province → country relationships. Include uranium as resource potential; no extraction or nuclear mechanics implied. |
 | Resource distribution correction, later on 9 September | Replace resources on every cell with scattered resource sites that require appropriate technology to exploit, inspired by Civilization. Most cells have no special site; preserve ordinary biome productivity as a separate concept. |
+| Province and settlement discussion, 10 September | Countries create provinces around settlement centers. The founding capital also centers the first province; other provincial capitals and ordinary towns follow. Capturing a provincial capital immediately transfers province ownership, while individual cells can remain under opposing military control. |
 
 Precedence: newer explicit user choices override older choices. In particular:
 
@@ -31,6 +32,7 @@ Precedence: newer explicit user choices override older choices. In particular:
 3. Early expansion should be lively and competitive, replacing the prototype’s frustratingly slow consolidation. Population and travel accounting still apply.
 4. Local development replaces Sites as the primary workflow. Separate worlds will be hosted on the user's PC; access and deployment details remain to be defined.
 5. Scattered resource sites replace the earlier request to attach a resource to every cell. Technology determines exploitation; presence, knowledge, productivity, extraction, and stockpiles are distinct.
+6. Country-created provinces replace geographically fixed provinces generated before tribes. Successful capture of a provincial capital transfers sovereignty immediately; a peace agreement is not required for that transfer. The existing authored atlas still uses its earlier fixed groups as a test fixture.
 
 Requirement labels: **Required** means a recorded product direction. **Proposed default** means a concrete engineering or balance choice introduced here, changeable after measurement. **Deferred** means outside the first release.
 
@@ -58,19 +60,23 @@ Future god tools should enter through explicit simulation commands; do not build
 
 ## 3. World hierarchy and ownership
 
-### 3.1 Geographic hierarchy
+### 3.1 Geography, settlements, and administrative provinces
 
-**Required:** World → continents/regions → provinces → cells. A country controls provinces; it is not a geographic parent that destroys or recreates provinces whenever ownership changes.
+**Required:** Geography supplies cells and continents/regions. Countries create connected administrative provinces around settlements as they establish and expand their territory. Initially unclaimed land has no political provinces. Once formed, a province preserves its identity through a whole-province ownership transfer; conquest does not regenerate its cells or erase its history.
 
 | Entity | Owns or represents |
 |---|---|
 | Cell | Terrain, area, resource deposits, local settlement/population groups, local improvements, army position, current military control |
-| Province | Stable connected group of land cells; administrative center; sovereignty; integration and autonomy; aggregate local statistics |
-| Country/state | Government, treasury, policy, diplomacy, armies, provincial holdings, identity and historical lineage |
+| Province | Persistent connected group of land cells formed around a designated provincial capital; sovereignty; integration and autonomy; aggregate local statistics |
+| Country/state | National capital, government, treasury, policy, diplomacy, armies, provincial holdings, identity and historical lineage |
 | Culture/religion | Identities shared across populations and borders; not one-to-one with countries |
-| Settlement | Inhabited location and local capacity within a cell; may survive the state governing it |
+| Settlement | Inhabited location and local capacity within a cell; may serve as a national capital, provincial capital, or ordinary town, and may survive the state governing it |
 
-**Proposed default:** Provinces are geographically fixed in v1, generated before tribes. Province boundary editing is deferred. Each land cell belongs to exactly one province. Provinces are connected; small islands may form their own province. Continental borders and provinces must not depend on future countries.
+The founding settlement becomes the country's national capital and the center of its first province. Further provincial capitals organize additional provinces. A province can contain several ordinary towns; founding a town does not automatically create another province. Towns can support nearby farms, mines, and other extraction sites. Resource access influences settlement placement alongside food, water, transport, and security; technology, workers, and access determine actual production.
+
+**Proposed formation rules:** Expand through reachable, connected claims around existing centers or a supplied founding expedition. Attach newly claimed cells to an appropriate province, or establish a province around a new provincial capital. Distance, population, and administrative workload can justify promoting a town and splitting a province. Terrain and travel access influence boundaries. Define initial claim extent, growth costs, promotion thresholds, and split/merge rules in their implementation slices; there is no pre-generated quota of political provinces.
+
+Each land cell belongs to at most one active province. Keep sovereignty in one authority: derive member-cell ownership from the province's owner, while military control remains a cell-level state. Membership changes must preserve people, resources, and history. Capital relocation takes time and resources and cannot undo an already completed capture. Future province abandonment, splits, and mergers need explicit lifecycle rules, not a routine map-wide regeneration.
 
 ### 3.2 Sovereignty versus control
 
@@ -82,9 +88,11 @@ Keep separate:
 - Inhabited cells and population density.
 - Overlord–subject relationship between political entities.
 
-Army movement and battles occur on cells. Capturing a cell changes military control; a recognized settlement transfers province sovereignty. Occupying a provincial center alone need not imply instant control of every defending cell.
+Army movement and battles occur on cells. Capturing an ordinary cell changes military control. **Successful hostile capture of the designated provincial capital immediately transfers ownership of the entire province to the capturing country.** Capturing every cell and waiting for peace are unnecessary. Mere movement through a capital is not a successful capture; combat/siege rules must define when its defense has been overcome.
 
-**Proposed default for frontier settlement:** A founding settlement establishes a tribal claim to its province with low initial administrative reach. New frontier claims require a supplied expedition and durable settlement in an adjacent eligible province. Populate cells progressively; claiming a province must not populate all its cells. Competing expeditions resolve through contact, diplomacy, or conflict, rather than multiple sovereign owners of one province.
+That ownership transfer does not teleport armies, capture remaining towns or forts, or eliminate resistance. Surviving defenders can still control individual cells inside the newly owned province. Preserve local population and resource accounting and begin consolidation with appropriate integration, autonomy, and resistance. Losing the national capital transfers its province; it does not automatically transfer every province or dissolve a country that can continue from elsewhere.
+
+Founding and frontier claims start with limited administrative reach. Populate cells progressively; claiming territory does not populate or develop every cell. Competing expeditions resolve through contact, diplomacy, or conflict, rather than multiple sovereign owners of one province. Capturing an ordinary town may affect military control and production, but only the designated provincial capital triggers the province-wide conquest transfer.
 
 Use direct country holdings and subject-inclusive imperial holdings as distinct totals. Do not count subject population twice in world statistics.
 
@@ -92,7 +100,7 @@ Use direct country holdings and subject-inclusive imperial holdings as distinct 
 
 **Required:** Earth-comparable geographic scale, hundreds of founding tribes, substantial detail, large oceans and continents.
 
-**Proposed initial targets:** Development preset around 10,000 land cells; large preset around 60,000 land cells; approximately 2,000–5,000 provinces at the large preset. These are starting targets for benchmarking, not approved performance promises or hard gameplay laws. Design the data model to support larger worlds later.
+**Proposed initial targets:** Development preset around 10,000 land cells; large preset around 60,000 land cells; benchmark roughly 2,000–5,000 provinces in developed large-world scenarios. Province counts emerge from settlement and growth rather than an initial geographic partition. These are starting targets for benchmarking, not approved performance promises or hard gameplay laws. Design the data model to support larger worlds later.
 
 Do not conflate map dimensions with surface area. Assign real area weights and a consistent travel-distance model. If using an equal-area cylindrical atlas, document its polar distortion and do not treat all rendered horizontal lengths as equal ground distances. A 510 million km² planet includes water; do not assign that total to its land alone.
 
@@ -100,7 +108,7 @@ Do not conflate map dimensions with surface area. Assign real area weights and a
 
 **Required:** Seeded fictional continents, islands, varied coasts, mountain ranges, rivers, lakes, climate, fertility, forests, deserts, cold regions, and geographically coherent resources. Same seed, settings, and generator version reproduce the initial world.
 
-Generate in dependency order: elevation and landmass → water drainage → climate/biomes → resources → cells and province grouping → viable settlement candidates → founding tribes.
+Generate geography and cell data in dependency order: elevation and landmass → water drainage → climate/biomes → resources → viable settlement candidates. Then place founding tribes/countries, their capital settlements, and their initial provinces. Leave remaining unclaimed land without political province membership; additional provinces arise during expansion.
 
 **Required:** Tribes are broadly and more evenly distributed across habitable regions, avoiding the dense local starting clusters seen in the prototype. Evenness does not require tribes in glaciers or deserts.
 
@@ -192,7 +200,7 @@ War decision sequence: perceive reachable opportunity or threat → estimate ben
 
 Armies are spatial units with manpower, equipment, morale/readiness, supply, and movement state. V1 uses abstract cell-based combat. Terrain, strength, supplies, and fortifications if implemented affect outcomes. Do not resolve all wars through one nation-level dice roll detached from territory.
 
-Cell occupation is temporary control. Province acquisition occurs through a political settlement. Peace assesses actual occupation, war aims, remaining resistance, allies, costs, and access. Include regional cession, full annexation, subject status, independence, and white peace when appropriate.
+Cell occupation is military control distinct from sovereignty. Successful capture of a provincial capital commits the province ownership transfer immediately, even while war continues. Peace assesses current ownership, remaining occupation and resistance, war aims, allies, costs, and access. It can negotiate territorial returns or further cessions, full annexation, subject status, independence, or an end to fighting. Ending a war does not silently undo a completed capital-capture transfer.
 
 A campaign deadline triggers reassessment; it must not automatically erase decisive victory. Small defeated states can capitulate before every last cell is captured, while defensible or supported states may resist.
 
@@ -202,7 +210,7 @@ Imperial relationships:
 |---|---|
 | Integrated province | Direct rule with substantial established administration |
 | Newly annexed province | Direct sovereignty with low integration and potential resistance |
-| Occupied province/cells | Military control pending settlement; owner remains distinct |
+| Occupied cells / contested province | Cell military control differs from the current province owner; remaining defenders can persist after the capital and sovereignty change hands |
 | Dependent possession | Direct possession administered with separate autonomy/extraction priorities |
 | Subject polity | Own government and provinces, constrained independence and possible tribute |
 
@@ -230,7 +238,7 @@ The Fantasy Map Simulator reference is a stated visual direction for territorial
 
 **Required selection sequence:** first click within a country selects the country; next click within that selected country selects a province; next click within that selected province selects a cell. Clicking another country resets to country level.
 
-**Proposed interaction details:** clicking another province while at province/cell depth selects that province; breadcrumbs and Escape move up a level; drag is not a click; selection is stable during updates; clicking unowned land selects the geographic province directly. Explain the drill-down unobtrusively. Country selection highlights all direct holdings and clearly distinguishes its subjects.
+**Proposed interaction details:** clicking another province while at province/cell depth selects that province; breadcrumbs and Escape move up a level; drag is not a click; selection is stable during updates. Land in a province without a sovereign owner selects that province directly; land without any political province opens cell details. Explain the drill-down unobtrusively. Country selection highlights all direct holdings and clearly distinguishes its subjects.
 
 **Confirmed for the unclaimed regional study:** first click highlights a province and shows province information; another click inside it highlights a cell and shows cell information. Clicking that selected cell again returns to its province, repeating the province → cell → province cycle. Clicking a different cell in the same province selects that cell. These are separate selection levels. Clicking another province returns to province level; water opens cell details directly. Country-level selection remains a later slice when countries exist in the study.
 
@@ -304,7 +312,7 @@ Stable entity IDs survive save/load, mergers, and archival. Province/cell IDs do
 
 Determinism requires seeded RNG state, fixed update order, stable iteration order, explicit rounding policy, and versioned rules/configuration. Separate subsystem random streams where practical to reduce accidental coupling. No wall-clock time or unseeded randomness in game decisions.
 
-**Proposed daily phases:** apply queued commands/events → local supply/production scheduled for date → demographic/disease updates → military movement/combat → political decisions scheduled for date → settle transfers/extinctions → refresh derived metrics → emit committed snapshot. Refine order during M0; document it and test that one phase does not spend the same resources twice.
+**Proposed daily phases:** apply queued commands/events → local supply/production scheduled for date → demographic/disease updates → military movement/combat, including immediate successful capital-capture transfers → political decisions scheduled for date → settle other transfers/extinctions → refresh derived metrics → emit committed snapshot. Refine order during M0; document it and test that one phase does not spend the same resources twice. Later decisions in the same step must observe the committed capital-capture owner.
 
 Save schema: versions, seed, date/tick, RNG state, rules/config identity, geography, active/archived entities, inventories, in-flight movement/trade, wars, scheduled events, history summaries. Save at a completed step. Loading validates structure before replacing a running world. Handle incompatible versions explicitly.
 
@@ -318,7 +326,8 @@ Separate three questions: is the implementation correct, is the simulation enjoy
 
 - Population ledger reconciles births/deaths/movement; annexation and merger conserve living people.
 - No negative goods, duplicated trade deliveries, or duplicate army casualties.
-- Each land cell has one province; each province has at most one sovereign owner.
+- Each land cell has at most one active province; initially unclaimed land may have none. Every active province has one designated capital settlement and at most one sovereign owner.
+- A successful provincial-capital capture transfers sovereignty once in the same committed step without changing uncaptured cells' military controllers or duplicating population/resources. Ordinary cell/town captures do not transfer province sovereignty.
 - Subject graph has no cycles; extinct entities cannot initiate new actions.
 - Movement/trade require accessible routes and appropriate technology.
 - Same version/seed/config/steps produces the same result irrespective of playback speed.
@@ -329,7 +338,7 @@ Separate three questions: is the implementation correct, is the simulation enjoy
 
 1. Neighboring compatible tribes can unite; incompatible tribes are not forcibly merged by map cleanup.
 2. A prosperous, protected small state survives while a defeated unsupplied state can capitulate.
-3. Annexation preserves survivors and transfers a province consistently.
+3. Capturing a provincial capital immediately transfers its province, preserves survivors and identity, and leaves uncaptured defending cells under their actual military control; capturing an ordinary cell alone does not transfer it.
 4. Sustained food loss causes depletion, decline, migration and possible abandonment.
 5. Disease spreads through permitted contact and eventually recovers or loses susceptible hosts.
 6. Rebellion forms a connected viable region; parent/successor history remains linked.
@@ -337,6 +346,8 @@ Separate three questions: is the implementation correct, is the simulation enjoy
 8. Claimed and inhabited percentages intentionally differ for a sparsely populated large realm.
 9. Repeated map clicks and Escape follow the documented selection model.
 10. No initial one-tick growth causes a paused new world to display inflated founding populations.
+11. A founding national capital centers the first province; an ordinary town inside an existing province does not create a new province, while establishing a new provincial capital forms a connected province without overlapping claims or inventing people/resources.
+12. Capturing the national capital transfers only its province; a viable country with other holdings can continue. Slow, costly capital relocation cannot cancel a completed capture.
 
 ### Balance evaluation
 
@@ -359,10 +370,10 @@ Do not implement the entire spec in one autonomous task. Each milestone delivers
 | Milestone | Deliverable | Exit gate |
 |---|---|---|
 | M0: Inventory and contracts | Preserve prototype/source if obtainable; feature inventory; definitions; architecture and ownership decision | No unresolved ambiguity about cell/province sovereignty, scale units, population accounting, or first scope; current features marked verified/unverified |
-| M1: World and atlas | Seeded geography, province grouping, spaced tribes, pan/zoom/picking, hierarchy selection, area metrics | Reproducible viable starts; correct wrap; readable borders; default-world benchmark |
+| M1: World and atlas | Seeded geography, spaced founding capitals and initial country-created provinces, pan/zoom/picking, hierarchy selection, area metrics | Reproducible viable starts; correct wrap; readable borders; default-world benchmark |
 | M2: Living settlements | Food, labor, births/deaths, reserves, recruitment accounting primitives, migration/abandonment, simple disease | Population conservation and shortage/outbreak scenarios; no immortal floors |
-| M3: Formation and expansion | Frontier settlement, organizational development, mergers, identities, administrative reach | Observable competitive early expansion; connected holdings; new countries trace to actual populations |
-| M4: War and consolidation | Army movement/supply, occupation, province settlements, capitulation, subjects, extinction | Decisive defeat possible; viable small-state survival; no casualty/transfer duplication; diplomacy UI explains state |
+| M3: Formation and expansion | Frontier settlement, provincial capitals and ordinary towns, province growth/splits, organizational development, mergers, identities, administrative reach | Observable competitive early expansion; connected holdings; new countries trace to actual populations |
+| M4: War and consolidation | Army movement/supply, cell occupation, immediate capital-capture ownership transfers, peace, capitulation, subjects, extinction | Decisive defeat possible; viable small-state survival; no casualty/transfer duplication; diplomacy UI explains state |
 | M5: Economy and knowledge | Production chains, routes, actual exchange, technology/diffusion/navigation | Missing resources constrain action; route disruption matters; technology gates work |
 | M6: Institutions and fragmentation | Government/religion, legitimacy/autonomy, succession and coherent rebellion | Meaningful causes and recovery; successful empires and successor states both possible |
 | M7: Release foundation | Save migrations, durable history summaries, observer polish, long-run balance and performance | Multi-seed evidence, browser/manual QA, documented limitations, install/run instructions |
@@ -453,8 +464,9 @@ that need review before implementation.
 The product direction is established; the following proposed defaults should be recorded or revised at M0, not silently treated as historical user approvals:
 
 - Exact starting-population/tribe count ranges.
-- Cell count, province count and grouping size per preset.
-- Frontier province-claim model and low administrative reach semantics.
+- Cell counts and developed-world province counts for benchmarking.
+- Initial claim extent, frontier growth costs, provincial-capital promotion and province split/merge rules, and low administrative reach semantics.
+- Successful capital-capture conditions, relocation time/cost, and abandoned-province lifecycle rules; the immediate ownership-transfer trigger is already agreed.
 - Calendar and system update schedule.
 - Renderer and local project tooling after benchmarking.
 - Mortality, supply, integration, distress and surrender calibration.

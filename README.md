@@ -8,6 +8,8 @@ The React + TypeScript + Vite browser lab opens **Verdant Reach**, an authored r
 
 A local Node/Fastify backend constructs, validates, and encodes the atlas in a bounded worker pool, then sends it to the browser. Most cells have no special resource site. Scattered mineral deposits and renewable resource concentrations have terrain-appropriate locations and a required extraction technology. The atlas preview shows all sites for inspection; research, extraction, stockpiles, and country knowledge are not running yet. Ordinary land and sea retain their biomes without a special resource marker. User-seeded planet generation, simulation, saves, accounts, and persistent worlds for separate users remain future slices.
 
+The agreed game design has countries create provinces around capital settlements, with additional towns supporting production. Capturing a provincial capital will immediately transfer that province's ownership while cell-level resistance can remain. This is future gameplay: the current atlas's 77 pre-generated provinces are test groups, and settlement, capital, and conquest mechanics are not implemented. See [the province design](docs/CHRONICLE_SPEC.md#3-world-hierarchy-and-ownership).
+
 ## First setup on your PC
 
 Open a terminal in the **Chronicle repository folder**, where `package.json` lives. Use Node **24.20.0**, also recorded in `.nvmrc`. Check your installed version with:
