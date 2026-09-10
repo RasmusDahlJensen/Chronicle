@@ -1,6 +1,6 @@
 # Worldgen 01 — larger worlds and regional climate
 
-Status: implemented, verified locally and awaiting user visual review, 10 September 2026. Baseline `1879fd1`; working tree was clean at startup. The user found the landmass shapes artificial, authorized external generation tools, and explicitly chose a full generator replacement with all checks passing. The replacement, independent code review and complete iteration gate are finished.
+Status: implemented, verified locally and visually accepted by the user, 10 September 2026. Baseline `1879fd1`; working tree was clean at startup. The user found the landmass shapes artificial, authorized external generation tools, and explicitly chose a full generator replacement with all checks passing. The replacement, independent code review and complete iteration gate are finished. The user explicitly approved the resulting terrain and asked to discuss the next steps.
 
 ## Observable outcome and scope
 
@@ -70,6 +70,6 @@ This measures one immutable world, not simultaneous-world or simulation capacity
 
 Keep `npm start` running and refresh **http://127.0.0.1:5173/**. Inspect Chronicle at fit and close zoom, switch Temperature/Moisture, select a resource site, and compare Elsewhere, Harbors and Sundown using **World seed → Regenerate world**. Changing between Standard and Large preserves the underlying geography while adding cell detail.
 
-The local checkpoint on `feat/atlas-01` is titled **Replace world landmasses with pinned Platec generation**, based on `1879fd1`; it contains the verified runtime/tests and final handoff documentation. No known functional or review issue remains. Next action: user visual review of the running lab. Automated and independent code checks establish behavior; the user still judges whether these landmasses fit Chronicle. Choose the next small slice together after that review.
+The local checkpoint `ee7f7d3` on `feat/atlas-01` is titled **Replace world landmasses with pinned Platec generation**, based on `1879fd1`; it contains the verified runtime/tests and final handoff documentation. No known functional or review issue remains. User visual review is complete and positive. Next action: agree on the next small M1 slice. Specification §4 places drainage/freshwater and fertility before viable founding sites, capitals and country-created provinces. Rivers and freshwater are the proposed immediate slice; that recommendation is not implementation approval. This acceptance update changes documentation only; the recorded implementation checks above remain the last full gate.
 
 Climate references: [NOAA regional climate ingredients](https://sos.noaa.gov/catalog/live-programs/wind-water-mountains-ingredients-of-regional-climate/) and [subtropical dry regions](https://oceanservice.noaa.gov/facts/horse-latitudes.html). Numeric parameters remain game-model approximations.
