@@ -42,6 +42,7 @@ test('actual generated rivers can be hidden and inspected for mapped freshwater'
   expect(reply.status(), reply.ok() ? 'World manifest' : await reply.text()).toBe(200);
   const world = await reply.json() as WorldManifest;
   await expect(canvas).toHaveAttribute('data-world-key', world.worldKey);
+  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveAttribute('aria-busy', 'false');
   const rivers = page.getByRole('checkbox', { name: 'Rivers', exact: true });
   await expect(rivers).toBeChecked();
   await page.getByRole('checkbox', { name: 'Resource sites' }).uncheck();
@@ -139,6 +140,7 @@ async function installWaterFixture(page: Page, fixture: ReturnType<typeof waterF
   });
   await page.goto('/');
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-rendered', 'true');
+  await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveAttribute('aria-busy', 'false');
   await page.getByRole('checkbox', { name: 'Resource sites' }).uncheck();
 }
 

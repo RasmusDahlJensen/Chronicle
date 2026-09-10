@@ -1,8 +1,9 @@
-import { MAX_WORLD_BUNDLE_BYTES, parseWorldManifest, worldKey, type WorldSettings, type WorldBundle } from '../shared/generated-world.ts';
+import { MAX_CIVILIZATION_BYTES, parseCivilizationSnapshot, type WorldStudyBundle } from '../shared/civilization.ts';
+import { MAX_WORLD_BUNDLE_BYTES, parseWorldManifest, worldKey, type WorldSettings } from '../shared/generated-world.ts';
 import { ComputeClosedError, ComputeOverloadedError, type TerrainCompute } from './compute.ts';
 
 interface Entry {
-  controller: AbortController; promise: Promise<WorldBundle>; complete: boolean; subscribers: number;
+  controller: AbortController; promise: Promise<WorldStudyBundle>; complete: boolean; subscribers: number;
 }
 
 /** Two immutable worlds at most, including unfinished jobs. Never evict an active job.
@@ -28,6 +29,7 @@ export function createGeneratedWorldStore(compute: TerrainCompute) {
       if (Buffer.byteLength(body, 'utf8') > MAX_WORLD_BUNDLE_BYTES) throw new Error('Generated world exceeds its cache limit.');
       const bundle: unknown = JSON.parse(body);
       if (!bundle || typeof bundle !== 'object' || !('manifest' in bundle) || typeof bundle.manifest !== 'string'
+        || !('civilization' in bundle) || typeof bundle.civilization !== 'string' || Buffer.byteLength(bundle.civilization) > MAX_CIVILIZATION_BYTES
         || !('tiles' in bundle) || !Array.isArray(bundle.tiles) || bundle.tiles.some(tile => typeof tile !== 'string')) {
         throw new Error('The world worker returned an invalid bundle.');
       }
@@ -35,8 +37,9 @@ export function createGeneratedWorldStore(compute: TerrainCompute) {
       if (manifest.worldKey !== key || bundle.tiles.length !== manifest.width * manifest.height / manifest.tileSize ** 2) {
         throw new Error('The world worker returned a mismatched bundle.');
       }
+      parseCivilizationSnapshot(JSON.parse(bundle.civilization), manifest);
       entry.complete = true;
-      return { manifest: bundle.manifest, tiles: bundle.tiles } as WorldBundle;
+      return { manifest: bundle.manifest, tiles: bundle.tiles, civilization: bundle.civilization } as WorldStudyBundle;
     }).catch(error => {
       if (entries.get(key) === entry) entries.delete(key);
       throw error;
@@ -45,7 +48,7 @@ export function createGeneratedWorldStore(compute: TerrainCompute) {
     return entry;
   }
   return {
-    get(settings: WorldSettings, signal: AbortSignal): Promise<WorldBundle> {
+    get(settings: WorldSettings, signal: AbortSignal): Promise<WorldStudyBundle> {
       if (signal.aborted) return Promise.reject(signal.reason);
       const entry = obtain(settings);
       entry.subscribers++;

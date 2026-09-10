@@ -8,6 +8,10 @@ The React + TypeScript + Vite browser lab opens a **seeded world preview** with 
 
 A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives full-resolution terrain for the overview, then requests climate and resource detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; research, extraction, stockpiles and country knowledge are not running yet. Deterministic rivers, tributaries, inland lakes and frozen lakes now add surface water to the geography. Seasonal weather, simulation, saves, accounts and persistent worlds for separate users remain future slices.
 
+The host now also prepares **one civilization** with a seeded name, color and suitable founding location. Its labeled marker appears on **Biomes**. Use **Locate civilization** to center and inspect its beginning; click the marker or its cell for identity and exact geography. The same seed/resolution repeats this initial snapshot. If loading its identity fails, **Retry civilization** recovers it while the map stays available. Worlds with no suitable land explicitly report that no civilization spawned.
+
+This is the civilization's starting identity and location. Population, settlements, territorial claims, growth, decisions and time advancement are not running yet. Development will focus on this one civilization's internal behavior before interactions between civilizations.
+
 The generated world starts without political provinces. Countries will create them around capital settlements, with additional towns supporting production. Capturing a provincial capital will immediately transfer that province's ownership while cell-level resistance can remain. Settlement, capital and conquest mechanics are not implemented. The retained Verdant study's 77 provinces are authored test groups. See [the province design](docs/CHRONICLE_SPEC.md#3-world-hierarchy-and-ownership).
 
 ## First setup on your PC
@@ -108,6 +112,7 @@ Extend the suite alongside each change, especially when data crosses a module or
 | Exact terrain surface → textured overview and stable terrain as detail arrives | `tests/world-surface.test.ts`, `tests/browser/generated-world-texture.spec.ts` |
 | Overview/detail HTTP → bounded browser cache → climate layers and cell inspection | `tests/world-client.test.ts`, `tests/browser/generated-world.spec.ts` |
 | Terrain/climate/water → fertility factors → validated scores and browser layer | `tests/fertility.test.ts`, `tests/fertility-contract.test.ts`, `tests/browser/fertility.spec.ts` |
+| Geography → civilization identity/location → shared worker/cache/HTTP → marker and inspection | `tests/civilization.test.ts`, `tests/civilization-server.test.ts`, `tests/world-client.test.ts`, `tests/browser/civilization.spec.ts` |
 | Cells → provinces → countries; biome/resource data and province site totals | `tests/atlas-world.test.ts`, `tests/atlas-response.test.ts` |
 | Click/back selection → matching province/cell highlight and inspector | `tests/atlas-selection.test.ts`, `tests/browser/biomes.spec.ts` |
 | Workers → validated HTTP responses; admission and shutdown | `tests/compute.test.ts`, `tests/server.test.ts`, `tests/atlas-server.test.ts` |
@@ -138,6 +143,7 @@ The local API is available through either running browser URL:
 - `/api/atlas` returns Verdant Reach as `{ "protocolVersion": 3, "world": … }`; `cell.resource` is a resource ID or explicit `null` for no site.
 - `/api/terrain` retains Aster Island as `{ "protocolVersion": 1, "world": … }`.
 - `/api/world?seed=Chronicle&size=large` returns a generated-world protocol-4 manifest with full-resolution elevation/biome surface data, an authoritative river/lake graph, a 256 × 128 climate/fertility overview, units, settings, generator version and biome counts.
+- `/api/world/civilization?seed=Chronicle&size=large` returns a separately versioned initial civilization snapshot (at most one identity, name, color and founding cell; maximum 8 KiB), tied to the same geography identity.
 - `/api/world/tile?seed=Chronicle&size=large&x=0&y=0` returns the corresponding 128 × 128 detail tile. Coordinates are tile indices. `size` accepts `standard` or `large`; seeds accept 1–64 ASCII letters, numbers, spaces, dots, underscores and hyphens.
 
 The authored atlas/terrain payloads retain their 100,000-cell and 8 MiB limits. Generated-world manifests are bounded to 4 MiB, detail tiles to 512 KiB, and complete worker bundles to 20 MiB. The host retains at most two immutable generation bundles, including jobs in progress, and shares requests for the same seed/settings. A failed job can be retried; disconnecting the last waiting observer cancels unfinished work. All map requests share the same worker pool and response admission allowance. Each tectonic job uses a fresh WASM instance with a 128 MiB heap cap and a 2,500-step limit; the heap cap does not bound total process memory.
@@ -150,7 +156,7 @@ To measure the large seeded world, overview and detail delivery:
 npm run bench:world
 ```
 
-This runs the actual application and workers without opening a network listener, validates every returned tile, and reports local timing, payload and memory measurements. It measures one immutable world, not simultaneous simulation capacity. [Fertility 01](docs/features/fertility-01.md) records the current results.
+This runs the actual application and workers without opening a network listener, validates every returned tile and the initial civilization snapshot, and reports local timing, payload and memory measurements. It measures one immutable world, not simultaneous simulation capacity. [Civilization 01](docs/features/civilization-01.md) records the current results.
 
 To measure the Verdant Reach fixture pipeline:
 

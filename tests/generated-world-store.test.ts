@@ -4,6 +4,7 @@ import { createGeneratedWorldStore } from '../server/generated-world-store.ts';
 import { ComputeClosedError, ComputeOverloadedError, ComputeTimeoutError, type TerrainCompute } from '../server/compute.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
+import { createCivilizationSnapshot } from '../src/world/civilization.ts';
 import type { WorldSettings } from '../shared/generated-world.ts';
 
 // Control CPU completion to test real store lifecycle ordering without timing guesses.
@@ -29,7 +30,11 @@ function controlledCompute() {
 }
 const settings: WorldSettings = { seed: 'Lifecycle', size: 'standard' };
 let body: Promise<string>;
-function validBody() { return body ??= generateWorld(settings).then(world => JSON.stringify(encodeGeneratedWorld(world))); }
+function validBody() {
+  return body ??= generateWorld(settings).then(world => JSON.stringify({
+    ...encodeGeneratedWorld(world), civilization: JSON.stringify(createCivilizationSnapshot(world)),
+  }));
+}
 
 test('one disconnected observer cannot cancel a generation another observer still needs', async () => {
   const { jobs, store } = controlledCompute();
@@ -90,4 +95,24 @@ test('malformed or mismatched worker results never poison a later valid request'
   jobs.at(-1)!.resolve(await validBody());
   assert.ok((await retry).tiles.length > 0);
   store.close();
+});
+
+test('a civilization for another world is rejected without poisoning the shared cache', async t => {
+  const { jobs, store } = controlledCompute();
+  t.after(() => store.close());
+  const valid = JSON.parse(await validBody());
+  const civilization = JSON.parse(valid.civilization);
+  const signal = new AbortController().signal;
+  const rejected = assert.rejects(store.get(settings, signal), /civilization response was invalid/);
+  jobs[0].resolve(JSON.stringify({ ...valid,
+    civilization: JSON.stringify({ ...civilization, worldKey: 'another-world' }),
+  }));
+  await rejected;
+
+  const retry = store.get(settings, signal);
+  assert.equal(jobs.length, 2, 'Rejecting the snapshot must release its cached world entry.');
+  jobs[1].resolve(await validBody());
+  assert.equal((await retry).civilization, valid.civilization);
+  assert.equal((await store.get(settings, signal)).civilization, valid.civilization);
+  assert.equal(jobs.length, 2, 'The valid retry must be retained for later observers.');
 });

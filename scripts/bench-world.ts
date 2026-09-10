@@ -1,3 +1,4 @@
+import { parseCivilizationSnapshot } from '../shared/civilization.ts';
 import { cpus, totalmem } from 'node:os';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { buildApp } from '../server/app.ts';
@@ -14,6 +15,10 @@ try {
   const generationAndDeliveryMs = performance.now() - started;
   const world = parseWorldManifest(response.json());
   const manifestBytes = Buffer.byteLength(response.body);
+  const civilizationResponse = await app.inject('/api/world/civilization?seed=Chronicle&size=large');
+  if (civilizationResponse.statusCode !== 200) throw new Error(civilizationResponse.body);
+  const civilization = parseCivilizationSnapshot(civilizationResponse.json(), world);
+  const civilizationBytes = Buffer.byteLength(civilizationResponse.body);
   let tileBytes = 0; let largestTileBytes = 0; let slowestTileMs = 0;
   for (let y = 0; y < world.height / world.tileSize; y++) for (let x = 0; x < world.width / world.tileSize; x++) {
     const tileStarted = performance.now();
@@ -31,6 +36,7 @@ try {
     hostMemoryGiB: +(totalmem() / 1024 ** 3).toFixed(1), worldKey: world.worldKey,
     cells: world.width * world.height, landCells: world.landCells, resourceSites: world.resourceSites,
     generationAndDeliveryMs: +generationAndDeliveryMs.toFixed(1), cachedManifestMs: +(performance.now() - hit).toFixed(1),
+    civilizationBytes, civilizations: civilization.civilizations.length,
     manifestBytes, allDetailTilesBytes: tileBytes, largestTileBytes, slowestTileMs: +slowestTileMs.toFixed(1),
     rssAfterGenerationMiB: +(process.memoryUsage().rss / 1024 ** 2).toFixed(1),
     rssIncreaseMiB: +((process.memoryUsage().rss - before) / 1024 ** 2).toFixed(1),

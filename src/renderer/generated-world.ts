@@ -1,4 +1,5 @@
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
+import type { Civilization } from '../../shared/civilization.ts';
 import { isWorldWater, WORLD_BIOMES, type WorldBiome, type WorldFields, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
 import { BIOMES } from '../world/atlas.ts';
 import { drawAtlasResourceIcon } from './biome-atlas.ts';
@@ -57,6 +58,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let layer: WorldLayer = 'biomes';
   let resources = true;
   let rivers = true;
+  let civilization: Civilization | null = null;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
@@ -134,6 +136,40 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     ctx.restore();
   }
+  function civilizationMarkers() {
+    if (!civilization || layer !== 'biomes') return [];
+    const m = metrics(), cell = civilization.originCellId;
+    const y = m.height / 2 + (Math.floor(cell / world.width) + .5 - centerY) * m.scale;
+    if (y < -12 || y > m.height + 12) return [];
+    const firstX = m.width / 2 + (cell % world.width + .5 - centerX) * m.scale, span = world.width * m.scale;
+    ctx.font = '600 12px system-ui';
+    const labelWidth = Math.min(ctx.measureText(civilization.name).width + 16, m.width - 16);
+    const markers = [];
+    for (let copy = Math.ceil((-12 - firstX) / span); copy <= Math.floor((m.width + 12 - firstX) / span); copy++) {
+      const x = firstX + copy * span;
+      const labelX = clamp(x + 15 + labelWidth > m.width - 4 ? x - 15 - labelWidth : x + 15, 4, m.width - labelWidth - 4);
+      markers.push({ x, y, labelX, labelY: clamp(y - 12, 4, m.height - 28), labelWidth });
+    }
+    return markers;
+  }
+  function drawCivilization() {
+    if (!civilization) return;
+    ctx.save();
+    for (const marker of civilizationMarkers()) {
+      ctx.fillStyle = '#faf7e9'; ctx.strokeStyle = '#263e32'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.roundRect(marker.labelX, marker.labelY, marker.labelWidth, 24, 3); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#263e32'; ctx.textBaseline = 'middle';
+      ctx.fillText(civilization.name, marker.labelX + 8, marker.labelY + 12, marker.labelWidth - 16);
+      ctx.beginPath(); ctx.arc(marker.x, marker.y, 8, 0, Math.PI * 2);
+      ctx.lineWidth = 5; ctx.strokeStyle = '#263e32'; ctx.stroke();
+      ctx.lineWidth = 2; ctx.strokeStyle = '#fff9e4'; ctx.stroke();
+      ctx.fillStyle = civilization.color; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(marker.x, marker.y - 3); ctx.lineTo(marker.x + 3, marker.y);
+      ctx.lineTo(marker.x, marker.y + 3); ctx.lineTo(marker.x - 3, marker.y); ctx.closePath();
+      ctx.fillStyle = '#fff9e4'; ctx.fill();
+    }
+    ctx.restore();
+  }
   function draw() {
     if (destroyed) return;
     const started = performance.now();
@@ -198,10 +234,12 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       ctx.strokeStyle = '#172c26'; ctx.lineWidth = 3; ctx.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
       ctx.strokeStyle = '#fff7d5'; ctx.lineWidth = 1.5; ctx.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
     }
+    drawCivilization();
     canvas.dataset.rendered = 'true'; canvas.dataset.worldKey = world.worldKey; canvas.dataset.layer = layer;
     canvas.dataset.zoom = String(zoom); canvas.dataset.centerX = String(centerX); canvas.dataset.centerY = String(centerY);
     canvas.dataset.scale = String(m.scale); canvas.dataset.detail = String(m.detail);
     canvas.dataset.loadedTileCount = String(tiles.length);
+    canvas.dataset.civilizationId = civilization?.id ?? '';
     canvas.dataset.textureCount = String(textures.size); canvas.dataset.renderMs = (performance.now() - started).toFixed(2);
   }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
@@ -243,6 +281,12 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     return nearest;
   }
+  function civilizationAtPoint(x: number, y: number): WorldCoordinate | null {
+    if (!civilization) return null;
+    const hit = civilizationMarkers().some(marker => Math.hypot(marker.x - x, marker.y - y) <= 12
+      || x >= marker.labelX && x <= marker.labelX + marker.labelWidth && y >= marker.labelY && y <= marker.labelY + 24);
+    return hit ? { x: civilization.originCellId % world.width, y: Math.floor(civilization.originCellId / world.width) } : null;
+  }
   function pointerDown(event: PointerEvent) {
     if (event.button !== 0 || gesture) return;
     canvas.focus(); canvas.setPointerCapture(event.pointerId);
@@ -260,7 +304,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     if (!gesture || gesture.id !== event.pointerId) return;
     if (!gesture.dragged) {
       const box = canvas.getBoundingClientRect(), x = event.clientX - box.left, y = event.clientY - box.top;
-      select(resourceAtPoint(x, y) ?? atPoint(x, y));
+      select(civilizationAtPoint(x, y) ?? resourceAtPoint(x, y) ?? atPoint(x, y));
     }
     gesture = null;
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
@@ -300,6 +344,13 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   changed();
   return {
     zoomBy, fit,
+    setCivilization(next: Civilization | null) { civilization = next; safe(draw); },
+    focusCivilization() {
+      if (!civilization) return;
+      const cell = { x: civilization.originCellId % world.width, y: Math.floor(civilization.originCellId / world.width) };
+      centerX = cell.x + .5; centerY = cell.y + .5; zoom = Math.max(zoom, 4.096);
+      changed(); select(cell);
+    },
     setLayer(next: WorldLayer, showResources: boolean, showRivers = true) {
       if (layer !== next) { layer = next; overview = null; textures.clear(); }
       resources = showResources; rivers = showRivers; safe(draw);
@@ -317,7 +368,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; canvas.style.touchAction = '';
+      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; civilization = null; canvas.style.touchAction = '';
     },
   };
 }

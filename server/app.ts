@@ -1,3 +1,4 @@
+import { CivilizationSnapshotSchema } from '../shared/civilization.ts';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -51,7 +52,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     reply.header('x-request-id', request.id).header('x-content-type-options', 'nosniff');
     const path = request.url.split('?')[0];
     if (path === '/api' || path.startsWith('/api/')) reply.header('cache-control', 'no-store');
-    if (['/api/health', '/api/ready', '/api/terrain', '/api/atlas', '/api/world', '/api/world/tile'].includes(path) && request.method !== 'GET') {
+    if (['/api/health', '/api/ready', '/api/terrain', '/api/atlas', '/api/world', '/api/world/tile', '/api/world/civilization'].includes(path) && request.method !== 'GET') {
       reply.header('allow', 'GET');
       return failure(reply, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
     }
@@ -98,6 +99,12 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   }, (request, reply) => sendComputed(request, reply, async signal => {
     const settings = { ...DEFAULT_WORLD_SETTINGS, ...request.query };
     return (await generatedWorlds.get(settings, signal)).manifest;
+  }));
+  app.get<{ Querystring: Partial<WorldSettings> }>('/api/world/civilization', {
+    schema: { querystring: Type.Object(worldQuery, { additionalProperties: false }), response: { 200: CivilizationSnapshotSchema } },
+  }, (request, reply) => sendComputed(request, reply, async signal => {
+    const settings = { ...DEFAULT_WORLD_SETTINGS, ...request.query };
+    return (await generatedWorlds.get(settings, signal)).civilization;
   }));
   app.get<{ Querystring: Partial<WorldSettings> & { x: string; y: string } }>('/api/world/tile', {
     schema: { querystring: Type.Object({ ...worldQuery,

@@ -1,6 +1,6 @@
 # Fertility 01 — natural growing potential
 
-Status: implemented and verified locally, 10 September 2026; user visual review pending. Baseline `23cbb3b`; clean at startup. Hydrology is visually accepted and remains closed.
+Status: implemented and verified locally, 10 September 2026; visually accepted by the user. Baseline `23cbb3b`; clean at startup. Hydrology is visually accepted and remains closed.
 
 ## Outcome and scope
 
@@ -21,7 +21,7 @@ The complete `npm run check` passes: architecture (50 files), vendored artifact 
 
 The actual watched lab at **http://127.0.0.1:5173/** was inspected in Chromium: generator 5 / protocol 4 identity matched the canvas, Fertility displayed a 95/100 alluvial river cell with exact factor values, and no page errors occurred. Overview, neutral water and the factor panel were visually inspected; automated scenarios also cover water exclusion, exact colors before/after detail tiles, layer changes, malformed replacement preservation and retry. Screenshots are local review artifacts under `/tmp/chronicle-fertility-*.png`; the full gate log is `/tmp/chronicle-fertility-check-verified.log`.
 
-**Next action: user review.** Run `npm start` if needed, open the usual address, choose **Fertility**, and click land to inspect its five factors. Compare flat river lowlands with dry, cold and mountainous regions; zoom for exact cells and click water to confirm it is excluded. No farming, settlements or subsequent geography slice has started.
+**Review accepted.** The user considers the geography baseline complete. Subsequent work is recorded in Civilization 01. Original review steps: Run `npm start` if needed, open the usual address, choose **Fertility**, and click land to inspect its five factors. Compare flat river lowlands with dry, cold and mountainous regions; zoom for exact cells and click water to confirm it is excluded. No farming, settlements or subsequent geography slice has started.
 
 ## Model basis and limits
 

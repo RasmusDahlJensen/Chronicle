@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setImmediate } from 'node:timers/promises';
-import { createWorldTileClient, loadGeneratedWorld } from '../src/api/generated-world.ts';
+import { createWorldTileClient, loadGeneratedWorld, loadCivilization } from '../src/api/generated-world.ts';
 import { WORLD_BIOMES, WORLD_PROTOCOL_VERSION, WORLD_GENERATOR_VERSION, MAX_WORLD_MANIFEST_BYTES, worldKey, type WorldManifest, type WorldTile } from '../shared/generated-world.ts';
 
 // Transport fixture: a complete, explicitly ocean-only planet, not generated geography.
@@ -160,4 +160,28 @@ test('current viewport tiles survive older queued completions and their pins mov
   for (let index = 0; index < 24; index++) await client.request(index % 8, Math.floor(index / 8));
   assert.equal(client.tiles.length, 16);
   assert.ok(client.tiles.every(tile => tile.y !== 3), 'Returning to overview releases the previous detail view.');
+});
+
+test('civilization client validates separate bounded snapshots and rejects stale identities and cancelled loads', async t => {
+  const snapshot = { protocolVersion: 1, spawnVersion: 1, worldKey: manifest.worldKey, status: 'no-suitable-land', civilizations: [] };
+  let payload: unknown = snapshot;
+  t.mock.method(globalThis, 'fetch', async (input: string | URL | Request) => {
+    assert.equal(new URL(String(input), 'http://chronicle.local').pathname, '/api/world/civilization');
+    return Response.json(payload);
+  });
+  assert.deepEqual(await loadCivilization(manifest, new AbortController().signal), snapshot);
+  payload = { ...snapshot, worldKey: 'old-world' };
+  await assert.rejects(loadCivilization(manifest, new AbortController().signal), /Retry civilization/);
+  payload = snapshot;
+  const cancelled = new AbortController(); cancelled.abort();
+  await assert.rejects(loadCivilization(manifest, cancelled.signal), /Retry civilization/);
+});
+
+test('civilization response streaming cancels at its own small byte limit', async t => {
+  let cancelled = false;
+  t.mock.method(globalThis, 'fetch', async () => new Response(new ReadableStream<Uint8Array>({
+    pull(controller) { controller.enqueue(new Uint8Array(4096)); }, cancel() { cancelled = true; },
+  })));
+  await assert.rejects(loadCivilization(manifest, new AbortController().signal), /Retry civilization/);
+  assert.equal(cancelled, true);
 });

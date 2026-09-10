@@ -66,6 +66,7 @@
                       "vite/**",
                       "@vitejs/**",
                       "**/world/generation/**",
+                      "**/world/civilization.ts",
                       "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
@@ -251,6 +252,7 @@
                       "vite/**",
                       "@vitejs/**",
                       "**/world/generation/**",
+                      "**/world/civilization.ts",
                       "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
@@ -296,6 +298,7 @@
                       "vite/**",
                       "@vitejs/**",
                       "**/world/generation/**",
+                      "**/world/civilization.ts",
                       "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
