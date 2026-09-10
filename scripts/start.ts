@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import type { FastifyInstance } from 'fastify';
 import type { ViteDevServer } from 'vite';
 import { buildApp } from '../server/app.ts';
+import { resolveSaveDirectory } from '../server/storage-path.ts';
 
 async function main() {
   const { values } = parseArgs({
@@ -60,7 +61,7 @@ async function main() {
   process.on('SIGTERM', handleSignal);
 
   const startup = (async () => {
-    backend = await buildApp({ staticRoot });
+    backend = await buildApp({ staticRoot, simulationDirectory: resolveSaveDirectory(process.env.CHRONICLE_DATA_DIR) });
     if (stopping) return;
     const backendUrl = await backend.listen({ host: '127.0.0.1', port: standalone ? port : 0 });
     console.log(`Terrain host ready at ${backendUrl}/`);

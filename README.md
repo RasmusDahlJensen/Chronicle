@@ -6,11 +6,13 @@ Chronicle is intended to grow into a substantial simulation project. Features ar
 
 The React + TypeScript + Vite browser lab opens a **seeded world preview** with varied continent sizes and coastlines, mixed island groups, localized mountain ranges, cold northern and southern poles, and warmer tropical regions. The large preset has **1,024 × 512 cells (524,288)**; standard has 512 × 256. Biomes follow annual temperature and moisture, with elevation cooling and mountain rain shadows. Inspect the biome, temperature, moisture and fertility layers and exact cell data.
 
-A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives full-resolution terrain for the overview, then requests climate and resource detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; research, extraction, stockpiles and country knowledge are not running yet. Deterministic rivers, tributaries, inland lakes and frozen lakes now add surface water to the geography. Seasonal weather, simulation, saves, accounts and persistent worlds for separate users remain future slices.
+A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives full-resolution terrain for the overview, then requests climate and resource detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; research, extraction, stockpiles and country knowledge are not running yet. Deterministic rivers, tributaries, inland lakes and frozen lakes now add surface water to the geography. Seasonal weather and remote user accounts remain future slices. The tribal lab adds local saved instances and a daily clock.
 
 The host now also prepares **one civilization** with a seeded name, color and suitable founding location. Its labeled marker appears on **Biomes**. Use **Locate civilization** to center and inspect its beginning; click the marker or its cell for identity and exact geography. The same seed/resolution repeats this initial snapshot. If loading its identity fails, **Retry civilization** recovers it while the map stays available. Worlds with no suitable land explicitly report that no civilization spawned.
 
-This is the civilization's starting identity and location. Population, settlements, territorial claims, growth, decisions and time advancement are not running yet. Development will focus on this one civilization's internal behavior before interactions between civilizations.
+Choose **Begin tribe** in the tribal lab to turn this geography into a saved scenario with one ordinary tribe. The separate **Placement seed** samples a viable camp location. Its starting population is 250 (the current scenario default). **Play / Pause**, **Step 1 day**, **Step 30 days** and speed controls advance the same daily clock; the calendar starts on Day 1, Year 1 and has 360 days per year. **Reset tribe** restarts this scenario. Food production, population growth, research, permanent settlements and territory are not simulated yet. We will develop this tribe's internal behavior before adding interactions between tribes.
+
+The host saves each completed batch before reporting it to the browser. Refreshing the page or restarting the host restores the same local instance. Leaving the page stops advancement when its observer release reaches the host; if a browser disappears without sending one, its lease expires within 30 seconds. A previously running tribe resumes when reopened; a manually paused tribe stays paused. Time spent offline is never simulated. Browser local storage remembers which saved instance to open, so use the same browser profile and address to return to it. Clearing browser storage loses that shortcut, not the host save.
 
 The generated world starts without political provinces. Countries will create them around capital settlements, with additional towns supporting production. Capturing a provincial capital will immediately transfer that province's ownership while cell-level resistance can remain. Settlement, capital and conquest mechanics are not implemented. The retained Verdant study's 77 provinces are authored test groups. See [the province design](docs/CHRONICLE_SPEC.md#3-world-hierarchy-and-ownership).
 
@@ -47,7 +49,7 @@ npm start
 
 Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chronicle ready**. Startup includes worker warmup; the first world takes several seconds to generate. This one command starts the terrain backend and frontend together. Keep the terminal running while you use the lab; press **Ctrl+C** in that terminal to stop both and their workers. `npm run dev` starts the same setup.
 
-The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, database, Docker, or separate service installation is needed. Both servers listen on this PC only.
+The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, Docker, or separate database installation is needed. SQLite is included in the supported Node runtime. Both servers listen on this PC only.
 
 The default seed is **Chronicle**, at **Large · 1,024 × 512** resolution. Enter another **World seed** and choose **Regenerate world** to try different geography. The same seed, resolution and generator version reproduce the same world. Generator 5 uses a bundled plate-tectonics generator for continental structure and collision-shaped relief. Both presets refine the same fixed 512 × 256 tectonic base, so changing resolution preserves the continental layout. Standard resolution reduces the number of final cells and detail tiles; both perform the same tectonic simulation. Both presets cover 510 million km² including oceans; large cells cover about 973 km² each. These are equal-area map cells, with stretched polar shapes; screen distances are not uniform ground distances.
 
@@ -63,6 +65,12 @@ For keyboard exploration, focus the map with Tab: arrows inspect neighboring cel
 
 If generation fails, **Retry generation** retries the requested seed while retaining any previous map. If a detail request fails, the overview remains visible and **Retry detail** retries it. A rendering error offers **Retry canvas**.
 
+### Local saves
+
+Saved tribal worlds live in **`.chronicle/`** in the repository folder. This directory is ignored by Git and the development watchers and is not served by Vite. Keep it on a local disk. To choose another directory, set **`CHRONICLE_DATA_DIR`** before running the normal command; paths are resolved from the working directory. Directories inside `public/` or `dist/` are rejected because those are published or replaced during builds. Two Chronicle hosts cannot own the same save directory at once. Stop the first host or use a different directory when running a second instance. The automated tests use separate directories and do not touch your saves.
+
+For a backup, stop Chronicle with **Ctrl+C**, wait for it to exit, then copy the entire `.chronicle` directory somewhere safe. Restore with Chronicle stopped: preserve the current directory first, then put the backup directory back at the same path. Copy the entire directory, including any SQLite sidecar files; do not copy only an active database file. A failed or incompatible save produces an explicit error and is retained for recovery. After repairing a temporary storage problem, use **Retry save and pause** to save the retained state and pause the clock; **Retry tribe** rereads state after a connection problem. There is no automatic migration or silent replacement with a new world.
+
 ### Retained studies
 
 **Verdant Reach** remains available through **Regional atlas study** or **http://127.0.0.1:5173/?scenario=verdant**. This authored regional map has 64,000 cells at 4 km² each, 329 sites and 77 connected unclaimed province groups. **Click land once to select its province**, highlighting the whole province and showing its area, cell count, country status and resource totals. **Click inside that province again to select a cell**; **click that selected cell again to return to its province**. A different cell inside the province moves cell selection, and a different province starts at province level again. **Back to province** and **Clear selection** are also available. Water opens directly at cell scope.
@@ -77,7 +85,7 @@ The original **Aster Island** study remains available through Verdant's header l
 
 ### Development updates
 
-Frontend component and style edits update through Vite. `npm start` also watches the backend, workers, shared contracts, world/fixture modules, the vendored runtime and rebuilt artifact, and launch configuration: relevant changes restart the combined application and its worker pool, then Vite reloads the open browser tab. You keep the same browser address. The development study is reconstructed after a restart, so map selection and camera state reset.
+Frontend component and style edits update through Vite. `npm start` also watches the backend, workers, shared contracts, world/fixture modules, the vendored runtime and rebuilt artifact, and launch configuration: relevant changes restart the combined application and its worker pool, then Vite reloads the open browser tab. You keep the same browser address. Map selection and camera state reset after a restart; saved tribal progress restores. Writing saves does not trigger a development restart.
 
 If an edit contains an error, the terminal reports it and the watcher waits for a correction. Save the corrected file to restart automatically. After dependency installation, Node upgrades, or changes to the watch configuration itself, stop the terminal with Ctrl+C and run `npm start` again. Built serving with `npm run serve` or `npm run preview` requires an explicit rebuild/restart when code changes.
 
@@ -113,6 +121,7 @@ Extend the suite alongside each change, especially when data crosses a module or
 | Overview/detail HTTP → bounded browser cache → climate layers and cell inspection | `tests/world-client.test.ts`, `tests/browser/generated-world.spec.ts` |
 | Terrain/climate/water → fertility factors → validated scores and browser layer | `tests/fertility.test.ts`, `tests/fertility-contract.test.ts`, `tests/browser/fertility.spec.ts` |
 | Geography → civilization identity/location → shared worker/cache/HTTP → marker and inspection | `tests/civilization.test.ts`, `tests/civilization-server.test.ts`, `tests/world-client.test.ts`, `tests/browser/civilization.spec.ts` |
+| Tribe core → storage worker → SQLite → host restart and browser clock | `tests/tribe-core.test.ts`, `tests/simulation-client.test.ts`, `tests/simulation-server.test.ts`, `tests/tribe-launcher.test.ts`, `tests/tribe-recovery.test.ts`, `tests/browser/tribe.spec.ts` |
 | Cells → provinces → countries; biome/resource data and province site totals | `tests/atlas-world.test.ts`, `tests/atlas-response.test.ts` |
 | Click/back selection → matching province/cell highlight and inspector | `tests/atlas-selection.test.ts`, `tests/browser/biomes.spec.ts` |
 | Workers → validated HTTP responses; admission and shutdown | `tests/compute.test.ts`, `tests/server.test.ts`, `tests/atlas-server.test.ts` |
@@ -124,6 +133,8 @@ Extend the suite alongside each change, especially when data crosses a module or
 Every reproduced bug gets a regression that fails for that bug. Preserve existing checks and add tests for new behavior and its connections; passing checks do not replace visual review of the actual running lab.
 
 On Linux, Playwright's installer reports any missing system browser dependencies.
+
+To measure the current tribal checkpoint/RPC workload in an isolated temporary save directory, run `node scripts/bench-tribe.ts`. It reports sixteen authored 250-person states and durable step batches; it does not benchmark future food, population or history systems.
 
 ## Run the built application
 

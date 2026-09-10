@@ -1,5 +1,6 @@
 import { CivilizationSnapshotSchema } from '../shared/civilization.ts';
 import { randomUUID } from 'node:crypto';
+import { assertSaveOutsideStatic } from './storage-path.ts';
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { Type } from 'typebox';
@@ -11,12 +12,17 @@ import type { ApiError } from '../shared/http.ts';
 import { readBackendConfig, type BackendConfig } from './config.ts';
 import { createTerrainCompute, ComputeClosedError, ComputeOverloadedError, ComputeTimeoutError, type TerrainCompute } from './compute.ts';
 import { createGeneratedWorldStore } from './generated-world-store.ts';
+import { SimulationOpenSchema, SimulationObserveSchema, SimulationCommandSchema, SimulationViewSchema,
+  type SimulationOpen, type SimulationObserve, type SimulationCommand } from '../shared/simulation.ts';
+import { createSimulationService } from './simulation.ts';
+import { SimulationError } from './simulation-errors.ts';
 
 interface AppOptions {
   config?: BackendConfig;
   compute?: TerrainCompute;
   staticRoot?: string;
   logger?: boolean;
+  simulationDirectory?: string;
 }
 
 function failure(reply: FastifyReply, status: number, code: ApiError['error']['code'], message: string) {
@@ -25,6 +31,7 @@ function failure(reply: FastifyReply, status: number, code: ApiError['error']['c
 
 /** Build and warm a host independently of its listener; closing it owns all compute. */
 export async function buildApp(options: AppOptions = {}): Promise<FastifyInstance> {
+  if (options.staticRoot && options.simulationDirectory) assertSaveOutsideStatic(options.simulationDirectory, options.staticRoot);
   const config = options.config ?? readBackendConfig();
   const app = Fastify({
     logger: options.logger === false ? false : {
@@ -44,6 +51,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   app.server.headersTimeout = 10_000;
   const compute = options.compute ?? createTerrainCompute(config);
   const generatedWorlds = createGeneratedWorldStore(compute);
+  const simulation = createSimulationService({ directory: options.simulationDirectory });
   const controllers = new Set<AbortController>();
   const admissionLimit = config.workers + config.maxQueue;
   let stopping = false;
@@ -56,9 +64,17 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
       reply.header('allow', 'GET');
       return failure(reply, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
     }
+    if (['/api/simulation/open', '/api/simulation/observe', '/api/simulation/release', '/api/simulation/command'].includes(path) && request.method !== 'POST') {
+      reply.header('allow', 'POST');
+      return failure(reply, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
+    }
   });
   app.setNotFoundHandler((_request, reply) => failure(reply, 404, 'NOT_FOUND', 'Not found.'));
   app.setErrorHandler<FastifyError>((error, request, reply) => {
+    if (error instanceof SimulationError) {
+      if (error.statusCode === 503) reply.header('retry-after', '1');
+      return failure(reply, error.statusCode, error.code, error.message);
+    }
     if (error.validation || error.statusCode === 400) return failure(reply, 400, 'INVALID_REQUEST', 'Invalid request.');
     if (error.statusCode === 413) return failure(reply, 413, 'REQUEST_TOO_LARGE', 'Request is too large.');
     if (error.statusCode === 415) return failure(reply, 415, 'UNSUPPORTED_MEDIA_TYPE', 'Unsupported content type.');
@@ -75,6 +91,25 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   });
 
   const querystring = Type.Object({}, { additionalProperties: false });
+  app.post<{ Body: SimulationOpen }>('/api/simulation/open', {
+    schema: { querystring, body: SimulationOpenSchema, response: { 200: SimulationViewSchema } },
+  }, (request, reply) => sendComputed(request, reply, async signal => {
+    const existing = await simulation.open(request.body);
+    if (existing) return JSON.stringify(existing);
+    const bundle = await generatedWorlds.get(request.body.settings, signal);
+    signal.throwIfAborted();
+    return JSON.stringify(await simulation.initialize(request.body, bundle));
+  }));
+  app.post<{ Body: SimulationObserve }>('/api/simulation/observe', {
+    schema: { querystring, body: SimulationObserveSchema, response: { 200: SimulationViewSchema } },
+  }, request => simulation.observe(request.body));
+  app.post<{ Body: SimulationObserve }>('/api/simulation/release', {
+    schema: { querystring, body: SimulationObserveSchema,
+      response: { 200: Type.Object({ released: Type.Literal(true) }, { additionalProperties: false }) } },
+  }, request => simulation.release(request.body));
+  app.post<{ Body: SimulationCommand }>('/api/simulation/command', {
+    schema: { querystring, body: SimulationCommandSchema, response: { 200: SimulationViewSchema } },
+  }, request => simulation.command(request.body));
   app.get('/api/health', { schema: { querystring } }, async () => ({ status: 'ok' }));
   app.get('/api/ready', { schema: { querystring } }, async (_request, reply) => {
     const snapshot = compute.snapshot();
@@ -82,6 +117,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     if (!ready) reply.code(503).header('retry-after', '1');
     return {
       status: ready ? 'ready' : 'busy', compute: snapshot,
+      simulation: simulation.snapshot(),
       admitted: controllers.size,
       limits: { workers: config.workers, queued: config.maxQueue, admitted: admissionLimit, jobTimeoutMs: config.jobTimeoutMs },
     };
@@ -163,15 +199,17 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   app.addHook('preClose', async () => {
     stopping = true;
     generatedWorlds.close();
-    // Current jobs are disposable generation; future committed world saves need their own drain.
+    // Disposable geography can cancel; the simulation service separately drains accepted commands.
     for (const controller of controllers) controller.abort(new ComputeClosedError());
   });
-  app.addHook('onClose', async () => { await compute.close(); });
+  app.addHook('onClose', async () => { await Promise.all([compute.close(), simulation.close()]); });
   try {
     if (options.staticRoot) await app.register(fastifyStatic, {
       root: options.staticRoot, index: ['index.html'], maxAge: 0,
     });
     await compute.ready();
+    // A damaged save must not make the underlying geography unavailable.
+    await simulation.ready().catch(error => app.log.error({ err: error }, 'Tribal simulation unavailable'));
     await app.ready();
     return app;
   } catch (error) {

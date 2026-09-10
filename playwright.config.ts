@@ -30,11 +30,13 @@ export default defineConfig({
   webServer: [
     {
       command: 'npm start -- --port 4173',
+      env: { CHRONICLE_DATA_DIR: 'test-results/saves/development' },
       url: 'http://127.0.0.1:4173',
       reuseExistingServer: false,
     },
     {
       command: 'npm run serve -- --port 4174',
+      env: { CHRONICLE_DATA_DIR: 'test-results/saves/production' },
       url: 'http://127.0.0.1:4174',
       reuseExistingServer: false,
     },

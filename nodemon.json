@@ -12,5 +12,11 @@
   ],
   "ext": "ts,tsx,js,mjs,cjs,json",
   "signal": "SIGTERM",
-  "delay": 200
+  "delay": 200,
+  "ignore": [
+    ".chronicle/**",
+    "test-results/**",
+    "**/*.sqlite",
+    "**/*.sqlite-*"
+  ]
 }

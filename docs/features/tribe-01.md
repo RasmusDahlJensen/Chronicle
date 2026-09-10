@@ -1,0 +1,41 @@
+# Tribe 01 — a saved beginning and a daily clock
+
+Status: implemented and fully verified locally; awaiting user review. Based on `decc228`; Civilization 01 is accepted. This brief is the active slice.
+
+## Outcome
+
+The browser lab can begin one regular tribe on a seeded map, pause/run, advance one or thirty days, and reset that tribal scenario. Refreshing or restarting the PC host restores the same instance and completed day. Geography remains unchanged. The initial group has 250 people (a named, tunable scenario default), a name, color and camp location. Population stays constant in this slice: food, labor, births, deaths, research, settlement founding, claims and other tribes follow separately.
+
+Placement samples eligible land using a separate placement seed, rather than choosing the globally best agricultural cell. The existing Civilization 01 identity preview remains a regression study until the tribal scenario begins. A camp is not a national/provincial capital and does not claim a province. Starting/reset controls are labeled lab controls.
+
+## Design and work plan
+
+1. Shared versioned checkpoint and transport contracts; pure deterministic creation and daily stepping. Day 1, Year 1 is zero completed days; 360-day calendar. Fixed batches of at most 30 days. Persist RNG state even though no daily randomized mechanic exists yet. Test batch equivalence, reset, viable seeded placement, population accounting and malformed saves.
+2. Dedicated simulation/storage worker, separate from disposable terrain jobs. One ordered authority for all currently active instances, bounded resident worlds and requests. SQLite atomic checkpoints before publishing state; retain the previous checkpoint, reject unsupported/corrupt saves without replacing them. Independent instance IDs, incarnation and monotonic revision guard stale commands/reset. No browser can submit simulation state.
+3. Observer leases with host expiry, periodic polling and explicit release. Stop when the last observer leaves (expiry is a reconnect fallback), preserve requested run/manual pause, resume only a previously running instance and never catch up wall time. Every completed batch is saved. A separate lifetime SQLite lock prevents two host processes owning the same save directory and releases on process death.
+4. Browser API and tribal panel, with coherent world/instance guards and recoverable errors. Begin explicitly in the lab; remember an instance per geography/placement seed in local browser storage. Keep map usable if simulation is unavailable. Real backend/browser tests include stepping, reload, reset, stale requests and independent same-seed worlds.
+5. Independent review, complete `npm run check`, actual 5173 review, README/architecture/workflow updates and local commit.
+
+## Storage decision
+
+Use Node 24's built-in `node:sqlite` behind a narrow worker-owned checkpoint store. It avoids a separate database installation and native addon while using established SQLite transactions, WAL and `synchronous=FULL`. Node labels this API release candidate; Chronicle pins Node 24.20.0 and tests its actual used API. Synchronous SQLite calls run outside the HTTP event loop. This slice saves small tribal checkpoints; it does not establish performance for future large populations/history. Measure these checkpoints and retain explicit migration/version boundaries before expanding storage workloads. PostgreSQL remains a later measured migration option.
+
+References: [Node 24 SQLite API](https://nodejs.org/download/release/latest-v24.x/docs/api/sqlite.html), [SQLite WAL](https://www.sqlite.org/wal.html), [SQLite locking](https://www.sqlite.org/lockingv3.html). This choice is an inference from the current local workload and operating requirements.
+
+## Verification and handoff
+
+Acceptance: same seeds/rules/steps reproduce tribe state; equal elapsed simulated days at different speeds give equal core state; restart continues from durable state; absent observers do not advance; manual pause persists; reset rejects stale commands; no duplicate population; malformed state and disk write failures preserve the prior checkpoint; host ownership survives clean close and abrupt death; UI errors do not hide geography. Test backup restoration and real development/production connections. Review correctness, browser behavior and measured capacity separately.
+
+Last verified: complete `npm run check` passed against the final runtime sources: architecture (64 files), vendored artifact integrity, TypeScript, **170 headless/process tests**, production build and **127 development/production browser scenarios** (3.5 minutes). Full gate log: `/tmp/chronicle-tribe-check.log`. Independent review is resolved with no material findings remaining. Desktop/mobile screenshots were inspected; actual `http://127.0.0.1:5173/` showed the new lab with ready terrain/simulation services and no browser errors. The final test-harness-only isolation edit was additionally verified with all 13 launcher tests under an inherited absolute save-directory setting; that directory remained untouched. Local checks do not imply CI has run.
+
+Runtime checkpoint: the commit containing this brief, based on `decc228`. User review is the next action. Run `npm start`, open **http://127.0.0.1:5173/** and choose **Begin tribe** in the right-hand **Tribe lab**. Use placement seed **Tribes 1** on the default large Chronicle map. Inspect the name/color, 250 people and camp with **Locate tribe**. **Step 30 days** should show Day 31, Year 1; refreshing restores that day and camp. Try **Play tribe**, speed and **Pause tribe**; then **Reset tribe** and confirm to return to Day 1 paused. The calendar has 360 days per year. Closing/reopening respects manual pause and never catches up offline time. README contains save-directory/backup/recovery instructions; normal launch remains one command.
+
+Population is deliberately constant; there is no survival, production, research or ownership system in this slice. Its performance measurement covers small checkpoint/RPC work only. Food/labor decisions are the next proposed slice, not started automatically.
+
+## Initial storage measurement
+
+`node scripts/bench-tribe.ts`, Node 24.20.0/Linux, Ryzen 7 7800X3D, 30.5 GiB host RAM: 16 authored 250-person checkpoints, 320 actual worker RPC/durable 30-day commits (600 days per world), 67.3 ms total; median 0.195 ms, p95 0.307 ms, max 0.851 ms. A checkpoint was 399 bytes; the closed database was 28,672 bytes. Observed process RSS 142.9 MiB; 10 ms event-loop sampler maximum 10.17 ms. This deliberately isolates small checkpoint/storage costs; it makes no claim about realistic future demographics, simulation throughput or large histories. Reassess when those mechanics change the workload.
+
+## Review corrections
+
+Independent review caught inherited personal save-directory configuration in copied test projects and unsafe custom paths beneath public/build output; both are rejected/isolated with regressions. Client transport tests caught a pre-aborted response stream that needed explicit cancellation. Browser review caught storage-error recovery being blocked by the same error it needed to save: an explicit **Retry save and pause** action now re-observes and durably pauses once storage is repaired. A real running-clock test also caught Pause racing a newly committed tick. Pause is now intentionally idempotent across older revisions within the same reset incarnation; step/reset/play/speed retain strict revision checks, and every command rejects an old incarnation or future revision. The original single-click Pause assertion is retained.

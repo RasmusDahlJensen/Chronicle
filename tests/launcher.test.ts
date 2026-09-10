@@ -49,7 +49,7 @@ async function launch(t: TestContext, args: string[], options: { includeBuild?: 
   }
   const child = spawn(process.execPath, [...runtimeArgs, launcherPath, ...args], {
     cwd: directory,
-    env: { ...process.env, NO_COLOR: '1' },
+    env: { ...process.env, CHRONICLE_DATA_DIR: join(directory, '.chronicle'), NO_COLOR: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';

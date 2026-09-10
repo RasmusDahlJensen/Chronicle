@@ -1,6 +1,6 @@
 # Civilization 01 — one beginning
 
-Status: implemented and verified locally; user visual review pending. Baseline `51d3390`, clean at startup. User accepts the geography baseline and wants one civilization with a name and color, then to develop its internal growth/decisions before inter-civilization war, trade or diplomacy.
+Status: implemented, verified locally and accepted by the user. Tribe 01 is now the active slice. Baseline `51d3390`, clean at startup. User accepts the geography baseline and wants one civilization with a name and color, then to develop its internal growth/decisions before inter-civilization war, trade or diplomacy.
 
 ## Outcome and design
 
@@ -21,7 +21,7 @@ The browser loads civilization after geography, retains the map on civilization 
 
 Current checkpoint: the commit containing this brief, based on `51d3390`, includes only Civilization 01 and its connected documentation/regressions. Complete `npm run check` passes: architecture (52 files), vendored artifact integrity, TypeScript, **147 headless/process tests**, production build and **111 development/production browser scenarios** (3.0 minutes). No failed or skipped checks remain. Independent production review and root UI review are resolved. Full gate log: `/tmp/chronicle-civilization-check.log`.
 
-**Next action: user review.** Open **http://127.0.0.1:5173/** (`npm start` if needed). On the default large Chronicle world, Lorin appears with a rust-colored founding marker. Select the marker or choose **Locate civilization**; its name, color and origin appear alongside exact geography. Reset repeats the starting identity. Try another seed to review another beginning. Screenshots are local review artifacts under `/tmp/chronicle-civilization-*.png`. Internal growth/decisions, settlement/province founding and all inter-civilization systems remain future slices.
+**Accepted review scenario.** Open **http://127.0.0.1:5173/** (`npm start` if needed). On the default large Chronicle world, Lorin appears with a rust-colored founding marker. Select the marker or choose **Locate civilization**; its name, color and origin appear alongside exact geography. Reset repeats the starting identity. Try another seed to review another beginning. Screenshots are local review artifacts under `/tmp/chronicle-civilization-*.png`. Internal growth/decisions, settlement/province founding and all inter-civilization systems remain future slices.
 
 ## Review evidence and capacity
 

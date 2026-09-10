@@ -1,0 +1,17 @@
+.tribe-lab { border-bottom: 1px solid var(--atlas-line); padding-bottom: 1.2rem; margin-bottom: 1.2rem; }
+.tribe-lab h2 { margin: .6rem 0; }
+.tribe-lab form { display: grid; gap: .55rem; }
+.tribe-lab label { display: grid; gap: .35rem; color: var(--atlas-muted); font-size: .62rem; }
+.tribe-lab input, .tribe-lab select { box-sizing: border-box; min-width: 0; width: 100%; border: 1px solid #c5cbbd; border-radius: 3px; background: #fbfaf3; color: var(--atlas-ink); font: .68rem system-ui; padding: .55rem; }
+.tribe-lab button { border: 1px solid #bdc8b5; border-radius: 3px; background: #e5eadc; color: #365440; padding: .6rem .45rem; font: 600 .65rem system-ui; cursor: pointer; }
+.tribe-lab button:hover { background: #d7e1cf; }
+.tribe-lab button:disabled, .tribe-lab input:disabled, .tribe-lab select:disabled { opacity: .55; cursor: default; }
+.tribe-date { font: 1.15rem Georgia, serif; color: #365440; margin: .65rem 0; }
+.tribe-run-status { font-size: .65rem; color: #5a7150; margin: .8rem 0 .55rem; }
+.tribe-time-controls { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; align-items: end; }
+.tribe-time-controls > button:first-child { grid-column: 1 / -1; }
+.tribe-speed { grid-column: 1 / -1; display: grid; gap: .35rem; }
+.tribe-lab .tribe-reset-button { margin-top: .7rem; background: transparent; width: 100%; color: #736044; }
+.tribe-reset-confirmation { margin-top: .8rem; padding: .6rem; border: 1px solid #ccbba0; border-radius: 3px; display: grid; gap: .4rem; }
+.tribe-reset-confirmation p { font-size: .65rem; line-height: 1.65; margin: 0 0 .3rem; color: #736044; }
+.tribe-error { border-left: 2px solid #a67853; padding-left: .65rem; margin-top: .8rem; }

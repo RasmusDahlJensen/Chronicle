@@ -67,7 +67,8 @@
                       "@vitejs/**",
                       "**/world/generation/**",
                       "**/world/civilization.ts",
-                      "**/vendor/**"
+                      "**/vendor/**",
+                      "node:*"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -115,7 +116,8 @@
                       "vite",
                       "vite/**",
                       "@vitejs/**",
-                      "**/vendor/**"
+                      "**/vendor/**",
+                      "node:*"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -159,7 +161,8 @@
                       "**/main.tsx",
                       "vite",
                       "vite/**",
-                      "@vitejs/**"
+                      "@vitejs/**",
+                      "node:*"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -205,7 +208,8 @@
                       "vite",
                       "vite/**",
                       "@vitejs/**",
-                      "**/vendor/**"
+                      "**/vendor/**",
+                      "node:*"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -253,7 +257,8 @@
                       "@vitejs/**",
                       "**/world/generation/**",
                       "**/world/civilization.ts",
-                      "**/vendor/**"
+                      "**/vendor/**",
+                      "node:*"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -299,7 +304,8 @@
                       "@vitejs/**",
                       "**/world/generation/**",
                       "**/world/civilization.ts",
-                      "**/vendor/**"
+                      "**/vendor/**",
+                      "node:sqlite"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -421,7 +427,8 @@
                   {
                     "group": [
                       "**",
-                      "!./platec.mjs"
+                      "!./platec.mjs",
+                      "node:*"
                     ],
                     "message": "The authored Platec runtime may import only its local generated module; keep it independent of Chronicle and host APIs."
                   }

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   DEFAULT_WORLD_SETTINGS, WORLD_BIOMES, inspectWorldCell, type InspectedWorldCell, type WorldManifest, type WorldSettings,
 } from '../../shared/generated-world.ts';
 import { createWorldTileClient, loadCivilization, loadGeneratedWorld } from '../api/generated-world.ts';
 import type { CivilizationSnapshot } from '../../shared/civilization.ts';
+import type { SimulationState } from '../../shared/simulation.ts';
 import type { FertilityFacts } from '../../shared/fertility.ts';
 import {
   FERTILITY_GRADIENT, FERTILITY_WATER_COLOR, MOISTURE_GRADIENT, TEMPERATURE_GRADIENT, WORLD_BIOME_STYLE, createGeneratedWorldRenderer, type WorldCoordinate, type WorldLayer,
@@ -11,6 +12,7 @@ import {
 import { RESOURCES } from '../world/atlas.ts';
 import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
+import { TribeLab } from './TribeLab.tsx';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -61,6 +63,10 @@ export function GeneratedWorldLab() {
   const [canvasRevision, setCanvasRevision] = useState(0);
   const [civilizationRevision, setCivilizationRevision] = useState(0);
   const [founding, setFounding] = useState<{ world: WorldManifest; snapshot: CivilizationSnapshot | null; loading: boolean; error: string | null } | null>(null);
+  const [tribePreview, setTribePreview] = useState<{ world: WorldManifest; tribe: SimulationState['tribe'] | null; hasInstance: boolean } | null>(null);
+  const receiveTribe = useCallback((current: WorldManifest, tribe: SimulationState['tribe'] | null, hasInstance: boolean) => {
+    setTribePreview({ world: current, tribe, hasInstance });
+  }, []);
   const [layer, setLayer] = useState<WorldLayer>('biomes');
   const [resources, setResources] = useState(true);
   const [rivers, setRivers] = useState(true);
@@ -148,7 +154,8 @@ export function GeneratedWorldLab() {
 
   useEffect(() => { renderer.current?.setLayer(layer, resources, rivers); }, [layer, resources, rivers, world, canvasRevision]);
   const currentFounding = founding?.world === world ? founding : null;
-  const civilization = currentFounding?.snapshot?.civilizations[0] ?? null;
+  const currentTribe = tribePreview?.world === world ? tribePreview : null;
+  const civilization = currentTribe?.hasInstance ? currentTribe.tribe : currentFounding?.snapshot?.civilizations[0] ?? null;
   useEffect(() => { renderer.current?.setCivilization(civilization); }, [civilization, world, canvasRevision]);
 
   function locateCivilization() {
@@ -235,17 +242,18 @@ export function GeneratedWorldLab() {
           <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A world at its beginning. A civilization’s founding marker identifies its starting place. Rivers connect catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">
-          <section className="world-civilization-card" aria-label="Civilization" data-world-key={world?.worldKey ?? ''} data-civilization-id={civilization?.id ?? ''} aria-busy={!currentFounding || currentFounding.loading}>
+          {!currentTribe?.hasInstance && <section className="world-civilization-card" aria-label="Civilization" data-world-key={world?.worldKey ?? ''} data-civilization-id={civilization?.id ?? ''} aria-busy={!currentFounding || currentFounding.loading}>
             <p className="atlas-section-index">A first beginning</p>
             {civilization ? <><div className="world-civilization-heading"><span className="world-civilization-swatch" data-civilization-color={civilization.color} style={{ backgroundColor: civilization.color }} aria-hidden="true" /><h2>{civilization.name}</h2></div><p className="atlas-panel-note">One civilization, at its founding place.</p><button className="world-locate-civilization" type="button" onClick={locateCivilization} disabled={!!canvasError}>Locate civilization <span aria-hidden="true">↗</span></button></>
               : currentFounding?.error ? <><h2>Civilization unavailable</h2><p className="atlas-panel-note" role="alert">{currentFounding.error}</p><button className="world-locate-civilization" type="button" onClick={() => setCivilizationRevision(value => value + 1)}>Retry civilization</button></>
               : currentFounding?.snapshot?.status === 'no-suitable-land' ? <><h2>No suitable founding land</h2><p className="atlas-panel-note">This world has no cell suitable for the first civilization. Explore another seed.</p></>
               : <><h2>Civilization</h2><p className="atlas-panel-note" role="status">{world ? 'Finding a founding place…' : 'Waiting for geography…'}</p></>}
-          </section>
+          </section>}
+          {world && <TribeLab key={world.worldKey} world={world} onTribeChange={receiveTribe} onLocate={locateCivilization} mapAvailable={!canvasError} />}
           <p className="atlas-section-index">03 / Inspect</p><div className="atlas-section-heading"><h2 id="world-inspector-title">{cell || inspecting ? 'Cell detail' : 'Read the landscape'}</h2>{(cell || inspecting) && <button className="atlas-clear-selection" type="button" aria-label="Clear selection" onClick={() => clearSelection.current()}>×</button>}</div>
           {cell && world ? <div className="world-selected-cell" data-selected-cell={cell.id} aria-live="polite">
-            {civilization?.originCellId === cell.id && <section className="world-selected-civilization" aria-label="Selected civilization" data-selected-civilization={civilization.id}>
-              <p className="atlas-detail-label">Founding civilization</p><h3>{civilization.name}</h3>
+            {civilization?.originCellId === cell.id && <section className="world-selected-civilization" aria-label={currentTribe?.hasInstance ? 'Selected tribe camp' : 'Selected civilization'} data-selected-civilization={civilization.id}>
+              <p className="atlas-detail-label">{currentTribe?.hasInstance ? 'Tribe camp' : 'Founding civilization'}</p><h3>{civilization.name}</h3>
               <dl className="world-water-facts"><div><dt>Color</dt><dd><span className="world-civilization-swatch" style={{ backgroundColor: civilization.color }} aria-hidden="true" />{civilization.color}</dd></div><div><dt>Origin cell</dt><dd>{civilization.originCellId}</dd></div></dl>
             </section>}
             <div className="atlas-cell-biome" style={{ borderColor: WORLD_BIOME_STYLE[cell.biome].color }}><p>Cell {number.format(cell.id)}</p><h3>{WORLD_BIOME_STYLE[cell.biome].label}</h3></div>
