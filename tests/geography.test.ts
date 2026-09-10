@@ -20,7 +20,7 @@ function components(world: GeneratedWorld, minimumElevation: number) {
         visited[next] = 1; cells.push(next);
       }
     }
-    if (cells.length < 40) continue;
+    if (cells.length < 10) continue;
     const sorted = [...columns].sort((a, b) => a - b);
     let gap = -1, start = 0;
     for (let at = 0; at < sorted.length; at++) {
@@ -50,9 +50,10 @@ function convexArea(points: readonly [number, number][]) {
   }, 0)) / 2;
 }
 
-test('the default continents have distinct proportions and substantial coastal embayments', () => {
-  const world = generateWorld({ seed: 'Chronicle', size: 'standard' });
-  const continents = components(world, 0).filter(component => component.cells.length >= 2500);
+test('the default continents have distinct proportions and substantial coastal embayments', async () => {
+  const world = await generateWorld({ seed: 'Chronicle', size: 'standard' });
+  // 1% of the planet includes Australia-sized continents; the old 2% cutoff did not.
+  const continents = components(world, 0).filter(component => component.cells.length >= world.width * world.height * 0.01);
   assert.ok(continents.length >= 3, 'The geography needs multiple substantial connected landmasses.');
   const largest = continents.slice(0, 3);
   const aspects = largest.map(component => component.width / component.height);
@@ -62,8 +63,8 @@ test('the default continents have distinct proportions and substantial coastal e
   assert.ok(missingFromHull.some(fraction => fraction > 0.23), `At least one major coastline needs large bays/peninsulas, not just a noisy oval: ${missingFromHull}`);
 });
 
-test('mountain belts include differing orientations instead of repeating a central north–south spine', () => {
-  const world = generateWorld({ seed: 'Chronicle', size: 'standard' });
+test('mountain belts include differing orientations instead of repeating a central north–south spine', async () => {
+  const world = await generateWorld({ seed: 'Chronicle', size: 'standard' });
   const belts = components(world, 1800).filter(component => component.cells.length >= 60);
   const aspects = belts.map(component => component.width / component.height);
   assert.ok(aspects.some(aspect => aspect > 1.5), `A substantial mountain belt should run across longitude: ${aspects}`);
@@ -72,20 +73,21 @@ test('mountain belts include differing orientations instead of repeating a centr
   assert.ok(land.filter(id => world.fields.elevation[id] < 700).length / land.length > 0.45, 'Substantial lowland plains must survive the regional mountain belts.');
 });
 
-test('geography is reproducible across several seeds without losing continents, islands or broad plains', () => {
+test('geography is reproducible across several seeds without losing continents, islands or broad plains', async () => {
   const hashes = new Set<string>();
   const continentCounts = new Set<number>();
   const primaryMassRatios: number[] = [];
-  for (const seed of ['Chronicle', 'Elsewhere', 'Harbors']) {
-    const world = generateWorld({ seed, size: 'standard' });
-    const same = generateWorld({ seed, size: 'standard' });
+  // Sundown adds a paired-continent arrangement to the dominant-continent cases.
+  for (const seed of ['Chronicle', 'Elsewhere', 'Harbors', 'Sundown']) {
+    const world = await generateWorld({ seed, size: 'standard' });
+    const same = await generateWorld({ seed, size: 'standard' });
     assert.deepEqual(world.fields.elevation, same.fields.elevation, seed);
     const hash = createHash('sha256').update(new Uint8Array(world.fields.elevation.buffer)).digest('hex');
     assert.ok(!hashes.has(hash), 'Different seeds must change the land and relief.'); hashes.add(hash);
     const pieces = components(world, 0);
     const land = pieces.reduce((sum, piece) => sum + piece.cells.length, 0);
     assert.ok(land > world.width * world.height * 0.15 && land < world.width * world.height * 0.65, `${seed}: land area ${land}`);
-    const continents = pieces.filter(piece => piece.cells.length >= 2500);
+    const continents = pieces.filter(piece => piece.cells.length >= world.width * world.height * 0.01);
     assert.ok(continents.length >= 2, `${seed}: missing substantial continents`);
     continentCounts.add(continents.length);
     primaryMassRatios.push(continents[0].cells.length / continents[1].cells.length);

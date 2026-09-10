@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Integrity checks use exact source/artifact bytes, including on Windows checkouts.
+vendor/platec/** text eol=lf
+scripts/build-platec.ts text eol=lf
+
+# Preserve upstream license text and the blank context lines in the source patch.
+vendor/platec/LICENSE* whitespace=-blank-at-eol,-blank-at-eof
+vendor/platec/core-fixes.patch whitespace=-blank-at-eol

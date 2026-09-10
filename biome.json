@@ -5,7 +5,8 @@
       "src/**",
       "shared/**",
       "server/**",
-      "scripts/**"
+      "scripts/**",
+      "vendor/platec/runtime.ts"
     ]
   },
   "formatter": {
@@ -64,7 +65,8 @@
                       "vite",
                       "vite/**",
                       "@vitejs/**",
-                      "**/world/generation/**"
+                      "**/world/generation/**",
+                      "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -82,7 +84,53 @@
       "includes": [
         "src/world/**",
         "src/fixtures/**",
-        "src/simulation/**"
+        "src/simulation/**",
+        "!src/world/generation/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "**/server/**",
+                      "fastify",
+                      "@fastify/**",
+                      "piscina",
+                      "react",
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "**/components/**",
+                      "**/renderer/**",
+                      "**/api/**",
+                      "**/App.tsx",
+                      "**/main.tsx",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**",
+                      "**/vendor/**"
+                    ],
+                    "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          },
+          "correctness": {
+            "noNodejsModules": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "src/world/generation/**"
       ],
       "linter": {
         "rules": {
@@ -155,7 +203,8 @@
                       "**/src/**",
                       "vite",
                       "vite/**",
-                      "@vitejs/**"
+                      "@vitejs/**",
+                      "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -201,7 +250,8 @@
                       "vite",
                       "vite/**",
                       "@vitejs/**",
-                      "**/world/generation/**"
+                      "**/world/generation/**",
+                      "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -245,7 +295,8 @@
                       "vite",
                       "vite/**",
                       "@vitejs/**",
-                      "**/world/generation/**"
+                      "**/world/generation/**",
+                      "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -288,7 +339,8 @@
                       "**/config.ts",
                       "vite",
                       "vite/**",
-                      "@vitejs/**"
+                      "@vitejs/**",
+                      "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
                   }
@@ -301,7 +353,8 @@
     },
     {
       "includes": [
-        "scripts/**"
+        "scripts/**",
+        "!scripts/build-platec.ts"
       ],
       "linter": {
         "rules": {
@@ -310,6 +363,66 @@
               "level": "error",
               "options": {
                 "devDependencies": true
+              }
+            }
+          },
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/vendor/**"
+                    ],
+                    "message": "Only world generation and the Platec rebuild script may import vendored generator code."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "scripts/build-platec.ts"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUndeclaredDependencies": {
+              "level": "error",
+              "options": {
+                "devDependencies": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "vendor/platec/runtime.ts"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNodejsModules": "error"
+          },
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**",
+                      "!./platec.mjs"
+                    ],
+                    "message": "The authored Platec runtime may import only its local generated module; keep it independent of Chronicle and host APIs."
+                  }
+                ]
               }
             }
           }

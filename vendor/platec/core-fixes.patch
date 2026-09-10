@@ -1,0 +1,45 @@
+diff --git a/src/noise.cpp b/src/noise.cpp
+--- a/src/noise.cpp
++++ b/src/noise.cpp
+@@ -37,21 +37,23 @@
+ }
+ 
+ void createSlowNoise(float* map, const WorldDimension& tmpDim, SimpleRandom randsource) {
+-    int64_t seed = randsource.next();
++    const uint32_t seed = randsource.next();
+     uint32_t width = tmpDim.getWidth();
+     uint32_t height = tmpDim.getHeight();
+     float persistence = 0.25f;
+-    float noiseScale = 0.593f;
+-    float ka = static_cast<float>(256 / seed);
+-    float kb = static_cast<float>(seed * 567 % 256);
+-    float kc = static_cast<float>((seed * seed) % 256);
+-    float kd = static_cast<float>((567 - seed) % 256);
++    // Several initial crust cores let plate motion form distinct continents.
++    float noiseScale = 4.0f;
++    // Every seed byte contributes, with no division or overflowing products.
++    float ka = static_cast<float>(seed & 255u);
++    float kb = static_cast<float>((seed >> 8) & 255u);
++    float kc = static_cast<float>((seed >> 16) & 255u);
++    float kd = static_cast<float>((seed >> 24) & 255u);
+     for (uint32_t y = 0; y < height; y++) {
+         for (uint32_t x = 0; x < width; x++) {
+             float fNX = x / (float)width;  // we let the x-offset define the circle
+             float fNY = y / (float)height; // we let the x-offset define the circle
+             float fRdx = fNX * 2.0f * PI;  // a full circle is two pi radians
+-            float fRdy = fNY * 4.0f * PI;  // a full circle is two pi radians
++            float fRdy = fNY * 2.0f * PI;  // one cycle across the full map height
+             float fRdsSin = 1.0f;
+             float a = static_cast<float>(fRdsSin * sinf(fRdx));
+             float b = static_cast<float>(fRdsSin * cosf(fRdx));
+diff --git a/src/platecapi.cpp b/src/platecapi.cpp
+--- a/src/platecapi.cpp
++++ b/src/platecapi.cpp
+@@ -57,6 +57,7 @@
+ void platec_api_destroy(void* litho) {
+     for (uint32_t i = 0; i < lithospheres.size(); ++i)
+         if (lithospheres[i].data == litho) {
++            delete lithospheres[i].data;
+             lithospheres.erase(lithospheres.begin() + i);
+             break;
+         }

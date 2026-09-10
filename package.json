@@ -13,12 +13,14 @@
     "preview": "node scripts/start.ts --preview",
     "serve": "node scripts/start.ts --serve",
     "typecheck": "tsc --noEmit",
-    "check:architecture": "biome lint src shared server scripts",
+    "check:architecture": "biome lint src shared server scripts vendor/platec/runtime.ts",
     "test": "node --test tests/*.test.ts",
-    "check": "npm run check:architecture && npm run typecheck && npm test && npm run test:browser",
+    "check": "npm run check:architecture && npm run check:tectonics && npm run typecheck && npm test && npm run test:browser",
     "test:browser": "npm run build && playwright test",
     "bench:backend": "node scripts/bench-backend.ts",
-    "bench:world": "node scripts/bench-world.ts"
+    "bench:world": "node scripts/bench-world.ts",
+    "build:tectonics": "node scripts/build-platec.ts",
+    "check:tectonics": "node scripts/build-platec.ts --check"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",

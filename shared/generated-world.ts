@@ -3,7 +3,7 @@ import { Check } from 'typebox/value';
 import { BIOME_IDS, RESOURCE_IDS } from './atlas.ts';
 
 export const WORLD_PROTOCOL_VERSION = 2;
-export const WORLD_GENERATOR_VERSION = 2;
+export const WORLD_GENERATOR_VERSION = 3;
 export const WORLD_TILE_SIZE = 128;
 export const WORLD_AREA_KM2 = 510_000_000;
 export const MAX_WORLD_MANIFEST_BYTES = 3 * 1024 * 1024;

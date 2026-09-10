@@ -60,16 +60,16 @@ test('ocean-facing mountain slopes are wetter than their leeward lowlands', () =
   assert.ok(wetSlope > lee + 150, `windward ${wetSlope}; leeward ${lee}`);
 });
 
-function digest(fields: ReturnType<typeof generateWorld>['fields']) {
+function digest(fields: Awaited<ReturnType<typeof generateWorld>>['fields']) {
   const hash = createHash('sha256');
   for (const values of Object.values(fields)) hash.update(new Uint8Array(values.buffer));
   return hash.digest('hex');
 }
 
-test('seeded generation is repeatable, varied, sparse and regionally coherent', () => {
-  const world = generateWorld({ seed: 'Chronicle', size: 'standard' });
-  const repeat = generateWorld({ seed: 'Chronicle', size: 'standard' });
-  const other = generateWorld({ seed: 'Elsewhere', size: 'standard' });
+test('seeded generation is repeatable, varied, sparse and regionally coherent', async () => {
+  const world = await generateWorld({ seed: 'Chronicle', size: 'standard' });
+  const repeat = await generateWorld({ seed: 'Chronicle', size: 'standard' });
+  const other = await generateWorld({ seed: 'Elsewhere', size: 'standard' });
   assert.equal(world.width * world.height, 131072);
   assert.equal(digest(world.fields), digest(repeat.fields));
   assert.notEqual(digest(world.fields), digest(other.fields));
@@ -93,33 +93,67 @@ test('seeded generation is repeatable, varied, sparse and regionally coherent', 
   assert.equal('provinces' in world, false);
 });
 
-test('large continents coexist with smaller islands that inherit a limited regional biome palette', () => {
-  const world = generateWorld({ seed: 'Chronicle', size: 'large' });
+test('islands inherit equatorial and polar climates while mountains add cooler ecosystems', async () => {
+  const world = await generateWorld({ seed: 'Chronicle', size: 'large' });
   const visited = new Uint8Array(world.width * world.height);
-  let continents = 0; let islands = 0;
+  let continents = 0; let islands = 0; let equatorialIslands = 0; let coldIslands = 0; let mountainIslands = 0;
+  const equatorialHemispheres = new Set<number>(); const coldHemispheres = new Set<number>();
+  const latitude = (cell: number) => latitudeAt((Math.floor(cell / world.width) + 0.5) / world.height);
+  const averageTemperature = (cells: number[]) => cells.reduce((sum, cell) => sum + world.fields.temperature[cell], 0) / cells.length;
   for (let id = 0; id < visited.length; id++) {
     if (visited[id] || world.fields.elevation[id] < 0) continue;
-    const connected = [id]; const biomes = new Set<number>(); visited[id] = 1;
+    const connected = [id]; visited[id] = 1;
     for (let at = 0; at < connected.length; at++) {
       const cell = connected[at]; const x = cell % world.width; const row = cell - x;
-      biomes.add(world.fields.biome[cell]);
       for (const next of [row + (x + 1) % world.width, row + (x - 1 + world.width) % world.width, cell - world.width, cell + world.width]) {
         if (next < 0 || next >= visited.length || visited[next] || world.fields.elevation[next] < 0) continue;
         visited[next] = 1; connected.push(next);
       }
     }
-    if (connected.length > 10000) continents++;
+    if (connected.length >= world.width * world.height * 0.01) continents++;
     if (connected.length >= 10 && connected.length < 2000) {
       islands++;
-      assert.ok(biomes.size <= 4, `Small island of ${connected.length} cells has ${biomes.size} biomes`);
+      const lowlands = connected.filter(cell => world.fields.elevation[cell] < 700);
+      const equatorial = lowlands.filter(cell => Math.abs(latitude(cell)) <= 10);
+      const cold = lowlands.filter(cell => Math.abs(latitude(cell)) >= 55);
+      if (equatorial.length) equatorialIslands++;
+      if (cold.length) coldIslands++;
+      for (const cell of equatorial) {
+        equatorialHemispheres.add(Math.sign(latitude(cell)));
+        assert.ok(world.fields.temperature[cell] > 220, 'Equatorial island lowlands should remain warm.');
+        assert.ok(['rainforest', 'savanna', 'desert'].includes(WORLD_BIOMES[world.fields.biome[cell]]),
+          'Equatorial lowlands must not repeat polar or alpine ecosystems.');
+      }
+      for (const cell of cold) {
+        coldHemispheres.add(Math.sign(latitude(cell)));
+        assert.ok(world.fields.temperature[cell] < 80, 'High-latitude island lowlands should remain cold.');
+        assert.ok(['boreal', 'tundra', 'snow'].includes(WORLD_BIOMES[world.fields.biome[cell]]),
+          'High-latitude islands must not repeat tropical ecosystems.');
+      }
+      const highlands = connected.filter(cell => world.fields.elevation[cell] > 1800);
+      const latitudes = connected.map(latitude);
+      if (lowlands.length && highlands.length && Math.max(...latitudes) - Math.min(...latitudes) < 3) {
+        mountainIslands++;
+        assert.ok(averageTemperature(highlands) < averageTemperature(lowlands) - 60,
+          'Mountain zones should be substantially colder than the same island’s nearby lowlands.');
+      }
+      for (const cell of connected) {
+        assert.equal(WORLD_BIOMES[world.fields.biome[cell]], classifyClimate(
+          world.fields.elevation[cell], world.fields.temperature[cell] / 10, world.fields.moisture[cell] / 1000,
+        ), 'An elevated island may have more biomes only as a consequence of its actual climate/terrain.');
+      }
     }
   }
   assert.ok(continents >= 3, 'The default world should have several substantial continents.');
   assert.ok(islands >= 5, 'The default world should also have distinct smaller islands.');
+  assert.ok(equatorialIslands >= 2 && coldIslands >= 2, 'Exercise several distinct islands in each climate region.');
+  assert.deepEqual([...equatorialHemispheres].sort(), [-1, 1], 'Exercise equatorial islands in both hemispheres.');
+  assert.deepEqual([...coldHemispheres].sort(), [-1, 1], 'Exercise cold islands in both hemispheres.');
+  assert.ok(mountainIslands >= 1, 'Exercise altitude-driven climate zones on a small island.');
 });
 
-test('large world encodes a bounded overview and exact tiles without losing climate or resources', () => {
-  const world = generateWorld({ seed: 'Chronicle', size: 'large' });
+test('large world encodes a bounded overview and exact tiles without losing climate or resources', async () => {
+  const world = await generateWorld({ seed: 'Chronicle', size: 'large' });
   assert.equal(world.width * world.height, 524288);
   const bundle = encodeGeneratedWorld(world);
   const manifest = parseWorldManifest(JSON.parse(bundle.manifest));
@@ -148,8 +182,8 @@ test('large world encodes a bounded overview and exact tiles without losing clim
   assert.deepEqual(counts, manifest.biomeCounts);
 });
 
-test('rare minerals remain reachable and resource spacing crosses the world seam', () => {
-  const world = generateWorld({ seed: 'Chronicle', size: 'large' });
+test('rare minerals remain reachable and resource spacing crosses the world seam', async () => {
+  const world = await generateWorld({ seed: 'Chronicle', size: 'large' });
   const sites: number[] = [];
   const counts = new Array(RESOURCE_IDS.length + 1).fill(0);
   for (let id = 0; id < world.fields.resource.length; id++) {
@@ -171,8 +205,8 @@ test('rare minerals remain reachable and resource spacing crosses the world seam
   }
 });
 
-test('generated-world validation rejects wrong identity, corrupt fields and incomplete tiles', () => {
-  const bundle = encodeGeneratedWorld(generateWorld({ seed: 'Validation', size: 'standard' }));
+test('generated-world validation rejects wrong identity, corrupt fields and incomplete tiles', async () => {
+  const bundle = encodeGeneratedWorld(await generateWorld({ seed: 'Validation', size: 'standard' }));
   const manifest = parseWorldManifest(JSON.parse(bundle.manifest));
   const tile = JSON.parse(bundle.tiles[0]);
   assert.throws(() => parseWorldManifest({ ...manifest, protocolVersion: 99 }));

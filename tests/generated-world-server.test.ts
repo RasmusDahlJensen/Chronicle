@@ -30,7 +30,12 @@ test('large generated world travels through actual workers, manifest, cache and 
   }
   const cell = inspectWorldCell(world, tile, 512, 256);
   assert.equal(cell.id, 262656);
-  assert.ok(cell.temperature > 15);
+  // The revised seed can put a cold mountain at this equatorial coordinate.
+  // Check the inspection contract against its actual cell instead of assuming sea level.
+  assert.equal(cell.temperature, tile.fields.temperature[0] / 10);
+  assert.equal(cell.moisture, tile.fields.moisture[0] / 1000);
+  assert.equal(cell.elevation, tile.fields.elevation[0]);
+  assert.equal(cell.y, 256);
   const ready = (await app.inject('/api/ready')).json();
   assert.equal(ready.compute.completed, 1, 'manifest requests and tile requests reuse one bounded generation');
   assert.equal(ready.admitted, 0);

@@ -1,0 +1,73 @@
+{
+  "upstream": {
+    "repository": "https://github.com/Mindwerks/plate-tectonics",
+    "commit": "2a27c4fb137c657517bca62122b9de80e6b8c255"
+  },
+  "compiler": {
+    "version": "6.0.5",
+    "flags": [
+      "-std=c++20",
+      "-O3",
+      "-DNDEBUG",
+      "-fwasm-exceptions",
+      "-Isrc",
+      "-sMODULARIZE=1",
+      "-sEXPORT_ES6=1",
+      "-sSINGLE_FILE=1",
+      "-sENVIRONMENT=web,worker",
+      "-sFILESYSTEM=0",
+      "-sALLOW_MEMORY_GROWTH=1",
+      "-sINITIAL_MEMORY=16777216",
+      "-sMAXIMUM_MEMORY=134217728",
+      "-sSTACK_SIZE=1048576",
+      "-sEXPORTED_FUNCTIONS=_chronicle_platec_create,_chronicle_platec_destroy,_chronicle_platec_heightmap,_chronicle_platec_finished,_chronicle_platec_step",
+      "-sEXPORTED_RUNTIME_METHODS=HEAPF32"
+    ]
+  },
+  "sources": {
+    "scripts/build-platec.ts": "96cca87d2156c4a96962cdc626813eb7e943a0696a105ebb878814970f176bc9",
+    "vendor/platec/chronicle_platec_wasm.cpp": "b09c765086e09bc550e3a7dd81b5ceb98e90fdb9db30df46a06b69df669eb913",
+    "vendor/platec/src/bounds.cpp": "948e19d0c6bfb2efc184a5e5fb31668fe53250abee0f9b0ff8b4bb3d0b69308f",
+    "vendor/platec/src/bounds.hpp": "e1a0a622411d93876ce82202621972669439f205e46db8bbe8de6a3785feaa1f",
+    "vendor/platec/src/geometry.cpp": "518f2a1318f4c0c87d77aeae53fd1bbbbf86f8574c0a85b39bcc1328471592c6",
+    "vendor/platec/src/geometry.hpp": "a7221a2bda8dd299ad21b5e828cab936247f501e3916216bf74ac58b17190bdb",
+    "vendor/platec/src/heightmap.cpp": "06079c9584ae2094755af09395cc2a2a9b9f341f9372404c7f049daf2a21d51f",
+    "vendor/platec/src/heightmap.hpp": "12dbb938078e5a2ba95924e5ee5c8002b1fddbb3068bcc890f82aca2482645c5",
+    "vendor/platec/src/lithosphere.cpp": "12315287c0416cad1149db1526651dfce2ce6f7c4cd3c2420afc3e7c1d429bc5",
+    "vendor/platec/src/lithosphere.hpp": "9bf9e3cabd91878ebf6ea402325db5a4ffba83091797f293752cd7de89f5a8fc",
+    "vendor/platec/src/mass.cpp": "ec3095d0e19aab05a0e283de948e598b80eb53487c6b0123fbe1b9cb4eeaed99",
+    "vendor/platec/src/mass.hpp": "5913ecb444c74df25950d6dfab1df1f7be779d54b559f958037acac4940035c7",
+    "vendor/platec/src/movement.cpp": "61473d84bb7573331431746806db98c82efeb3069f4b1aba90d900c77e988bb3",
+    "vendor/platec/src/movement.hpp": "7d635673a9c3c81694a7aa7ec70957c6c22203269b885450c5073940a5625698",
+    "vendor/platec/src/noise.cpp": "75e327ecb028dfce944ad5551fec02c9505eea12c80623a4477d47d8ea960928",
+    "vendor/platec/src/noise.hpp": "64bad73675b5802f8a98aeb4e755072ee7dc92ace009c05c9a1f80ff6f0d50a1",
+    "vendor/platec/src/plate.cpp": "aca1a884ae8cc2ef6607a68d4eda14672070a212a272ad912ea77d857c51b7e5",
+    "vendor/platec/src/plate.hpp": "43d7fa4270ac01d8d37bc73325349e7833409d1b91a44320f43b3ee22b99d231",
+    "vendor/platec/src/plate_functions.cpp": "92389c0ac412597adc8144b7607182a1b658334a50ed68ac2b36d212f8422bb5",
+    "vendor/platec/src/plate_functions.hpp": "0eb49aba8e4b55b0f2a2210a30f34a9dea3a352927c154487b6ba22eb3a1e3d9",
+    "vendor/platec/src/platecapi.cpp": "38694fe4a0e870e8ecbc66e856271d8cf8f6355de190d015bd9da0721dca8ee9",
+    "vendor/platec/src/platecapi.hpp": "49d28be743f3113306954d4d80d5cd72e9daf48167c350ee20906af74a5acc3a",
+    "vendor/platec/src/rectangle.cpp": "7b0d352fcb743b83e7d533ce143a40403f9c8362f95bd7e9a47fd6cc474405f3",
+    "vendor/platec/src/rectangle.hpp": "4ae92eae16d92716ca17b51d4a361604a59b06c2654701c83d80dc0ca01209f1",
+    "vendor/platec/src/segment_creator.cpp": "fd6f46bb60eeea299cb0f58bf117ce0212a78e3c02ef1925542ba46d05b9013b",
+    "vendor/platec/src/segment_creator.hpp": "6e244eccb9bcacb19b6444793a166ef11e00f095154d496c3fdb16d71f964806",
+    "vendor/platec/src/segment_data.cpp": "fe2c45244603ea3ef5f247908c223c98bb7b8ade590937d887de89d09e1a2089",
+    "vendor/platec/src/segment_data.hpp": "486b877b6b72ed91627fa0e7525624e9ce7fdc37cb37ba7901c946c0d9a44fe7",
+    "vendor/platec/src/segments.cpp": "2760b4c38a1bdd0ca582ed168f22c0ddfc83322a5ec13890ac14d916b58b9b0c",
+    "vendor/platec/src/segments.hpp": "1eec1194c28c75aebbf3da02d314e4a9489345735289850b4ea59ac1ea205a4c",
+    "vendor/platec/src/simplerandom.cpp": "853ec00f94e1248a8a4c12c34cc6ce3d7a8a59ef4290e488ff3dffea228106c1",
+    "vendor/platec/src/simplerandom.hpp": "a21ee3c7d386c86051a760ba529511a28a9baab19d00e5efce6f3311095f500b",
+    "vendor/platec/src/simplexnoise.cpp": "0dea4700b07e7379b96364710a31b8ba64042c537900b39ff16b39f8a73df0f0",
+    "vendor/platec/src/simplexnoise.hpp": "4164f4863db6602a7ff4bb0ffa8e302eac07b860b9d39af2b1b050e232c5daf2",
+    "vendor/platec/src/sqrdmd.cpp": "d4e1306c78e73e0d558354cd716ba6734881d046ccc813ca0aac78ce330f1bba",
+    "vendor/platec/src/sqrdmd.hpp": "587335ff4241584ef04a52f07e07e90f5866ba4908ef2c28c81ecbdc588f6cd8",
+    "vendor/platec/src/utils.cpp": "7ee083de5e306475167dd038875a9fac19807c79f864b9e39f82d86948943af9",
+    "vendor/platec/src/utils.hpp": "11b4f361e34794054f92829b91db20e3b0179e37681a352fd691dacb117dbdb5",
+    "vendor/platec/src/world_point.cpp": "caa7e38796d120b2495bc3f6ab05c6a111d1b9ea57dec75e04358b146b78d1e7",
+    "vendor/platec/src/world_point.hpp": "ff1e6d636b48e01cd54a74c3f1ed4abc6edf2d2987c482aad92d9d1b6f66bc49"
+  },
+  "artifacts": {
+    "platec.mjs": "d9ddb8923585349efbbbc1c41eb54d5994518a8505a6bbe05cbf358ff372b7fe",
+    "platec.d.mts": "a959afd9867edf053c27497270c477cbc1199a923f0475165464f30298df3e6c"
+  }
+}

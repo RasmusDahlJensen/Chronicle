@@ -7,9 +7,9 @@ import { generateWorld } from '../../src/world/generation/generate.ts';
 import { encodeGeneratedWorld } from '../../src/world/generation/encode.ts';
 
 /** Construct, validate, and encode either study away from HTTP handling. */
-export default function generateTerrain(study: TerrainStudy = 'aster'): string {
+export default async function generateTerrain(study: TerrainStudy = 'aster'): Promise<string> {
   if (typeof study === 'object' && study !== null && study.kind === 'world') {
-    return JSON.stringify(encodeGeneratedWorld(generateWorld({ seed: study.seed, size: study.size })));
+    return JSON.stringify(encodeGeneratedWorld(await generateWorld({ seed: study.seed, size: study.size })));
   }
   if (study !== 'aster' && study !== 'verdant') throw new Error('Unknown terrain study.');
   const payload = study === 'verdant'

@@ -26,7 +26,9 @@ export function readBackendConfig(env: NodeJS.ProcessEnv = process.env): Backend
   return {
     workers: integer('CHRONICLE_WORKERS', Math.min(2, availableParallelism()), 1, 8),
     maxQueue: integer('CHRONICLE_QUEUE_LIMIT', 4, 0, 32),
-    jobTimeoutMs: integer('CHRONICLE_JOB_TIMEOUT_MS', 8_000, 100, 8_000),
+    // Includes queue time: a tectonic job costs several seconds before encoding.
+    // The 25s ceiling still leaves room inside the clients' 30s request timeout.
+    jobTimeoutMs: integer('CHRONICLE_JOB_TIMEOUT_MS', 20_000, 100, 25_000),
     shutdownTimeoutMs: 5_000,
     logLevel,
   };

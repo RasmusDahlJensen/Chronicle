@@ -31,6 +31,8 @@ Install the project's locked dependencies on first setup and after dependency up
 npm ci
 ```
 
+The plate generator is already bundled for Node 24. You do not need Python, a C++ compiler, or Emscripten to install or run Chronicle. Its pinned source, licenses and rebuild instructions are in [vendor/platec](vendor/platec/README.md).
+
 ## Start the lab
 
 From the Chronicle folder, run:
@@ -39,11 +41,11 @@ From the Chronicle folder, run:
 npm start
 ```
 
-Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chronicle ready**. The first start includes worker warmup. This one command starts the terrain backend and frontend together. Keep the terminal running while you use the lab; press **Ctrl+C** in that terminal to stop both and their workers. `npm run dev` starts the same setup.
+Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chronicle ready**. Startup includes worker warmup; the first world takes several seconds to generate. This one command starts the terrain backend and frontend together. Keep the terminal running while you use the lab; press **Ctrl+C** in that terminal to stop both and their workers. `npm run dev` starts the same setup.
 
 The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, database, Docker, or separate service installation is needed. Both servers listen on this PC only.
 
-The default seed is **Chronicle**, at **Large · 1,024 × 512** resolution. Enter another **World seed** and choose **Regenerate world** to try different geography. The same seed, resolution and generator version reproduce the same world. Generator 2 replaces the earlier repetitive landmass layouts and restores a textured, full-detail biome overview. Standard resolution is available for quicker checks. Both presets cover 510 million km² including oceans; large cells cover about 973 km² each. These are equal-area map cells, with stretched polar shapes; screen distances are not uniform ground distances.
+The default seed is **Chronicle**, at **Large · 1,024 × 512** resolution. Enter another **World seed** and choose **Regenerate world** to try different geography. The same seed, resolution and generator version reproduce the same world. Generator 3 uses a bundled plate-tectonics generator for continental structure and collision-shaped relief. Both presets refine the same fixed 512 × 256 tectonic base, so changing resolution preserves the continental layout. Standard resolution reduces the number of final cells and detail tiles; both perform the same tectonic simulation. Both presets cover 510 million km² including oceans; large cells cover about 973 km² each. These are equal-area map cells, with stretched polar shapes; screen distances are not uniform ground distances.
 
 Choose **Biomes**, **Temperature**, or **Moisture** to inspect the climate. The temperature layer shows annual mean °C. Moisture is a relative annual availability index, not measured rainfall. The preview models latitude, elevation cooling, broad wind/moisture regions and mountain rain shadows; it does not simulate seasons or weather.
 
@@ -67,7 +69,7 @@ The original **Aster Island** study remains available through Verdant's header l
 
 ### Development updates
 
-Frontend component and style edits update through Vite. `npm start` also watches the backend, workers, shared contracts, world/fixture modules, and launch configuration: relevant changes restart the combined application and its worker pool, then Vite reloads the open browser tab. You keep the same browser address. The development study is reconstructed after a restart, so map selection and camera state reset.
+Frontend component and style edits update through Vite. `npm start` also watches the backend, workers, shared contracts, world/fixture modules, the vendored runtime and rebuilt artifact, and launch configuration: relevant changes restart the combined application and its worker pool, then Vite reloads the open browser tab. You keep the same browser address. The development study is reconstructed after a restart, so map selection and camera state reset.
 
 If an edit contains an error, the terminal reports it and the watcher waits for a correction. Save the corrected file to restart automatically. After dependency installation, Node upgrades, or changes to the watch configuration itself, stop the terminal with Ctrl+C and run `npm start` again. Built serving with `npm run serve` or `npm run preview` requires an explicit rebuild/restart when code changes.
 
@@ -77,7 +79,7 @@ If an edit contains an error, the terminal reports it and the watcher waits for 
 npm run check
 ```
 
-This is the required check before handing off each implementation iteration. It runs architecture checks, TypeScript, headless world/backend/process tests, a production build, and Chromium scenarios against both development and built serving. Live-edit regressions run isolated copies of the real application; they never edit the map you are reviewing. Install Chromium using the command below before the first complete check.
+This is the required check before handing off each implementation iteration. It runs architecture and vendored-artifact integrity checks, TypeScript, headless world/backend/process tests, a production build, and Chromium scenarios against both development and built serving. Live-edit regressions run isolated copies of the real application; they never edit the map you are reviewing. Install Chromium using the command below before the first complete check.
 
 The architecture checks use Biome to detect import cycles, undeclared dependencies, development packages in runtime code, and imports that cross the browser/core/backend boundaries. For focused work, use `npm run check:architecture`, `npm run typecheck`, or `npm test`; finish the iteration with the complete `npm run check`.
 
@@ -94,14 +96,20 @@ Extend the suite alongside each change, especially when data crosses a module or
 
 | Connection or rule | Regression coverage |
 |---|---|
-| Seed/elevation/climate → biomes, coherent islands, sparse resources and exact tiles | `tests/world-generation.test.ts` |
+| WASM runtime → validated owned heights, cleanup, seed repeatability and artifact integrity | `tests/tectonics.test.ts` |
+| Toroidal donor → bounded latitude, preserved straits/islands and refinement across resolutions | `tests/tectonic-geography.test.ts` |
+| Real tectonic job cancellation → released worker → successful next world | `tests/tectonic-worker.test.ts` |
+| Seed/elevation/climate → varied landmasses, coherent islands, sparse resources and exact tiles | `tests/world-generation.test.ts`, `tests/geography.test.ts`, `tests/climate-regions.test.ts` |
 | Generated-world workers → bounded cache → HTTP, cancellation and restart | `tests/generated-world-server.test.ts`, `tests/generated-world-store.test.ts`, `tests/generated-world-reload.test.ts` |
+| Exact terrain surface → textured overview and stable terrain as detail arrives | `tests/world-surface.test.ts`, `tests/browser/generated-world-texture.spec.ts` |
 | Overview/detail HTTP → bounded browser cache → climate layers and cell inspection | `tests/world-client.test.ts`, `tests/browser/generated-world.spec.ts` |
 | Cells → provinces → countries; biome/resource data and province site totals | `tests/atlas-world.test.ts`, `tests/atlas-response.test.ts` |
 | Click/back selection → matching province/cell highlight and inspector | `tests/atlas-selection.test.ts`, `tests/browser/biomes.spec.ts` |
 | Workers → validated HTTP responses; admission and shutdown | `tests/compute.test.ts`, `tests/server.test.ts`, `tests/atlas-server.test.ts` |
 | Launcher → proxy/built server; live source changes → new workers | `tests/launcher.test.ts`, `tests/dev-reload.test.ts` |
 | HTTP → browser validation → visible map, inspection, reset/retry | `tests/browser/`, run against development and production serving |
+
+`npm run check:tectonics` verifies that the vendored source, compiler settings and generated artifact match their recorded hashes; it is included in `npm run check`. Maintainers changing the C++ core or compiler settings need Emscripten 6.0.5 and `npm run build:tectonics`; those changes reach the running lab after the artifact is rebuilt. See the vendor instructions.
 
 Every reproduced bug gets a regression that fails for that bug. Preserve existing checks and add tests for new behavior and its connections; passing checks do not replace visual review of the actual running lab.
 
@@ -127,7 +135,7 @@ The local API is available through either running browser URL:
 - `/api/world?seed=Chronicle&size=large` returns a generated-world protocol-2 manifest with full-resolution elevation/biome surface data, a 256 × 128 climate overview, units, settings, generator version and biome counts.
 - `/api/world/tile?seed=Chronicle&size=large&x=0&y=0` returns the corresponding 128 × 128 detail tile. Coordinates are tile indices. `size` accepts `standard` or `large`; seeds accept 1–64 ASCII letters, numbers, spaces, dots, underscores and hyphens.
 
-The authored atlas/terrain payloads retain their 100,000-cell and 8 MiB limits. Generated-world manifests are bounded to 3 MiB, detail tiles to 512 KiB, and complete worker bundles to 20 MiB. The host retains at most two immutable generation bundles, including jobs in progress, and shares requests for the same seed/settings. A failed job can be retried; disconnecting the last waiting observer cancels unfinished work. All map requests share the same worker pool and response admission allowance.
+The authored atlas/terrain payloads retain their 100,000-cell and 8 MiB limits. Generated-world manifests are bounded to 3 MiB, detail tiles to 512 KiB, and complete worker bundles to 20 MiB. The host retains at most two immutable generation bundles, including jobs in progress, and shares requests for the same seed/settings. A failed job can be retried; disconnecting the last waiting observer cancels unfinished work. All map requests share the same worker pool and response admission allowance. Each tectonic job uses a fresh WASM instance with a 128 MiB heap cap and a 2,500-step limit; the heap cap does not bound total process memory.
 
 For example, open **http://127.0.0.1:5173/api/ready** during development. The terminal includes structured request logs; an `x-request-id` response header connects a request to its log entry. Overload and computation deadlines produce explicit retryable failures while the browser retains its last valid map.
 
@@ -159,7 +167,7 @@ The defaults need no configuration. For development measurements, these environm
 |---|---|---|
 | `CHRONICLE_WORKERS` | 2, or 1 when only one processor is available | Integers 1–8 |
 | `CHRONICLE_QUEUE_LIMIT` | 4 waiting jobs | Integers 0–32 |
-| `CHRONICLE_JOB_TIMEOUT_MS` | 8000, including queue time | Integers 100–8000 |
+| `CHRONICLE_JOB_TIMEOUT_MS` | 20000, including queue time | Integers 100–25000; clients allow 30 seconds for the full response |
 | `CHRONICLE_LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` |
 
 Map response admission is also bounded to worker count plus queue allowance until responses finish or close. These conservative limits do not promise a particular user capacity. No `--host` option or network exposure is provided.
@@ -208,7 +216,8 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - `shared/terrain.ts`: retained protocol-1 terrain schema and validation.
 - `shared/studies.ts`: authored study identifiers and seeded-world jobs accepted by compute.
 - `shared/generated-world.ts`: generated-world identity, settings, compact numeric fields, manifest/tile validation, limits and exact cell inspection.
-- `src/world/generation/`: seeded geography, climate, sparse resources and tile encoding; imported by workers, never the browser or HTTP layer.
+- `src/world/generation/`: seeded geography, donor projection/refinement, climate, sparse resources and tile encoding; imported by workers, never the browser or HTTP layer.
+- `vendor/platec/`: pinned C++ source, bundled WASM/ESM, authored runtime helper and licenses; `scripts/build-platec.ts` rebuilds or verifies the artifact.
 - `server/generated-world-store.ts`: bounded immutable generation cache and shared-request cancellation.
 - `shared/http.ts`: API error schemas and browser validation.
 - `src/world/atlas.ts`: biome/resource catalogs and area/resource summaries; `terrain.ts` retains the original terrain summaries.

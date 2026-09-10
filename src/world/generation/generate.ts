@@ -9,11 +9,11 @@ export interface GeneratedWorld {
   fields: { elevation: Int16Array; temperature: Int16Array; moisture: Uint16Array; biome: Uint8Array; resource: Uint8Array };
 }
 
-export function generateWorld(input: WorldSettings): GeneratedWorld {
+export async function generateWorld(input: WorldSettings): Promise<GeneratedWorld> {
   const settings = { ...parseWorldSettings(input) };
   const { width, height } = WORLD_SIZES[settings.size];
   const seed = seedNumber(settings.seed);
-  const elevation = generateElevation(width, height, seed);
+  const elevation = await generateElevation(width, height, seed);
   const moisture = moistureField(width, height, elevation, seed);
   const temperature = new Int16Array(width * height);
   const biome = new Uint8Array(width * height);

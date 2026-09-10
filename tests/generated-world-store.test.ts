@@ -28,8 +28,8 @@ function controlledCompute() {
   return { jobs, store: createGeneratedWorldStore(compute) };
 }
 const settings: WorldSettings = { seed: 'Lifecycle', size: 'standard' };
-let body: string;
-function validBody() { return body ??= JSON.stringify(encodeGeneratedWorld(generateWorld(settings))); }
+let body: Promise<string>;
+function validBody() { return body ??= generateWorld(settings).then(world => JSON.stringify(encodeGeneratedWorld(world))); }
 
 test('one disconnected observer cannot cancel a generation another observer still needs', async () => {
   const { jobs, store } = controlledCompute();
@@ -40,9 +40,9 @@ test('one disconnected observer cannot cancel a generation another observer stil
   await cancelled;
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].signal.aborted, false);
-  jobs[0].resolve(validBody());
-  assert.equal((await survivor).manifest, JSON.parse(validBody()).manifest);
-  assert.equal((await store.get(settings, second.signal)).manifest, JSON.parse(validBody()).manifest);
+  jobs[0].resolve(await validBody());
+  assert.equal((await survivor).manifest, JSON.parse(await validBody()).manifest);
+  assert.equal((await store.get(settings, second.signal)).manifest, JSON.parse(await validBody()).manifest);
   assert.equal(jobs.length, 1);
   store.close();
 });
@@ -56,7 +56,7 @@ test('last observer departure cancels disposable work and a new request can retr
   assert.equal(jobs[0].signal.aborted, true);
   const retry = store.get(settings, new AbortController().signal);
   assert.equal(jobs.length, 2);
-  jobs[1].resolve(validBody());
+  jobs[1].resolve(await validBody());
   assert.ok((await retry).tiles.length > 0);
   store.close();
 });
@@ -87,7 +87,7 @@ test('malformed or mismatched worker results never poison a later valid request'
     await rejected;
   }
   const retry = store.get(settings, signal);
-  jobs.at(-1)!.resolve(validBody());
+  jobs.at(-1)!.resolve(await validBody());
   assert.ok((await retry).tiles.length > 0);
   store.close();
 });

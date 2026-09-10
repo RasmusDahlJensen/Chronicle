@@ -56,7 +56,7 @@ export async function createTestProject(t?: Pick<TestContext, 'after'>): Promise
   }
   t?.after(() => project.dispose());
   try {
-    for (const path of ['scripts', 'server', 'shared', 'src', 'package.json', 'package-lock.json', 'index.html', 'vite.config.ts', 'tsconfig.json', 'biome.json']) {
+    for (const path of ['scripts', 'server', 'shared', 'src', 'vendor', 'package.json', 'package-lock.json', 'index.html', 'vite.config.ts', 'tsconfig.json', 'biome.json']) {
       await cp(join(repositoryRoot, path), join(root, path), { recursive: true });
     }
     for (const path of ['nodemon.json', '.nvmrc']) {
@@ -100,7 +100,7 @@ export async function startProject(project: TestProject, options: { args?: strin
   const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['start', '--', '--port', String(port), ...(options.args ?? [])], {
     cwd: project.root, detached: process.platform !== 'win32', shell: process.platform === 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NO_COLOR: '1', CHRONICLE_WORKERS: '1', CHRONICLE_QUEUE_LIMIT: '1', CHRONICLE_JOB_TIMEOUT_MS: '8000', CHRONICLE_LOG_LEVEL: 'error', ...options.env },
+    env: { ...process.env, NO_COLOR: '1', CHRONICLE_WORKERS: '1', CHRONICLE_QUEUE_LIMIT: '1', CHRONICLE_JOB_TIMEOUT_MS: '20000', CHRONICLE_LOG_LEVEL: 'error', ...options.env },
   });
   let output = '';
   let spawnError: Error | undefined;

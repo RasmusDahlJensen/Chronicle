@@ -4,6 +4,10 @@ export default defineConfig({
   testDir: './tests/browser',
   outputDir: 'test-results/playwright',
   reporter: [['list'], ['html', { open: 'never' }]],
+  // Real tectonic generation has a 20s admission deadline; UI checks must allow
+  // that bounded request to finish, including the manifest's rendering work.
+  timeout: 60_000,
+  expect: { timeout: 25_000 },
   use: {
     viewport: { width: 1440, height: 1000 },
     trace: 'retain-on-failure',
