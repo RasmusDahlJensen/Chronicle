@@ -20,7 +20,7 @@ import {
 } from './country-growth.ts';
 import { chooseCountryIntent, completeCountryIntent, type CountryCandidate } from './country-ai.ts';
 
-type Opportunity = {
+export type DevelopmentOpportunity = {
   kind: CountryProject['kind'];
   targetCellId: number | null;
   routeDistance: number;
@@ -77,6 +77,7 @@ export function initializeCountryDevelopment(state: SimulationState, env: Settle
 export function validateDevelopmentGeography(state: SimulationState, env: SettlementEnvironment): void {
   if (!state.development) return;
   validateCountryGeography(state, env);
+  if (!state.development.projects.some(p => p.kind === 'claim')) return;
   const sites = frontier(env, state.country!.territory, routes(env, state.country!.territory), []);
   for (const p of state.development.projects)
     if (p.kind === 'claim') {
@@ -100,11 +101,12 @@ function cancel(state: SimulationState, p: CountryProject, reason: string) {
   event(d, state.elapsedDays, p, 'cancelled', reason);
 }
 /** Conservative shared reservation check: combined future claims and remaining work, no duplicate capital supplies. */
-function affordable(
+export function canFundDevelopment(
   state: SimulationState,
   env: SettlementEnvironment,
-  projects: readonly (CountryProject | Opportunity)[],
+  projects: readonly (CountryProject | DevelopmentOpportunity)[],
   reserveDays: number,
+  requireSustainableClaims = true,
 ): boolean {
   const c = state.settlements!.centers[0],
     d = state.development!,
@@ -124,19 +126,19 @@ function affordable(
     during.metrics.claimWorkers === workers &&
     workers < c.population &&
     c.food >= supplies + c.population * reserveDays + deficit &&
-    (!hasClaims || after.collected >= c.population + after.metrics.upkeepDue)
+    (!requireSustainableClaims || !hasClaims || after.collected >= c.population + after.metrics.upkeepDue)
   );
 }
-function opportunities(
+export function developmentOpportunities(
   state: SimulationState,
   env: SettlementEnvironment,
   others: readonly CountryTerritory[],
-): Opportunity[] {
+): DevelopmentOpportunity[] {
   const d = state.development!,
     c = state.settlements!.centers[0],
     region = state.country!.territory;
   const base = economy(env, region, c.population, 0, d),
-    out: Opportunity[] = [];
+    out: DevelopmentOpportunity[] = [];
   for (const kind of ['food', 'logistics'] as const) {
     const level = (kind === 'food' ? d.foodLevel : d.logisticsLevel) + 1;
     if (level > 100 || d.projects.some((p) => p.kind === kind)) continue;
@@ -203,22 +205,23 @@ function opportunities(
   }
   return out;
 }
-function prune(state: SimulationState, env: SettlementEnvironment, others: readonly CountryTerritory[]) {
+function prune(state: SimulationState, env: SettlementEnvironment, others: readonly CountryTerritory[], reserveDays = 7, sustainableClaims = true) {
   const d = state.development!,
     region = state.country!.territory,
-    valid = new Set(frontier(env, region, routes(env, region), others).map((s) => s.id));
+    valid = new Set(d.projects.some(p => p.kind === 'claim') ? frontier(env, region, routes(env, region), others).map((s) => s.id) : []);
   for (const p of [...d.projects])
     if (p.kind === 'claim' && !valid.has(p.targetCellId!))
       cancel(state, p, 'Claim access changed; reserved supplies and workers were released.');
-  while (d.projects.length && !affordable(state, env, d.projects, 7)) {
+  while (d.projects.length && !canFundDevelopment(state, env, d.projects, reserveDays, sustainableClaims)) {
     const reversed = [...d.projects].reverse();
     const remove =
       reversed.find((p) =>
-        affordable(
+        canFundDevelopment(
           state,
           env,
           d.projects.filter((other) => other.id !== p.id),
-          7,
+          reserveDays,
+          sustainableClaims,
         ),
       ) ??
       reversed.find((p) => p.kind === 'claim') ??
@@ -226,13 +229,20 @@ function prune(state: SimulationState, env: SettlementEnvironment, others: reado
     cancel(state, remove, 'Shared supplies or workforce no longer cover this project and the safety reserve.');
   }
 }
+export type DevelopmentOrder = Pick<DevelopmentOpportunity, 'kind' | 'targetCellId'>;
+/** Explicit study/controller orders use the same work/accounting executor. Never accepted by HTTP or live-save loading. */
+export interface DevelopmentControl { orders: readonly DevelopmentOrder[]; reason: string }
+
 /** Bounded utility-ranked greedy allocation, rechecking the complete portfolio after every choice. */
 export function advanceCountryDevelopment(
   state: SimulationState,
   env: SettlementEnvironment,
   others: readonly CountryTerritory[] = [],
+  control?: DevelopmentControl,
 ): void {
+  if (control && (control.orders.length > 8 || !control.reason || control.reason.length > 160)) throw new Error('Invalid development control.');
   validateDevelopmentGeography(state, env);
+  const requested = (o: DevelopmentOpportunity) => !control || control.orders.some(p => p.kind === o.kind && p.targetCellId === o.targetCellId);
   const d = state.development!,
     g = state.country!,
     c = state.settlements!.centers[0],
@@ -249,12 +259,12 @@ export function advanceCountryDevelopment(
     budget(state);
     return;
   }
-  prune(state, env, others);
+  prune(state, env, others, control ? 0 : 7, !control);
   const base = economy(env, region, c.population, 0, d),
     crisis = base.collected < c.population + base.metrics.upkeepDue || c.food < c.population * 7;
   const slots = Math.min(8, 2 + Math.floor(d.logisticsLevel / 2));
-  const options = d.projects.length < slots ? opportunities(state, env, others) : [];
-  const goal = (o: Opportunity) =>
+  const options = (!control || control.orders.length > 0) && d.projects.length < slots ? developmentOpportunities(state, env, others) : [];
+  const goal = (o: DevelopmentOpportunity) =>
     o.kind === 'claim' ? 'expand' : o.kind === 'food' ? 'improveFood' : 'improveLogistics';
   const candidates: CountryCandidate[] = [
     {
@@ -272,18 +282,19 @@ export function advanceCountryDevelopment(
   // Keep transport alternatives bounded; actual frontier selection is independent of display storage.
   const evaluated = options.map((o) => ({
     ...o,
-    eligible: d.projects.length < slots && affordable(state, env, [...d.projects, o], state.ai!.profile.reserveDays),
+    eligible: requested(o) && d.projects.length < slots && canFundDevelopment(state, env, [...d.projects, o], control ? 0 : state.ai!.profile.reserveDays, !control),
   }));
-  for (const o of evaluated.slice(0, 9))
+  for (const o of (control ? evaluated.filter(requested) : evaluated.slice(0, 9)))
     candidates.push({
       goal: goal(o),
       targetCellId: o.targetCellId ?? c.cellId,
-      score: o.score,
+      score: control ? 100 : o.score,
       eligible: o.eligible,
-      reason: o.eligible ? o.reason : 'The shared food, labor or continuing support budget cannot fund this proposal.',
+      reason: o.eligible ? (control?.reason ?? o.reason) : 'The shared food, labor or continuing support budget cannot fund this proposal.',
       reservedFood: 0,
       reservedPeople: 0,
     });
+  if (control && evaluated.some(o => o.eligible)) completeCountryIntent(state.ai!, c.id, state.elapsedDays, control.reason);
   const previous = state.ai!.decisions[0];
   if (
     previous?.goal === 'consolidate' &&
@@ -309,7 +320,7 @@ export function advanceCountryDevelopment(
       );
     for (const o of ordered) {
       if (d.projects.length >= slots) break;
-      if (o.score < 45 || !affordable(state, env, [...d.projects, o], state.ai!.profile.reserveDays)) continue;
+      if ((!control && o.score < 45) || !canFundDevelopment(state, env, [...d.projects, o], control ? 0 : state.ai!.profile.reserveDays, !control)) continue;
       const { score: _score, reason, eligible: _eligible, ...terms } = o;
       const p: CountryProject = { ...terms, id: d.nextProjectId++, startedDay: state.elapsedDays, progress: 0 };
       d.projects.push(p);
@@ -327,7 +338,7 @@ export function advanceCountryDevelopment(
     return;
   }
   // Daily expenditure can change affordability; all previously assigned labor remains recorded.
-  prune(state, env, others);
+  prune(state, env, others, control ? 0 : 7, !control);
   for (const p of [...d.projects]) {
     if (p.progress < p.duration) continue;
     if (p.kind === 'claim') {

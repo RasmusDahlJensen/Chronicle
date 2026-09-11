@@ -20,6 +20,7 @@
     "bench:backend": "node scripts/bench-backend.ts",
     "bench:world": "node scripts/bench-world.ts",
     "study:country": "node scripts/study-country-growth.ts",
+    "study:planner": "node scripts/study-country-planner.ts",
     "build:tectonics": "node scripts/build-platec.ts",
     "check:tectonics": "node scripts/build-platec.ts --check"
   },
@@ -31,6 +32,7 @@
     "@types/react-dom": "19.2.7",
     "@vitejs/plugin-react": "6.1.1",
     "fast-check": "4.10.0",
+    "gameplan-htn": "1.0.1",
     "nodemon": "3.1.14",
     "typescript": "7.0.2",
     "vite": "8.2.2"

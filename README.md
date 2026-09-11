@@ -113,6 +113,8 @@ The architecture checks use Biome to detect import cycles, undeclared dependenci
 
 `npm run study:country` runs eight reproducible ten-year development studies on Chronicle/Elsewhere geography at both resolutions and two history seeds. It compares current investment rules with released growth rules on identical starting conditions, printing yearly population, claims and food, paid improvements, concurrency and elapsed time. It uses the same generator/simulation as the host and does not modify your saves. These balance observations complement the regression gate; they are not a many-country capacity benchmark.
 
+`npm run study:planner` runs the isolated country-planner comparison and writes an offline browser report to [docs/research/game-ai/planning/report.html](docs/research/game-ai/planning/report.html). It compares the current policy, an HTN library adapter, and bounded outcome search on the preserved Helara checkpoint and contrasting starts. Allow several minutes; progress is printed per scenario/policy. Open the resulting HTML file in your browser; with the lab running it is also available at **http://127.0.0.1:5173/docs/research/game-ai/planning/report.html**. The report has scenario, policy and metric selectors plus recorded plans and forecasts. This is a development experiment: your live civilization still uses the released policy, and the command does not read or modify your current saves. The pinned planner candidate is a development dependency, not part of the live simulation. See [methodology and limitations](docs/research/game-ai/planning/README.md).
+
 Install Chromium once (and again after a Playwright update). To run just the build and browser scenarios:
 
 ```sh
