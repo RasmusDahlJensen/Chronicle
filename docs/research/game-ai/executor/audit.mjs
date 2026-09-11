@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import { createMachine, createActor, assign, SimulatedClock } from 'xstate';
+import { BehaviourTree, State } from 'mistreevous';
+import * as YUKA from 'yuka';
+import * as HTN from 'gameplan-htn';
+import JSson from 'js-son-agent';
+import { Task } from 'mahler';
+import { Planner } from 'mahler/planner';
+const results = {node:process.version};
+const machine = createMachine({id:'claim',context:{days:0,rng:123,reserve:20},initial:'building',states:{building:{on:{DAY:{actions:assign(({context})=>({days:context.days+1,rng:(Math.imul(context.rng,1664525)+1013904223)>>>0,reserve:context.reserve-1}))}},always:{guard:({context})=>context.days>=5,target:'complete'}},complete:{type:'final'}}});
+const a=createActor(machine).start(); for(let i=0;i<2;i++)a.send({type:'DAY'});
+const checkpoint=JSON.parse(JSON.stringify(a.getPersistedSnapshot()));
+const b=createActor(machine,{snapshot:checkpoint}).start();for(let i=0;i<3;i++){a.send({type:'DAY'});b.send({type:'DAY'});}
+assert.deepEqual(a.getPersistedSnapshot(),b.getPersistedSnapshot());results.xstateDayReplay={status:a.getSnapshot().status,context:a.getSnapshot().context};a.stop();b.stop();
+let entries=0;const delayed=createMachine({initial:'waiting',states:{waiting:{entry:()=>entries++,after:{1000:'done'}},done:{type:'final'}}});
+const c1=new SimulatedClock(),c2=new SimulatedClock();const t1=createActor(delayed,{clock:c1}).start();c1.increment(400);const snap=JSON.parse(JSON.stringify(t1.getPersistedSnapshot()));const t2=createActor(delayed,{clock:c2,snapshot:snap}).start();c1.increment(600);c2.increment(600);results.xstateDelayRestore={original:t1.getSnapshot().value,restoredAt600:t2.getSnapshot().value,entries,snapshotKeys:Object.keys(snap)};c2.increment(1000);results.xstateDelayRestore.restoredAt1600=t2.getSnapshot().value;t1.stop();t2.stop();
+const def='root { sequence { wait [3000] action [Finish] } }';let completedA=0,completedB=0;const opts={random:()=>0.5,getDeltaTime:()=>1};const tree=new BehaviourTree(def,{Finish(){completedA++;return State.SUCCEEDED;}},opts);tree.step();tree.step();const details=JSON.parse(JSON.stringify(tree.getTreeNodeDetails()));const fresh=new BehaviourTree(def,{Finish(){completedB++;return State.SUCCEEDED;}},opts);tree.step();fresh.step();results.mistreevous={continuedCompleted:completedA,recreatedCompleted:completedB,details,prototypeMethods:Object.getOwnPropertyNames(BehaviourTree.prototype)};
+let uidRandomCalls=0;const savedRandom=Math.random;Math.random=()=>{uidRandomCalls++;return 0.1;};try{new BehaviourTree('root { action [Finish] }',{Finish(){return State.SUCCEEDED;}},opts);}finally{Math.random=savedRandom;}results.mistreevous.nodeIdUninjectedRandomCalls=uidRandomCalls;
+class WorkGoal extends YUKA.Goal {constructor(owner=null){super(owner);this.remaining=5;}execute(){this.remaining--;}};
+const owner={uuid:'country-1'};const think=new YUKA.Think(owner);const g=new WorkGoal(owner);g.execute();g.execute();think.addSubgoal(g);const yJson=JSON.parse(JSON.stringify(think.toJSON()));const restored=new YUKA.Think(owner).registerType('WorkGoal',WorkGoal).fromJSON(yJson);results.yuka={namedESMImport:true,originalRemaining:g.remaining,restoredRemaining:restored.subgoals[0].remaining,serialized:yJson};
+results.gameplan={esmImport:true,exports:Object.keys(HTN)};
+const agent=new JSson.Agent({id:'country-1',beliefs:{food:3},plans:[JSson.Plan(b=>b.food<4,()=>({action:'collect'}))]});results.jsSon={esmDefaultImport:true,next:agent.next({})};
+const plusOne=Task.from({condition:(state,{target})=>state<target,effect:state=>++state._,description:'+1'});const planner=Planner.from({tasks:[plusOne]});const plan=planner.findPlan(0,3);results.mahler={esmNamedImports:true,planFound:plan.success,plan};
+console.log(JSON.stringify(results,null,2));

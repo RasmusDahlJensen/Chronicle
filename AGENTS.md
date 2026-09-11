@@ -1,8 +1,10 @@
 # Working on Chronicle
 
-Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief, currently `docs/features/world-controls-01.md`. Earlier resource, development, atlas, backend, React, and terrain slices remain recorded in `docs/features/`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
+Read `docs/WORKFLOW.Md`, `docs/ARCHITECTURE.md`, the relevant sections of `docs/CHRONICLE_SPEC.md`, and the selected feature brief, currently `docs/features/country-ai-01.md`. Earlier resource, development, atlas, backend, React, and terrain slices remain recorded in `docs/features/`. Use the actual filenames; `docs/GAME_DESIGN.md` does not currently exist.
 
 ## Scope and collaboration
+
+- Country AI 01 is active, implemented and fully verified locally (209 headless/process tests and 143 browser scenarios; independent review resolved); user review is pending. It adds seeded preferences and persistent, explainable local decisions over existing settlement mechanics. Read its brief for protocol 4/rules 3, legacy/reset compatibility and actual verification. Preserve the preceding research files. National exclusive claims, demographics and diplomacy remain subsequent slices; do not confuse maintained settlement territory with country sovereignty.
 
 - World controls 01 supersedes the earlier starting-flow review: implement explicit random/manual civilization spawning and a global monthly clock per its active brief. Preserve daily settlement rules and legacy saves. New browser sessions must not automatically restore earlier tribal references.
 

@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import type { SimulationOpen, SimulationView } from '../../shared/simulation.ts';
+import { randomUUID } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
+import { join } from 'node:path';
+import { parseSimulationState, type SimulationOpen, type SimulationView } from '../../shared/simulation.ts';
 
 test('a begun tribe exposes its food economy, maintained territory and selected working area', async ({ page }, testInfo) => {
   await page.goto('/');
@@ -7,7 +10,10 @@ test('a begun tribe exposes its food economy, maintained territory and selected 
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  const opening = page.waitForRequest('**/api/simulation/open');
   await page.getByRole('button', { name: 'Random location', exact: true }).click();
+  const identity = (await opening).postDataJSON() as SimulationOpen;
+  expect(identity.placementSeed).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   await expect(panel.getByRole('region', { name: 'Settlements and subsistence' })).toBeVisible();
   await expect(canvas).toHaveAttribute('data-territory-cells', '1');
@@ -33,7 +39,7 @@ test('a begun tribe exposes its food economy, maintained territory and selected 
   await expect(canvas).toHaveAttribute('data-territory-cells', '1');
 });
 
-test('prosperity supports a second community without duplicating people and both centers remain inspectable', async ({ page }, testInfo) => {
+test('legacy prosperity supports a second community without duplicating people and both centers remain inspectable', async ({ page }, testInfo) => {
   await page.goto('/');
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-rendered', 'true');
   await page.getByLabel('Resolution', { exact: true }).selectOption('standard');
@@ -41,6 +47,24 @@ test('prosperity supports a second community without duplicating people and both
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-world-key', 'climate-5:standard:Chronicle');
   const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
+  // Install an explicit protocol-3 checkpoint before this instance is opened.
+  // The real host prepares geography and initial accounting; all subsequent
+  // browser commands and persistence use the unmodified legacy simulation.
+  await page.route('**/api/simulation/open', async route => {
+    const input = route.request().postDataJSON() as SimulationOpen;
+    const temporary = { ...input, instanceId: randomUUID(), observerId: randomUUID() };
+    const prepared = await page.request.post('/api/simulation/open', { data: temporary });
+    expect(prepared.ok()).toBe(true);
+    const { state } = await prepared.json() as SimulationView;
+    const { ai: _ai, ...initial } = state;
+    const legacy = parseSimulationState({ ...initial, id: input.instanceId, protocolVersion: 3, rulesVersion: 2 });
+    const released = await page.request.post('/api/simulation/release', { data: { instanceId: temporary.instanceId, observerId: temporary.observerId } });
+    expect(released.ok()).toBe(true);
+    const database = new DatabaseSync(join('test-results', 'saves', testInfo.project.name, 'simulation.sqlite'), { timeout: 1000 });
+    try { database.prepare('INSERT INTO checkpoints (id, current, previous) VALUES (?, ?, NULL)').run(legacy.id, JSON.stringify(legacy)); }
+    finally { database.close(); }
+    await route.continue();
+  }, { times: 1 });
   await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
   await page.getByRole('button', { name: 'Choose on map', exact: true }).click();
   await canvas.scrollIntoViewIfNeeded();
@@ -100,6 +124,8 @@ test('prosperity supports a second community without duplicating people and both
   expect(response.ok()).toBe(true);
   const { state } = await response.json() as SimulationView;
   expect(state.elapsedDays % 30).toBe(0);
+  expect(state.protocolVersion).toBe(3);
+  expect(state.ai).toBeUndefined();
   // This known productive site establishes a third center on day 174.
   expect(state.settlements!.centers.map(center => center.id)).toEqual(['settlement-1', 'settlement-2', 'settlement-3']);
   expect(state.settlements!.centers.reduce((total, center) => total + center.population, 0)).toBe(250);
@@ -108,5 +134,15 @@ test('prosperity supports a second community without duplicating people and both
     expect(center.workingCells.length).toBeGreaterThan(0);
   }
   expect(state.settlements!.totalConsumed + state.settlements!.totalShortfall).toBe(state.elapsedDays * 250);
-
+  await page.getByRole('button', { name: 'Reset simulation', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Reset simulation confirmation' })).toContainText('enables country AI');
+  await page.getByRole('button', { name: 'Confirm reset simulation', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-elapsed-days', '0');
+  await expect(page.getByRole('region', { name: 'Country decisions', exact: true })).toBeVisible();
+  const resetResponse = await page.request.post('/api/simulation/observe', { data: { instanceId, observerId } });
+  expect(resetResponse.ok()).toBe(true);
+  const reset = (await resetResponse.json() as SimulationView).state;
+  expect(reset.protocolVersion).toBe(4);
+  expect(reset.ai!.historySeed).toBe(state.placementSeed);
+  expect(reset.tribe.originCellId).toBe(46821);
 });

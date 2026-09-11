@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "gameplan-htn": "1.0.1",
+    "js-son-agent": "0.0.17",
+    "mahler": "4.1.5",
+    "mistreevous": "4.3.1",
+    "xstate": "5.32.6",
+    "yuka": "0.7.8"
+  }
+}

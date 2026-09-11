@@ -7,10 +7,11 @@ async function snapshot(page: Page, identity: SimulationObserve) {
   expect(response.ok()).toBe(true);
   return await response.json() as SimulationView;
 }
-async function beginHere(page: Page) {
+async function beginHere(page: Page, historySeed?: string) {
   const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
   const opening = page.waitForRequest('**/api/simulation/open');
   await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  if (historySeed) await page.getByLabel('History seed', { exact: true }).fill(historySeed);
   await page.getByRole('button', { name: 'Random location', exact: true }).click();
   const { instanceId, observerId } = (await opening).postDataJSON() as SimulationOpen;
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
@@ -50,7 +51,8 @@ async function markerColorPixels(canvas: Locator, cell: number, color: string) {
 
 test('one actual tribe marker can be located, picked across the seam and preserved on regeneration', async ({ page }, testInfo) => {
   const canvas = await freshWorld(page);
-  const { identity, view, panel } = await beginHere(page), tribe = view.state.tribe;
+  // Retain the seam-edge spawn from the full-gate failure (cell 238075).
+  const { identity, view, panel } = await beginHere(page, '40ba7923-668a-4365-8004-1d3d9c222cd9'), tribe = view.state.tribe;
   await expect(panel).toHaveAttribute('data-instance-id', view.state.id);
   await expect(panel.getByRole('heading', { name: tribe.name, exact: true })).toBeVisible();
   const rgb = [1, 3, 5].map(at => Number.parseInt(tribe.color.slice(at, at + 2), 16)).join(', ');
@@ -67,9 +69,16 @@ test('one actual tribe marker can be located, picked across the seam and preserv
   });
   await page.mouse.move(pan.x, pan.y); await page.mouse.down();
   await page.mouse.move(pan.x + pan.distance, pan.y, { steps: 5 }); await page.mouse.up();
+  // Pointer movement schedules a frame; coordinate reads must use its published view.
+  await expect.poll(async () => { const x=Number(await canvas.getAttribute('data-center-x')); return Math.min(Math.abs(x),Math.abs(x-1024)); }).toBeLessThan(.01);
   expect(await markerColorPixels(canvas, tribe.originCellId, tribe.color)).toBeGreaterThan(20);
   const marker = await pointFor(canvas, tribe.originCellId);
-  await page.mouse.click(marker.x + 10, marker.y);
+  // A seam copy can sit against the viewport edge: test its visible hit radius.
+  const bounds=await canvas.boundingBox();
+  const hitX=marker.x+(marker.x+10<bounds!.x+bounds!.width ? 10 : -10);
+  expect(hitX).toBeGreaterThan(bounds!.x);
+  expect(hitX).toBeLessThan(bounds!.x+bounds!.width);
+  await page.mouse.click(hitX, marker.y);
   const selected = page.getByRole('region', { name: 'Selected tribe camp' });
   await expect(selected).toHaveAttribute('data-selected-civilization', tribe.id);
   await expect(page.locator('.world-selected-cell')).toHaveAttribute('data-selected-cell', String(tribe.originCellId));

@@ -1,3 +1,4 @@
+import { initialCountryAI } from './country-ai.ts';
 import { createSpawnIdentity } from '../world/civilization.ts';
 import { initialSettlements, advanceSettlements } from './settlements.ts';
 import type { SettlementEnvironment } from '../../shared/settlements.ts';
@@ -42,7 +43,7 @@ export function createTribeState(instanceId: string, placementSeed: string, worl
     ? 'This world has no suitable land for a civilization.' : 'Choose suitable land: a habitable biome, fertility at least 25 and temperature at least 5°C.');
   return parseSimulationState({
     protocolVersion: options.clockMode === 'monthly' ? SIMULATION_PROTOCOL_VERSION : 2,
-    ...(options.clockMode === 'monthly' ? { clockMode: 'monthly', spawnOriginCellId: options.originCellId ?? null } : {}), rulesVersion: SIMULATION_RULES_VERSION,
+    ...(options.clockMode === 'monthly' ? { clockMode: 'monthly', spawnOriginCellId: options.originCellId ?? null, ai: initialCountryAI(placementSeed) } : {}), rulesVersion: options.clockMode === 'monthly' ? SIMULATION_RULES_VERSION : 2,
     id: instanceId, incarnation: 1, revision: 0, worldKey: world.worldKey, settings: { ...world.settings }, placementSeed,
     tribe: { ...identity, originCellId, population: INITIAL_TRIBE_POPULATION },
     settlements: initialSettlements(identity.name, originCellId),
@@ -65,7 +66,7 @@ export function advanceTribeDays(state: SimulationState, days: number, environme
 
 export function resetTribeState(state: SimulationState): SimulationState {
   parseSimulationState(state);
-  return parseSimulationState({ ...state, incarnation: state.incarnation + 1,
+  return parseSimulationState({ ...state, ...(state.clockMode === 'monthly' ? { protocolVersion: SIMULATION_PROTOCOL_VERSION, rulesVersion: SIMULATION_RULES_VERSION, ai: initialCountryAI(state.placementSeed) } : {}), incarnation: state.incarnation + 1,
     ...(state.settlements ? { tribe: { ...state.tribe, originCellId: state.settlements.initialCellId }, settlements: initialSettlements(state.tribe.name, state.settlements.initialCellId) } : {}),
     elapsedDays: 0, rngState: initialRng(state.worldKey, state.placementSeed), running: false, speed: 1 });
 }

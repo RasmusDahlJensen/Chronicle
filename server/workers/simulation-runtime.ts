@@ -99,7 +99,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
       if (state.id !== id) throw invalidSave();
     } catch { throw invalidSave(); }
     let environment: SettlementEnvironment | undefined;
-    if (state.rulesVersion === 2) {
+    if (state.rulesVersion >= 2) {
       try {
         environment = residentEnvironment(state.worldKey);
         if (!environment) {
@@ -134,7 +134,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     if (Buffer.byteLength(body) > MAX_SIMULATION_CHECKPOINT_BYTES) throw invalidSave();
     try {
       database.exec('BEGIN IMMEDIATE;');
-      if (state.rulesVersion === 2 && !entry.environmentPersisted) {
+      if (state.rulesVersion >= 2 && !entry.environmentPersisted) {
         validateEnvironment(environment, state);
         validateSettlementGeography(state, environment!);
         const environmentBody = JSON.stringify(environment);
@@ -166,7 +166,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     identity(entry, input); attach(entry, input.observerId); return view(entry);
   }
   function initialize(input: SimulationOpen, bundle: WorldStudyBundle): SimulationView {
-    const existing = open(input); if (existing?.state.rulesVersion === 2) return existing;
+    const existing = open(input); if (existing && existing.state.rulesVersion >= 2) return existing;
     if (!existing && residents.size >= SIMULATION_LIMITS.residents) throw new SimulationError('OVERLOADED', 'Too many tribal worlds are currently observed. Close another world and retry.');
     let state: SimulationState, environment: SettlementEnvironment;
     try {

@@ -38,3 +38,20 @@
 .world-simulation-toolbar .tribe-date { margin: 0 .5rem 0 0; }
 .world-simulation-toolbar span, .world-simulation-toolbar p { font-size: .8rem; }
 .world-simulation-toolbar [role=alert] { width: 100%; color: #9b492c; margin: 0; }
+.world-spawn-menu { display: grid; gap: .6rem; flex-basis: 100%; max-width: 27rem; }
+.world-spawn-menu label { display: grid; gap: .35rem; font-size: .8rem; color: #365440; }
+.world-spawn-menu input { box-sizing: border-box; width: 100%; min-width: 0; padding: .6rem; border: 1px solid #bdc8b5; border-radius: 3px; background: #fbfaf3; color: var(--atlas-ink); font: .8rem system-ui; }
+.world-spawn-menu p { margin: 0; }
+.world-spawn-menu > div { display: flex; flex-wrap: wrap; gap: .6rem; }
+.country-decisions { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #d7dbce; }
+.country-decisions h3 { font-size: 1rem; margin: 0 0 .65rem; }
+.country-decisions summary { cursor: pointer; font-size: .8rem; color: #38564a; margin: .6rem 0; }
+.country-history-seed { overflow-wrap: anywhere; }
+.country-commitments, .country-alternatives { padding: 0; list-style: none; }
+.country-commitments > li { padding: .75rem 0; border-top: 1px solid #d7dbce; }
+.country-commitments strong { font-size: .85rem; color: #38564a; }
+.country-alternatives li { padding: .5rem 0 .5rem .65rem; border-left: 2px solid #c4cdbb; margin: .5rem 0; }
+.country-alternatives span, .country-history span { display: block; color: #617366; font-size: .75rem; }
+.country-alternatives p, .country-history p { font-size: .8rem; line-height: 1.5; margin: .4rem 0; }
+.country-history ol { padding-left: 1rem; max-height: 20rem; overflow-y: auto; }
+.country-history li { margin: .75rem 0; }

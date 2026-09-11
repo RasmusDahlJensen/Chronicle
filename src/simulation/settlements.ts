@@ -1,3 +1,4 @@
+import { chooseCountryIntent, completeCountryIntent, type CountryCandidate } from './country-ai.ts';
 import { isFoundingBiome } from '../../shared/civilization.ts';
 import { WORLD_AREA_KM2, WORLD_BIOMES, WORLD_TILE_SIZE, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
@@ -83,6 +84,16 @@ export function validateSettlementGeography(state: SimulationState, env: Settlem
   if (!land(env,c.cellId) || !isFoundingBiome(WORLD_BIOMES[env.biome[c.cellId]])
    || [...c.territory,...c.workingCells].some(id => !land(env,id))) throw new Error('Settlement geography contains invalid inhabited or claimed land.');
  }
+ for(const d of state.ai?.decisions ?? []) {
+  if(d.targetCellId===null) continue;
+  const c=state.settlements!.centers.find(center=>center.id===d.settlementId)!;
+  const distance=reachable(env,c.cellId,d.goal==='found' ? 360 : 180).get(d.targetCellId);
+  const cost=d.goal==='found' ? 2400+80*Math.ceil((distance??Infinity)/20)
+   : d.goal==='relocate' ? c.population*Math.max(2,Math.ceil((distance??Infinity)/20)) : 0;
+  if(distance===undefined || !land(env,d.targetCellId) || d.reservedFood!==cost
+   || d.goal==='found' && distance<180) throw new Error('Invalid country AI project geography or reservation; saved data has been preserved.');
+ }
+
 }
 export function advanceSettlements(state: SimulationState, env: SettlementEnvironment): void {
  validateSettlementGeography(state,env);
@@ -107,11 +118,57 @@ export function advanceSettlements(state: SimulationState, env: SettlementEnviro
   c.territory = active.map(e => e.id); c.territoryLastWorked = active.map(e => e.day);
   c.decision = c.shortfall ? 'Food is insufficient; seeking a better supported location.' : c.collected >= c.population ? 'Local gathering and hunting cover food needs; assessing nearby opportunities.' : 'Using stored food while seeking more productive ground.';
   // Establish only cells actually worked repeatedly, attached to this center's existing presence.
-  const frontier = sites.find(s => c.workingCells.includes(s.id) && !claimed.has(s.id) && settlementNeighbors(env,s.id).some(n => c.territory.includes(n)));
+  let frontier = sites.find(s => c.workingCells.includes(s.id) && !claimed.has(s.id) && settlementNeighbors(env,s.id).some(n => c.territory.includes(n)));
   const available = (id: number) => (!used.has(id) || c.workingCells.includes(id)) && (!claimed.has(id) || c.territory.includes(id));
   const currentYield = expectedFood(env,c.cellId,workers,available);
-  const better = c.kind === 'camp' ? sites.find(s => s.id !== c.cellId && !claimed.has(s.id) && isFoundingBiome(WORLD_BIOMES[env.biome[s.id]])
+  let better = c.kind === 'camp' ? sites.find(s => s.id !== c.cellId && !claimed.has(s.id) && isFoundingBiome(WORLD_BIOMES[env.biome[s.id]])
    && foodRate(env,s.id) > foodRate(env,c.cellId) && expectedFood(env,s.id,workers,available) > currentYield * 1.15) : undefined;
+  let aiFounding: [number,number] | undefined;
+  if (state.ai) {
+   const ai=state.ai, profile=ai.profile, reserve=c.food/c.population;
+   const crisis=c.shortfall>0 || c.collected<c.population && reserve<7;
+   const candidates: CountryCandidate[]=[];
+   const score=(n:number)=>Math.max(0,Math.min(100,Math.round(n)));
+   const add=(goal:CountryCandidate['goal'],targetCellId:number|null,value:number,eligible:boolean,reason:string,reservedFood=0,reservedPeople=0)=>
+    candidates.push({goal,targetCellId,score:score(value),eligible,reason,reservedFood,reservedPeople});
+   add('consolidate',null,crisis ? 75 : 40+Math.max(0,profile.reserveDays-reserve)*.5,true,
+    c.collected<c.population ? 'Use local reserves and protect food supplies while seeking viable improvements.' : 'Gather food and build local reserves before further commitments.');
+   const frontiers=sites.filter(site=>c.workingCells.includes(site.id) && !claimed.has(site.id) && settlementNeighbors(env,site.id).some(n=>c.territory.includes(n))).slice(0,3);
+   for(const site of frontiers) add('expand',site.id,42+profile.expansion*.22, !crisis && reserve>=7,
+    !crisis && reserve>=7 ? 'Sustained work can extend local presence onto accessible food ground.' : 'Food pressure prevents committing to more local territory.');
+   if(!frontiers.length) add('expand',null,0,false,'No unclaimed neighboring working cell can support local expansion.');
+   if(better) {
+    const cost=c.population*Math.max(2,Math.ceil(better.d/20));
+    const viable=c.food>=cost+c.population*7;
+    add('relocate',better.id,crisis ? 100 : 48+profile.mobility*.3,viable,
+     viable ? 'Better accessible food justifies a provisioned move.' : 'A move would leave fewer than seven days of food.',cost);
+   } else add('relocate',null,0,false,c.kind==='camp' ? 'No accessible site offers a sustained food improvement.' : 'This established community is committed to its location.');
+   const inhabitedReach=sim.centers.map(other=>reachable(env,other.cellId,180));
+   const foundingSites=[...paths].filter(([id,d])=>d>=180 && !claimed.has(id) && foodRate(env,id)>=2.25
+    && isFoundingBiome(WORLD_BIOMES[env.biome[id]]) && inhabitedReach.every(reach=>!reach.has(id)))
+    .sort((a,b)=>foodRate(env,b[0])/(1+b[1]/500)-foodRate(env,a[0])/(1+a[1]/500) || a[0]-b[0]).slice(0,3);
+   for(const site of foundingSites) {
+    const cost=80*30+80*Math.ceil(site[1]/20);
+    const eligible=!crisis && state.elapsedDays-c.foundedDay>=90 && c.kind==='settlement' && c.population>=160
+     && c.food>=cost+(c.population-80)*profile.reserveDays;
+    const reason=eligible ? 'An accessible food site can support 80 settlers while preserving the parent’s preferred reserves.'
+     : c.population<160 ? 'Too few people remain to support another community.'
+     : c.kind!=='settlement' || state.elapsedDays-c.foundedDay<90 ? 'The parent community must establish itself before founding another.'
+     : 'Local food cannot yet provision 80 settlers and preserve the parent’s reserve target.';
+    add('found',site[0],48+profile.expansion*.35+Math.min(10,Math.max(0,reserve-profile.reserveDays)/10),eligible,reason,cost,80);
+   }
+   if(!foundingSites.length) add('found',null,0,false,'No separate accessible food site is available within the known area.');
+   const previous=ai.decisions.find(d=>d.settlementId===c.id);
+   const decision=chooseCountryIntent(ai,c.id,state.elapsedDays,candidates,crisis);
+   if(previous?.goal!==decision.goal || previous.targetCellId!==decision.targetCellId) {
+    c.prospectCellId=null;c.prospectDays=0;c.foundingCellId=null;c.foundingDays=0;
+   }
+   c.decision=decision.reason;
+   if(decision.goal!=='relocate') better=undefined;
+   frontier=decision.goal==='expand' ? frontiers.find(site=>site.id===decision.targetCellId) : undefined;
+   aiFounding=decision.goal==='found' ? foundingSites.find(site=>site[0]===decision.targetCellId) : undefined;
+   if(!aiFounding) { c.foundingCellId=null; c.foundingDays=0; }
+  }
   const prospect = better ?? frontier;
   if (prospect) {
    c.prospectDays = c.prospectCellId === prospect.id ? c.prospectDays + 1 : 1; c.prospectCellId = prospect.id;
@@ -125,15 +182,16 @@ export function advanceSettlements(state: SimulationState, env: SettlementEnviro
       if (c.id === sim.mainSettlementId) state.tribe.originCellId = better.id;
       c.decision = 'Relocated after a sustained improvement in accessible food; supplies paid for the move.';
       event(sim,state.elapsedDays,'relocated',c,c.decision);
+      if(state.ai) completeCountryIntent(state.ai,c.id,state.elapsedDays,c.decision);
      }
-    } else { c.territory.push(prospect.id); c.territoryLastWorked.push(state.elapsedDays); claimed.add(prospect.id); event(sim,state.elapsedDays,'expanded',c,'Repeated local work established presence in a neighboring cell.',prospect.id); }
+    } else { c.territory.push(prospect.id); c.territoryLastWorked.push(state.elapsedDays); claimed.add(prospect.id); event(sim,state.elapsedDays,'expanded',c,'Repeated local work established presence in a neighboring cell.',prospect.id); if(state.ai) completeCountryIntent(state.ai,c.id,state.elapsedDays,'Sustained local work extended territorial presence.'); }
     c.prospectDays = 0; c.prospectCellId = null;
    }
   } else { c.prospectDays = 0; c.prospectCellId = null; }
   if (c.prosperousDays >= 60 && c.food >= c.population * 30 && !better) c.kind = 'settlement';
   // New communities require a viable land route, a productive site, transferred people and provisions.
-  if (state.elapsedDays - c.foundedDay >= 90 && c.kind === 'settlement' && c.population >= 160 && c.food >= c.population * 70) {
-   const candidate = [...paths].filter(([id,d]) => d >= 180 && !claimed.has(id) && foodRate(env,id) >= 2.25 && isFoundingBiome(WORLD_BIOMES[env.biome[id]])
+  if (state.ai ? !!aiFounding : state.elapsedDays - c.foundedDay >= 90 && c.kind === 'settlement' && c.population >= 160 && c.food >= c.population * 70) {
+   const candidate = aiFounding ?? [...paths].filter(([id,d]) => d >= 180 && !claimed.has(id) && foodRate(env,id) >= 2.25 && isFoundingBiome(WORLD_BIOMES[env.biome[id]])
     && sim.centers.every(other => !reachable(env,other.cellId,180).has(id)))
     .sort((a,b) => foodRate(env,b[0])/(1+b[1]/500)-foodRate(env,a[0])/(1+a[1]/500) || a[0]-b[0])[0];
    if (candidate) {
@@ -147,6 +205,7 @@ export function advanceSettlements(state: SimulationState, env: SettlementEnviro
      c.foundingCellId = null; c.foundingDays = 0;
      sim.centers.push(added); claimed.add(candidate[0]); event(sim,state.elapsedDays,'established',added,'A new community was founded with 80 people and supplies transferred from an existing settlement.');
      c.decision = 'Supported a new community with people and supplies.';
+     if(state.ai) completeCountryIntent(state.ai,c.id,state.elapsedDays,c.decision);
     }
    } else { c.foundingCellId = null; c.foundingDays = 0; }
   } else { c.foundingCellId = null; c.foundingDays = 0; }

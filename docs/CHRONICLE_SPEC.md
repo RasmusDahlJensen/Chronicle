@@ -38,6 +38,8 @@ Precedence: newer explicit user choices override older choices. In particular:
 5. Scattered resource sites replace the earlier request to attach a resource to every cell. Technology determines exploitation; presence, knowledge, productivity, extraction, and stockpiles are distinct.
 6. Country-created provinces replace geographically fixed provinces generated before tribes. Successful capture of a provincial capital transfers sovereignty immediately; a peace agreement is not required for that transfer. The existing authored atlas still uses its earlier fixed groups as a test fixture.
 
+Approved emergent-AI direction, 11 September: generated countries share decision machinery but differ through seeded circumstances and preferences, competing interests, limited knowledge and accumulated experience. Choices should remain understandable and commitments persistent; histories should vary without monthly personality rerolls or a compulsory dominant strategy. Alliances, trading, war and internal politics remain part of the full simulation direction. World and history seeds are distinct, and identical complete setups/rules must replay exactly. [Country AI 01](features/country-ai-01.md) implements the first local decision policy over existing food/settlement actions; richer institutions, knowledge acquisition and diplomatic actions remain subsequent mechanics.
+
 Requirement labels: **Required** means a recorded product direction. **Proposed default** means a concrete engineering or balance choice introduced here, changeable after measurement. **Deferred** means outside the first release.
 
 ## 2. Product contract

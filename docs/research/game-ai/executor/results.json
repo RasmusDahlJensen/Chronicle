@@ -1,0 +1,143 @@
+{
+  "node": "v24.20.0",
+  "xstateDayReplay": {
+    "status": "done",
+    "context": {
+      "days": 5,
+      "rng": 1543727538,
+      "reserve": 15
+    }
+  },
+  "xstateDelayRestore": {
+    "original": "done",
+    "restoredAt600": "waiting",
+    "entries": 1,
+    "snapshotKeys": [
+      "status",
+      "value",
+      "historyValue",
+      "context",
+      "children"
+    ],
+    "restoredAt1600": "waiting"
+  },
+  "mistreevous": {
+    "continuedCompleted": 1,
+    "recreatedCompleted": 0,
+    "details": {
+      "id": "9f108723-367d-f64e-4cf5-4a5d1fb1f76d",
+      "name": "ROOT",
+      "type": "root",
+      "state": "mistreevous.running",
+      "children": [
+        {
+          "id": "4d45b67e-6dee-9049-6cc1-03b2a8c85cd1",
+          "name": "SEQUENCE",
+          "type": "sequence",
+          "state": "mistreevous.running",
+          "children": [
+            {
+              "id": "a75c5f20-635a-1b29-97c0-a8ac601c4834",
+              "name": "WAIT 3000ms",
+              "type": "wait",
+              "state": "mistreevous.running"
+            },
+            {
+              "id": "74b3a6e4-99e9-96e4-bb0c-668a10c3a135",
+              "name": "Finish",
+              "type": "action",
+              "state": "mistreevous.ready",
+              "args": []
+            }
+          ]
+        }
+      ]
+    },
+    "prototypeMethods": [
+      "constructor",
+      "isRunning",
+      "getState",
+      "step",
+      "reset",
+      "getTreeNodeDetails"
+    ],
+    "nodeIdUninjectedRandomCalls": 16
+  },
+  "yuka": {
+    "namedESMImport": true,
+    "originalRemaining": 3,
+    "restoredRemaining": 5,
+    "serialized": {
+      "type": "Think",
+      "owner": "country-1",
+      "status": "inactive",
+      "subgoals": [
+        {
+          "type": "WorkGoal",
+          "owner": "country-1",
+          "status": "inactive"
+        }
+      ],
+      "evaluators": []
+    }
+  },
+  "gameplan": {
+    "esmImport": true,
+    "exports": [
+      "default"
+    ]
+  },
+  "jsSon": {
+    "esmDefaultImport": true,
+    "next": [
+      {
+        "action": "collect"
+      }
+    ]
+  },
+  "mahler": {
+    "esmNamedImports": true,
+    "planFound": true,
+    "plan": {
+      "success": true,
+      "start": {
+        "_tag": "value",
+        "next": {
+          "_tag": "value",
+          "next": {
+            "_tag": "value",
+            "next": null,
+            "id": "be7b871e0093c5e16d144163061cdf3d",
+            "action": {
+              "id": "82459870625a1d6fe24a3c851710767ade821977f7f0bcd2de532ce82e265f2f",
+              "path": "/",
+              "description": "+1",
+              "target": 3
+            }
+          },
+          "id": "6b53bcf489ab23d679ae59031ad4afef",
+          "action": {
+            "id": "82459870625a1d6fe24a3c851710767ade821977f7f0bcd2de532ce82e265f2f",
+            "path": "/",
+            "description": "+1",
+            "target": 3
+          }
+        },
+        "id": "4b25914ccb5a82dc16b71542bd84d031",
+        "action": {
+          "id": "82459870625a1d6fe24a3c851710767ade821977f7f0bcd2de532ce82e265f2f",
+          "path": "/",
+          "description": "+1",
+          "target": 3
+        }
+      },
+      "state": 3,
+      "stats": {
+        "iterations": 3,
+        "maxDepth": 3,
+        "time": 2.6824670000000026
+      },
+      "pendingChanges": []
+    }
+  }
+}

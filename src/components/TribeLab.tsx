@@ -4,7 +4,7 @@ import type { WorldManifest } from '../../shared/generated-world.ts';
 import { simulationDate, type SimulationCommand, type SimulationState, type SimulationView } from '../../shared/simulation.ts';
 import { commandSimulation, observeSimulation, openSimulation, releaseSimulation, SimulationConflictError } from '../api/simulation.ts';
 import './tribe-lab.css';
-import { SettlementEconomy } from './SettlementDetails.tsx';
+import { CountryDecisions, SettlementEconomy } from './SettlementDetails.tsx';
 
 interface Props {
   world: WorldManifest;
@@ -42,6 +42,7 @@ function rememberedTribe(world: WorldManifest): { target: Target | null; error: 
 export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, mapAvailable, toolbarHost, placementActive, onPlacement, registerPlacement, placementError }: Props) {
   const [initial] = useState(() => rememberedTribe(world));
   const [spawnMenu, setSpawnMenu] = useState(false);
+  const [historySeed, setHistorySeed] = useState('');
   const [target, setTarget] = useState<Target | null>(initial.target);
   const [observerId] = useState(() => crypto.randomUUID());
   const [view, setView] = useState<SimulationView | null>(null);
@@ -143,7 +144,7 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
   function begin(originCellId?: number) {
     if (busy || target || error || !mapAvailable) return;
     try {
-      const next = { id: crypto.randomUUID(), placementSeed: crypto.randomUUID(), ...(originCellId === undefined ? {} : { originCellId }) };
+      const next = { id: crypto.randomUUID(), placementSeed: historySeed.trim() || crypto.randomUUID(), ...(originCellId === undefined ? {} : { originCellId }) };
       // Persist identity before sending a request whose outcome could be uncertain.
       localStorage.setItem(sessionKey(world), JSON.stringify(next));
       setBusy(true); setTarget(next); setSpawnMenu(false); onPlacement(false);
@@ -168,7 +169,7 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
     data-elapsed-days={state?.elapsedDays} data-incarnation={state?.incarnation} data-revision={state?.revision} aria-busy={busy}>
     {toolbarHost && createPortal(<section className="world-simulation-toolbar" aria-label="World simulation">
       <div className="world-spawn-controls"><button type="button" disabled={blocked || !!target || !mapAvailable} onClick={() => setSpawnMenu(value => !value)}>Spawn civilization</button>
-        {spawnMenu && !placementActive && <><button type="button" disabled={blocked || !mapAvailable} onClick={() => begin()}>Random location</button><button type="button" disabled={blocked || !mapAvailable} onClick={() => { setSpawnMenu(false); onPlacement(true); }}>Choose on map</button></>}
+        {spawnMenu && !placementActive && <div className="world-spawn-menu"><label>History seed<input type="text" value={historySeed} maxLength={64} placeholder="Leave blank for a fresh history" disabled={blocked} onChange={event => setHistorySeed(event.target.value)} /></label><p className="atlas-panel-note">Sets country preferences and random placement. Reuse it with the same world and starting location to repeat a history.</p><div><button type="button" disabled={blocked || !mapAvailable} onClick={() => begin()}>Random location</button><button type="button" disabled={blocked || !mapAvailable} onClick={() => { setSpawnMenu(false); onPlacement(true); }}>Choose on map</button></div></div>}
         {placementActive && <><span>Click suitable land to settle.</span><button type="button" onClick={() => onPlacement(false)}>Cancel placement</button></>}
       </div>
       <div className="world-clock-controls"><span className="tribe-date">Month {Math.floor((state?.elapsedDays ?? 0) % 360 / 30) + 1}, Year {date?.year ?? 1}</span>
@@ -186,9 +187,11 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
       <p className="atlas-panel-note">This study has 250 people in total. Founding communities redistributes them; births and deaths come later. The calendar has 360 days per year.</p>
       <button className="world-locate-civilization" type="button" onClick={onLocate} disabled={!mapAvailable}>Locate civilization <span aria-hidden="true">↗</span></button>
       <p className="tribe-run-status" role="status">{error ? 'Last confirmed progress' : busy ? 'Updating simulation…' : state.running ? view.active ? 'Running' : 'Waiting to resume' : 'Paused'}</p>
-      {confirmReset ? <div className="tribe-reset-confirmation" role="group" aria-label="Reset simulation confirmation"><p>Reset {state.tribe.name} to Month 1, Year 1, paused at its original camp? Saved progress will be replaced.</p><button type="button" disabled={blocked} onClick={() => { setConfirmReset(false); act.current({ action: 'reset' }); }}>Confirm reset simulation</button><button type="button" disabled={busy} onClick={() => setConfirmReset(false)}>Cancel reset</button></div>
+      {confirmReset ? <div className="tribe-reset-confirmation" role="group" aria-label="Reset simulation confirmation"><p>Reset {state.tribe.name} to Month 1, Year 1, paused at its original camp? Saved progress will be replaced.{state.clockMode === 'monthly' && !state.ai && ' Reset also enables country AI using the original history seed.'}</p><button type="button" disabled={blocked} onClick={() => { setConfirmReset(false); act.current({ action: 'reset' }); }}>Confirm reset simulation</button><button type="button" disabled={busy} onClick={() => setConfirmReset(false)}>Cancel reset</button></div>
         : <button className="tribe-reset-button" type="button" disabled={blocked} onClick={() => setConfirmReset(true)}>Reset simulation</button>}
       {state.settlements && <SettlementEconomy society={state.settlements} onLocate={onLocateSettlement} mapAvailable={mapAvailable} />}
+      {state.ai && state.settlements && <CountryDecisions ai={state.ai} society={state.settlements} />}
+      {state.clockMode === 'monthly' && !state.ai && <p className="atlas-panel-note">This saved history keeps its earlier settlement rules. Reset simulation enables country AI from the original location and history seed.</p>}
       <p className="atlas-panel-note">Completed days are saved on this PC. The main center anchors the tribe. Formal capitals and provinces develop later.</p>
     </> : target ? <><h2>Your civilization</h2><p className="atlas-panel-note">{busy ? 'Opening the saved civilization…' : 'The saved instance has not been loaded.'}</p></>
       : <><h2>An unsettled world</h2><p className="atlas-panel-note">Use Spawn civilization above the map to choose a random location or place its first community yourself.</p></>}

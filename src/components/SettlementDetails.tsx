@@ -1,8 +1,37 @@
 import type { SimulationState } from '../../shared/simulation.ts';
+import { COUNTRY_GOAL_LABELS, type CountryAI } from '../../shared/country-ai.ts';
 
 type Society = NonNullable<SimulationState['settlements']>;
 export type SettlementCenter = Society['centers'][number];
 const format = (value: number) => new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(value);
+
+export function CountryDecisions({ ai, society }: { ai: CountryAI; society: Society }) {
+  const centerName = (id: string) => society.centers.find(center => center.id === id)?.name ?? id;
+  return <section className="country-decisions" aria-label="Country decisions">
+    <h3>Country decisions</h3>
+    <dl className="world-water-facts">
+      <div><dt>Reserve target</dt><dd>{ai.profile.reserveDays} days</dd></div>
+      <div><dt>Commitment duration</dt><dd>{ai.profile.commitmentDays} days</dd></div>
+      <div><dt>Expansion preference</dt><dd>{ai.profile.expansion}/100</dd></div>
+      <div><dt>Mobility preference</dt><dd>{ai.profile.mobility}/100</dd></div>
+    </dl>
+    <p className="atlas-panel-note">Higher expansion and mobility preferences favor extending local presence and moving for food. Local food, people and access determine which projects are possible.</p>
+    <p className="atlas-panel-note country-history-seed">History seed: <span>{ai.historySeed}</span></p>
+    {ai.decisions.length === 0 ? <p className="atlas-panel-note">Communities evaluate their next commitment when time advances.</p>
+      : <ul className="country-commitments">{ai.decisions.map(decision => <li key={decision.settlementId} data-country-decision={decision.settlementId}>
+        <strong>{centerName(decision.settlementId)} · {COUNTRY_GOAL_LABELS[decision.goal]}</strong>
+        <p className="atlas-panel-note">Since day {decision.sinceDay + 1} · Review day {decision.reviewDay + 1}{decision.targetCellId !== null && ` · Target cell ${decision.targetCellId}`}</p>
+        <p className="settlement-decision">{decision.reason}</p>
+        <p className="atlas-panel-note">Reserved locally: {format(decision.reservedFood)} food person-days · {decision.reservedPeople} people. Reservations remain in this center’s stores and population until used.</p>
+        <details><summary>Alternatives considered</summary><p className="atlas-panel-note">At the last review; commitments are checked daily.</p><ul className="country-alternatives">{decision.alternatives.map((alternative, index) => <li key={`${alternative.goal}-${alternative.targetCellId}-${index}`}>
+          <strong>{COUNTRY_GOAL_LABELS[alternative.goal]}</strong>
+          <span>{alternative.eligible ? `Eligible · Score ${alternative.score}/100` : 'Unavailable'}{alternative.targetCellId !== null && ` · Cell ${alternative.targetCellId}`}</span>
+          <p>{alternative.reason}</p>
+        </li>)}</ul></details>
+      </li>)}</ul>}
+    {ai.history.length > 0 && <details className="country-history"><summary>Recent country decisions</summary><ol>{[...ai.history].reverse().map((event, index) => <li key={`${event.day}-${event.settlementId}-${index}`}><span>Day {event.day + 1} · {centerName(event.settlementId)} · {COUNTRY_GOAL_LABELS[event.goal]}</span><p>{event.reason}</p></li>)}</ol></details>}
+  </section>;
+}
 
 export function SettlementEconomy({ society, onLocate, mapAvailable }: {
   society: Society; onLocate: (id: string) => void; mapAvailable: boolean;

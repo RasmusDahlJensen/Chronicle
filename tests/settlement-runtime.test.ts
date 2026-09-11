@@ -144,3 +144,39 @@ test('checkpoint bound leaves room for a complete simulation view including maxi
  const envelope = JSON.stringify({state:null,active:false,error:'\u0000'.repeat(256)});
  assert.ok(maximumCheckpoint + Buffer.byteLength(envelope) <= MAX_SIMULATION_BYTES);
 });
+
+import { advanceTribeDays } from '../src/simulation/tribe.ts';
+import { createSettlementEnvironment } from '../src/simulation/settlements.ts';
+import { parseWorldManifest, parseWorldTile } from '../shared/generated-world.ts';
+
+test('country AI crosses the real worker and SQLite boundary and resumes exact plans and RNG after restart', async t => {
+ const directory=await mkdtemp(join(tmpdir(),'chronicle-country-ai-worker-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const opening={...input,clockMode:'monthly' as const,originCellId:46821,placementSeed:'AI restart'};
+ const world=await bundle(),manifest=parseWorldManifest(JSON.parse(world.manifest));
+ const environment=createSettlementEnvironment(manifest,world.tiles.map((tile,i)=>parseWorldTile(JSON.parse(tile),manifest,i%(manifest.width/128),Math.floor(i/(manifest.width/128)))));
+ let service=createSimulationService({directory});t.after(()=>service.close());
+ let state=(await service.initialize(opening,world)).state;
+ assert.ok(state.ai);assert.equal(state.rulesVersion,3);
+ for(let month=0;month<4;month++) state=(await service.command(step(state))).state;
+ assert.ok(state.ai!.history.length);
+ const expected={...advanceTribeDays(state,30,environment),revision:state.revision+1};
+ await service.close();service=createSimulationService({directory});
+ assert.deepEqual((await service.open(opening))!.state,state);
+ assert.deepEqual((await service.command(step(state))).state,expected);
+});
+
+test('failed country AI commit rolls back RNG, decisions and food, and retry advances exactly once', async t => {
+ const directory=await mkdtemp(join(tmpdir(),'chronicle-country-ai-rollback-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const opening={...input,clockMode:'monthly' as const,originCellId:46821,placementSeed:'AI rollback'};
+ const runtime=createSimulationRuntime({directory});t.after(()=>runtime.close());
+ const initial=runtime.initialize(opening,await bundle()).state;
+ const db=new DatabaseSync(join(directory,'simulation.sqlite'));t.after(()=>db.close());
+ const environment=JSON.parse(db.prepare('SELECT body FROM environments').get()!.body as string);
+ const expected={...advanceTribeDays(initial,30,environment),revision:initial.revision+1};
+ db.exec("CREATE TRIGGER reject_ai BEFORE UPDATE ON checkpoints BEGIN SELECT RAISE(ABORT,'test failure'); END;");
+ assert.throws(()=>runtime.command(step(initial)),/save/i);
+ assert.deepEqual(runtime.observe({instanceId:opening.instanceId,observerId:opening.observerId}).state,initial);
+ assert.deepEqual(JSON.parse(db.prepare('SELECT current FROM checkpoints').get()!.current as string),initial);
+ db.exec('DROP TRIGGER reject_ai');
+ assert.deepEqual(runtime.command(step(initial)).state,expected);
+});

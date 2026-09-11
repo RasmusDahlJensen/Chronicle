@@ -11,8 +11,8 @@ test('the settlement slice has an explicit new version while preserving legacy c
  assert.equal(advanceTribeDays(old, 1).elapsedDays, 1);
  assert.throws(() => parseSimulationState({ ...legacy, protocolVersion: 2, rulesVersion: 2 }), /preserved/);
  assert.equal('settlements' in old, false);
- // The new version must expose an initial camp contract, covered by subsequent scenarios.
- assert.equal((awaitedVersion()), 2);
+ // Current AI rules advance the version; migrated legacy settlements still retain rules 2.
+ assert.equal((awaitedVersion()), 3);
 });
 import { SIMULATION_RULES_VERSION } from '../shared/simulation.ts';
 function awaitedVersion() { return SIMULATION_RULES_VERSION; }
