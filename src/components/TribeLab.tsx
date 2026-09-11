@@ -70,14 +70,14 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
     setBusy(true); setError(null); setNotice(null);
 
     function apply(next: SimulationView) {
-      if (!alive) return;
+      if (!alive || session.current !== identity) return;
       const previous = latest.current?.state;
       if (previous && (next.state.incarnation < previous.incarnation
         || next.state.incarnation === previous.incarnation && next.state.revision < previous.revision)) return;
       latest.current = next; setView(next); setError(next.error); stoppedForError = next.error !== null;
     }
     function failure(cause: unknown) {
-      if (alive) { stoppedForError = true; setError(errorMessage(cause)); }
+      if (alive && session.current === identity) { stoppedForError = true; setError(errorMessage(cause)); }
     }
     function schedule() {
       clearTimeout(timer);
@@ -141,12 +141,17 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
     };
   }, [world, target, observerId, retry]);
 
-  function begin(originCellId?: number) {
-    if (busy || target || error || !mapAvailable) return;
+  function begin(originCellId?: number, newGame = false) {
+    if (busy || !mapAvailable || !newGame && (target || error)) return;
     try {
-      const next = { id: crypto.randomUUID(), placementSeed: historySeed.trim() || crypto.randomUUID(), ...(originCellId === undefined ? {} : { originCellId }) };
+      const next = { id: crypto.randomUUID(), placementSeed: newGame ? crypto.randomUUID() : historySeed.trim() || crypto.randomUUID(), ...(originCellId === undefined ? {} : { originCellId }) };
       // Persist identity before sending a request whose outcome could be uncertain.
       localStorage.setItem(sessionKey(world), JSON.stringify(next));
+      // Invalidate old responses immediately. Effect cleanup detaches the former
+      // observer; its saved state belongs to that instance, never the new game.
+      session.current = null; latest.current = null; act.current = () => {};
+      setView(null); setError(null); setNotice(null); setConfirmReset(false);
+      onTribeChange(world, null);
       setBusy(true); setTarget(next); setSpawnMenu(false); onPlacement(false);
     } catch { setError('This browser could not remember the civilization. Enable local storage and retry before spawning.'); }
   }
@@ -168,7 +173,7 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
   return <section className="tribe-lab" aria-label="Tribe lab" data-instance-id={target?.id ?? ''}
     data-elapsed-days={state?.elapsedDays} data-incarnation={state?.incarnation} data-revision={state?.revision} aria-busy={busy}>
     {toolbarHost && createPortal(<section className="world-simulation-toolbar" aria-label="World simulation">
-      <div className="world-spawn-controls"><button type="button" disabled={blocked || !!target || !mapAvailable} onClick={() => setSpawnMenu(value => !value)}>Spawn civilization</button>
+      <div className="world-spawn-controls"><button className="world-new-game" type="button" disabled={busy || !mapAvailable} onClick={() => begin(undefined, true)}>New game</button><button type="button" disabled={blocked || !!target || !mapAvailable} onClick={() => setSpawnMenu(value => !value)}>Spawn civilization</button>
         {spawnMenu && !placementActive && <div className="world-spawn-menu"><label>History seed<input type="text" value={historySeed} maxLength={64} placeholder="Leave blank for a fresh history" disabled={blocked} onChange={event => setHistorySeed(event.target.value)} /></label><p className="atlas-panel-note">Sets country preferences and random placement. Reuse it with the same world and starting location to repeat a history.</p><div><button type="button" disabled={blocked || !mapAvailable} onClick={() => begin()}>Random location</button><button type="button" disabled={blocked || !mapAvailable} onClick={() => { setSpawnMenu(false); onPlacement(true); }}>Choose on map</button></div></div>}
         {placementActive && <><span>Click suitable land to settle.</span><button type="button" onClick={() => onPlacement(false)}>Cancel placement</button></>}
       </div>
@@ -194,7 +199,7 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
       {state.clockMode === 'monthly' && !state.ai && <p className="atlas-panel-note">This saved history keeps its earlier settlement rules. Reset simulation enables country AI from the original location and history seed.</p>}
       <p className="atlas-panel-note">Completed days are saved on this PC. The main center anchors the tribe. Formal capitals and provinces develop later.</p>
     </> : target ? <><h2>Your civilization</h2><p className="atlas-panel-note">{busy ? 'Opening the saved civilization…' : 'The saved instance has not been loaded.'}</p></>
-      : <><h2>An unsettled world</h2><p className="atlas-panel-note">Use Spawn civilization above the map to choose a random location or place its first community yourself.</p></>}
+      : <><h2>An unsettled world</h2><p className="atlas-panel-note">New game creates a fresh civilization on this map. Use Spawn civilization for a chosen history seed or manual placement.</p></>}
     {error && <div className="tribe-error"><p className="atlas-panel-note" role="alert">{error}</p>{view?.error
       ? <><p className="atlas-panel-note">After restoring storage access, save the current checkpoint and pause. A failed step or reset will not be repeated.</p><button type="button" disabled={busy} onClick={() => act.current({ action: 'pause' }, true)}>Retry save and pause</button></>
       : <button type="button" disabled={busy} onClick={retryTribe}>Retry simulation</button>}</div>}

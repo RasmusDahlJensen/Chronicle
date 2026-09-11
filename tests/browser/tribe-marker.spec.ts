@@ -265,6 +265,7 @@ test('spawn choices cannot start on a world being replaced and map placement can
   await page.getByLabel('World seed').fill('Elsewhere');
   await page.getByRole('button', { name: 'Regenerate world', exact: true }).click();
   await expect.poll(() => requested).toBe(true);
+  await expect(toolbar.getByRole('button', { name: 'New game', exact: true })).toBeDisabled();
   await expect(toolbar.getByRole('button', { name: 'Random location', exact: true })).toBeDisabled();
   await expect(toolbar.getByRole('button', { name: 'Choose on map', exact: true })).toBeDisabled();
   expect(opens).toEqual([]);
