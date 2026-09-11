@@ -1,15 +1,17 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { decodeWorldSurface, WORLD_BIOMES } from '../../shared/generated-world.ts';
 import type { SimulationObserve, SimulationOpen, SimulationView } from '../../shared/simulation.ts';
 
 async function snapshot(page: Page, identity: SimulationObserve) {
-  const response = await page.request.post('/api/simulation/observe', { data: identity });
+  const response = await page.request.post('/api/simulation/observe', { data: { instanceId: identity.instanceId, observerId: identity.observerId } });
   expect(response.ok()).toBe(true);
   return await response.json() as SimulationView;
 }
 async function beginHere(page: Page) {
   const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
   const opening = page.waitForRequest('**/api/simulation/open');
-  await panel.getByRole('button', { name: 'Begin tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Random location', exact: true }).click();
   const { instanceId, observerId } = (await opening).postDataJSON() as SimulationOpen;
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   const identity = { instanceId, observerId };
@@ -74,7 +76,7 @@ test('one actual tribe marker can be located, picked across the seam and preserv
   await expect(selected).toContainText(tribe.name);
   await expect(selected).toContainText(tribe.color);
   await expect(selected).toContainText(String(tribe.originCellId));
-  await panel.getByRole('button', { name: 'Locate tribe' }).focus(); await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Locate civilization' }).focus(); await page.keyboard.press('Enter');
   await expect(canvas).toHaveAttribute('data-layer', 'biomes');
   expect(Number(await canvas.getAttribute('data-zoom'))).toBeGreaterThan(1);
   await page.screenshot({ path: testInfo.outputPath('tribe-marker-selected.png'), fullPage: true });
@@ -99,9 +101,10 @@ test('failed initiation keeps geography usable and retry leaves all scientific l
   let requests = 0;
   await page.route('**/api/simulation/open', route => { requests++; return route.fulfill({ status: 503, body: 'Unavailable' }); });
   const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
-  await panel.getByRole('button', { name: 'Begin tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Random location', exact: true }).click();
   await expect(panel.getByRole('alert')).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'Retry tribe' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry simulation' })).toBeVisible();
   await expect(canvas).toHaveAttribute('data-civilization-id', '');
   await page.getByRole('radio', { name: 'Temperature', exact: true }).check();
   await canvas.focus(); await page.keyboard.press('Enter');
@@ -109,7 +112,7 @@ test('failed initiation keeps geography usable and retry leaves all scientific l
   expect(requests).toBe(1);
   const climate = await canvasImage(canvas);
   await page.unroute('**/api/simulation/open');
-  await panel.getByRole('button', { name: 'Retry tribe' }).click();
+  await page.getByRole('button', { name: 'Retry simulation' }).click();
   await expect(panel.locator('[data-tribe-name]')).toBeVisible();
   await expect(panel.getByRole('alert')).toHaveCount(0);
   expect(await canvasImage(canvas)).toBe(climate);
@@ -130,7 +133,8 @@ test('an older delayed tribal creation cannot replace the current world camp', a
   });
   const canvas = await freshWorld(page);
   const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
-  await panel.getByRole('button', { name: 'Begin tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Random location', exact: true }).click();
   await expect.poll(() => earlier !== undefined).toBe(true);
   await expect(panel).toHaveAttribute('aria-busy', 'true');
   await page.getByLabel('World seed').fill('Elsewhere');
@@ -144,7 +148,7 @@ test('an older delayed tribal creation cannot replace the current world camp', a
   release(); await page.waitForLoadState('networkidle');
   await expect(panel.getByRole('heading', { name: latest.state.tribe.name, exact: true })).toBeVisible();
   await expect(panel).toHaveAttribute('data-instance-id', latest.state.id);
-  await panel.getByRole('button', { name: 'Locate tribe' }).click();
+  await page.getByRole('button', { name: 'Locate civilization' }).click();
   await expect(page.locator('.world-selected-cell')).toHaveAttribute('data-selected-cell', String(latest.state.tribe.originCellId));
   await expect(canvas).toHaveAttribute('data-civilization-id', latest.state.tribe.id);
 });
@@ -152,9 +156,9 @@ test('an older delayed tribal creation cannot replace the current world camp', a
 test('mobile locate returns from climate to the tribe marker and dragging does not select', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const canvas = await freshWorld(page);
-  const { view, panel } = await beginHere(page), tribe = view.state.tribe;
+  const { view } = await beginHere(page), tribe = view.state.tribe;
   await page.getByRole('radio', { name: 'Fertility', exact: true }).check();
-  await panel.getByRole('button', { name: 'Locate tribe' }).click();
+  await page.getByRole('button', { name: 'Locate civilization' }).click();
   await expect(canvas).toHaveAttribute('data-layer', 'biomes');
   await expect(page.getByRole('region', { name: 'Selected tribe camp' })).toHaveAttribute('data-selected-civilization', tribe.id);
   await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
@@ -179,11 +183,117 @@ test('no suitable camp land is an explicit initiation failure with no invented m
   });
   const canvas = await freshWorld(page);
   const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
-  await panel.getByRole('button', { name: 'Begin tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Random location', exact: true }).click();
   await expect(panel.getByRole('alert')).toContainText('No suitable founding land');
-  await expect(panel.getByRole('button', { name: 'Locate tribe' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Locate civilization' })).toHaveCount(0);
   await expect(panel.locator('[data-tribe-name]')).toHaveCount(0);
   await expect(canvas).toHaveAttribute('data-civilization-id', '');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   expect(requests).toBe(1);
+});
+
+
+test('manual spawn rejects water, dragging and cancel create nothing, then a clicked viable site is retained', async ({ page }) => {
+  const canvas = await freshWorld(page);
+  await page.getByLabel('Resolution', { exact: true }).selectOption('standard');
+  await page.getByRole('button', { name: 'Regenerate world', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-world-key', 'climate-5:standard:Chronicle');
+  const world = await (await page.request.get('/api/world?seed=Chronicle&size=standard')).json();
+  const surface = decodeWorldSurface(world.surface);
+  // Choose an ocean cell near the center so the test is independent of page edges.
+  const water = Array.from(surface.biome).findIndex((code, id) => WORLD_BIOMES[code] === 'ocean'
+    && id % 512 > 100 && id % 512 < 400 && Math.floor(id / 512) > 70 && Math.floor(id / 512) < 180);
+  expect(water).toBeGreaterThan(0);
+  const opens: SimulationOpen[] = [];
+  page.on('request', request => { if (request.url().includes('/api/simulation/open')) opens.push(request.postDataJSON()); });
+  const toolbar = page.getByRole('region', { name: 'World simulation', exact: true });
+  await expect(toolbar.getByRole('button', { name: 'Play', exact: true })).toBeDisabled();
+  await toolbar.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await toolbar.getByRole('button', { name: 'Choose on map', exact: true }).click();
+  await canvas.scrollIntoViewIfNeeded();
+  const ocean = await pointFor(canvas, water, 512);
+  await page.mouse.click(ocean.x, ocean.y);
+  await expect(toolbar.getByRole('alert')).toContainText(/suitable|habitable/i);
+  expect(opens).toHaveLength(0);
+  await expect(canvas).toHaveAttribute('data-civilization-id', '');
+  await expect(toolbar.getByRole('button', { name: 'Cancel placement', exact: true })).toBeVisible();
+  await page.mouse.move(ocean.x, ocean.y); await page.mouse.down();
+  await page.mouse.move(ocean.x + 55, ocean.y + 10, { steps: 5 }); await page.mouse.up();
+  expect(opens).toHaveLength(0);
+  await toolbar.getByRole('button', { name: 'Cancel placement', exact: true }).click();
+  expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('chronicle:world-session:')))).toEqual([]);
+  await page.getByRole('button', { name: 'Fit map', exact: true }).click();
+  await toolbar.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await toolbar.getByRole('button', { name: 'Choose on map', exact: true }).click();
+  await canvas.scrollIntoViewIfNeeded();
+  const land = await pointFor(canvas, 46821, 512);
+  await page.mouse.click(land.x, land.y);
+  const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
+  await expect(panel).toHaveAttribute('data-elapsed-days', '0');
+  expect(opens).toHaveLength(1); expect(opens[0].originCellId).toBe(46821); expect(opens[0].clockMode).toBe('monthly');
+  const state = (await snapshot(page, opens[0])).state;
+  expect(state.tribe.originCellId).toBe(46821); expect(state.spawnOriginCellId).toBe(46821);
+  await expect(toolbar.getByRole('button', { name: 'Spawn civilization', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-elapsed-days', '30');
+  await page.getByRole('button', { name: 'Reset simulation', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm reset simulation', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-elapsed-days', '0');
+  expect((await snapshot(page, opens[0])).state.tribe.originCellId).toBe(46821);
+});
+
+test('spawn choices cannot start on a world being replaced and map placement cancels on replacement', async ({ page }) => {
+  const canvas = await freshWorld(page), toolbar = page.getByRole('region', { name: 'World simulation', exact: true });
+  let release!: () => void, requested = false;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/api/world?seed=Elsewhere&size=large', async route => {
+    requested = true; await held; await route.continue();
+  });
+  const opens: string[] = [];
+  page.on('request', request => { if (request.url().includes('/api/simulation/open')) opens.push(request.url()); });
+  await toolbar.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByLabel('World seed').fill('Elsewhere');
+  await page.getByRole('button', { name: 'Regenerate world', exact: true }).click();
+  await expect.poll(() => requested).toBe(true);
+  await expect(toolbar.getByRole('button', { name: 'Random location', exact: true })).toBeDisabled();
+  await expect(toolbar.getByRole('button', { name: 'Choose on map', exact: true })).toBeDisabled();
+  expect(opens).toEqual([]);
+  release();
+  await expect(canvas).toHaveAttribute('data-world-key', 'climate-5:large:Elsewhere');
+  await toolbar.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await toolbar.getByRole('button', { name: 'Choose on map', exact: true }).click();
+  await expect(toolbar.getByRole('button', { name: 'Cancel placement', exact: true })).toBeVisible();
+  await page.getByLabel('World seed').fill('Chronicle');
+  await page.getByRole('button', { name: 'Regenerate world', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-world-key', 'climate-5:large:Chronicle');
+  await expect(toolbar.getByRole('button', { name: 'Cancel placement', exact: true })).toHaveCount(0);
+  expect(opens).toEqual([]);
+});
+
+test('a failed tile lookup during manual placement can retry detail and spawn on the same chosen cell', async ({ page }) => {
+  const canvas = await freshWorld(page);
+  await page.getByLabel('Resolution', { exact: true }).selectOption('standard');
+  await page.getByRole('button', { name: 'Regenerate world', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-world-key', 'climate-5:standard:Chronicle');
+  let failedRequests = 0;
+  await page.route('**/api/world/tile?seed=Chronicle&size=standard&x=1&y=0', route => {
+    failedRequests++; return route.fulfill({ status: 503, body: 'Tile unavailable' });
+  });
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Choose on map', exact: true }).click();
+  await canvas.scrollIntoViewIfNeeded();
+  let land = await pointFor(canvas, 46821, 512);
+  await page.mouse.click(land.x, land.y);
+  await expect.poll(() => failedRequests).toBeGreaterThan(0);
+  await expect(page.getByRole('button', { name: 'Retry detail', exact: true })).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-civilization-id', '');
+  await page.unroute('**/api/world/tile?seed=Chronicle&size=standard&x=1&y=0');
+  await page.getByRole('button', { name: 'Retry detail', exact: true }).click();
+  await canvas.scrollIntoViewIfNeeded();
+  land = await pointFor(canvas, 46821, 512);
+  await page.mouse.click(land.x, land.y);
+  const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
+  await expect(panel).toHaveAttribute('data-elapsed-days', '0');
+  await expect(panel).toContainText('46821');
 });

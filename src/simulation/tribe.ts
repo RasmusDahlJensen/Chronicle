@@ -1,16 +1,19 @@
+import { createSpawnIdentity } from '../world/civilization.ts';
 import { initialSettlements, advanceSettlements } from './settlements.ts';
 import type { SettlementEnvironment } from '../../shared/settlements.ts';
-import { isFoundingBiome, type CivilizationSnapshot } from '../../shared/civilization.ts';
+import { isSuitableCivilizationSite, CIVILIZATION_SITE_RULES, type CivilizationSnapshot } from '../../shared/civilization.ts';
 import { WORLD_BIOMES, WORLD_SIZES, WORLD_TILE_SIZE, worldKey, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
 import { INITIAL_TRIBE_POPULATION, SIMULATION_PROTOCOL_VERSION, SIMULATION_RULES_VERSION, parseSimulationState, type SimulationState } from '../../shared/simulation.ts';
 import { hashNoise, seedNumber } from '../world/generation/noise.ts';
 
-export const TRIBE_START_RULES = { minimumFertility: 25, minimumTemperature: 5 } as const;
+export const TRIBE_START_RULES = CIVILIZATION_SITE_RULES;
+export class UnsuitableSpawnError extends Error {}
 const initialRng = (key: string, placementSeed: string) => seedNumber(`${key}:${placementSeed}:living`) || 1;
 
 /** The transport owns validation of full tiles; the core checks complete, unique geography coverage. */
 export function createTribeState(instanceId: string, placementSeed: string, world: WorldManifest,
-  civilization: CivilizationSnapshot, tiles: WorldTile[]): SimulationState {
+  civilization: CivilizationSnapshot, tiles: WorldTile[], options: { clockMode?: 'monthly'; originCellId?: number } = {}): SimulationState {
+  if (options.originCellId !== undefined && (options.clockMode !== 'monthly' || !Number.isInteger(options.originCellId) || options.originCellId < 0)) throw new UnsuitableSpawnError('Choose a suitable start cell.');
   const shape = WORLD_SIZES[world.settings.size], columns = shape.width / WORLD_TILE_SIZE;
   if (world.worldKey !== worldKey(world.settings) || civilization.worldKey !== world.worldKey
     || world.width !== shape.width || world.height !== shape.height
@@ -25,18 +28,21 @@ export function createTribeState(instanceId: string, placementSeed: string, worl
     seen.add(key);
     const { fields } = tile;
     for (let at = 0; at < WORLD_TILE_SIZE ** 2; at++) {
-      if (!isFoundingBiome(WORLD_BIOMES[fields.biome[at]]) || fields.elevation[at] < 0
-        || fields.fertility[at] < TRIBE_START_RULES.minimumFertility || fields.temperature[at] < TRIBE_START_RULES.minimumTemperature * 10) continue;
+      if (!isSuitableCivilizationSite({ biome: WORLD_BIOMES[fields.biome[at]], elevation: fields.elevation[at],
+        fertility: fields.fertility[at], temperature: fields.temperature[at] / 10 })) continue;
       const x = tile.x * WORLD_TILE_SIZE + at % WORLD_TILE_SIZE;
       const y = tile.y * WORLD_TILE_SIZE + Math.floor(at / WORLD_TILE_SIZE), id = y * shape.width + x;
+      if (options.originCellId !== undefined && id !== options.originCellId) continue;
       const score = hashNoise(x, y, seed);
       if (score < bestHash || score === bestHash && id < originCellId) { originCellId = id; bestHash = score; }
     }
   }
-  const identity = civilization.civilizations[0];
-  if (originCellId < 0 || !identity) throw new Error('This world has no suitable land for the tribal scenario.');
+  const identity = options.clockMode === 'monthly' ? createSpawnIdentity(placementSeed) : civilization.civilizations[0];
+  if (originCellId < 0 || !identity) throw new UnsuitableSpawnError(options.originCellId === undefined
+    ? 'This world has no suitable land for a civilization.' : 'Choose suitable land: a habitable biome, fertility at least 25 and temperature at least 5°C.');
   return parseSimulationState({
-    protocolVersion: SIMULATION_PROTOCOL_VERSION, rulesVersion: SIMULATION_RULES_VERSION,
+    protocolVersion: options.clockMode === 'monthly' ? SIMULATION_PROTOCOL_VERSION : 2,
+    ...(options.clockMode === 'monthly' ? { clockMode: 'monthly', spawnOriginCellId: options.originCellId ?? null } : {}), rulesVersion: SIMULATION_RULES_VERSION,
     id: instanceId, incarnation: 1, revision: 0, worldKey: world.worldKey, settings: { ...world.settings }, placementSeed,
     tribe: { ...identity, originCellId, population: INITIAL_TRIBE_POPULATION },
     settlements: initialSettlements(identity.name, originCellId),

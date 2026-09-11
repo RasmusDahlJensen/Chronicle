@@ -1,3 +1,4 @@
+import { isSuitableCivilizationSite } from '../../shared/civilization.ts';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   DEFAULT_WORLD_SETTINGS, WORLD_BIOMES, inspectWorldCell, type InspectedWorldCell, type WorldManifest, type WorldSettings,
@@ -52,6 +53,16 @@ function FertilityDetail({ facts, expanded }: { facts: FertilityFacts; expanded:
 }
 
 export function GeneratedWorldLab() {
+  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
+  const [placementActive, setPlacementActive] = useState(false);
+  const [placementError, setPlacementError] = useState<string | null>(null);
+  const placement = useRef({ active: false, revision: 0 });
+  const placementHandler = useRef<((cellId: number) => void) | null>(null);
+  const registerPlacement = useCallback((handler: ((cellId: number) => void) | null) => { placementHandler.current = handler; }, []);
+  const changePlacement = useCallback((active: boolean) => {
+    placement.current = { active, revision: placement.current.revision + 1 };
+    setPlacementActive(active); setPlacementError(null);
+  }, []);
   const [world, setWorld] = useState<WorldManifest | null>(null);
   const [seed, setSeed] = useState(DEFAULT_WORLD_SETTINGS.seed);
   const [size, setSize] = useState<WorldSettings['size']>(DEFAULT_WORLD_SETTINGS.size);
@@ -81,7 +92,7 @@ export function GeneratedWorldLab() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setLoadError(null);
+    changePlacement(false); setLoading(true); setLoadError(null);
     void loadGeneratedWorld(request.settings, controller.signal).then(manifest => {
       if (controller.signal.aborted) return;
       setWorld(manifest); setLoading(false);
@@ -90,9 +101,10 @@ export function GeneratedWorldLab() {
       setLoadError(message(cause)); setLoading(false);
     });
     return () => controller.abort();
-  }, [request]);
+  }, [request, changePlacement]);
 
   useEffect(() => {
+    changePlacement(false);
     if (!world || !canvas.current) return;
     let alive = true;
     let selectionRevision = 0;
@@ -117,13 +129,27 @@ export function GeneratedWorldLab() {
       }).catch(cause => { if (alive && revision === selectionRevision) { setInspecting(false); detailFailure(cause); } });
     }
     retryDetail.current = () => {
-      tileClient.retryFailures(); setTileError(null); requestVisible();
+      tileClient.retryFailures(); setTileError(null); setPlacementError(null); requestVisible();
       if (selected.current) inspect(selected.current);
     };
     clearSelection.current = () => renderer.current?.clearSelection();
     try {
       renderer.current = createGeneratedWorldRenderer(canvas.current, world, {
         onSelect: inspect,
+        onActivate: coordinate => {
+          if (!placement.current.active) return false;
+          if (!coordinate) { setPlacementError('Choose land inside the map.'); return true; }
+          const revision = ++placement.current.revision;
+          void tileClient.request(Math.floor(coordinate.x / 128), Math.floor(coordinate.y / 128)).then(tile => {
+            if (!alive || !placement.current.active || revision !== placement.current.revision) return;
+            const candidate = inspectWorldCell(world, tile, coordinate.x, coordinate.y);
+            if (!isSuitableCivilizationSite({ ...candidate, fertility: candidate.fertility.score })) {
+              setPlacementError('Choose habitable land with growing potential of at least 25 and an annual temperature of at least 5 °C.'); return;
+            }
+            placementHandler.current?.(candidate.id);
+          }).catch(cause => { if (alive && placement.current.active && revision === placement.current.revision) { setPlacementError(message(cause)); detailFailure(cause); } });
+          return true;
+        },
         onView: next => {
           if (!alive) return;
           setView({ zoom: next.zoom, detail: next.detail }); visible.current = next.tiles;
@@ -136,7 +162,7 @@ export function GeneratedWorldLab() {
       alive = false; selectionRevision++; tileClient.destroy(); client.current = null;
       renderer.current?.destroy(); renderer.current = null;
     };
-  }, [world, canvasRevision]);
+  }, [world, canvasRevision, changePlacement]);
 
   useEffect(() => { renderer.current?.setLayer(layer, resources, rivers); }, [layer, resources, rivers, world, canvasRevision]);
   const simulation = tribePreview?.world === world ? tribePreview.state : null;
@@ -182,6 +208,7 @@ export function GeneratedWorldLab() {
           <div><dt>Land cover</dt><dd>{world ? landPercent.toFixed(1) : '—'}<span className="atlas-unit">%</span></dd></div>
         </dl>
       </div>
+      <div ref={setToolbarHost} />
       <div className="atlas-workspace">
         <aside className="atlas-sidebar" aria-label="World controls and legend">
           <section className="atlas-panel-section world-generation-controls">
@@ -233,7 +260,7 @@ export function GeneratedWorldLab() {
           <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A world at its beginning. Tribes begin here and can develop into civilizations. Each community anchors maintained territory. The main center has a diamond marker; other communities have round markers. Rivers connect catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">
-          {world && <TribeLab key={world.worldKey} world={world} onTribeChange={receiveTribe} onLocate={locateTribe} onLocateSettlement={locateSettlement} mapAvailable={!canvasError} />}
+          {world && <TribeLab key={world.worldKey} world={world} onTribeChange={receiveTribe} onLocate={locateTribe} onLocateSettlement={locateSettlement} mapAvailable={!canvasError && !loading} toolbarHost={toolbarHost} placementActive={placementActive} onPlacement={changePlacement} registerPlacement={registerPlacement} placementError={placementError} />}
           <p className="atlas-section-index">03 / Inspect</p><div className="atlas-section-heading"><h2 id="world-inspector-title">{cell || inspecting ? 'Cell detail' : 'Read the landscape'}</h2>{(cell || inspecting) && <button className="atlas-clear-selection" type="button" aria-label="Clear selection" onClick={() => clearSelection.current()}>×</button>}</div>
           {cell && world ? <div className="world-selected-cell" data-selected-cell={cell.id} aria-live="polite">
             {chosenCenter && <section aria-label={chosenCenter.id === simulation?.settlements?.mainSettlementId ? 'Selected tribe camp' : 'Selected community'} data-selected-civilization={tribe?.id}>

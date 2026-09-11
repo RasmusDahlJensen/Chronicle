@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import type { SimulationCommand, SimulationOpen } from '../../shared/simulation.ts';
 
 async function openLab(page: Page) {
@@ -8,21 +8,26 @@ async function openLab(page: Page) {
   await expect(panel).toBeVisible({ timeout: 5000 });
   return panel;
 }
-async function begin(panel: Locator, placement = 'Tribes 1') {
-  await panel.getByLabel('Placement seed', { exact: true }).fill(placement);
-  await panel.getByRole('button', { name: 'Begin tribe', exact: true }).click();
-  await expect(panel).toHaveAttribute('data-elapsed-days', '0');
-  await expect(panel).toContainText('Day 1, Year 1');
+async function begin(page: Page) {
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Random location', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Tribe lab', exact: true })).toHaveAttribute('data-elapsed-days', '0');
+  await expect(page.getByRole('region', { name: 'World simulation', exact: true })).toContainText('Month 1, Year 1');
 }
 
-test('a fresh world has no civilization or marker before Begin tribe', async ({ page }) => {
+test('a fresh world ignores legacy remembered tribes and has no civilization or marker before explicit spawn', async ({ page }) => {
+  await page.addInitScript(() => {
+    const key = 'climate-5:large:Chronicle', seed = 'Tribes 1';
+    localStorage.setItem(`chronicle:tribe-placement:${key}`, seed);
+    localStorage.setItem(`chronicle:tribe-instance:${JSON.stringify([key, seed])}`, '11111111-1111-4111-8111-111111111111');
+  });
   const actorRequests: string[] = [];
   page.on('request', request => {
     if (request.url().includes('/api/world/civilization') || request.url().includes('/api/simulation/')) actorRequests.push(request.url());
   });
   const panel = await openLab(page);
   await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveCount(0, { timeout: 5000 });
-  await expect(panel.getByRole('button', { name: 'Begin tribe', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Spawn civilization', exact: true })).toBeEnabled();
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-civilization-id', '');
   await expect(panel.locator('[data-tribe-name]')).toHaveCount(0);
   expect(actorRequests).toEqual([]);
@@ -34,85 +39,87 @@ test('Begin saves its identity before opening and refresh restores the same trib
   page.on('request', request => { if (request.url().includes('/api/world/civilization')) legacyRequests.push(request.url()); });
   await page.route('**/api/simulation/open', async route => {
     const body = route.request().postDataJSON() as SimulationOpen;
-    expect(await page.evaluate(id => Object.values(localStorage).includes(id), body.instanceId), 'Remember the instance before the host can create it').toBe(true);
+    expect(await page.evaluate(id => Object.entries(localStorage).some(([key, value]) => key.startsWith('chronicle:world-session:') && JSON.parse(value).id === id), body.instanceId), 'Remember the instance before the host can create it').toBe(true);
     opens.push(body); await route.continue();
   });
   const panel = await openLab(page);
   expect(opens).toHaveLength(0);
   await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveCount(0);
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-civilization-id', '');
-  await begin(panel, 'Coastal beginning');
+  await begin(page);
   const instance = await panel.getAttribute('data-instance-id');
   const name = await panel.locator('[data-tribe-name]').textContent();
   await expect(panel.locator('[data-tribe-population]')).toHaveText('250');
   await expect(page.getByRole('region', { name: 'Civilization', exact: true })).toHaveCount(0);
-  await panel.getByRole('button', { name: 'Step 30 days', exact: true }).click();
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
-  await expect(panel).toContainText('Day 31, Year 1');
-  await panel.getByRole('button', { name: 'Locate tribe', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'World simulation', exact: true })).toContainText('Month 2, Year 1');
+  await page.getByRole('button', { name: 'Locate civilization', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Selected tribe camp' })).toContainText(name!);
   await page.screenshot({ path: testInfo.outputPath('tribe-day-31.png'), fullPage: true });
   await page.reload();
   await expect(panel).toHaveAttribute('data-instance-id', instance!);
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
   await expect(panel.locator('[data-tribe-name]')).toHaveText(name!);
-  await expect(panel.getByRole('button', { name: 'Play tribe', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeEnabled();
   expect(new Set(opens.map(value => value.instanceId))).toEqual(new Set([instance]));
-  expect(opens.every(value => value.placementSeed === 'Coastal beginning')).toBe(true);
+  expect(new Set(opens.map(value => value.placementSeed)).size).toBe(1);
+  expect(opens.every(value => value.clockMode === 'monthly')).toBe(true);
   expect(legacyRequests).toEqual([]);
 });
 
-test('play, speed, manual pause and confirmed reset keep the tribe population accounted for', async ({ page }, testInfo) => {
-  const panel = await openLab(page); await begin(panel);
-  await panel.getByLabel('Simulation speed', { exact: true }).selectOption('10');
-  await panel.getByRole('button', { name: 'Play tribe', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'Step 1 day', exact: true })).toBeDisabled();
+test('global play advances whole months, pause and confirmed reset preserve population accounting', async ({ page }, testInfo) => {
+  const panel = await openLab(page); await begin(page);
+  await expect(page.getByLabel('Simulation speed', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Advance 1 month', exact: true })).toBeDisabled();
   await expect.poll(async () => Number(await panel.getAttribute('data-elapsed-days'))).toBeGreaterThan(0);
-  await panel.getByRole('button', { name: 'Pause tribe', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'Step 1 day', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Advance 1 month', exact: true })).toBeEnabled();
   const pausedDays = await panel.getAttribute('data-elapsed-days');
+  expect(Number(pausedDays) % 30).toBe(0);
   await page.reload();
   await expect(panel).toHaveAttribute('data-elapsed-days', pausedDays!);
-  await expect(panel.getByRole('button', { name: 'Play tribe', exact: true })).toBeEnabled();
-  await panel.getByRole('button', { name: 'Step 1 day', exact: true }).click();
-  await expect(panel).toHaveAttribute('data-elapsed-days', String(Number(pausedDays) + 1));
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-elapsed-days', String(Number(pausedDays) + 30));
   const oldIncarnation = Number(await panel.getAttribute('data-incarnation'));
-  await panel.getByRole('button', { name: 'Reset tribe', exact: true }).click();
-  await expect(panel).toContainText('Saved progress');
-  await panel.getByRole('button', { name: 'Cancel reset', exact: true }).click();
-  await expect(panel).toHaveAttribute('data-elapsed-days', String(Number(pausedDays) + 1));
-  await panel.getByRole('button', { name: 'Reset tribe', exact: true }).click();
-  await panel.getByRole('button', { name: 'Confirm reset tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset simulation', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Reset simulation confirmation' })).toContainText('Saved progress');
+  await page.getByRole('button', { name: 'Cancel reset', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-elapsed-days', String(Number(pausedDays) + 30));
+  await page.getByRole('button', { name: 'Reset simulation', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm reset simulation', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   await expect(panel).toHaveAttribute('data-incarnation', String(oldIncarnation + 1));
-  await expect(panel.getByRole('button', { name: 'Play tribe', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeEnabled();
   await expect(panel.locator('[data-tribe-population]')).toHaveText('250');
   await page.screenshot({ path: testInfo.outputPath('tribe-reset.png'), fullPage: true });
 });
 
 test('an unconfirmed command preserves the map and retry reads its saved result without repeating it', async ({ page }) => {
-  const panel = await openLab(page); await begin(panel);
+  const panel = await openLab(page); await begin(page);
   const instance = await panel.getAttribute('data-instance-id');
   let commands = 0;
   await page.route('**/api/simulation/command', async route => {
     commands++; const response = await route.fetch(); expect(response.ok()).toBe(true);
     await route.abort('failed');
   });
-  await panel.getByRole('button', { name: 'Step 30 days', exact: true }).click();
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
   await expect(panel.getByRole('alert')).toBeVisible();
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-rendered', 'true');
   await page.getByRole('radio', { name: 'Temperature', exact: true }).check();
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-layer', 'temperature');
   await page.unroute('**/api/simulation/command');
-  await panel.getByRole('button', { name: 'Retry tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry simulation', exact: true }).click();
   await expect(panel).toHaveAttribute('data-instance-id', instance!);
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
   expect(commands).toBe(1);
 });
 
 test('a revision conflict refreshes the changed state and never repeats a step automatically', async ({ page }) => {
-  const panel = await openLab(page); await begin(panel);
+  const panel = await openLab(page); await begin(page);
   let commands = 0;
   await page.route('**/api/simulation/command', async route => {
     commands++;
@@ -121,13 +128,13 @@ test('a revision conflict refreshes the changed state and never repeats a step a
     expect(external.ok()).toBe(true);
     await route.fulfill({ status: 409, json: { error: { code: 'CONFLICT', message: 'The state changed.', requestId: 'tribe-conflict' } } });
   });
-  await panel.getByRole('button', { name: 'Step 1 day', exact: true }).click();
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
   await expect(panel).toContainText('changed');
   expect(commands).toBe(1);
   await page.unroute('**/api/simulation/command');
-  await panel.getByRole('button', { name: 'Step 1 day', exact: true }).click();
-  await expect(panel).toHaveAttribute('data-elapsed-days', '31');
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-elapsed-days', '60');
 });
 
 test('a failed initial open retains its remembered instance and does not silently create another', async ({ page }) => {
@@ -137,20 +144,21 @@ test('a failed initial open retains its remembered instance and does not silentl
     await route.fulfill({ status: 503, json: { error: { code: 'UNAVAILABLE', message: 'Host unavailable.', requestId: 'tribe-open' } } });
   });
   const panel = await openLab(page);
-  await panel.getByRole('button', { name: 'Begin tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Random location', exact: true }).click();
   await expect(panel.getByRole('alert')).toBeVisible();
   const instance = opens[0].instanceId;
   await page.reload();
   await expect(panel.getByRole('alert')).toBeVisible();
   expect(opens.every(value => value.instanceId === instance)).toBe(true);
   await page.unroute('**/api/simulation/open');
-  await panel.getByRole('button', { name: 'Retry tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry simulation', exact: true }).click();
   await expect(panel).toHaveAttribute('data-instance-id', instance);
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
 });
 
 test('a delayed poll cannot roll back a completed command', async ({ page }) => {
-  const panel = await openLab(page); await begin(panel);
+  const panel = await openLab(page); await begin(page);
   let release!: () => void, started = false, polls = 0;
   const held = new Promise<void>(resolve => { release = resolve; });
   await page.route('**/api/simulation/observe', async route => {
@@ -160,7 +168,7 @@ test('a delayed poll cannot roll back a completed command', async ({ page }) => 
     await held; await route.fulfill({ response }).catch(() => {});
   });
   await expect.poll(() => started).toBe(true);
-  await panel.getByRole('button', { name: 'Step 30 days', exact: true }).click();
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
   await panel.evaluate(element => {
     const observed: string[] = [];
@@ -175,9 +183,9 @@ test('a delayed poll cannot roll back a completed command', async ({ page }) => 
 
 test('mobile tribe controls locate the camp without overflowing the page', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const panel = await openLab(page); await begin(panel);
+  await openLab(page); await begin(page);
   await page.getByRole('radio', { name: 'Fertility', exact: true }).check();
-  await panel.getByRole('button', { name: 'Locate tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Locate civilization', exact: true }).click();
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-layer', 'biomes');
   await expect(page.getByRole('region', { name: 'Selected tribe camp' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -185,7 +193,7 @@ test('mobile tribe controls locate the camp without overflowing the page', async
 });
 
 test('a retained save error can be explicitly retried and paused without repeating the failed step', async ({ page }) => {
-  const panel = await openLab(page); await begin(panel);
+  const panel = await openLab(page); await begin(page);
   let storageFailed = true, refreshedAfterRepair = false;
   const actions: string[] = [];
   for (const path of ['open', 'observe']) await page.route(`**/api/simulation/${path}`, async route => {
@@ -202,16 +210,16 @@ test('a retained save error can be explicitly retried and paused without repeati
       await route.continue();
     }
   });
-  await panel.getByRole('button', { name: 'Step 30 days', exact: true }).click();
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
   await expect(panel.getByRole('alert')).toBeVisible();
-  await panel.getByRole('button', { name: 'Retry tribe', exact: true }).click();
-  await expect(panel.getByRole('button', { name: 'Retry save and pause', exact: true })).toBeVisible({ timeout: 5000 });
+  await page.getByRole('button', { name: 'Retry simulation', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Retry save and pause', exact: true })).toBeVisible({ timeout: 5000 });
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   storageFailed = false;
-  await panel.getByRole('button', { name: 'Retry save and pause', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry save and pause', exact: true }).click();
   await expect(panel.getByRole('alert')).toHaveCount(0);
-  await expect(panel.getByRole('button', { name: 'Play tribe', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Play', exact: true })).toBeEnabled();
   expect(actions).toEqual(['step', 'pause']);
-  await panel.getByRole('button', { name: 'Step 1 day', exact: true }).click();
-  await expect(panel).toHaveAttribute('data-elapsed-days', '1');
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-elapsed-days', '30');
 });

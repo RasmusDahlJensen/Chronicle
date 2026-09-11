@@ -20,7 +20,7 @@ function fixture() {
   // A handful of viable starts; unequal fertility must not turn this into best-site selection.
   for (let n = 0; n < 8; n++) tiles[n].fields.fertility[n + 1] = 30 + n * 10;
   const civilization: CivilizationSnapshot = { protocolVersion: 1, spawnVersion: 1, worldKey: key,
-    status: 'spawned', civilizations: [{ id: 'civilization-1', name: 'Lorin', color: '#a34f32', originCellId: 1 }] };
+    status: 'spawned', civilizations: [{ id: 'civilization-1', name: 'Aven', color: '#a34f32', originCellId: 1 }] };
   return { world, tiles, civilization };
 }
 test('tribal placement is repeatable, sampled across viable land, and independent of instance identity or tile order', () => {
@@ -77,4 +77,30 @@ test('checkpoint validation rejects incompatible, mismatched, overflowing and in
   assert.throws(() => advanceTribeDays({ ...state, elapsedDays: Number.MAX_SAFE_INTEGER - 100 }, 1));
   assert.deepEqual(parseSimulationView({ state, active: false, error: null }).state, state);
   assert.throws(() => parseSimulationView({ state, active: 'yes', error: null }));
+});
+
+test('explicit world spawn validates the chosen cell, seeds its own identity and retains reset origin', () => {
+  const { world, tiles, civilization } = fixture();
+  const options = { clockMode: 'monthly' as const, originCellId: 1 };
+  const state = createTribeState(id, 'First people', world, civilization, tiles, options);
+  assert.equal(state.protocolVersion, 3);
+  assert.equal(state.clockMode, 'monthly'); assert.equal(state.spawnOriginCellId, 1);
+  assert.equal(state.tribe.originCellId, 1);
+  assert.deepEqual(state, createTribeState(id, 'First people', world, civilization, tiles, options));
+  assert.deepEqual(state.tribe, createTribeState(id, 'First people', world,
+    { ...civilization, civilizations: [{ ...civilization.civilizations[0], name: 'Different' }] }, tiles, options).tribe);
+  const names = new Set(Array.from({length: 20}, (_, n) => createTribeState(id, `People ${n}`, world, civilization, tiles, options).tribe.name));
+  assert.ok(names.size > 10);
+  for (const originCellId of [-1, 0, 131072, 1.5]) assert.throws(() => createTribeState(id, 'First people', world, civilization, tiles, { ...options, originCellId }), /suitable|start/i);
+  for (const biome of ['ocean', 'lake', 'mountain', 'snow', 'tundra', 'wetland'] as const) {
+    const altered = structuredClone(tiles); altered[0].fields.biome[1] = WORLD_BIOMES.indexOf(biome);
+    assert.throws(() => createTribeState(id, 'First people', world, civilization, altered, options), /suitable|start/i);
+  }
+  const environment = createSettlementEnvironment(world, tiles);
+  const monthly = advanceTribeDays(state, 30, environment);
+  let daily = state; for (let n = 0; n < 30; n++) daily = advanceTribeDays(daily, 1, environment);
+  assert.deepEqual(monthly, daily);
+  assert.deepEqual(resetTribeState(monthly), { ...state, incarnation: 2 });
+  for (const patch of [{ clockMode: undefined }, { spawnOriginCellId: undefined }, { spawnOriginCellId: 131072 }, { speed: 10 }])
+    assert.throws(() => parseSimulationState({ ...state, ...patch }));
 });

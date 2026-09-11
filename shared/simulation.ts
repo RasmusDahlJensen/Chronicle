@@ -4,16 +4,19 @@ import { WorldSettingsSchema, WORLD_SIZES, worldKey, decodeWorldSurface, WORLD_B
 import { SettlementStateSchema } from './settlements.ts';
 import { isFoundingBiome } from './civilization.ts';
 
-export const SIMULATION_PROTOCOL_VERSION = 2;
+export const SIMULATION_PROTOCOL_VERSION = 3;
 export const SIMULATION_RULES_VERSION = 2;
 export const INITIAL_TRIBE_POPULATION = 250;
 export const DAYS_PER_YEAR = 360;
+export const DAYS_PER_MONTH = 30;
 export const MAX_SIMULATION_BYTES = 8 * 1024 * 1024;
 const uuid = Type.String({ pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' });
 const counter = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER - 100 });
 export const SimulationStateSchema = Type.Object({
-  protocolVersion: Type.Union([Type.Literal(1), Type.Literal(SIMULATION_PROTOCOL_VERSION)]), rulesVersion: Type.Union([Type.Literal(1), Type.Literal(SIMULATION_RULES_VERSION)]),
+  protocolVersion: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(SIMULATION_PROTOCOL_VERSION)]), rulesVersion: Type.Union([Type.Literal(1), Type.Literal(SIMULATION_RULES_VERSION)]),
   settlements: Type.Optional(SettlementStateSchema),
+  clockMode: Type.Optional(Type.Literal('monthly')),
+  spawnOriginCellId: Type.Optional(Type.Union([Type.Null(), Type.Integer({ minimum: 0, maximum: 524287 })])),
   id: uuid, incarnation: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER - 100 }), revision: counter,
   worldKey: Type.String({ minLength: 1, maxLength: 100 }), settings: WorldSettingsSchema,
   placementSeed: Type.String({ minLength: 1, maxLength: 64 }),
@@ -34,6 +37,8 @@ export const SimulationObserveSchema = Type.Object({ instanceId: uuid, observerI
 export type SimulationObserve = Static<typeof SimulationObserveSchema>;
 export const SimulationOpenSchema = Type.Object({ ...SimulationObserveSchema.properties, settings: WorldSettingsSchema,
   placementSeed: Type.String({ minLength: 1, maxLength: 64 }),
+  clockMode: Type.Optional(Type.Literal('monthly')),
+  originCellId: Type.Optional(Type.Integer({ minimum: 0, maximum: 524287 })),
 }, { additionalProperties: false });
 export type SimulationOpen = Static<typeof SimulationOpenSchema>;
 export const SimulationCommandSchema = Type.Object({ ...SimulationObserveSchema.properties,
@@ -50,7 +55,11 @@ export function parseSimulationState(value: unknown): SimulationState {
     || value.tribe.originCellId >= WORLD_SIZES[value.settings.size].width * WORLD_SIZES[value.settings.size].height) {
     throw new Error('The tribal save is invalid or uses unsupported rules. The saved data has been preserved.');
   }
-  if (value.protocolVersion !== value.rulesVersion || (value.rulesVersion === 2) !== Boolean(value.settlements)) throw new Error('The tribal save is invalid. The saved data has been preserved.');
+  if ((value.protocolVersion === 3 ? value.rulesVersion !== 2 || value.clockMode !== 'monthly' || value.spawnOriginCellId === undefined
+    || value.speed !== 1 || value.spawnOriginCellId !== null && (value.spawnOriginCellId >= WORLD_SIZES[value.settings.size].width * WORLD_SIZES[value.settings.size].height
+      || value.spawnOriginCellId !== value.settlements?.initialCellId)
+    : value.protocolVersion !== value.rulesVersion || value.clockMode !== undefined || value.spawnOriginCellId !== undefined)
+    || (value.rulesVersion === 2) !== Boolean(value.settlements)) throw new Error('The tribal save is invalid. The saved data has been preserved.');
   if (value.settlements) {
     const sim = value.settlements, cells = WORLD_SIZES[value.settings.size].width * WORLD_SIZES[value.settings.size].height;
     const ids = new Set<string>(), claimed = new Set<number>();

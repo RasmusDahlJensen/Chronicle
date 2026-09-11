@@ -19,7 +19,7 @@ test('one civilization travels through actual worker, shared cache, HTTP and val
   assert.ok(tile.fields.fertility[at] >= 25); assert.ok(tile.fields.temperature[at] >= 50);
   assert.equal((await app.inject(`/api/world/civilization${query}`)).body, response.body);
   assert.equal((await app.inject('/api/ready')).json().compute.completed, 1);
-  for (const change of [{ protocolVersion: 2 }, { spawnVersion: 2 }, { worldKey: 'other' }, { status: 'no-suitable-land' }, { civilizations: [] }, { civilizations: [civ, civ] }]) {
+  for (const change of [{ protocolVersion: 2 }, { spawnVersion: 3 }, { worldKey: 'other' }, { status: 'no-suitable-land' }, { civilizations: [] }, { civilizations: [civ, civ] }]) {
     assert.throws(() => parseCivilizationSnapshot({ ...snapshot, ...change }, world), /invalid/);
   }
   for (const change of [{ id: 'other' }, { color: 'red' }, { name: '' }, { originCellId: -1 }, { originCellId: world.width * world.height }, { originCellId: 0 }]) {

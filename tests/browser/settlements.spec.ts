@@ -1,19 +1,21 @@
 import { expect, test } from '@playwright/test';
+import type { SimulationOpen, SimulationView } from '../../shared/simulation.ts';
 
 test('a begun tribe exposes its food economy, maintained territory and selected working area', async ({ page }, testInfo) => {
   await page.goto('/');
   const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
-  await panel.getByRole('button', { name: 'Begin tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Random location', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   await expect(panel.getByRole('region', { name: 'Settlements and subsistence' })).toBeVisible();
   await expect(canvas).toHaveAttribute('data-territory-cells', '1');
-  await panel.getByRole('button', { name: 'Step 30 days', exact: true }).click();
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
   await expect(panel.locator('[data-total-collected]')).not.toHaveText('0');
   await expect(panel.locator('[data-total-consumed]')).not.toHaveText('0');
-  await panel.getByRole('button', { name: 'Locate tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Locate civilization', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Selected settlement', exact: true })).toBeVisible();
   await expect(canvas).toHaveAttribute('data-working-area-visible', 'true');
   const territory = await canvas.getAttribute('data-territory-cells');
@@ -25,8 +27,8 @@ test('a begun tribe exposes its food economy, maintained territory and selected 
   await expect(panel.locator('[data-food-reserves]')).toHaveText(food!);
   await page.getByRole('radio', { name: 'Temperature', exact: true }).check();
   await expect(canvas).toHaveAttribute('data-territory-visible', 'false');
-  await panel.getByRole('button', { name: 'Reset tribe', exact: true }).click();
-  await panel.getByRole('button', { name: 'Confirm reset tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset simulation', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm reset simulation', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   await expect(canvas).toHaveAttribute('data-territory-cells', '1');
 });
@@ -39,11 +41,20 @@ test('prosperity supports a second community without duplicating people and both
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-world-key', 'climate-5:standard:Chronicle');
   const panel = page.getByRole('region', { name: 'Tribe lab', exact: true });
-  await panel.getByLabel('Placement seed', { exact: true }).fill('Tribes 4');
-  await panel.getByRole('button', { name: 'Begin tribe', exact: true }).click();
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByRole('button', { name: 'Choose on map', exact: true }).click();
+  await canvas.scrollIntoViewIfNeeded();
+  const foundingPoint = await canvas.evaluate((element: HTMLCanvasElement) => {
+    const id = 46821, box = element.getBoundingClientRect(), scale = Number(element.dataset.scale);
+    const dx = ((id % 512 + .5 - Number(element.dataset.centerX) + 768) % 512) - 256;
+    return { x: box.x + box.width / 2 + dx * scale, y: box.y + box.height / 2 + (Math.floor(id / 512) + .5 - Number(element.dataset.centerY)) * scale };
+  });
+  const opening = page.waitForRequest('**/api/simulation/open');
+  await page.mouse.click(foundingPoint.x, foundingPoint.y);
+  const { instanceId, observerId } = (await opening).postDataJSON() as SimulationOpen;
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   for (let days = 30; days <= 150; days += 30) {
-    await panel.getByRole('button', { name: 'Step 30 days', exact: true }).click();
+    await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
     await expect(panel).toHaveAttribute('data-elapsed-days', String(days));
   }
   await expect(panel.locator('[data-center-count]')).toHaveText('2');
@@ -80,4 +91,22 @@ test('prosperity supports a second community without duplicating people and both
   await expect(selected).toHaveAttribute('data-selected-settlement', 'settlement-2');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('two-communities-mobile.png'), fullPage: true });
+  // One page-level clock advances both communities and their common food ledger.
+  await page.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect.poll(async () => Number(await panel.getAttribute('data-elapsed-days'))).toBeGreaterThanOrEqual(180);
+  await page.getByRole('button', { name: 'Pause', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Advance 1 month', exact: true })).toBeEnabled();
+  const response = await page.request.post('/api/simulation/observe', { data: { instanceId, observerId } });
+  expect(response.ok()).toBe(true);
+  const { state } = await response.json() as SimulationView;
+  expect(state.elapsedDays % 30).toBe(0);
+  // This known productive site establishes a third center on day 174.
+  expect(state.settlements!.centers.map(center => center.id)).toEqual(['settlement-1', 'settlement-2', 'settlement-3']);
+  expect(state.settlements!.centers.reduce((total, center) => total + center.population, 0)).toBe(250);
+  for (const center of state.settlements!.centers) {
+    expect(center.consumed + center.shortfall).toBe(center.population);
+    expect(center.workingCells.length).toBeGreaterThan(0);
+  }
+  expect(state.settlements!.totalConsumed + state.settlements!.totalShortfall).toBe(state.elapsedDays * 250);
+
 });

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 import type { WorldManifest } from '../../shared/generated-world.ts';
 import { simulationDate, type SimulationCommand, type SimulationState, type SimulationView } from '../../shared/simulation.ts';
 import { commandSimulation, observeSimulation, openSimulation, releaseSimulation, SimulationConflictError } from '../api/simulation.ts';
@@ -11,33 +12,36 @@ interface Props {
   onLocate: () => void;
   onLocateSettlement: (id: string) => void;
   mapAvailable: boolean;
+  toolbarHost: HTMLDivElement | null;
+  placementActive: boolean;
+  onPlacement: (active: boolean) => void;
+  registerPlacement: (handler: ((cellId: number) => void) | null) => void;
+  placementError: string | null;
 }
-interface Target { id: string; placementSeed: string }
+interface Target { id: string; placementSeed: string; originCellId?: number }
 type Action = Pick<SimulationCommand, 'action' | 'days' | 'speed'>;
-const defaultPlacement = 'Tribes 1';
-const placementKey = (world: WorldManifest) => `chronicle:tribe-placement:${world.worldKey}`;
-const instanceKey = (world: WorldManifest, seed: string) => `chronicle:tribe-instance:${JSON.stringify([world.worldKey, seed])}`;
+const sessionKey = (world: WorldManifest) => `chronicle:world-session:${world.worldKey}`;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const errorMessage = (cause: unknown) => cause instanceof Error ? cause.message : 'The tribe could not be loaded. Retry tribe to read its saved state.';
-
-function rememberedTribe(world: WorldManifest) {
+const errorMessage = (cause: unknown) => cause instanceof Error ? cause.message : 'The simulation could not be loaded. Retry simulation to read its saved state.';
+function rememberedTribe(world: WorldManifest): { target: Target | null; error: string | null } {
   try {
-    const placementSeed = localStorage.getItem(placementKey(world)) ?? defaultPlacement;
-    const id = localStorage.getItem(instanceKey(world, placementSeed));
-    if (!placementSeed.length || placementSeed.length > 64 || id !== null && !uuid.test(id)) {
-      throw new Error('The saved tribe reference in this browser is invalid. It has been preserved; restore the browser reference before retrying.');
+    const raw = localStorage.getItem(sessionKey(world));
+    if (!raw) return { target: null, error: null };
+    const value = JSON.parse(raw);
+    if (!value || !uuid.test(value.id) || typeof value.placementSeed !== 'string' || !value.placementSeed.length || value.placementSeed.length > 64
+      || value.originCellId !== undefined && (!Number.isInteger(value.originCellId) || value.originCellId < 0 || value.originCellId >= world.width * world.height)) {
+      throw new Error('The saved civilization reference is invalid. It has been preserved; restore the browser reference before retrying.');
     }
-    return { placementSeed, target: id ? { id, placementSeed } : null, error: null };
+    return { target: value, error: null };
   } catch (cause) {
-    return { placementSeed: defaultPlacement, target: null, error: cause instanceof Error && cause.message.includes('reference') ? cause.message
-      : 'This browser could not read its saved tribe reference. Enable local storage and retry.' };
+    return { target: null, error: cause instanceof Error && cause.message.includes('reference') ? cause.message : 'This browser could not read its saved civilization reference. Enable local storage and retry.' };
   }
 }
 
 /** Observer controls only. All creation, time advancement and saving happen on the host. */
-export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, mapAvailable }: Props) {
+export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, mapAvailable, toolbarHost, placementActive, onPlacement, registerPlacement, placementError }: Props) {
   const [initial] = useState(() => rememberedTribe(world));
-  const [placementSeed, setPlacementSeed] = useState(initial.placementSeed);
+  const [spawnMenu, setSpawnMenu] = useState(false);
   const [target, setTarget] = useState<Target | null>(initial.target);
   const [observerId] = useState(() => crypto.randomUUID());
   const [view, setView] = useState<SimulationView | null>(null);
@@ -105,7 +109,7 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
         if (cause instanceof SimulationConflictError) {
           try {
             apply(await observeSimulation(identity, world, controller.signal));
-            if (alive) setNotice('The tribe changed elsewhere. Its current state is shown; review it before trying the command again.');
+            if (alive) setNotice('The simulation changed elsewhere. Its current state is shown; review it before trying the command again.');
           } catch (refreshError) { failure(refreshError); }
         } else failure(cause);
       }).finally(() => {
@@ -113,7 +117,7 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
         if (alive) { setBusy(false); schedule(); }
       });
     };
-    void openSimulation({ ...identity, settings: world.settings, placementSeed: target.placementSeed }, world, controller.signal)
+    void openSimulation({ ...identity, settings: world.settings, placementSeed: target.placementSeed, clockMode: 'monthly', ...(target.originCellId === undefined ? {} : { originCellId: target.originCellId }) }, world, controller.signal)
       .then(apply).catch(failure).finally(() => { if (alive) { setBusy(false); schedule(); } });
 
     function leaving() {
@@ -136,26 +140,25 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
     };
   }, [world, target, observerId, retry]);
 
-  function begin(event: FormEvent) {
-    event.preventDefault();
-    if (busy || target || error) return;
+  function begin(originCellId?: number) {
+    if (busy || target || error || !mapAvailable) return;
     try {
-      const key = instanceKey(world, placementSeed), remembered = localStorage.getItem(key);
-      if (remembered !== null && !uuid.test(remembered)) throw new Error('The saved tribe reference is invalid. It has been preserved; restore the browser reference before retrying.');
-      const id = remembered ?? crypto.randomUUID();
-      // Do not create anything remotely until a reload can recover its identity.
-      localStorage.setItem(key, id); localStorage.setItem(placementKey(world), placementSeed);
-      setBusy(true); setTarget({ id, placementSeed });
-    } catch (cause) {
-      setError(cause instanceof Error && cause.message.includes('reference') ? cause.message : 'This browser could not remember the tribe. Enable local storage and retry before beginning.');
-    }
+      const next = { id: crypto.randomUUID(), placementSeed: crypto.randomUUID(), ...(originCellId === undefined ? {} : { originCellId }) };
+      // Persist identity before sending a request whose outcome could be uncertain.
+      localStorage.setItem(sessionKey(world), JSON.stringify(next));
+      setBusy(true); setTarget(next); setSpawnMenu(false); onPlacement(false);
+    } catch { setError('This browser could not remember the civilization. Enable local storage and retry before spawning.'); }
   }
+  useEffect(() => {
+    registerPlacement(busy || target || error || !mapAvailable ? null : begin);
+    return () => registerPlacement(null);
+  });
   function retryTribe() {
     if (busy) return;
     if (target) { setBusy(true); setRetry(value => value + 1); }
     else {
       const saved = rememberedTribe(world);
-      setError(saved.error); setPlacementSeed(saved.placementSeed); setTarget(saved.target);
+      setError(saved.error); setTarget(saved.target);
     }
   }
 
@@ -163,31 +166,35 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
   const blocked = busy || error !== null;
   return <section className="tribe-lab" aria-label="Tribe lab" data-instance-id={target?.id ?? ''}
     data-elapsed-days={state?.elapsedDays} data-incarnation={state?.incarnation} data-revision={state?.revision} aria-busy={busy}>
-    <p className="atlas-section-index">Lab controls · Settlement 01</p>
+    {toolbarHost && createPortal(<section className="world-simulation-toolbar" aria-label="World simulation">
+      <div className="world-spawn-controls"><button type="button" disabled={blocked || !!target || !mapAvailable} onClick={() => setSpawnMenu(value => !value)}>Spawn civilization</button>
+        {spawnMenu && !placementActive && <><button type="button" disabled={blocked || !mapAvailable} onClick={() => begin()}>Random location</button><button type="button" disabled={blocked || !mapAvailable} onClick={() => { setSpawnMenu(false); onPlacement(true); }}>Choose on map</button></>}
+        {placementActive && <><span>Click suitable land to settle.</span><button type="button" onClick={() => onPlacement(false)}>Cancel placement</button></>}
+      </div>
+      <div className="world-clock-controls"><span className="tribe-date">Month {Math.floor((state?.elapsedDays ?? 0) % 360 / 30) + 1}, Year {date?.year ?? 1}</span>
+        <button type="button" disabled={blocked || !state} onClick={() => act.current({ action: state?.running ? 'pause' : 'play' })}>{state?.running ? 'Pause' : 'Play'}</button>
+        <button type="button" disabled={blocked || !state || state.running} onClick={() => act.current({ action: 'step', days: 30 })}>Advance 1 month</button>
+        <span className="atlas-panel-note">30 days per month · Play advances one month per second</span>
+      </div>
+      {placementError && <p role="alert">{placementError}</p>}
+    </section>, toolbarHost)}
+    <p className="atlas-section-index">Civilization · development controls</p>
     {state ? <>
       <div className="world-civilization-heading"><span className="world-civilization-swatch" style={{ backgroundColor: state.tribe.color }} aria-hidden="true" /><h2 data-tribe-name>{state.tribe.name}</h2></div>
-      <p className="tribe-date">Day {date!.day}, Year {date!.year}</p>
+
       <dl className="world-water-facts"><div><dt>Population</dt><dd data-tribe-population>{state.tribe.population}</dd></div><div><dt>Camp cell</dt><dd>{state.tribe.originCellId}</dd></div></dl>
       <p className="atlas-panel-note">This study has 250 people in total. Founding communities redistributes them; births and deaths come later. The calendar has 360 days per year.</p>
-      <button className="world-locate-civilization" type="button" onClick={onLocate} disabled={!mapAvailable}>Locate tribe <span aria-hidden="true">↗</span></button>
-      <p className="tribe-run-status" role="status">{error ? 'Last confirmed progress' : busy ? 'Updating tribe…' : state.running ? view.active ? 'Running' : 'Waiting to resume' : 'Paused'}</p>
-      <div className="tribe-time-controls">
-        <button type="button" disabled={blocked} onClick={() => act.current({ action: state.running ? 'pause' : 'play' })}>{state.running ? 'Pause tribe' : 'Play tribe'}</button>
-        <div className="tribe-speed"><label htmlFor="tribe-speed">Simulation speed</label><select id="tribe-speed" value={state.speed} disabled={blocked} onChange={event => act.current({ action: 'speed', speed: Number(event.target.value) as 1 | 10 })}><option value={1}>1 day / second</option><option value={10}>10 days / second</option></select></div>
-        <button type="button" disabled={blocked || state.running} onClick={() => act.current({ action: 'step', days: 1 })}>Step 1 day</button>
-        <button type="button" disabled={blocked || state.running} onClick={() => act.current({ action: 'step', days: 30 })}>Step 30 days</button>
-      </div>
-      {confirmReset ? <div className="tribe-reset-confirmation" role="group" aria-label="Reset tribe confirmation"><p>Reset {state.tribe.name} to Day 1, Year 1, paused at its original camp? Saved progress will be replaced.</p><button type="button" disabled={blocked} onClick={() => { setConfirmReset(false); act.current({ action: 'reset' }); }}>Confirm reset tribe</button><button type="button" disabled={busy} onClick={() => setConfirmReset(false)}>Cancel reset</button></div>
-        : <button className="tribe-reset-button" type="button" disabled={blocked} onClick={() => setConfirmReset(true)}>Reset tribe</button>}
+      <button className="world-locate-civilization" type="button" onClick={onLocate} disabled={!mapAvailable}>Locate civilization <span aria-hidden="true">↗</span></button>
+      <p className="tribe-run-status" role="status">{error ? 'Last confirmed progress' : busy ? 'Updating simulation…' : state.running ? view.active ? 'Running' : 'Waiting to resume' : 'Paused'}</p>
+      {confirmReset ? <div className="tribe-reset-confirmation" role="group" aria-label="Reset simulation confirmation"><p>Reset {state.tribe.name} to Month 1, Year 1, paused at its original camp? Saved progress will be replaced.</p><button type="button" disabled={blocked} onClick={() => { setConfirmReset(false); act.current({ action: 'reset' }); }}>Confirm reset simulation</button><button type="button" disabled={busy} onClick={() => setConfirmReset(false)}>Cancel reset</button></div>
+        : <button className="tribe-reset-button" type="button" disabled={blocked} onClick={() => setConfirmReset(true)}>Reset simulation</button>}
       {state.settlements && <SettlementEconomy society={state.settlements} onLocate={onLocateSettlement} mapAvailable={mapAvailable} />}
       <p className="atlas-panel-note">Completed days are saved on this PC. The main center anchors the tribe. Formal capitals and provinces develop later.</p>
-    </> : target ? <><h2>Your tribe</h2><p className="atlas-panel-note">{busy ? 'Opening the saved tribal instance…' : 'The saved instance has not been loaded.'}</p></>
-      : <><h2>Begin a tribe</h2><p className="atlas-panel-note">Start one tribe with a camp and 250 people, then explore its first days.</p><form onSubmit={begin}>
-        <label htmlFor="tribe-placement-seed">Placement seed</label><input id="tribe-placement-seed" value={placementSeed} onChange={event => setPlacementSeed(event.target.value)} minLength={1} maxLength={64} required disabled={blocked} autoComplete="off" />
-        <button type="submit" disabled={blocked}>Begin tribe</button></form></>}
+    </> : target ? <><h2>Your civilization</h2><p className="atlas-panel-note">{busy ? 'Opening the saved civilization…' : 'The saved instance has not been loaded.'}</p></>
+      : <><h2>An unsettled world</h2><p className="atlas-panel-note">Use Spawn civilization above the map to choose a random location or place its first community yourself.</p></>}
     {error && <div className="tribe-error"><p className="atlas-panel-note" role="alert">{error}</p>{view?.error
       ? <><p className="atlas-panel-note">After restoring storage access, save the current checkpoint and pause. A failed step or reset will not be repeated.</p><button type="button" disabled={busy} onClick={() => act.current({ action: 'pause' }, true)}>Retry save and pause</button></>
-      : <button type="button" disabled={busy} onClick={retryTribe}>Retry tribe</button>}</div>}
+      : <button type="button" disabled={busy} onClick={retryTribe}>Retry simulation</button>}</div>}
     {notice && <p className="atlas-panel-note" role="status">{notice}</p>}
   </section>;
 }

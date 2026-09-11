@@ -5,9 +5,16 @@ import { hashNoise, seedNumber } from './generation/noise.ts';
 import type { GeneratedWorld } from './generation/generate.ts';
 
 export const CIVILIZATION_START_RULES = { minimumFertility: 25, minimumTemperature: 5, freshwaterBonus: 20 } as const;
-const beginnings = ['Avar', 'Bel', 'Cor', 'Dar', 'Elar', 'Fen', 'Gal', 'Hel', 'Istr', 'Jar', 'Kel', 'Lor', 'Mer', 'Nor', 'Or', 'Val'];
+const beginnings = ['Avar', 'Bel', 'Cor', 'Dar', 'Elar', 'Fen', 'Gal', 'Hel', 'Istr', 'Jar', 'Kel', 'Ser', 'Mer', 'Nor', 'Or', 'Val'];
 const endings = ['an', 'en', 'ia', 'on', 'in', 'ara', 'eth', 'une'];
 const colors = ['#9d3d51', '#536daf', '#b26b28', '#76539b', '#287d78', '#8c7027', '#405c8c', '#a34f32'];
+
+/** A spawn seed identifies a society independently of immutable geography. */
+export function createSpawnIdentity(spawnSeed: string) {
+  const seed = seedNumber(`identity-2:${spawnSeed}`);
+  const pick = <T>(values: T[], salt: number) => values[Math.floor(hashNoise(0, 0, seed + salt) * values.length) % values.length];
+  return { id: 'civilization-1' as const, name: pick(beginnings, 4411) + pick(endings, 7727), color: pick(colors, 9811) };
+}
 
 /** Reproducible initial identity, computed on the host. No time step or invented holdings. */
 export function createCivilizationSnapshot(world: GeneratedWorld): CivilizationSnapshot {

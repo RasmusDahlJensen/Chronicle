@@ -11,7 +11,7 @@ const world = { worldKey: 'climate-5:standard:Transport', settings: { seed: 'Tra
 const identity = { instanceId: '11111111-1111-4111-8111-111111111111', observerId: '22222222-2222-4222-8222-222222222222' };
 const state: SimulationState = { protocolVersion: 1, rulesVersion: 1, id: identity.instanceId, incarnation: 1, revision: 0,
   worldKey: world.worldKey, settings: world.settings, placementSeed: 'Tribes 1',
-  tribe: { id: 'civilization-1', name: 'Lorin', color: '#a34f32', originCellId: 1, population: 250 },
+  tribe: { id: 'civilization-1', name: 'Aven', color: '#a34f32', originCellId: 1, population: 250 },
   elapsedDays: 0, rngState: 1, running: false, speed: 1 };
 const signal = () => new AbortController().signal;
 

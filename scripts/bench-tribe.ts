@@ -21,7 +21,7 @@ try {
         settings: { seed: 'Benchmark fixture', size: 'large' }, placementSeed: `Tribes ${n}` };
       const state = parseSimulationState({ protocolVersion: 1, rulesVersion: 1, id: input.instanceId, incarnation: 1, revision: 0,
         worldKey: 'climate-5:large:Benchmark fixture', settings: input.settings, placementSeed: input.placementSeed,
-        tribe: { id: 'civilization-1', name: 'Lorin', color: '#a34f32', originCellId: 1, population: 250 },
+        tribe: { id: 'civilization-1', name: 'Aven', color: '#a34f32', originCellId: 1, population: 250 },
         elapsedDays: 0, rngState: 123, running: false, speed: 1 });
       inputs.push(input); states.push(state);
       db.prepare('INSERT INTO checkpoints(id,current) VALUES (?,?)').run(state.id, JSON.stringify(state));

@@ -10,6 +10,7 @@ import { buildApp } from '../server/app.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { createCivilizationSnapshot } from '../src/world/civilization.ts';
+import { decodeWorldSurface, WORLD_BIOMES } from '../shared/generated-world.ts';
 import type { WorldStudyBundle } from '../shared/civilization.ts';
 import type { SimulationCommand, SimulationState } from '../shared/simulation.ts';
 import type { TerrainCompute } from '../server/compute.ts';
@@ -282,4 +283,102 @@ test('concurrent real-worker commands have one winner and graceful shutdown drai
   assert.equal(committed.state.elapsedDays, 30); assert.equal(committed.state.incarnation, 1);
   service = createSimulationService({ directory });
   assert.deepEqual((await service.open(input))!.state, committed.state);
+});
+
+test('monthly world clock persists complete months, preserves explicit placement and pauses offline', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'chronicle-monthly-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let now = 0, runtime = createSimulationRuntime({ directory, now: () => now });
+  t.after(() => runtime.close());
+  const request = { ...input, clockMode: 'monthly' as const };
+  const geography = await bundle();
+  let view = runtime.initialize(request, geography);
+  assert.equal(view.state.clockMode, 'monthly');
+  const initialCell = view.state.tribe.originCellId;
+  assert.throws(() => runtime.open({ ...request, originCellId: initialCell }), /different world or placement/);
+  assert.throws(() => runtime.open(input), /different world or placement/);
+  assert.throws(() => runtime.command(command(view.state, 'step', { days: 1 })), /month|Invalid/);
+  assert.throws(() => runtime.command(command(view.state, 'speed', { speed: 10 })), /month|Invalid/);
+  view = runtime.command(command(view.state, 'play'));
+  const revision = view.state.revision;
+  now = 1000; runtime.tick(); view = runtime.observe(observer);
+  assert.equal(view.state.elapsedDays, 30); assert.equal(view.state.revision, revision + 1);
+  assert.equal(view.state.settlements!.totalConsumed + view.state.settlements!.totalShortfall, 30 * 250);
+  const another = { ...observer, observerId: '33333333-3333-4333-8333-333333333333' };
+  assert.deepEqual(runtime.observe(another).state, view.state);
+  runtime.tick(); assert.equal(runtime.observe(observer).state.elapsedDays, 30);
+  runtime.release(observer); runtime.release(another); now += 100000; runtime.tick(); runtime.close();
+  runtime = createSimulationRuntime({ directory, now: () => now });
+  assert.deepEqual(runtime.open(request)!.state, view.state);
+  runtime.tick(); assert.equal(runtime.observe(observer).state.elapsedDays, 30);
+  now += 1000; runtime.tick(); view = runtime.observe(observer);
+  assert.equal(view.state.elapsedDays, 60);
+  view = runtime.command(command(view.state, 'pause'));
+  now += 1000; runtime.tick(); assert.equal(runtime.observe(observer).state.elapsedDays, 60);
+  view = runtime.command(command(view.state, 'step', { days: 30 })); assert.equal(view.state.elapsedDays, 90);
+  view = runtime.command(command(view.state, 'reset')); assert.equal(view.state.elapsedDays, 0);
+  assert.equal(view.state.tribe.originCellId, initialCell); assert.equal(view.state.clockMode, 'monthly');
+  const manual = { ...request, instanceId: '44444444-4444-4444-8444-444444444444', originCellId: initialCell };
+  assert.equal(runtime.initialize(manual, await bundle()).state.tribe.originCellId, initialCell);
+  assert.throws(() => runtime.open({ ...manual, originCellId: undefined }), /different world or placement/);
+  const invalid = { ...manual, instanceId: '55555555-5555-4555-8555-555555555555', originCellId: 524287 };
+  assert.throws(() => runtime.initialize(invalid, geography), error => (error as { code: string }).code === 'INVALID_REQUEST');
+  assert.equal(runtime.open(invalid), null);
+});
+
+
+test('a failed monthly tick publishes none of its daily food or territory changes and retry commits one complete month', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'chronicle-month-atomic-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let now = 0;
+  const runtime = createSimulationRuntime({ directory, now: () => now }); t.after(() => runtime.close());
+  let view = runtime.initialize({ ...input, clockMode: 'monthly' }, await bundle());
+  view = runtime.command(command(view.state, 'play'));
+  const before = structuredClone(view.state);
+  const db = new DatabaseSync(join(directory, 'simulation.sqlite')); t.after(() => db.close());
+  const stored = db.prepare('SELECT current, previous FROM checkpoints WHERE id = ?').get(input.instanceId);
+  db.exec("CREATE TRIGGER reject_month BEFORE UPDATE ON checkpoints BEGIN SELECT RAISE(ABORT, 'test month failure'); END;");
+  now = 1000; runtime.tick(); view = runtime.observe(observer);
+  assert.deepEqual(view.state, before); assert.equal(view.active, false); assert.match(view.error!, /save/i);
+  assert.deepEqual(db.prepare('SELECT current, previous FROM checkpoints WHERE id = ?').get(input.instanceId), stored);
+  now += 1000; runtime.tick(); assert.deepEqual(runtime.observe(observer).state, before);
+  db.exec('DROP TRIGGER reject_month;');
+  view = runtime.command(command(view.state, 'pause'));
+  view = runtime.command(command(view.state, 'step', { days: 30 }));
+  assert.equal(view.state.elapsedDays, 30);
+  assert.equal(view.state.settlements!.totalConsumed + view.state.settlements!.totalShortfall, 7500);
+  assert.deepEqual(JSON.parse(db.prepare('SELECT current FROM checkpoints WHERE id = ?').get(input.instanceId)!.current as string), view.state);
+});
+
+
+test('real HTTP and worker validate clicked water, accept exact land and restore the monthly world session', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'chronicle-spawn-http-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const geography = await bundle(), encoded = JSON.stringify(geography);
+  const surface = decodeWorldSurface(JSON.parse(geography.manifest).surface);
+  const water = Array.from(surface.biome).findIndex(code => WORLD_BIOMES[code] === 'ocean');
+  assert.ok(water >= 0);
+  let jobs = 0;
+  const compute: TerrainCompute = { ready: async () => {}, close: async () => {},
+    snapshot: () => ({ workers: 1, active: 0, queued: 0, completed: 0, failed: 0 }),
+    generate: async () => { jobs++; return encoded; } };
+  let app = await buildApp({ compute, simulationDirectory: directory, logger: false }); t.after(() => app.close());
+  const post = (path: string, payload: object) => app.inject({ method: 'POST', url: `/api/simulation/${path}`, payload });
+  const invalid = { ...input, clockMode: 'monthly' as const, originCellId: water };
+  let response = await post('open', invalid);
+  assert.equal(response.statusCode, 400, response.body); assert.equal(response.json().error.code, 'INVALID_REQUEST');
+  response = await post('observe', observer); assert.equal(response.statusCode, 404);
+  const random = { ...input, clockMode: 'monthly' as const };
+  response = await post('open', random); assert.equal(response.statusCode, 200, response.body);
+  const chosen = response.json().state.tribe.originCellId;
+  const manual = { ...random, instanceId: '44444444-4444-4444-8444-444444444444', originCellId: chosen };
+  response = await post('open', manual); assert.equal(response.statusCode, 200, response.body);
+  let state = response.json().state; assert.equal(state.tribe.originCellId, chosen); assert.equal(state.spawnOriginCellId, chosen);
+  response = await post('command', command(state, 'step', { days: 30 })); assert.equal(response.statusCode, 200, response.body);
+  state = response.json().state; assert.equal(state.elapsedDays, 30);
+  await app.close(); app = await buildApp({ compute, simulationDirectory: directory, logger: false });
+  response = await post('open', manual); assert.equal(response.statusCode, 200, response.body);
+  assert.deepEqual(response.json().state, state); assert.equal(jobs, 1);
+  response = await post('open', { ...manual, originCellId: water }); assert.equal(response.statusCode, 409);
+  response = await post('open', { ...manual, clockMode: undefined }); assert.equal(response.statusCode, 400);
 });

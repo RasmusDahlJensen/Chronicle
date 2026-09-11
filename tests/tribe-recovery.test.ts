@@ -14,7 +14,7 @@ const input = { instanceId: '11111111-1111-4111-8111-111111111111', observerId: 
 // An explicitly authored checkpoint isolates crash recovery from the separately tested terrain generator.
 const fixture = parseSimulationState({ protocolVersion: 1, rulesVersion: 1, id: input.instanceId, incarnation: 1, revision: 0,
   worldKey: 'climate-5:standard:Recovery fixture', settings: input.settings, placementSeed: input.placementSeed,
-  tribe: { id: 'civilization-1', name: 'Lorin', color: '#a34f32', originCellId: 1, population: 250 },
+  tribe: { id: 'civilization-1', name: 'Aven', color: '#a34f32', originCellId: 1, population: 250 },
   elapsedDays: 0, rngState: 123, running: false, speed: 1 });
 
 test('abrupt host death releases ownership and recovers the acknowledged checkpoint; stopped directory backup restores it', { timeout: 20_000 }, async t => {

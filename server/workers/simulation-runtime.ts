@@ -6,12 +6,12 @@ import { performance } from 'node:perf_hooks';
 import { Check } from 'typebox/value';
 import { parseCivilizationSnapshot, type WorldStudyBundle } from '../../shared/civilization.ts';
 import { parseWorldManifest, parseWorldTile, WORLD_TILE_SIZE, WORLD_SIZES, WORLD_BIOMES, WORLD_AREA_KM2 } from '../../shared/generated-world.ts';
-import { MAX_SIMULATION_BYTES, parseSimulationState, SimulationCommandSchema, SimulationObserveSchema, SimulationOpenSchema,
+import { DAYS_PER_MONTH, MAX_SIMULATION_BYTES, parseSimulationState, SimulationCommandSchema, SimulationObserveSchema, SimulationOpenSchema,
   type SimulationCommand, type SimulationObserve, type SimulationOpen, type SimulationState, type SimulationView } from '../../shared/simulation.ts';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import type { SettlementEnvironment } from '../../shared/settlements.ts';
 import { createSettlementEnvironment, migrateTribeState, validateSettlementGeography } from '../../src/simulation/settlements.ts';
-import { advanceTribeDays, createTribeState, resetTribeState } from '../../src/simulation/tribe.ts';
+import { UnsuitableSpawnError, advanceTribeDays, createTribeState, resetTribeState } from '../../src/simulation/tribe.ts';
 import { SimulationError, simulationConflict, simulationUnavailable } from '../simulation-errors.ts';
 
 // Reserve transport envelope space, including a 256-character escaped error message.
@@ -124,7 +124,8 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
   }
   function identity(entry: Resident, input: SimulationOpen) {
     const state = entry.state;
-    if (state.settings.seed !== input.settings.seed || state.settings.size !== input.settings.size || state.placementSeed !== input.placementSeed) {
+    if (state.settings.seed !== input.settings.seed || state.settings.size !== input.settings.size || state.placementSeed !== input.placementSeed
+      || state.clockMode !== input.clockMode || (state.spawnOriginCellId ?? undefined) !== input.originCellId) {
       throw simulationConflict('This simulation identity already belongs to a different world or placement.');
     }
   }
@@ -160,7 +161,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     }
   }
   function open(input: SimulationOpen): SimulationView | null {
-    if (!Check(SimulationOpenSchema, input)) throw invalidRequest();
+    if (!Check(SimulationOpenSchema, input) || input.originCellId !== undefined && input.clockMode !== 'monthly') throw invalidRequest();
     const entry = load(input.instanceId); if (!entry) return null;
     identity(entry, input); attach(entry, input.observerId); return view(entry);
   }
@@ -176,8 +177,9 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
       if (bundle.tiles.length !== columns * manifest.height / WORLD_TILE_SIZE) throw invalidRequest();
       const tiles = bundle.tiles.map((body, index) => parseWorldTile(JSON.parse(body), manifest, index % columns, Math.floor(index / columns)));
       environment = createSettlementEnvironment(manifest, tiles);
-      state = existing ? migrateTribeState(existing.state, environment) : createTribeState(input.instanceId, input.placementSeed, manifest, civilization, tiles);
-    } catch {
+      state = existing ? migrateTribeState(existing.state, environment) : createTribeState(input.instanceId, input.placementSeed, manifest, civilization, tiles, input);
+    } catch (error) {
+      if (error instanceof UnsuitableSpawnError) throw new SimulationError('INVALID_REQUEST', error.message, 400);
       throw new SimulationError('SIMULATION_ERROR', 'Unable to start a tribe on suitable land in this world. Its saved data has been preserved.');
     }
     const entry: Resident = residents.get(input.instanceId) ?? { state, observers: new Map(), lastTick: now(), error: null, persisted: false, environment };
@@ -209,6 +211,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     // Other actions still require the exact observed revision; a reset always invalidates old intent.
     const revisionMatches = input.action === 'pause' ? input.revision <= entry.state.revision : input.revision === entry.state.revision;
     if (entry.state.incarnation !== input.incarnation || !revisionMatches) throw simulationConflict();
+    if (entry.state.clockMode === 'monthly' && (input.action === 'speed' || input.action === 'step' && input.days !== DAYS_PER_MONTH)) throw invalidRequest();
     let next = entry.state;
     if (input.action === 'step') {
       if (next.running) throw simulationConflict('Pause the tribal clock before stepping days.');
@@ -224,7 +227,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     for (const entry of residents.values()) {
       if (!entry.state.running || !entry.observers.size || entry.error || time - entry.lastTick < SIMULATION_LIMITS.tickMs) continue;
       entry.lastTick = time;
-      try { save(entry, { ...advanceTribeDays(entry.state, entry.state.speed, entry.environment), revision: entry.state.revision + 1 }); }
+      try { save(entry, { ...advanceTribeDays(entry.state, entry.state.clockMode === 'monthly' ? DAYS_PER_MONTH : entry.state.speed, entry.environment), revision: entry.state.revision + 1 }); }
       catch { entry.error = saveMessage; }
     }
   }

@@ -25,6 +25,10 @@ Evidence register:
 | Resource distribution correction, later on 9 September | Replace resources on every cell with scattered resource sites that require appropriate technology to exploit, inspired by Civilization. Most cells have no special site; preserve ordinary biome productivity as a separate concept. |
 | Province and settlement discussion, 10 September | Countries create provinces around settlement centers. The founding capital also centers the first province; other provincial capitals and ordinary towns follow. Capturing a provincial capital immediately transfers province ownership, while individual cells can remain under opposing military control. |
 
+The current development controls are defined in [World controls 01](features/world-controls-01.md): an empty map, explicit random or clicked civilization spawning, and one shared monthly clock. This is an observer lab setup action; civilization currently names the developing group, without granting formal statehood or provinces. Each month executes thirty daily steps for every community.
+
+Latest country-design correction, 11 September (specified, not implemented): even a tribe begins with a capital and an exclusive connected claimed region that expands outwards. Villages develop inside its claims, with resource usefulness dependent on technology; cities and formal provinces develop later. Foreign movement/claiming is blocked without future explicit access or war rules. Expansion requires people and continuing resource support. This supersedes treating the national border solely as the union of settlement working territories, and does not require a formal province at tribal founding. The older founding-capital/first-province passages below apply to subsequent formal provincial organization. Research and proposed implementation boundaries are recorded in the active world-controls brief.
+
 Precedence: newer explicit user choices override older choices. In particular:
 
 1. Evenly dispersed viable starts replace the earlier strong clustering around fertile regions. Geography still constrains habitability.

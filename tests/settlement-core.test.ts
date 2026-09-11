@@ -5,7 +5,7 @@ import { parseSimulationState } from '../shared/simulation.ts';
 
 export const legacy = { protocolVersion: 1, rulesVersion: 1, id: '11111111-1111-4111-8111-111111111111', incarnation: 1, revision: 0,
  worldKey: 'climate-5:standard:Chronicle', settings: { seed: 'Chronicle', size: 'standard' }, placementSeed: 'Tribes 1',
- tribe: { id: 'civilization-1', name: 'Lorin', color: '#a34f32', originCellId: 513, population: 250 }, elapsedDays: 0, rngState: 1, running: false, speed: 1 };
+ tribe: { id: 'civilization-1', name: 'Aven', color: '#a34f32', originCellId: 513, population: 250 }, elapsedDays: 0, rngState: 1, running: false, speed: 1 };
 test('the settlement slice has an explicit new version while preserving legacy checkpoints', () => {
  const old = parseSimulationState(legacy);
  assert.equal(advanceTribeDays(old, 1).elapsedDays, 1);
@@ -119,7 +119,7 @@ test('relocation forecasts cannot count food land maintained by another communit
  const state=migrateTribeState(parseSimulationState({...legacy,tribe:{...legacy.tribe,originCellId:65537}}),env);
  const main=state.settlements!.centers[0]; main.kind='settlement'; main.population=170; main.food=4500;
  main.territory.push(65538);main.territoryLastWorked.push(0);
- const child={...structuredClone(main),id:'settlement-2',name:'Lorin 2',kind:'camp' as const,cellId:65540,population:80,food:3000,territory:[65540],territoryLastWorked:[0]};
+ const child={...structuredClone(main),id:'settlement-2',name:'Aven 2',kind:'camp' as const,cellId:65540,population:80,food:3000,territory:[65540],territoryLastWorked:[0]};
  state.settlements!.centers.push(child);state.settlements!.nextSettlementId=3;
  assert.equal(advance(state,env,30).settlements!.centers[1].cellId,65540);
 });

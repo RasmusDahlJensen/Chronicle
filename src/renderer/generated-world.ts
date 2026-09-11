@@ -18,6 +18,7 @@ export interface WorldCoordinate { x: number; y: number }
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
   onSelect: (cell: WorldCoordinate | null) => void;
+  onActivate?: (cell: WorldCoordinate | null) => boolean;
   onView: (view: WorldView) => void;
   onError: (cause: unknown) => void;
 }
@@ -346,7 +347,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     if (!gesture || gesture.id !== event.pointerId) return;
     if (!gesture.dragged) {
       const box = canvas.getBoundingClientRect(), x = event.clientX - box.left, y = event.clientY - box.top;
-      select(civilizationAtPoint(x, y) ?? resourceAtPoint(x, y) ?? atPoint(x, y));
+      if (!callbacks.onActivate?.(atPoint(x, y))) select(civilizationAtPoint(x, y) ?? resourceAtPoint(x, y) ?? atPoint(x, y));
     }
     gesture = null;
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
@@ -373,7 +374,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
     } else if (['Enter', 'Escape', 'Home', '+', '=', '-'].includes(event.key)) {
       event.preventDefault();
-      if (event.key === 'Enter') select(focus);
+      if (event.key === 'Enter') { if (!callbacks.onActivate?.(focus)) select(focus); }
       else if (event.key === 'Escape') select(null);
       else if (event.key === 'Home') fit();
       else zoomBy(event.key === '-' ? 1 / 1.6 : 1.6);
