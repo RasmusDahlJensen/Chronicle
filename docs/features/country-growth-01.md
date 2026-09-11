@@ -1,6 +1,6 @@
 # Country growth 01
 
-Status: implemented and fully verified locally; awaiting user review. Active slice; baseline `a74e362`, verified implementation checkpoint recorded below. Country AI 01's control correction is accepted, but its three-community gameplay plateau is rejected. This brief supersedes it for current work.
+Status: implemented and fully verified locally; awaiting user review. Active slice; baseline `a74e362`, verified runtime checkpoint `ed2e7f6`. Country AI 01's control correction is accepted, but its three-community gameplay plateau is rejected. This brief supersedes it for current work.
 
 Outcome: one named, colored founding capital; explicit contiguous country claims; food and labor support; births/deaths and sustained development beyond the initial 250 people. No automatic satellite towns. Geography, monthly clock, worker/SQLite ownership, New game and existing save compatibility remain. Countries still run one per live game; foreign-owner boundary tests exercise the shared ownership operations, not a new multiplayer/diplomacy feature.
 
@@ -28,7 +28,7 @@ No provinces, extraction chains, research, migration, disease, war, diplomacy or
 
 Acceptance is behavioral: a supported country grows population and connected claims with exactly one capital, rather than splitting into three towns; constrained supply halts costly claims with explanations, changed support permits recovery, and overextension has measured costs. Finite land/labor may impose a meaningful limit; constant or unlimited growth is not promised. Exact daily/batch/reload/reset reproduction and food/population conservation remain required. At least two different initial conditions and multi-year runs must accompany correctness tests; a passing schema/decision suite alone is insufficient.
 
-Handoff: complete `npm run check` passed: architecture, vendored integrity, TypeScript, 221 headless/process tests, production build and 157 development/production browser scenarios (browser phase 5.4 minutes). Independent review is resolved. These are local results; CI was not run. No unresolved implementation blocker. Next action: user reviews one-capital population and claimed-land growth using the steps below; do not begin villages or another slice automatically.
+Handoff: runtime `ed2e7f6` is committed; this follow-up only records its hash. Complete `npm run check` passed: architecture, vendored integrity, TypeScript, 221 headless/process tests, production build and 157 development/production browser scenarios (browser phase 5.4 minutes). Independent review is resolved. These are local results; CI was not run. No unresolved implementation blocker. Next action: user reviews one-capital population and claimed-land growth using the steps below; do not begin villages or another slice automatically.
 
 
 ## Verification and review evidence
