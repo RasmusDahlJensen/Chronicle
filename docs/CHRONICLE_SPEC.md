@@ -96,6 +96,16 @@ Founding and frontier claims start with limited administrative reach. Populate c
 
 Use direct country holdings and subject-inclusive imperial holdings as distinct totals. Do not count subject population twice in world statistics.
 
+### 3.2.1 Tribal presence, town working areas and national outlines
+
+**Agreed 11 September:** early camps can relocate when their surroundings no longer offer a worthwhile living. Communities establish themselves around accessible prosperity: food, usable resources and supportable travel. A resource only attracts development when the society has the capability to recognize and use it. Research enables capabilities; age labels describe development rather than automatically awarding cities or provinces.
+
+One society can support multiple towns while retaining a main center and, after state formation, a national capital. Founding transfers people and supplies from an existing community. Town working areas describe access and production, may overlap, and never independently define sovereignty. Population, labor and output are counted once. A country's border is the union boundary of its owned territorial cells, not a hull around its towns; unclaimed gaps, enclaves and separate islands remain visible. Routes enable access without automatically claiming every cell beside them. Country outlines are prominent, province outlines subordinate, and town working areas appear during inspection.
+
+Before provincial government, display maintained tribal territory without fabricating administrative provinces. Later, countries organize existing territory into provinces around designated capital settlements. Ordinary towns do not automatically create provinces. This preserves the single province-owner authority for formal sovereignty established above.
+
+**Settlement 01, authorized:** one tribe's food economy, camp relocation, established communities, supplied additional centers and sustained-use territorial growth. Total population remains 250; founding redistributes it. Food shortfalls are explicit and limit expansion, but births, mortality, research and formal provincial government are separate slices. See `features/settlement-01.md` for current implementation and acceptance.
+
 ### 3.3 Scale
 
 **Required:** Earth-comparable geographic scale, hundreds of founding tribes, substantial detail, large oceans and continents.
@@ -108,7 +118,7 @@ Do not conflate map dimensions with surface area. Assign real area weights and a
 
 The user accepts the geography baseline. Civilization 01's earlier identity preview is superseded by tribal beginnings: a fresh map shows no civilization, and a named group appears only when a tribe begins or an existing tribe is restored. The agreed direction begins with regular tribes adapting to their local environment, not established agricultural states. Seeded geography and separately seeded tribal placement support repeatable worlds; many tribes eventually grow, combine and develop technology, with larger societies becoming civilizations or empires. Develop one tribe's internal behavior deeply before adding other tribes, war, trade, alliances or diplomacy.
 
-**Tribe 01, authorized:** one persistent tribe with a name, color, camp and a scenario default of 250 people; Day 1, Year 1 paused, with a deterministic daily clock and a 360-day calendar. The host saves each completed batch. Population stays fixed until food and demographic systems are implemented; this is not a survival simulation yet. A tribal camp is not a formal national/provincial capital, settlement system or territorial claim. When a tribe establishes a country and its founding settlement, the national-capital/first-province relationship above applies. Food/labor decisions are the next proposed slice, followed by demographics and learning.
+**Tribe 01, authorized:** one persistent tribe with a name, color, camp and a scenario default of 250 people; Day 1, Year 1 paused, with a deterministic daily clock and a 360-day calendar. The host saves each completed batch. Population stays fixed until food and demographic systems are implemented; this is not a survival simulation yet. A tribal camp is not a formal national/provincial capital, settlement system or territorial claim. When a tribe establishes a country and its founding settlement, the national-capital/first-province relationship above applies. Settlement 01 now extends this foundation with food/labor decisions and supported territorial presence; demographics and learning remain subsequent slices.
 
 ## 4. World generation and starts
 
@@ -122,7 +132,7 @@ The user accepts the geography baseline. Civilization 01's earlier identity prev
 
 **Hydrology 01 delivery:** Deterministic connected rivers, tributaries and inland/frozen lakes augment the accepted terrain without changing its bedrock. Lakes expose area, surface level, depth and an outlet or closed-basin status. Inspection distinguishes mapped river/open-lake freshwater access from closed inland water whose salinity is unmodeled. Conservative, supply-limited retention avoids flooding extensive continental depressions; weak lake outflows may end in explicit dry basins. Runoff is a moisture-weighted area index, not calibrated discharge. The current preview uses the existing annual moisture field to supply drainage, then assigns lake biomes; lake evaporation does not yet feed back into climate. This is static annual geography; seasonal flooding, erosion and groundwater remain later scoped work.
 
-**Fertility 01 delivery and geography acceptance:** The user accepts this first geography baseline. Natural growing potential is generated on the host from climate, estimated soil, regional slope and drainage, with a literal map layer and exact factor inspection. It is not crop yield or measured soil chemistry. Civilization 01 now adds a single initial identity/location snapshot as described in §3.4; settlement, population and province founding remain subsequent slices.
+**Fertility 01 delivery and geography acceptance:** The user accepts this first geography baseline. Natural growing potential is generated on the host from climate, estimated soil, regional slope and drainage, with a literal map layer and exact factor inspection. It is not crop yield or measured soil chemistry. Civilization 01 supplied the historical identity preview; §3.4 and Settlement 01 now describe tribal beginnings and supported communities. Formal province founding and demographics remain subsequent slices.
 
 Generate geography and cell data in dependency order: elevation and landmass → water drainage → climate/biomes → resources → viable settlement candidates. Then sample tribal camps on viable land using a separate placement seed. Country formation, capital settlements and their initial provinces develop through later simulation mechanics. Leave remaining unclaimed land without political province membership; additional provinces arise during expansion.
 

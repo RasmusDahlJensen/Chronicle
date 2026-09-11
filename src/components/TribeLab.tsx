@@ -3,11 +3,13 @@ import type { WorldManifest } from '../../shared/generated-world.ts';
 import { simulationDate, type SimulationCommand, type SimulationState, type SimulationView } from '../../shared/simulation.ts';
 import { commandSimulation, observeSimulation, openSimulation, releaseSimulation, SimulationConflictError } from '../api/simulation.ts';
 import './tribe-lab.css';
+import { SettlementEconomy } from './SettlementDetails.tsx';
 
 interface Props {
   world: WorldManifest;
-  onTribeChange: (world: WorldManifest, tribe: SimulationState['tribe'] | null) => void;
+  onTribeChange: (world: WorldManifest, state: SimulationState | null) => void;
   onLocate: () => void;
+  onLocateSettlement: (id: string) => void;
   mapAvailable: boolean;
 }
 interface Target { id: string; placementSeed: string }
@@ -33,7 +35,7 @@ function rememberedTribe(world: WorldManifest) {
 }
 
 /** Observer controls only. All creation, time advancement and saving happen on the host. */
-export function TribeLab({ world, onTribeChange, onLocate, mapAvailable }: Props) {
+export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, mapAvailable }: Props) {
   const [initial] = useState(() => rememberedTribe(world));
   const [placementSeed, setPlacementSeed] = useState(initial.placementSeed);
   const [target, setTarget] = useState<Target | null>(initial.target);
@@ -49,8 +51,8 @@ export function TribeLab({ world, onTribeChange, onLocate, mapAvailable }: Props
   const act = useRef<(action: Action, recoverSave?: boolean) => void>(() => {});
 
   useEffect(() => {
-    onTribeChange(world, view?.state.tribe ?? null);
-  }, [world, view?.state.tribe, onTribeChange]);
+    onTribeChange(world, view?.state ?? null);
+  }, [world, view?.state, onTribeChange]);
 
   useEffect(() => {
     if (!target) return;
@@ -161,12 +163,12 @@ export function TribeLab({ world, onTribeChange, onLocate, mapAvailable }: Props
   const blocked = busy || error !== null;
   return <section className="tribe-lab" aria-label="Tribe lab" data-instance-id={target?.id ?? ''}
     data-elapsed-days={state?.elapsedDays} data-incarnation={state?.incarnation} data-revision={state?.revision} aria-busy={busy}>
-    <p className="atlas-section-index">Lab controls · Tribe 01</p>
+    <p className="atlas-section-index">Lab controls · Settlement 01</p>
     {state ? <>
       <div className="world-civilization-heading"><span className="world-civilization-swatch" style={{ backgroundColor: state.tribe.color }} aria-hidden="true" /><h2 data-tribe-name>{state.tribe.name}</h2></div>
       <p className="tribe-date">Day {date!.day}, Year {date!.year}</p>
       <dl className="world-water-facts"><div><dt>Population</dt><dd data-tribe-population>{state.tribe.population}</dd></div><div><dt>Camp cell</dt><dd>{state.tribe.originCellId}</dd></div></dl>
-      <p className="atlas-panel-note">250 people is this study’s starting population. It stays constant here. The calendar has 360 days per year.</p>
+      <p className="atlas-panel-note">This study has 250 people in total. Founding communities redistributes them; births and deaths come later. The calendar has 360 days per year.</p>
       <button className="world-locate-civilization" type="button" onClick={onLocate} disabled={!mapAvailable}>Locate tribe <span aria-hidden="true">↗</span></button>
       <p className="tribe-run-status" role="status">{error ? 'Last confirmed progress' : busy ? 'Updating tribe…' : state.running ? view.active ? 'Running' : 'Waiting to resume' : 'Paused'}</p>
       <div className="tribe-time-controls">
@@ -177,7 +179,8 @@ export function TribeLab({ world, onTribeChange, onLocate, mapAvailable }: Props
       </div>
       {confirmReset ? <div className="tribe-reset-confirmation" role="group" aria-label="Reset tribe confirmation"><p>Reset {state.tribe.name} to Day 1, Year 1, paused at its original camp? Saved progress will be replaced.</p><button type="button" disabled={blocked} onClick={() => { setConfirmReset(false); act.current({ action: 'reset' }); }}>Confirm reset tribe</button><button type="button" disabled={busy} onClick={() => setConfirmReset(false)}>Cancel reset</button></div>
         : <button className="tribe-reset-button" type="button" disabled={blocked} onClick={() => setConfirmReset(true)}>Reset tribe</button>}
-      <p className="atlas-panel-note">Completed days are saved on this PC. The camp has no capital or province claim.</p>
+      {state.settlements && <SettlementEconomy society={state.settlements} onLocate={onLocateSettlement} mapAvailable={mapAvailable} />}
+      <p className="atlas-panel-note">Completed days are saved on this PC. The main center anchors the tribe. Formal capitals and provinces develop later.</p>
     </> : target ? <><h2>Your tribe</h2><p className="atlas-panel-note">{busy ? 'Opening the saved tribal instance…' : 'The saved instance has not been loaded.'}</p></>
       : <><h2>Begin a tribe</h2><p className="atlas-panel-note">Start one tribe with a camp and 250 people, then explore its first days.</p><form onSubmit={begin}>
         <label htmlFor="tribe-placement-seed">Placement seed</label><input id="tribe-placement-seed" value={placementSeed} onChange={event => setPlacementSeed(event.target.value)} minLength={1} maxLength={64} required disabled={blocked} autoComplete="off" />

@@ -31,8 +31,11 @@ test('abrupt host death releases ownership and recovers the acknowledged checkpo
     const view = runtime.open(input);
     const advanced = runtime.command({instanceId: input.instanceId, observerId: input.observerId,
       incarnation: view.state.incarnation, revision: view.state.revision, action: 'step', days: 30});
-    process.send(advanced.state); setInterval(() => {}, 1000);`;
-  const child = spawn(process.execPath, ['--input-type=module', '--eval', script, directory, JSON.stringify(input)],
+    // Match the real worker: its timer retains the authority for the host lifetime.
+    setInterval(() => runtime.tick(), 1000);
+    // Exercise GC before checking the lock, rather than depending on heap pressure.
+    setImmediate(() => { global.gc(); process.send(advanced.state); });`;
+  const child = spawn(process.execPath, ['--expose-gc', '--input-type=module', '--eval', script, directory, JSON.stringify(input)],
     { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   let stderr = ''; child.stderr!.on('data', data => { stderr += data; });
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });

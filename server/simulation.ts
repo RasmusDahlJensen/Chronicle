@@ -75,7 +75,11 @@ export function createSimulationService(options: { directory?: string } = {}) {
     snapshot: () => ({ status: stopping ? 'closing' as const : failure ? 'unavailable' as const : isReady ? 'ready' as const : 'starting' as const,
       pending: pending.size, limits: { pending: SIMULATION_RPC_LIMIT, initializations: INITIALIZATION_LIMIT } }),
     ready: () => readyPromise,
-    open: (input: SimulationOpen) => rpc({ action: 'open', input }) as Promise<SimulationView | null>,
+    open: async (input: SimulationOpen) => {
+      const view = await rpc({ action: 'open', input }) as SimulationView | null;
+      // Legacy checkpoints are upgraded only after the HTTP host supplies validated geography.
+      return view?.state.rulesVersion === 1 ? null : view;
+    },
     initialize: (input: SimulationOpen, bundle: WorldStudyBundle) => rpc({ action: 'initialize', input, bundle }) as Promise<SimulationView>,
     observe: (input: SimulationObserve) => rpc({ action: 'observe', input }) as Promise<SimulationView>,
     release: (input: SimulationObserve) => rpc({ action: 'release', input }) as Promise<{ released: true }>,

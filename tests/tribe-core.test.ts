@@ -1,3 +1,4 @@
+import { createSettlementEnvironment } from '../src/simulation/settlements.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createTribeState, advanceTribeDays, resetTribeState } from '../src/simulation/tribe.ts';
@@ -38,13 +39,14 @@ test('tribal placement is repeatable, sampled across viable land, and independen
 test('daily stepping, different batches and persisted continuation produce the same complete core state', () => {
   const { world, tiles, civilization } = fixture();
   const initial = createTribeState(id, 'Tribes 1', world, civilization, tiles);
+  const environment = createSettlementEnvironment(world, tiles);
   let daily = initial, batched = initial;
-  for (let n = 0; n < 360; n++) daily = advanceTribeDays(daily, 1);
-  for (let n = 0; n < 12; n++) batched = advanceTribeDays(parseSimulationState(JSON.parse(JSON.stringify(batched))), 30);
+  for (let n = 0; n < 360; n++) daily = advanceTribeDays(daily, 1, environment);
+  for (let n = 0; n < 12; n++) batched = advanceTribeDays(parseSimulationState(JSON.parse(JSON.stringify(batched))), 30, environment);
   assert.deepEqual(daily, batched); assert.equal(daily.elapsedDays, 360);
   assert.deepEqual(simulationDate(daily.elapsedDays), { day: 1, year: 2 });
   assert.deepEqual(simulationDate(0), { day: 1, year: 1 });
-  assert.deepEqual(daily.tribe, initial.tribe); assert.equal(daily.rngState, initial.rngState);
+  assert.equal(daily.tribe.population, initial.tribe.population); assert.equal(daily.rngState, initial.rngState);
   assert.equal(initial.elapsedDays, 0, 'stepping must not mutate its checkpoint input');
   const reset = resetTribeState({ ...daily, running: true, speed: 10, revision: 19 });
   assert.deepEqual(reset, { ...initial, incarnation: 2, revision: 19 });
@@ -67,7 +69,7 @@ test('tribe creation rejects unsuitable worlds and incomplete or mismatched geog
 test('checkpoint validation rejects incompatible, mismatched, overflowing and inconsistent state', () => {
   const { world, tiles, civilization } = fixture();
   const state = createTribeState(id, 'Tribes', world, civilization, tiles);
-  for (const patch of [{ rulesVersion: 2 }, { protocolVersion: 2 }, { worldKey: 'bad' }, { elapsedDays: -1 },
+  for (const patch of [{ rulesVersion: 3 }, { protocolVersion: 3 }, { worldKey: 'bad' }, { elapsedDays: -1 },
     { rngState: 0 }, { revision: Number.MAX_SAFE_INTEGER }, { extra: 1 }, { tribe: { ...state.tribe, population: 251 } },
     { tribe: { ...state.tribe, originCellId: 131072 } }]) {
     assert.throws(() => parseSimulationState({ ...state, ...patch }), /preserved/);

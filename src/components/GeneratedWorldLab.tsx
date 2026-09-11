@@ -12,6 +12,7 @@ import { RESOURCES } from '../world/atlas.ts';
 import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
 import { TribeLab } from './TribeLab.tsx';
+import { SelectedSettlement } from './SettlementDetails.tsx';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -60,9 +61,9 @@ export function GeneratedWorldLab() {
   const [tileError, setTileError] = useState<string | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(null);
   const [canvasRevision, setCanvasRevision] = useState(0);
-  const [tribePreview, setTribePreview] = useState<{ world: WorldManifest; tribe: SimulationState['tribe'] | null } | null>(null);
-  const receiveTribe = useCallback((current: WorldManifest, tribe: SimulationState['tribe'] | null) => {
-    setTribePreview({ world: current, tribe });
+  const [tribePreview, setTribePreview] = useState<{ world: WorldManifest; state: SimulationState | null } | null>(null);
+  const receiveTribe = useCallback((current: WorldManifest, state: SimulationState | null) => {
+    setTribePreview({ world: current, state });
   }, []);
   const [layer, setLayer] = useState<WorldLayer>('biomes');
   const [resources, setResources] = useState(true);
@@ -138,11 +139,18 @@ export function GeneratedWorldLab() {
   }, [world, canvasRevision]);
 
   useEffect(() => { renderer.current?.setLayer(layer, resources, rivers); }, [layer, resources, rivers, world, canvasRevision]);
-  const tribe = tribePreview?.world === world ? tribePreview.tribe : null;
-  useEffect(() => { renderer.current?.setCivilization(tribe); }, [tribe, world, canvasRevision]);
+  const simulation = tribePreview?.world === world ? tribePreview.state : null;
+  const tribe = simulation?.tribe ?? null;
+  const chosenCenter = simulation?.settlements?.centers.find(center => center.cellId === cell?.id);
+  const territorialCenter = cell ? simulation?.settlements?.centers.find(center => center.territory.includes(cell.id)) : undefined;
+  useEffect(() => { renderer.current?.setSociety(simulation); }, [simulation, world, canvasRevision]);
 
   function locateTribe() {
     setLayer('biomes'); renderer.current?.focusCivilization(); canvas.current?.focus();
+  }
+
+  function locateSettlement(id: string) {
+    setLayer('biomes'); renderer.current?.focusSettlement(id); canvas.current?.focus();
   }
 
   function generate(event?: FormEvent) {
@@ -222,16 +230,20 @@ export function GeneratedWorldLab() {
           {loadError && <p className="atlas-error" role="alert">{loadError}</p>}
           {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={() => retryDetail.current()}>Retry detail</button></div>}
           {canvasError && <div className="world-inline-error"><p className="atlas-error" role="alert">{canvasError}</p><button className="atlas-reset-button" type="button" onClick={() => setCanvasRevision(current => current + 1)}>Retry canvas</button></div>}
-          <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A world at its beginning. Tribes begin here and can develop into civilizations. A tribe’s marker identifies its camp. Rivers connect catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin.</p></div>
+          <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A world at its beginning. Tribes begin here and can develop into civilizations. Each community anchors maintained territory. The main center has a diamond marker; other communities have round markers. Rivers connect catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">
-          {world && <TribeLab key={world.worldKey} world={world} onTribeChange={receiveTribe} onLocate={locateTribe} mapAvailable={!canvasError} />}
+          {world && <TribeLab key={world.worldKey} world={world} onTribeChange={receiveTribe} onLocate={locateTribe} onLocateSettlement={locateSettlement} mapAvailable={!canvasError} />}
           <p className="atlas-section-index">03 / Inspect</p><div className="atlas-section-heading"><h2 id="world-inspector-title">{cell || inspecting ? 'Cell detail' : 'Read the landscape'}</h2>{(cell || inspecting) && <button className="atlas-clear-selection" type="button" aria-label="Clear selection" onClick={() => clearSelection.current()}>×</button>}</div>
           {cell && world ? <div className="world-selected-cell" data-selected-cell={cell.id} aria-live="polite">
-            {tribe?.originCellId === cell.id && <section className="world-selected-civilization" aria-label="Selected tribe camp" data-selected-civilization={tribe.id}>
+            {chosenCenter && <section aria-label={chosenCenter.id === simulation?.settlements?.mainSettlementId ? 'Selected tribe camp' : 'Selected community'} data-selected-civilization={tribe?.id}>
+              <SelectedSettlement center={chosenCenter} main={chosenCenter.id === simulation?.settlements?.mainSettlementId} color={tribe!.color} />
+            </section>}
+            {!chosenCenter && tribe?.originCellId === cell.id && <section className="world-selected-civilization" aria-label="Selected tribe camp" data-selected-civilization={tribe.id}>
               <p className="atlas-detail-label">Tribe camp</p><h3>{tribe.name}</h3>
               <dl className="world-water-facts"><div><dt>Color</dt><dd><span className="world-civilization-swatch" style={{ backgroundColor: tribe.color }} aria-hidden="true" />{tribe.color}</dd></div><div><dt>Origin cell</dt><dd>{tribe.originCellId}</dd></div></dl>
             </section>}
+            {territorialCenter && !chosenCenter && <section aria-label="Selected territorial presence"><p className="atlas-detail-label">Tribal territory</p><h3>{tribe?.name}</h3><p className="atlas-panel-note">Maintained by {territorialCenter.name}. This cell has no formal province.</p><button type="button" onClick={() => locateSettlement(territorialCenter.id)}>Inspect {territorialCenter.name}</button></section>}
             <div className="atlas-cell-biome" style={{ borderColor: WORLD_BIOME_STYLE[cell.biome].color }}><p>Cell {number.format(cell.id)}</p><h3>{WORLD_BIOME_STYLE[cell.biome].label}</h3></div>
             <dl className="atlas-cell-facts world-cell-facts">
               <div><dt>Latitude</dt><dd>{Math.abs(Math.asin(1 - 2 * (cell.y + 0.5) / world.height) * 180 / Math.PI).toFixed(1)}° {cell.y < world.height / 2 ? 'N' : 'S'}</dd></div>

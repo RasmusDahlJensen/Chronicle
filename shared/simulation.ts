@@ -1,17 +1,19 @@
 import { Type, type Static } from 'typebox';
 import { Check } from 'typebox/value';
 import { WorldSettingsSchema, WORLD_SIZES, worldKey, decodeWorldSurface, WORLD_BIOMES, type WorldManifest } from './generated-world.ts';
+import { SettlementStateSchema } from './settlements.ts';
 import { isFoundingBiome } from './civilization.ts';
 
-export const SIMULATION_PROTOCOL_VERSION = 1;
-export const SIMULATION_RULES_VERSION = 1;
+export const SIMULATION_PROTOCOL_VERSION = 2;
+export const SIMULATION_RULES_VERSION = 2;
 export const INITIAL_TRIBE_POPULATION = 250;
 export const DAYS_PER_YEAR = 360;
-export const MAX_SIMULATION_BYTES = 16 * 1024;
+export const MAX_SIMULATION_BYTES = 8 * 1024 * 1024;
 const uuid = Type.String({ pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' });
 const counter = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER - 100 });
 export const SimulationStateSchema = Type.Object({
-  protocolVersion: Type.Literal(SIMULATION_PROTOCOL_VERSION), rulesVersion: Type.Literal(SIMULATION_RULES_VERSION),
+  protocolVersion: Type.Union([Type.Literal(1), Type.Literal(SIMULATION_PROTOCOL_VERSION)]), rulesVersion: Type.Union([Type.Literal(1), Type.Literal(SIMULATION_RULES_VERSION)]),
+  settlements: Type.Optional(SettlementStateSchema),
   id: uuid, incarnation: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER - 100 }), revision: counter,
   worldKey: Type.String({ minLength: 1, maxLength: 100 }), settings: WorldSettingsSchema,
   placementSeed: Type.String({ minLength: 1, maxLength: 64 }),
@@ -48,6 +50,27 @@ export function parseSimulationState(value: unknown): SimulationState {
     || value.tribe.originCellId >= WORLD_SIZES[value.settings.size].width * WORLD_SIZES[value.settings.size].height) {
     throw new Error('The tribal save is invalid or uses unsupported rules. The saved data has been preserved.');
   }
+  if (value.protocolVersion !== value.rulesVersion || (value.rulesVersion === 2) !== Boolean(value.settlements)) throw new Error('The tribal save is invalid. The saved data has been preserved.');
+  if (value.settlements) {
+    const sim = value.settlements, cells = WORLD_SIZES[value.settings.size].width * WORLD_SIZES[value.settings.size].height;
+    const ids = new Set<string>(), claimed = new Set<number>();
+    let population = 0, food = 0;
+    for (const center of sim.centers) {
+      if (ids.has(center.id) || center.cellId >= cells || !center.territory.includes(center.cellId)
+        || center.foundedDay > value.elapsedDays || center.prosperousDays > value.elapsedDays - center.foundedDay
+        || center.territoryLastWorked.length !== center.territory.length || center.territoryLastWorked.some(day => day > value.elapsedDays)
+        || center.prospectCellId !== null && center.prospectCellId >= cells || center.foundingCellId !== null && center.foundingCellId >= cells
+        || new Set(center.workingCells).size !== center.workingCells.length || center.workingCells.some(id => id >= cells)) throw new Error('Invalid settlement checkpoint; saved data has been preserved.');
+      ids.add(center.id); population += center.population; food += center.food;
+      for (const id of center.territory) { if (id >= cells || claimed.has(id)) throw new Error('Invalid territorial accounting; saved data has been preserved.'); claimed.add(id); }
+    }
+    if (sim.startedDay > value.elapsedDays || sim.totalConsumed + sim.totalShortfall !== (value.elapsedDays-sim.startedDay)*250
+      || sim.history.some(event => event.day > value.elapsedDays || event.cellId >= cells || !ids.has(event.settlementId))
+      || population !== value.tribe.population || !ids.has(sim.mainSettlementId) || sim.initialCellId >= cells
+      || sim.centers.find(c => c.id === sim.mainSettlementId)!.cellId !== value.tribe.originCellId
+      || food !== 250 * 30 + sim.totalCollected - sim.totalConsumed - sim.establishmentSpent
+      || sim.centers.some(c => Number(c.id.slice(11)) >= sim.nextSettlementId)) throw new Error('Invalid settlement accounting; saved data has been preserved.');
+  }
   return value;
 }
 export function parseSimulationView(value: unknown, world?: WorldManifest): SimulationView {
@@ -59,6 +82,11 @@ export function parseSimulationView(value: unknown, world?: WorldManifest): Simu
     const surface = decodeWorldSurface(world.surface), id = state.tribe.originCellId;
     if (!isFoundingBiome(WORLD_BIOMES[surface.biome[id]]) || surface.elevation[id] < 0) {
       throw new Error('The tribal camp is outside suitable land.');
+    }
+    if (state.settlements) for (const center of state.settlements.centers) {
+      if (!isFoundingBiome(WORLD_BIOMES[surface.biome[center.cellId]]) || surface.elevation[center.cellId] < 0
+        || [...center.territory,...center.workingCells].some(id => surface.elevation[id] < 0
+          || ['ocean','coast','seaIce','lake','lakeIce','snow','mountain'].includes(WORLD_BIOMES[surface.biome[id]]))) throw new Error('Settlement territory is outside suitable land.');
     }
   }
   return value;

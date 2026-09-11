@@ -1,3 +1,5 @@
+import { initialSettlements, advanceSettlements } from './settlements.ts';
+import type { SettlementEnvironment } from '../../shared/settlements.ts';
 import { isFoundingBiome, type CivilizationSnapshot } from '../../shared/civilization.ts';
 import { WORLD_BIOMES, WORLD_SIZES, WORLD_TILE_SIZE, worldKey, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
 import { INITIAL_TRIBE_POPULATION, SIMULATION_PROTOCOL_VERSION, SIMULATION_RULES_VERSION, parseSimulationState, type SimulationState } from '../../shared/simulation.ts';
@@ -37,18 +39,20 @@ export function createTribeState(instanceId: string, placementSeed: string, worl
     protocolVersion: SIMULATION_PROTOCOL_VERSION, rulesVersion: SIMULATION_RULES_VERSION,
     id: instanceId, incarnation: 1, revision: 0, worldKey: world.worldKey, settings: { ...world.settings }, placementSeed,
     tribe: { ...identity, originCellId, population: INITIAL_TRIBE_POPULATION },
+    settlements: initialSettlements(identity.name, originCellId),
     elapsedDays: 0, rngState: initialRng(world.worldKey, placementSeed), running: false, speed: 1,
   });
 }
 
 /** Every caller executes the same daily steps. Control speed and wall time are host concerns. */
-export function advanceTribeDays(state: SimulationState, days: number): SimulationState {
+export function advanceTribeDays(state: SimulationState, days: number, environment?: SettlementEnvironment): SimulationState {
   parseSimulationState(state);
   if (!Number.isInteger(days) || days < 1 || days > 30) throw new Error('Advance between 1 and 30 whole days per batch.');
-  const next = { ...state };
+  if (state.settlements && !environment) throw new Error('Settlement geography is required to advance this save.');
+  const next = structuredClone(state);
   for (let day = 0; day < days; day++) {
-    // Food, labor and demographic systems will attach here in their own verified slices.
     next.elapsedDays++;
+    if (next.settlements) advanceSettlements(next, environment!);
   }
   return parseSimulationState(next);
 }
@@ -56,5 +60,6 @@ export function advanceTribeDays(state: SimulationState, days: number): Simulati
 export function resetTribeState(state: SimulationState): SimulationState {
   parseSimulationState(state);
   return parseSimulationState({ ...state, incarnation: state.incarnation + 1,
+    ...(state.settlements ? { tribe: { ...state.tribe, originCellId: state.settlements.initialCellId }, settlements: initialSettlements(state.tribe.name, state.settlements.initialCellId) } : {}),
     elapsedDays: 0, rngState: initialRng(state.worldKey, state.placementSeed), running: false, speed: 1 });
 }

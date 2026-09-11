@@ -15,3 +15,18 @@
 .tribe-reset-confirmation { margin-top: .8rem; padding: .6rem; border: 1px solid #ccbba0; border-radius: 3px; display: grid; gap: .4rem; }
 .tribe-reset-confirmation p { font-size: .65rem; line-height: 1.65; margin: 0 0 .3rem; color: #736044; }
 .tribe-error { border-left: 2px solid #a67853; padding-left: .65rem; margin-top: .8rem; }
+
+.settlement-economy { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #d7dbce; }
+.settlement-economy h3 { font-size: 1rem; margin: 0 0 .65rem; }
+.settlement-economy summary { cursor: pointer; font-size: .8rem; color: #38564a; margin: .6rem 0; }
+.settlement-list { padding: 0; list-style: none; margin: .75rem 0; }
+.settlement-list > li { padding: .75rem 0; border-top: 1px solid #d7dbce; }
+.settlement-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; }
+.settlement-title strong { margin: 0; font-size: .95rem; }
+.settlement-title span { font-size: .7rem; color: #617366; }
+.settlement-decision { font-size: .8rem; line-height: 1.5; color: #38564a; }
+.settlement-shortfall { font-size: .8rem; color: #9b492c; }
+.settlement-history ol { padding-left: 1rem; max-height: 16rem; overflow-y: auto; font-size: .8rem; }
+.settlement-history li { margin-bottom: .65rem; line-height: 1.45; }
+.settlement-history span { color: #617366; }
+.selected-settlement { padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid #d7dbce; }

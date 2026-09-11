@@ -1,6 +1,6 @@
 # Tribe 01 — a saved beginning and a daily clock
 
-Status: starting-flow correction implemented and fully verified locally; awaiting user review. Fresh maps have no automatic civilization preview. Civilization is a later development of a tribe. This brief remains the active slice.
+Status: foundation delivered at `0c4115c`; subsequent discussion authorized Settlement 01. Fresh maps have no automatic civilization preview. Civilization is a later development of a tribe. The active slice is now `settlement-01.md`; verification below is historical.
 
 ## Outcome
 

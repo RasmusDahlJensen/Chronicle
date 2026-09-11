@@ -1,21 +1,45 @@
+import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { Check } from 'typebox/value';
 import { parseCivilizationSnapshot, type WorldStudyBundle } from '../../shared/civilization.ts';
-import { parseWorldManifest, parseWorldTile, WORLD_TILE_SIZE } from '../../shared/generated-world.ts';
+import { parseWorldManifest, parseWorldTile, WORLD_TILE_SIZE, WORLD_SIZES, WORLD_BIOMES, WORLD_AREA_KM2 } from '../../shared/generated-world.ts';
 import { MAX_SIMULATION_BYTES, parseSimulationState, SimulationCommandSchema, SimulationObserveSchema, SimulationOpenSchema,
   type SimulationCommand, type SimulationObserve, type SimulationOpen, type SimulationState, type SimulationView } from '../../shared/simulation.ts';
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
+import type { SettlementEnvironment } from '../../shared/settlements.ts';
+import { createSettlementEnvironment, migrateTribeState, validateSettlementGeography } from '../../src/simulation/settlements.ts';
 import { advanceTribeDays, createTribeState, resetTribeState } from '../../src/simulation/tribe.ts';
 import { SimulationError, simulationConflict, simulationUnavailable } from '../simulation-errors.ts';
 
+// Reserve transport envelope space, including a 256-character escaped error message.
+export const MAX_SIMULATION_CHECKPOINT_BYTES = MAX_SIMULATION_BYTES - 2048;
 export const SIMULATION_LIMITS = { residents: 16, observers: 64, leaseMs: 30_000, tickMs: 1_000 } as const;
 const saveMessage = 'The tribal save could not be completed. The clock is suspended; retry a command after fixing storage.';
 const invalidSave = () => new SimulationError('SIMULATION_ERROR', 'The tribal save is invalid or uses unsupported rules. The saved data has been preserved.');
 const invalidRequest = () => new SimulationError('INVALID_REQUEST', 'Invalid simulation request.', 400);
-interface Resident { state: SimulationState; observers: Map<string, number>; lastTick: number; error: string | null; persisted: boolean }
+interface Resident { state: SimulationState; observers: Map<string, number>; lastTick: number; error: string | null; persisted: boolean; environment?: SettlementEnvironment; environmentPersisted?: boolean }
 interface RuntimeOptions { directory?: string; now?: () => number }
+
+const MAX_ENVIRONMENT_BYTES = 20 * 1024 * 1024;
+function databaseEnvironmentSchema(db: DatabaseSync) {
+  db.exec('CREATE TABLE IF NOT EXISTS environments (world_key TEXT PRIMARY KEY, body TEXT NOT NULL, digest TEXT NOT NULL) STRICT;');
+  db.prepare('SELECT body, digest FROM environments WHERE world_key = ?');
+}
+function validateEnvironment(value: unknown, state: SimulationState): SettlementEnvironment {
+  const env = value as SettlementEnvironment, shape = WORLD_SIZES[state.settings.size];
+  if (!env || env.worldKey !== state.worldKey || env.width !== shape.width || env.height !== shape.height
+    || env.cellKm !== Math.sqrt(WORLD_AREA_KM2 / (shape.width * shape.height))) throw invalidSave();
+  const n = shape.width * shape.height;
+  for (const [field, min, max] of [['biome', 0, WORLD_BIOMES.length - 1], ['fertility', 0, 100],
+    ['resource', 0, RESOURCE_IDS.length], ['elevation', -12000, 12000]] as const) {
+    if (!Array.isArray(env[field]) || env[field].length !== n || env[field].some(v => !Number.isInteger(v) || v < min || v > max)) throw invalidSave();
+  }
+  return env;
+}
+const digest = (body: string) => createHash('sha256').update(body).digest('hex');
 
 /** Called only in the dedicated worker (or headless tests); it owns all synchronous SQLite work. */
 export function createSimulationRuntime(options: RuntimeOptions = {}) {
@@ -35,6 +59,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     if (version === 0 && db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='checkpoints'").get()) throw invalidSave();
     db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
     if (version === 0) db.exec('BEGIN IMMEDIATE; CREATE TABLE checkpoints (id TEXT PRIMARY KEY, current TEXT NOT NULL, previous TEXT) STRICT; PRAGMA user_version=1; COMMIT;');
+    databaseEnvironmentSchema(db);
     // Prepare now so an incompatible table cannot masquerade as a healthy store until first access.
     db.prepare('SELECT current, previous FROM checkpoints WHERE id = ?');
   } catch (error) {
@@ -55,6 +80,10 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     return { state: structuredClone(entry.state), active: entry.state.running && entry.observers.size > 0 && !entry.error,
       error: entry.error };
   }
+  function residentEnvironment(worldKey: string) {
+    for (const entry of residents.values()) if (entry.environment?.worldKey === worldKey) return entry.environment;
+    return undefined;
+  }
   function load(id: string): Resident | null {
     ensureOpen(); expire();
     const cached = residents.get(id); if (cached) return cached;
@@ -65,11 +94,25 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     if (residents.size >= SIMULATION_LIMITS.residents) throw new SimulationError('OVERLOADED', 'Too many tribal worlds are currently observed. Close another world and retry.');
     let state: SimulationState;
     try {
-      if (typeof row.current !== 'string' || Buffer.byteLength(row.current) > MAX_SIMULATION_BYTES) throw invalidSave();
+      if (typeof row.current !== 'string' || Buffer.byteLength(row.current) > MAX_SIMULATION_CHECKPOINT_BYTES) throw invalidSave();
       state = parseSimulationState(JSON.parse(row.current));
       if (state.id !== id) throw invalidSave();
     } catch { throw invalidSave(); }
-    const entry: Resident = { state, observers: new Map(), lastTick: now(), error: null, persisted: true };
+    let environment: SettlementEnvironment | undefined;
+    if (state.rulesVersion === 2) {
+      try {
+        environment = residentEnvironment(state.worldKey);
+        if (!environment) {
+          const stored = database.prepare('SELECT body, digest FROM environments WHERE world_key = ?').get(state.worldKey);
+          if (!stored || typeof stored.body !== 'string' || Buffer.byteLength(stored.body) > MAX_ENVIRONMENT_BYTES
+            || digest(stored.body) !== stored.digest) throw invalidSave();
+          environment = validateEnvironment(JSON.parse(stored.body), state);
+        }
+        validateSettlementGeography(state, environment);
+      } catch { throw invalidSave(); }
+    }
+    const entry: Resident = { state, observers: new Map(), lastTick: now(), error: null, persisted: true,
+      environment, environmentPersisted: true };
     residents.set(id, entry); return entry;
   }
   function attach(entry: Resident, observerId: string) {
@@ -85,11 +128,22 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
       throw simulationConflict('This simulation identity already belongs to a different world or placement.');
     }
   }
-  function save(entry: Resident, candidate: SimulationState) {
+  function save(entry: Resident, candidate: SimulationState, environment = entry.environment) {
     const state = parseSimulationState(candidate), body = JSON.stringify(state);
-    if (Buffer.byteLength(body) > MAX_SIMULATION_BYTES) throw invalidSave();
+    if (Buffer.byteLength(body) > MAX_SIMULATION_CHECKPOINT_BYTES) throw invalidSave();
     try {
       database.exec('BEGIN IMMEDIATE;');
+      if (state.rulesVersion === 2 && !entry.environmentPersisted) {
+        validateEnvironment(environment, state);
+        validateSettlementGeography(state, environment!);
+        const environmentBody = JSON.stringify(environment);
+        if (Buffer.byteLength(environmentBody) > MAX_ENVIRONMENT_BYTES) throw invalidSave();
+        const existing = database.prepare('SELECT body, digest FROM environments WHERE world_key = ?').get(state.worldKey);
+        if (existing && (typeof existing.body !== 'string' || Buffer.byteLength(existing.body) > MAX_ENVIRONMENT_BYTES
+          || digest(existing.body) !== existing.digest || existing.digest !== digest(environmentBody))) throw invalidSave();
+        if (!existing) database.prepare('INSERT INTO environments (world_key, body, digest) VALUES (?, ?, ?)')
+          .run(state.worldKey, environmentBody, digest(environmentBody));
+      }
       if (!entry.persisted) database.prepare('INSERT INTO checkpoints (id, current) VALUES (?, ?)').run(state.id, body);
       else {
         const result = database.prepare('UPDATE checkpoints SET previous = current, current = ? WHERE id = ?').run(body, state.id);
@@ -97,7 +151,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
       }
       // FULL synchronous WAL COMMIT is the durable game checkpoint. SQLite's WAL checkpointing remains housekeeping.
       database.exec('COMMIT;');
-      entry.state = state; entry.persisted = true;
+      entry.state = state; entry.persisted = true; entry.environment = environment ? residentEnvironment(state.worldKey) ?? environment : undefined; entry.environmentPersisted = !!environment;
       entry.error = null;
     } catch {
       try { database.exec('ROLLBACK;'); } catch { /* BEGIN itself may have failed. */ }
@@ -111,9 +165,9 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     identity(entry, input); attach(entry, input.observerId); return view(entry);
   }
   function initialize(input: SimulationOpen, bundle: WorldStudyBundle): SimulationView {
-    const existing = open(input); if (existing) return existing;
-    if (residents.size >= SIMULATION_LIMITS.residents) throw new SimulationError('OVERLOADED', 'Too many tribal worlds are currently observed. Close another world and retry.');
-    let state: SimulationState;
+    const existing = open(input); if (existing?.state.rulesVersion === 2) return existing;
+    if (!existing && residents.size >= SIMULATION_LIMITS.residents) throw new SimulationError('OVERLOADED', 'Too many tribal worlds are currently observed. Close another world and retry.');
+    let state: SimulationState, environment: SettlementEnvironment;
     try {
       const manifest = parseWorldManifest(JSON.parse(bundle.manifest));
       if (manifest.settings.seed !== input.settings.seed || manifest.settings.size !== input.settings.size) throw invalidRequest();
@@ -121,14 +175,16 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
       const columns = manifest.width / WORLD_TILE_SIZE;
       if (bundle.tiles.length !== columns * manifest.height / WORLD_TILE_SIZE) throw invalidRequest();
       const tiles = bundle.tiles.map((body, index) => parseWorldTile(JSON.parse(body), manifest, index % columns, Math.floor(index / columns)));
-      state = createTribeState(input.instanceId, input.placementSeed, manifest, civilization, tiles);
+      environment = createSettlementEnvironment(manifest, tiles);
+      state = existing ? migrateTribeState(existing.state, environment) : createTribeState(input.instanceId, input.placementSeed, manifest, civilization, tiles);
     } catch {
       throw new SimulationError('SIMULATION_ERROR', 'Unable to start a tribe on suitable land in this world. Its saved data has been preserved.');
     }
-    const entry: Resident = { state, observers: new Map(), lastTick: now(), error: null, persisted: false };
+    const entry: Resident = residents.get(input.instanceId) ?? { state, observers: new Map(), lastTick: now(), error: null, persisted: false, environment };
+    entry.environmentPersisted = false;
     // Keep failed first writes recoverable too; initialize will never silently replace this resident.
     residents.set(state.id, entry); attach(entry, input.observerId);
-    save(entry, state);
+    save(entry, state, environment);
     return view(entry);
   }
   function observe(input: SimulationObserve): SimulationView {
@@ -156,7 +212,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     let next = entry.state;
     if (input.action === 'step') {
       if (next.running) throw simulationConflict('Pause the tribal clock before stepping days.');
-      next = advanceTribeDays(next, input.days!);
+      next = advanceTribeDays(next, input.days!, entry.environment);
     } else if (input.action === 'reset') next = resetTribeState(next);
     else if (input.action === 'speed') next = { ...next, speed: input.speed! };
     else next = { ...next, running: input.action === 'play' };
@@ -168,7 +224,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     for (const entry of residents.values()) {
       if (!entry.state.running || !entry.observers.size || entry.error || time - entry.lastTick < SIMULATION_LIMITS.tickMs) continue;
       entry.lastTick = time;
-      try { save(entry, { ...advanceTribeDays(entry.state, entry.state.speed), revision: entry.state.revision + 1 }); }
+      try { save(entry, { ...advanceTribeDays(entry.state, entry.state.speed, entry.environment), revision: entry.state.revision + 1 }); }
       catch { entry.error = saveMessage; }
     }
   }

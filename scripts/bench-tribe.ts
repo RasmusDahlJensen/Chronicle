@@ -28,7 +28,8 @@ try {
     }
   } finally { db.close(); }
   service = createSimulationService({ directory }); await service.ready();
-  for (const input of inputs) await service.open(input);
+  // Observe the explicit legacy fixtures directly: open would upgrade them with real geography.
+  for (const input of inputs) await service.observe({ instanceId: input.instanceId, observerId: input.observerId });
   const lag = monitorEventLoopDelay({ resolution: 10 }); lag.enable();
   const start = performance.now();
   for (let iteration = 0; iteration < 20; iteration++) for (let n = 0; n < 16; n++) {
@@ -40,7 +41,7 @@ try {
   const elapsed = performance.now() - start; lag.disable(); samples.sort((a, b) => a - b);
   await service.close(); service = undefined;
   console.log(JSON.stringify({ node: process.version, cpu: cpus()[0].model, hostGiB: totalmem() / 1024 ** 3,
-    scenario: '16 authored 250-person checkpoints; real worker RPC and FULL WAL commits; no food/demographic mechanics',
+    scenario: '16 authored legacy clock-only 250-person checkpoints; real worker RPC and FULL WAL commits; no food/demographic mechanics',
     batches: samples.length, daysPerWorld: states[0].elapsedDays, checkpointBytes: Buffer.byteLength(JSON.stringify(states[0])),
     durationMs: elapsed, p50Ms: samples[Math.floor(samples.length * .5)], p95Ms: samples[Math.floor(samples.length * .95)],
     maxMs: samples.at(-1), mainLoopMaxMs: lag.max / 1e6, databaseBytes: (await stat(join(directory, 'simulation.sqlite'))).size,
