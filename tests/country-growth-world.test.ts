@@ -4,11 +4,12 @@ import { generateWorld } from '../src/world/generation/generate.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { createCivilizationSnapshot } from '../src/world/civilization.ts';
 import { createSettlementEnvironment } from '../src/simulation/settlements.ts';
+import { initialCountryGrowth } from '../src/simulation/country-growth.ts';
 import { createTribeState, advanceTribeDays } from '../src/simulation/tribe.ts';
 import { parseWorldManifest, parseWorldTile } from '../shared/generated-world.ts';
 import { connectedCountryCells } from '../shared/country-growth.ts';
 
-test('generated Chronicle geography supports ten-year one-capital growth at two reproducible locations', async () => {
+test('released rules 4 on generated Chronicle geography support ten-year one-capital growth at two reproducible locations', async () => {
   const world = await generateWorld({ seed: 'Chronicle', size: 'standard' }),
     bundle = encodeGeneratedWorld(world),
     manifest = parseWorldManifest(JSON.parse(bundle.manifest));
@@ -24,6 +25,11 @@ test('generated Chronicle geography supports ten-year one-capital growth at two 
       tiles,
       { clockMode: 'monthly', environment },
     );
+    // This accepted geography study retains the released growth rules.
+    delete state.development;
+    state.country = initialCountryGrowth(state.tribe.id, state.tribe.originCellId, environment);
+    state.protocolVersion = 5;
+    state.rulesVersion = 4;
     const initial = state;
     for (let month = 0; month < 120; month++) state = advanceTribeDays(state, 30, environment);
     assert.equal(state.settlements!.centers.length, 1);

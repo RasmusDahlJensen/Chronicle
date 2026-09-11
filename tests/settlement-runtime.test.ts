@@ -149,30 +149,39 @@ import { advanceTribeDays } from '../src/simulation/tribe.ts';
 import { createSettlementEnvironment } from '../src/simulation/settlements.ts';
 import { parseWorldManifest, parseWorldTile } from '../shared/generated-world.ts';
 
-test('country AI crosses the real worker and SQLite boundary and resumes exact plans and RNG after restart', async t => {
+test('country investment crosses the real worker and SQLite boundary and resumes paid investments, projects and RNG after restart', async t => {
  const directory=await mkdtemp(join(tmpdir(),'chronicle-country-ai-worker-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const opening={...input,clockMode:'monthly' as const,originCellId:46821,placementSeed:'AI restart'};
  const world=await bundle(),manifest=parseWorldManifest(JSON.parse(world.manifest));
  const environment=createSettlementEnvironment(manifest,world.tiles.map((tile,i)=>parseWorldTile(JSON.parse(tile),manifest,i%(manifest.width/128),Math.floor(i/(manifest.width/128)))));
  let service=createSimulationService({directory});t.after(()=>service.close());
  let state=(await service.initialize(opening,world)).state;
- assert.ok(state.ai);assert.equal(state.rulesVersion,4);assert.ok(state.country);
- for(let month=0;month<4;month++) state=(await service.command(step(state))).state;
+ assert.ok(state.ai);assert.equal(state.rulesVersion,5);assert.equal(state.protocolVersion,6);assert.ok(state.country);assert.ok(state.development);
+ for(let month=0;month<120 && !(state.development!.investmentSpent>0 && state.development!.projects.length>0);month++) state=(await service.command(step(state))).state;
  assert.ok(state.ai!.history.length);
+ assert.ok(state.development!.investmentSpent>0, 'restart must retain actual completed investment costs and effects');
+ assert.ok(state.development!.foodLevel+state.development!.logisticsLevel>0);
+ assert.ok(state.development!.projects.length>0, 'restart must resume an actual funded project');
+ assert.ok(state.development!.budget.reservedFood>0);
+ assert.ok(state.development!.budget.reservedWorkers>0);
  const expected={...advanceTribeDays(state,30,environment),revision:state.revision+1};
  await service.close();service=createSimulationService({directory});
  assert.deepEqual((await service.open(opening))!.state,state);
  assert.deepEqual((await service.command(step(state))).state,expected);
 });
 
-test('failed country AI commit rolls back RNG, decisions and food, and retry advances exactly once', async t => {
+test('failed country investment commit rolls back paid levels, projects, reservations, RNG and food, and retry advances exactly once', async t => {
  const directory=await mkdtemp(join(tmpdir(),'chronicle-country-ai-rollback-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  const opening={...input,clockMode:'monthly' as const,originCellId:46821,placementSeed:'AI rollback'};
  const runtime=createSimulationRuntime({directory});t.after(()=>runtime.close());
- const initial=runtime.initialize(opening,await bundle()).state;
+ let initial=runtime.initialize(opening,await bundle()).state;
+ for(let month=0;month<120 && !(initial.development!.investmentSpent>0 && initial.development!.projects.length>0);month++) initial=runtime.command(step(initial)).state;
+ assert.ok(initial.development!.investmentSpent>0);
+ assert.ok(initial.development!.projects.length>0);
  const db=new DatabaseSync(join(directory,'simulation.sqlite'));t.after(()=>db.close());
  const environment=JSON.parse(db.prepare('SELECT body FROM environments').get()!.body as string);
  const expected={...advanceTribeDays(initial,30,environment),revision:initial.revision+1};
+ assert.notDeepEqual(expected.development,initial.development, 'failed batch must contain actual project work');
  db.exec("CREATE TRIGGER reject_ai BEFORE UPDATE ON checkpoints BEGIN SELECT RAISE(ABORT,'test failure'); END;");
  assert.throws(()=>runtime.command(step(initial)),/save/i);
  assert.deepEqual(runtime.observe({instanceId:opening.instanceId,observerId:opening.observerId}).state,initial);

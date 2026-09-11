@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { growthFixture as countryFixture } from './helpers/country-ai.ts';
+import { growthFixture as countryFixture, investmentFixture } from './helpers/country-ai.ts';
 import { advanceTribeDays, resetTribeState } from '../src/simulation/tribe.ts';
 import { parseSimulationState } from '../shared/simulation.ts';
 
@@ -17,9 +17,12 @@ function run(
   return state;
 }
 
-test('a prosperous country grows people and connected national claims for five years with one capital', () => {
+test('a prosperous released rules 4 country grows people and connected national claims for five years with one capital', () => {
   const { state, environment } = countryFixture('Growth fertile', 80);
-  assert.ok(state.country, 'new games need country-owned territory, separate from town working areas');
+  assert.equal(state.protocolVersion, 5);
+  assert.equal(state.rulesVersion, 4);
+  assert.equal(state.development, undefined);
+  assert.ok(state.country, 'growth games need country-owned territory, separate from town working areas');
   const grown = run(state, environment, 360 * 5);
   assert.equal(grown.settlements!.centers.length, 1);
   assert.ok(grown.tribe.population > 260, 'sustained prosperity must grow beyond the fixed founding allocation');
@@ -45,7 +48,10 @@ test('country growth preserves exact daily, monthly, saved continuation and rese
     daily = advanceTribeDays(parseSimulationState(JSON.parse(JSON.stringify(daily))), 1, environment);
   const monthly = run(state, environment, 360);
   assert.deepEqual(daily, monthly);
-  assert.deepEqual(resetTribeState(monthly, environment), { ...state, incarnation: 2 });
+  assert.equal(monthly.rulesVersion, 4);
+  assert.equal(monthly.development, undefined);
+  assert.throws(() => resetTribeState(monthly), /geography/i);
+  assert.deepEqual(resetTribeState(monthly, environment), { ...investmentFixture('Growth replay', 75).state, incarnation: 2 });
 });
 
 import {

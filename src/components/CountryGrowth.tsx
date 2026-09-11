@@ -1,4 +1,5 @@
 import type { CountryGrowth as Growth } from '../../shared/country-growth.ts';
+import type { CountryDevelopment } from '../../shared/country-development.ts';
 import type { SimulationState } from '../../shared/simulation.ts';
 
 const format = (value: number) => new Intl.NumberFormat('en', { maximumFractionDigits: 1 }).format(value);
@@ -8,12 +9,14 @@ type Society = NonNullable<SimulationState['settlements']>;
 export function CountryGrowth({
   country,
   society,
+  development,
   cellAreaKm2,
   onLocate,
   mapAvailable,
 }: {
   country: Growth;
   society: Society;
+  development?: CountryDevelopment;
   cellAreaKm2: number;
   onLocate: (id: string) => void;
   mapAvailable: boolean;
@@ -121,7 +124,7 @@ export function CountryGrowth({
           <dd>{metrics.supportWorkers}</dd>
         </div>
         <div>
-          <dt>Claim crew</dt>
+          <dt>{development ? 'Project workers' : 'Claim crew'}</dt>
           <dd>{metrics.claimWorkers}</dd>
         </div>
         <div>
@@ -138,8 +141,8 @@ export function CountryGrowth({
         </div>
       </dl>
       <p className="atlas-panel-note">
-        Sixty percent of people form an abstract labor budget. Support, claim crews, gatherers and idle workers divide
-        that budget. Claim crews are assigned people, not population spent.
+        Sixty percent of people form an abstract labor budget. Support, {development ? 'project workers' : 'claim crews'}, gatherers and idle workers divide
+        that budget. {development ? 'Project workers' : 'Claim crews'} are assigned people, not population spent.
       </p>
       <details>
         <summary>Accounting since founding</summary>
@@ -180,6 +183,10 @@ export function CountryGrowth({
             <dt>Claim food spent</dt>
             <dd>{format(society.establishmentSpent)}</dd>
           </div>
+          {development && <div>
+            <dt>Investment food spent</dt>
+            <dd data-total-investment-spent>{format(development.investmentSpent)}</dd>
+          </div>}
           <div>
             <dt>Upkeep paid</dt>
             <dd data-total-upkeep-paid>{format(country.upkeepPaid)}</dd>

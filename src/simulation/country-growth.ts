@@ -1,4 +1,5 @@
 import TinyQueue from 'tinyqueue';
+import { developmentEffects, type CountryDevelopment } from '../../shared/country-development.ts';
 import { WORLD_AREA_KM2, WORLD_BIOMES } from '../../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import {
@@ -58,7 +59,7 @@ function edgeCost(env: SettlementEnvironment, from: number, to: number): number 
       (['forest', 'rainforest', 'wetland'].includes(biome) ? 0.3 : 0))
   );
 }
-function routes(env: SettlementEnvironment, region: CountryTerritory): Map<number, number> {
+export function routes(env: SettlementEnvironment, region: CountryTerritory): Map<number, number> {
   const allowed = new Set(region.cells),
     distances = new Map<number, number>();
   if (!allowed.has(region.capitalCellId)) return distances;
@@ -78,7 +79,7 @@ function routes(env: SettlementEnvironment, region: CountryTerritory): Map<numbe
   }
   return distances;
 }
-function frontier(
+export function frontier(
   env: SettlementEnvironment,
   region: CountryTerritory,
   distances: Map<number, number>,
@@ -99,7 +100,7 @@ function frontier(
     neighbors: countryNeighbors(id, env.width, env.height).filter((next) => owned.has(next)).length,
   }));
 }
-function foodRate(env: SettlementEnvironment, id: number, distance: number): number {
+export function foodRate(env: SettlementEnvironment, id: number, distance: number): number {
   const biome = WORLD_BIOMES[env.biome[id]],
     resource = RESOURCE_IDS[env.resource[id] - 1];
   if (['mountain', 'snow'].includes(biome)) return 0;
@@ -112,18 +113,32 @@ function foodRate(env: SettlementEnvironment, id: number, distance: number): num
     : 0;
   return (baseline + env.fertility[id] / 30 + edible + fishing) / (1 + distance / 240);
 }
-function economy(env: SettlementEnvironment, region: CountryTerritory, population: number, crew = 0) {
+export function economy(
+  env: SettlementEnvironment,
+  region: CountryTerritory,
+  population: number,
+  crew = 0,
+  development?: Pick<CountryDevelopment, 'foodLevel' | 'logisticsLevel'>,
+) {
   const paths = routes(env, region),
     cellArea = area(env);
+  const effects = development ? developmentEffects(development) : undefined;
+  const reach = effects?.reachMultiplier ?? 1;
+  const production = effects?.foodMultiplier ?? 1;
   let burden = 0;
   for (const [id, d] of paths) burden += (cellArea / 1000) * (1 + Math.max(0, env.elevation[id]) / 2000 + d / 400);
+  if (effects) burden *= effects.supportMultiplier;
   const workforce = Math.floor(population * 0.6),
     supportRequired = Math.ceil(burden),
     supportWorkers = Math.min(workforce, supportRequired);
   const claimWorkers = Math.min(crew, workforce - supportWorkers),
     upkeepDue = Math.ceil(burden * 2);
   const sites = [...paths]
-    .map(([id, d]) => ({ id, rate: foodRate(env, id, d), capacity: Math.max(1, Math.floor(cellArea * 0.04)) }))
+    .map(([id, d]) => ({
+      id,
+      rate: foodRate(env, id, d / reach) * production,
+      capacity: Math.max(1, Math.floor(cellArea * 0.04)),
+    }))
     .filter((site) => site.rate > 0)
     .sort((a, b) => b.rate - a.rate || a.id - b.id);
   const foodCapacity = Math.max(0, sites.reduce((n, s) => n + Math.floor(s.capacity * s.rate), 0) - upkeepDue);
@@ -197,7 +212,7 @@ export function initialCountryGrowth(
     history: [],
   };
 }
-function record(
+export function record(
   country: CountryGrowth,
   day: number,
   kind: CountryGrowth['history'][number]['kind'],
@@ -218,6 +233,7 @@ export function validateCountryGeography(state: SimulationState, env: Settlement
   const distances = routes(env, country.territory);
   if (distances.size !== country.territory.cells.length)
     throw new Error('Country claims are disconnected; saved data has been preserved.');
+  if (state.development) return;
   for (const d of state.ai!.decisions)
     if (d.goal === 'expand') {
       const site = frontier(env, country.territory, distances, []).find((site) => site.id === d.targetCellId);
@@ -350,62 +366,8 @@ export function advanceCountryGrowth(
     c.prospectCellId = null;
   }
   const daily = economy(env, region, before, decision.goal === 'expand' ? 12 : 0);
-  country.metrics = daily.metrics;
+  if (applyCountryEconomy(state, daily, decision.reason)) return;
   const m = country.metrics;
-  c.workingCells = daily.workingCells;
-  c.collected = daily.collected;
-  country.personDays += before;
-  sim.totalCollected += c.collected;
-  c.food += c.collected;
-  c.consumed = Math.min(before, c.food);
-  c.food -= c.consumed;
-  c.shortfall = before - c.consumed;
-  sim.totalConsumed += c.consumed;
-  sim.totalShortfall += c.shortfall;
-  m.upkeepPaid = Math.min(c.food, m.upkeepDue);
-  c.food -= m.upkeepPaid;
-  m.upkeepShortfall = m.upkeepDue - m.upkeepPaid;
-  country.upkeepPaid += m.upkeepPaid;
-  country.upkeepShortfall += m.upkeepShortfall;
-  country.deathRemainder += before * 2;
-  m.naturalDeaths = Math.floor(country.deathRemainder / 36000);
-  country.deathRemainder %= 36000;
-  country.hungerRemainder += c.shortfall;
-  m.starvationDeaths = Math.min(before - m.naturalDeaths, Math.floor(country.hungerRemainder / 30));
-  country.hungerRemainder %= 30;
-  const healthy =
-    !c.shortfall &&
-    !m.upkeepShortfall &&
-    m.supportWorkers === m.supportRequired &&
-    daily.collected >= before + m.upkeepDue &&
-    c.food >= before * 30;
-  if (healthy) {
-    country.birthRemainder += before * 4;
-    m.births = Math.floor(country.birthRemainder / 36000);
-    country.birthRemainder %= 36000;
-  }
-  country.births += m.births;
-  country.naturalDeaths += m.naturalDeaths;
-  country.starvationDeaths += m.starvationDeaths;
-  c.population = before + m.births - m.naturalDeaths - m.starvationDeaths;
-  state.tribe.population = c.population;
-  c.prosperousDays = healthy ? c.prosperousDays + 1 : 0;
-  if (c.prosperousDays >= 60) c.kind = 'settlement';
-  const spoiled = Math.ceil(Math.max(0, c.food - c.population * 120) * 0.005);
-  c.food -= spoiled;
-  country.spoilage += spoiled;
-  c.decision = decision.reason;
-  if (c.population === 0) {
-    country.claimsReleased += region.cells.length;
-    region.cells = [];
-    c.workingCells = [];
-    c.prospectDays = 0;
-    c.prospectCellId = null;
-    c.decision = 'The population has died out; the country no longer maintains any claims.';
-    completeCountryIntent(ai, c.id, state.elapsedDays, c.decision);
-    record(country, state.elapsedDays, 'collapsed', null, c.decision);
-    return;
-  }
   // Funded crews may temporarily draw reserves; evaluate continuing support
   // without that crew so completing a viable project does not cause retreat.
   const foodDeficit = base.collected < before + base.metrics.upkeepDue;
@@ -471,4 +433,76 @@ export function advanceCountryGrowth(
         break;
       }
   }
+}
+
+/** Shared daily collection, consumption and demography transaction for both country rules. */
+export function applyCountryEconomy(
+  state: SimulationState,
+  daily: ReturnType<typeof economy>,
+  reason: string,
+): boolean {
+  const country = state.country!,
+    sim = state.settlements!,
+    c = sim.centers[0],
+    ai = state.ai!,
+    region = country.territory,
+    before = c.population;
+  c.territoryLastWorked = [state.elapsedDays];
+  country.metrics = daily.metrics;
+  const m = country.metrics;
+  c.workingCells = daily.workingCells;
+  c.collected = daily.collected;
+  country.personDays += before;
+  sim.totalCollected += c.collected;
+  c.food += c.collected;
+  c.consumed = Math.min(before, c.food);
+  c.food -= c.consumed;
+  c.shortfall = before - c.consumed;
+  sim.totalConsumed += c.consumed;
+  sim.totalShortfall += c.shortfall;
+  m.upkeepPaid = Math.min(c.food, m.upkeepDue);
+  c.food -= m.upkeepPaid;
+  m.upkeepShortfall = m.upkeepDue - m.upkeepPaid;
+  country.upkeepPaid += m.upkeepPaid;
+  country.upkeepShortfall += m.upkeepShortfall;
+  country.deathRemainder += before * 2;
+  m.naturalDeaths = Math.floor(country.deathRemainder / 36000);
+  country.deathRemainder %= 36000;
+  country.hungerRemainder += c.shortfall;
+  m.starvationDeaths = Math.min(before - m.naturalDeaths, Math.floor(country.hungerRemainder / 30));
+  country.hungerRemainder %= 30;
+  const healthy =
+    !c.shortfall &&
+    !m.upkeepShortfall &&
+    m.supportWorkers === m.supportRequired &&
+    daily.collected >= before + m.upkeepDue &&
+    c.food >= before * 30;
+  if (healthy) {
+    country.birthRemainder += before * 4;
+    m.births = Math.floor(country.birthRemainder / 36000);
+    country.birthRemainder %= 36000;
+  }
+  country.births += m.births;
+  country.naturalDeaths += m.naturalDeaths;
+  country.starvationDeaths += m.starvationDeaths;
+  c.population = before + m.births - m.naturalDeaths - m.starvationDeaths;
+  state.tribe.population = c.population;
+  c.prosperousDays = healthy ? c.prosperousDays + 1 : 0;
+  if (c.prosperousDays >= 60) c.kind = 'settlement';
+  const spoiled = Math.ceil(Math.max(0, c.food - c.population * 120) * 0.005);
+  c.food -= spoiled;
+  country.spoilage += spoiled;
+  c.decision = reason;
+  if (c.population === 0) {
+    country.claimsReleased += region.cells.length;
+    region.cells = [];
+    c.workingCells = [];
+    c.prospectDays = 0;
+    c.prospectCellId = null;
+    c.decision = 'The population has died out; the country no longer maintains any claims.';
+    completeCountryIntent(ai, c.id, state.elapsedDays, c.decision);
+    record(country, state.elapsedDays, 'collapsed', null, c.decision);
+    return true;
+  }
+  return false;
 }

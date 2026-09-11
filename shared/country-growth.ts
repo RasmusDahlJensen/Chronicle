@@ -1,4 +1,5 @@
 import { Type, type Static } from 'typebox';
+import type { CountryDevelopment } from './country-development.ts';
 import type { SettlementState } from './settlements.ts';
 import type { CountryAI } from './country-ai.ts';
 const count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER - 100 });
@@ -124,6 +125,7 @@ export function validateCountryGrowth(
   width: number,
   height: number,
   countryId: string,
+  development?: CountryDevelopment,
 ): void {
   const fail = () => {
     throw new Error('Invalid country growth accounting or claims; saved data has been preserved.');
@@ -160,7 +162,7 @@ export function validateCountryGrowth(
     c.workingCells.some((id) => !region.cells.includes(id)) ||
     sim.totalConsumed + sim.totalShortfall !== country.personDays ||
     c.food !==
-      7500 + sim.totalCollected - sim.totalConsumed - sim.establishmentSpent - country.upkeepPaid - country.spoilage ||
+      7500 + sim.totalCollected - sim.totalConsumed - sim.establishmentSpent - country.upkeepPaid - country.spoilage - (development?.investmentSpent ?? 0) ||
     metrics.workforce !==
       metrics.supportWorkers + metrics.claimWorkers + metrics.gatheringWorkers + metrics.idleWorkers ||
     metrics.supportWorkers > metrics.supportRequired ||
@@ -168,7 +170,7 @@ export function validateCountryGrowth(
     country.unsupportedDays > day ||
     country.history.length > 64 ||
     country.history.some((e) => e.day > day || (e.cellId !== null && e.cellId >= width * height)) ||
-    ai.decisions.some((d) => d.goal !== 'expand' && d.goal !== 'consolidate')
+    ai.decisions.some((d) => !['expand', 'consolidate', ...(development ? ['improveFood','improveLogistics'] : [])].includes(d.goal))
   )
     fail();
   if (
@@ -192,6 +194,7 @@ export function validateCountryGrowth(
       sim.establishmentSpent)
   )
     fail();
+  if (development) return;
   for (const d of ai.decisions) {
     if (
       d.goal === 'expand' &&

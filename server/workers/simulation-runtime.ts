@@ -1,3 +1,4 @@
+import { validateDevelopmentGeography } from '../../src/simulation/country-development.ts';
 import { validateCountryGeography } from '../../src/simulation/country-growth.ts';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -109,7 +110,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
             || digest(stored.body) !== stored.digest) throw invalidSave();
           environment = validateEnvironment(JSON.parse(stored.body), state);
         }
-        validateSettlementGeography(state, environment); validateCountryGeography(state, environment);
+        validateSettlementGeography(state, environment); validateCountryGeography(state, environment); validateDevelopmentGeography(state, environment);
       } catch { throw invalidSave(); }
     }
     const entry: Resident = { state, observers: new Map(), lastTick: now(), error: null, persisted: true,
@@ -137,7 +138,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
       database.exec('BEGIN IMMEDIATE;');
       if (state.rulesVersion >= 2 && !entry.environmentPersisted) {
         validateEnvironment(environment, state);
-        validateSettlementGeography(state, environment!); validateCountryGeography(state, environment!);
+        validateSettlementGeography(state, environment!); validateCountryGeography(state, environment!); validateDevelopmentGeography(state, environment!);
         const environmentBody = JSON.stringify(environment);
         if (Buffer.byteLength(environmentBody) > MAX_ENVIRONMENT_BYTES) throw invalidSave();
         const existing = database.prepare('SELECT body, digest FROM environments WHERE world_key = ?').get(state.worldKey);

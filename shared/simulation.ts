@@ -1,13 +1,14 @@
 import { Type, type Static } from 'typebox';
 import { Check } from 'typebox/value';
 import { WorldSettingsSchema, WORLD_SIZES, worldKey, decodeWorldSurface, WORLD_BIOMES, type WorldManifest } from './generated-world.ts';
+import { CountryDevelopmentSchema, investmentTerms } from './country-development.ts';
 import { CountryGrowthSchema, validateCountryGrowth } from './country-growth.ts';
 import { CountryAISchema } from './country-ai.ts';
 import { SettlementStateSchema } from './settlements.ts';
 import { isFoundingBiome } from './civilization.ts';
 
-export const SIMULATION_PROTOCOL_VERSION = 5;
-export const SIMULATION_RULES_VERSION = 4;
+export const SIMULATION_PROTOCOL_VERSION = 6;
+export const SIMULATION_RULES_VERSION = 5;
 export const INITIAL_TRIBE_POPULATION = 250;
 export const DAYS_PER_YEAR = 360;
 export const DAYS_PER_MONTH = 30;
@@ -15,8 +16,8 @@ export const MAX_SIMULATION_BYTES = 8 * 1024 * 1024;
 const uuid = Type.String({ pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' });
 const counter = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER - 100 });
 export const SimulationStateSchema = Type.Object({
-  protocolVersion: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3), Type.Literal(4), Type.Literal(SIMULATION_PROTOCOL_VERSION)]), rulesVersion: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3), Type.Literal(SIMULATION_RULES_VERSION)]),
-  settlements: Type.Optional(SettlementStateSchema), ai: Type.Optional(CountryAISchema), country: Type.Optional(CountryGrowthSchema),
+  protocolVersion: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3), Type.Literal(4), Type.Literal(5), Type.Literal(SIMULATION_PROTOCOL_VERSION)]), rulesVersion: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3), Type.Literal(4), Type.Literal(SIMULATION_RULES_VERSION)]),
+  settlements: Type.Optional(SettlementStateSchema), ai: Type.Optional(CountryAISchema), country: Type.Optional(CountryGrowthSchema), development: Type.Optional(CountryDevelopmentSchema),
   clockMode: Type.Optional(Type.Literal('monthly')),
   spawnOriginCellId: Type.Optional(Type.Union([Type.Null(), Type.Integer({ minimum: 0, maximum: 524287 })])),
   id: uuid, incarnation: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER - 100 }), revision: counter,
@@ -61,7 +62,7 @@ export function parseSimulationState(value: unknown): SimulationState {
     || value.speed !== 1 || value.spawnOriginCellId !== null && (value.spawnOriginCellId >= WORLD_SIZES[value.settings.size].width * WORLD_SIZES[value.settings.size].height
       || value.spawnOriginCellId !== value.settlements?.initialCellId)
     : value.protocolVersion !== value.rulesVersion || value.clockMode !== undefined || value.spawnOriginCellId !== undefined)
-    || (value.rulesVersion >= 2) !== Boolean(value.settlements) || (value.rulesVersion >= 3) !== Boolean(value.ai) || (value.rulesVersion === 4) !== Boolean(value.country) || !value.country && value.tribe.population !== 250) throw new Error('The tribal save is invalid. The saved data has been preserved.');
+    || (value.rulesVersion >= 2) !== Boolean(value.settlements) || (value.rulesVersion >= 3) !== Boolean(value.ai) || (value.rulesVersion >= 4) !== Boolean(value.country) || (value.rulesVersion === 5) !== Boolean(value.development) || !value.country && value.tribe.population !== 250) throw new Error('The tribal save is invalid. The saved data has been preserved.');
   if (value.settlements) {
     const sim = value.settlements, cells = WORLD_SIZES[value.settings.size].width * WORLD_SIZES[value.settings.size].height;
     const ids = new Set<string>(), claimed = new Set<number>();
@@ -98,6 +99,7 @@ export function parseSimulationState(value: unknown): SimulationState {
         || d.goal==='found' && d.reservedFood<2400 || d.goal==='relocate' && d.reservedFood<center.population*2
         || d.alternatives.some(a=>a.targetCellId!==null && a.targetCellId>=cells)
         || !d.alternatives.some(a=>a.eligible && a.goal===d.goal && a.targetCellId===d.targetCellId)) throw new Error('Invalid country AI commitment; saved data has been preserved.');
+      if (value.development) { ids.add(d.settlementId); continue; }
       const duration=value.elapsedDays-d.sinceDay+1;
       if (d.goal==='found' ? center.foundingCellId!==d.targetCellId || center.foundingDays<1 || center.foundingDays>duration || center.prospectCellId!==null || center.prospectDays!==0
         : d.goal==='expand' || d.goal==='relocate' ? center.prospectCellId!==d.targetCellId || center.prospectDays<1 || center.prospectDays>duration || center.foundingCellId!==null || center.foundingDays!==0
@@ -106,7 +108,8 @@ export function parseSimulationState(value: unknown): SimulationState {
     }
     if (centers.some(c=>!ids.has(c.id) && (c.foundingDays!==0 || c.foundingCellId!==null || c.prospectDays!==0 || c.prospectCellId!==null))) throw new Error('Orphaned country AI project; saved data has been preserved.');
   }
-  if (value.country) { const { width,height }=WORLD_SIZES[value.settings.size]; validateCountryGrowth(value.country,value.settlements!,value.ai!,value.tribe.population,value.elapsedDays,width,height,value.tribe.id); }
+  if (value.country) { const { width,height }=WORLD_SIZES[value.settings.size]; validateCountryGrowth(value.country,value.settlements!,value.ai!,value.tribe.population,value.elapsedDays,width,height,value.tribe.id,value.development); }
+  if (value.development) validateCountryDevelopment(value);
   return value;
 }
 export function parseSimulationView(value: unknown, world?: WorldManifest): SimulationView {
@@ -130,4 +133,82 @@ export function parseSimulationView(value: unknown, world?: WorldManifest): Simu
 }
 export function simulationDate(elapsedDays: number) {
   return { day: elapsedDays % DAYS_PER_YEAR + 1, year: Math.floor(elapsedDays / DAYS_PER_YEAR) + 1 };
+}
+
+function validateCountryDevelopment(state: SimulationState): void {
+  const d = state.development!,
+    c = state.settlements!.centers[0],
+    g = state.country!,
+    fail = () => {
+      throw new Error('Invalid country development budget or project; saved data has been preserved.');
+    };
+  const food = d.projects.reduce((n, p) => n + p.cost, 0),
+    workers = d.projects.reduce((n, p) => n + p.workers, 0),
+    ids = new Set<number>(),
+    targets = new Set<number>(),
+    kinds = new Set<string>();
+  let spent = 0;
+  for (let level = 1; level <= d.foodLevel; level++) spent += investmentTerms('food', level).cost;
+  for (let level = 1; level <= d.logisticsLevel; level++) spent += investmentTerms('logistics', level).cost;
+  if (
+    d.workerDays !==
+      d.completedWorkerDays + d.cancelledWorkerDays + d.projects.reduce((n, p) => n + p.progress * p.workers, 0) ||
+    d.workerDays > Math.floor(state.country!.personDays * 0.6) ||
+    d.investmentSpent !== spent ||
+    d.completedProjects !== d.foodLevel + d.logisticsLevel + g.claimsAdded ||
+    d.nextProjectId !== 1 + d.completedProjects + d.cancelledProjects + d.projects.length ||
+    food > c.food ||
+    d.budget.reservedFood !== food ||
+    d.budget.reservedWorkers !== workers ||
+    d.budget.availableFood !== Math.max(0, c.food - food - c.population * 7) ||
+    d.budget.availableWorkers !== Math.max(0, g.metrics.workforce - g.metrics.supportWorkers - workers) ||
+    d.budget.projectSlots !== (c.population > 0 ? Math.min(8, 2 + Math.floor(d.logisticsLevel / 2)) : 0) ||
+    d.projects.length > d.budget.projectSlots ||
+    workers > Math.floor(c.population * 0.6) ||
+    c.prospectDays !== 0 ||
+    c.prospectCellId !== null ||
+    state.ai!.decisions.some((p) => p.reservedFood !== 0 || p.reservedPeople !== 0) ||
+    d.history.some((h) => h.day > state.elapsedDays || h.projectId >= d.nextProjectId) ||
+    (state.elapsedDays === 0 &&
+      (d.foodLevel || d.logisticsLevel || d.workerDays || d.projects.length || d.cancelledProjects || d.history.length))
+  )
+    fail();
+  for (const p of d.projects) {
+    const start = d.history.find((h) => h.projectId === p.id && h.event === 'started');
+    if (start && (start.day !== p.startedDay || start.kind !== p.kind)) fail();
+    if (
+      ids.has(p.id) ||
+      p.id >= d.nextProjectId ||
+      p.startedDay < 1 ||
+      p.startedDay > state.elapsedDays ||
+      p.progress !== state.elapsedDays - p.startedDay + 1 ||
+      p.progress >= p.duration
+    )
+      fail();
+    ids.add(p.id);
+    if (p.kind === 'claim') {
+      if (
+        p.targetCellId === null ||
+        targets.has(p.targetCellId) ||
+        g.territory.cells.includes(p.targetCellId) ||
+        p.level !== 0
+      )
+        fail();
+      targets.add(p.targetCellId!);
+    } else {
+      const level = p.kind === 'food' ? d.foodLevel : d.logisticsLevel,
+        terms = investmentTerms(p.kind, level + 1);
+      if (
+        kinds.has(p.kind) ||
+        p.targetCellId !== null ||
+        p.routeDistance !== 0 ||
+        p.level !== level + 1 ||
+        p.cost !== terms.cost ||
+        p.duration !== terms.duration ||
+        p.workers !== terms.workers
+      )
+        fail();
+      kinds.add(p.kind);
+    }
+  }
 }

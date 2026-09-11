@@ -1,3 +1,4 @@
+import { initializeCountryDevelopment, advanceCountryDevelopment } from './country-development.ts';
 import { initialCountryGrowth, advanceCountryGrowth } from './country-growth.ts';
 import { initialCountryAI } from './country-ai.ts';
 import { createSpawnIdentity } from '../world/civilization.ts';
@@ -42,14 +43,16 @@ export function createTribeState(instanceId: string, placementSeed: string, worl
   const identity = options.clockMode === 'monthly' ? createSpawnIdentity(placementSeed) : civilization.civilizations[0];
   if (originCellId < 0 || !identity) throw new UnsuitableSpawnError(options.originCellId === undefined
     ? 'This world has no suitable land for a civilization.' : 'Choose suitable land: a habitable biome, fertility at least 25 and temperature at least 5°C.');
-  return parseSimulationState({
+  const state: SimulationState = {
     protocolVersion: options.clockMode === 'monthly' ? SIMULATION_PROTOCOL_VERSION : 2,
     ...(options.clockMode === 'monthly' ? { clockMode: 'monthly', spawnOriginCellId: options.originCellId ?? null, ai: initialCountryAI(placementSeed), country: initialCountryGrowth(identity.id,originCellId,options.environment ?? createSettlementEnvironment(world,tiles)) } : {}), rulesVersion: options.clockMode === 'monthly' ? SIMULATION_RULES_VERSION : 2,
     id: instanceId, incarnation: 1, revision: 0, worldKey: world.worldKey, settings: { ...world.settings }, placementSeed,
     tribe: { ...identity, originCellId, population: INITIAL_TRIBE_POPULATION },
     settlements: initialSettlements(identity.name, originCellId),
     elapsedDays: 0, rngState: initialRng(world.worldKey, placementSeed), running: false, speed: 1,
-  });
+  };
+  if (options.clockMode==='monthly') initializeCountryDevelopment(state,options.environment??createSettlementEnvironment(world,tiles));
+  return parseSimulationState(state);
 }
 
 /** Every caller executes the same daily steps. Control speed and wall time are host concerns. */
@@ -60,7 +63,8 @@ export function advanceTribeDays(state: SimulationState, days: number, environme
   const next = structuredClone(state);
   for (let day = 0; day < days; day++) {
     next.elapsedDays++;
-    if (next.country) advanceCountryGrowth(next, environment!);
+    if (next.development) advanceCountryDevelopment(next, environment!);
+    else if (next.country) advanceCountryGrowth(next, environment!);
     else if (next.settlements) advanceSettlements(next, environment!);
   }
   return parseSimulationState(next);
@@ -69,7 +73,9 @@ export function advanceTribeDays(state: SimulationState, days: number, environme
 export function resetTribeState(state: SimulationState, environment?: SettlementEnvironment): SimulationState {
   parseSimulationState(state);
   if (state.clockMode === 'monthly' && !environment) throw new Error('Country geography is required to reset a monthly save.');
-  return parseSimulationState({ ...state, ...(state.clockMode === 'monthly' ? { protocolVersion: SIMULATION_PROTOCOL_VERSION, rulesVersion: SIMULATION_RULES_VERSION, ai: initialCountryAI(state.placementSeed), country: initialCountryGrowth(state.tribe.id,state.settlements!.initialCellId,environment!) } : {}), incarnation: state.incarnation + 1,
+  const next: SimulationState = { ...state, ...(state.clockMode === 'monthly' ? { protocolVersion: SIMULATION_PROTOCOL_VERSION, rulesVersion: SIMULATION_RULES_VERSION, ai: initialCountryAI(state.placementSeed), country: initialCountryGrowth(state.tribe.id,state.settlements!.initialCellId,environment!) } : {}), incarnation: state.incarnation + 1,
     ...(state.settlements ? { tribe: { ...state.tribe, population: INITIAL_TRIBE_POPULATION, originCellId: state.settlements.initialCellId }, settlements: initialSettlements(state.tribe.name, state.settlements.initialCellId) } : {}),
-    elapsedDays: 0, rngState: initialRng(state.worldKey, state.placementSeed), running: false, speed: 1 });
+    elapsedDays: 0, rngState: initialRng(state.worldKey, state.placementSeed), running: false, speed: 1 };
+  if (next.clockMode==='monthly') initializeCountryDevelopment(next,environment!);
+  return parseSimulationState(next);
 }

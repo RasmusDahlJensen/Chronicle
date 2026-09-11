@@ -2,7 +2,7 @@ import { Type, type Static } from 'typebox';
 
 const count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER - 100 });
 const cell = Type.Union([Type.Null(), Type.Integer({ minimum: 0, maximum: 524287 })]);
-const goal = Type.Enum(['consolidate', 'expand', 'relocate', 'found']);
+const goal = Type.Enum(['consolidate', 'expand', 'relocate', 'found', 'improveFood', 'improveLogistics']);
 const settlementId = Type.String({ pattern: '^settlement-[1-9][0-9]*$', maxLength: 32 });
 const reason = Type.String({ minLength: 1, maxLength: 256 });
 export const CountryAlternativeSchema = Type.Object({ goal, targetCellId: cell, score: Type.Integer({ minimum: 0, maximum: 100 }), eligible: Type.Boolean(), reason }, { additionalProperties: false });
@@ -21,5 +21,5 @@ export type CountryAI = Static<typeof CountryAISchema>;
 export type CountryAlternative = Static<typeof CountryAlternativeSchema>;
 export type CountryDecision = CountryAI['decisions'][number];
 export const COUNTRY_GOAL_LABELS: Record<CountryAlternative['goal'], string> = {
-  consolidate: 'Build reserves', expand: 'Extend local presence', relocate: 'Move to better food access', found: 'Found a community',
+  improveFood: 'Improve food gathering', improveLogistics: 'Improve logistics', consolidate: 'Build reserves', expand: 'Extend local presence', relocate: 'Move to better food access', found: 'Found a community',
 };

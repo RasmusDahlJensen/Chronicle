@@ -1,6 +1,6 @@
 # Country growth 01
 
-Status: implemented and fully verified locally; awaiting user review. Active slice; baseline `a74e362`, verified runtime checkpoint `ed2e7f6`. Country AI 01's control correction is accepted, but its three-community gameplay plateau is rejected. This brief supersedes it for current work.
+Status: implemented and fully verified locally; the user rejected its slow expansion pacing. Historical foundation, superseded for current work by [Country investment 01](country-investment-01.md); baseline `a74e362`, verified runtime checkpoint `ed2e7f6`. Country AI 01's control correction is accepted, but its three-community gameplay plateau is rejected. This brief supersedes it for current work.
 
 Outcome: one named, colored founding capital; explicit contiguous country claims; food and labor support; births/deaths and sustained development beyond the initial 250 people. No automatic satellite towns. Geography, monthly clock, worker/SQLite ownership, New game and existing save compatibility remain. Countries still run one per live game; foreign-owner boundary tests exercise the shared ownership operations, not a new multiplayer/diplomacy feature.
 

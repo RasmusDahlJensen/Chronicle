@@ -83,7 +83,9 @@ test('explicit world spawn validates the chosen cell, seeds its own identity and
   const { world, tiles, civilization } = fixture();
   const options = { clockMode: 'monthly' as const, originCellId: 1 };
   const state = createTribeState(id, 'First people', world, civilization, tiles, options);
-  assert.equal(state.protocolVersion, 5);
+  assert.equal(state.protocolVersion, 6);
+  assert.equal(state.rulesVersion, 5);
+  assert.ok(state.development);
   assert.equal(state.clockMode, 'monthly'); assert.equal(state.spawnOriginCellId, 1);
   assert.equal(state.tribe.originCellId, 1);
   assert.deepEqual(state, createTribeState(id, 'First people', world, civilization, tiles, options));

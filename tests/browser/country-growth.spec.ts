@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { WORLD_BIOMES } from '../../shared/generated-world.ts';
 import type { SettlementEnvironment } from '../../shared/settlements.ts';
+import { initialCountryGrowth } from '../../src/simulation/country-growth.ts';
 import { advanceTribeDays } from '../../src/simulation/tribe.ts';
 import { parseSimulationState, type SimulationOpen, type SimulationState, type SimulationView } from '../../shared/simulation.ts';
 
@@ -17,12 +18,12 @@ async function snapshot(page: Page, identity: SimulationOpen) {
 }
 async function inspectLedger(page: Page, state: SimulationState) {
   const country = state.country!, society = state.settlements!, capital = society.centers[0];
-  expect(state.protocolVersion).toBe(5);
+  expect(state.protocolVersion).toBe(6);
   expect(society.centers).toHaveLength(1);
   expect(state.tribe.population).toBe(250 + country.births - country.naturalDeaths - country.starvationDeaths);
   expect(capital.population).toBe(state.tribe.population);
   expect(society.totalConsumed + society.totalShortfall).toBe(country.personDays);
-  expect(capital.food).toBe(7500 + society.totalCollected - society.totalConsumed - society.establishmentSpent - country.upkeepPaid - country.spoilage);
+  expect(capital.food).toBe(7500 + society.totalCollected - society.totalConsumed - society.establishmentSpent - country.upkeepPaid - country.spoilage - (state.development?.investmentSpent ?? 0));
   expect(capital.territory).toEqual([country.territory.capitalCellId]);
   expect(capital.workingCells.every(id => country.territory.cells.includes(id))).toBe(true);
   await expect(lab(page).locator('[data-tribe-population]')).toHaveText(String(capital.population));
@@ -33,7 +34,7 @@ async function inspectLedger(page: Page, state: SimulationState) {
     await expect(growth(page).locator(`[data-total-${attribute}]`)).toHaveText(format(value));
   }
   const workforce = growth(page).locator('[data-country-workforce]');
-  for (const [label, value] of [['Available workforce', country.metrics.workforce], ['Support required', country.metrics.supportRequired], ['Support assigned', country.metrics.supportWorkers], ['Claim crew', country.metrics.claimWorkers], ['Gatherers', country.metrics.gatheringWorkers], ['Idle workers', country.metrics.idleWorkers]] as const) {
+  for (const [label, value] of [['Available workforce', country.metrics.workforce], ['Support required', country.metrics.supportRequired], ['Support assigned', country.metrics.supportWorkers], [state.development ? 'Project workers' : 'Claim crew', country.metrics.claimWorkers], ['Gatherers', country.metrics.gatheringWorkers], ['Idle workers', country.metrics.idleWorkers]] as const) {
     await expect(workforce.getByText(label, { exact: true }).locator('..').locator('dd')).toHaveText(String(value));
   }
   expect(country.metrics.workforce).toBe(country.metrics.supportWorkers + country.metrics.claimWorkers + country.metrics.gatheringWorkers + country.metrics.idleWorkers);
@@ -96,6 +97,7 @@ test('New game exposes one capital, separate national claims and conserved popul
   await expect(lab(page)).toHaveAttribute('data-elapsed-days', '360');
   const restored = await snapshot(page, identity);
   expect(restored.country).toEqual(advanced.country);
+  expect(restored.development).toEqual(advanced.development);
   expect(restored.settlements).toEqual(advanced.settlements);
   await growth(page).getByText('Accounting since founding', { exact: true }).click();
   await inspectLedger(page, restored);
@@ -108,10 +110,67 @@ test('New game exposes one capital, separate national claims and conserved popul
   await expect(lab(page)).toHaveAttribute('data-elapsed-days', '0');
   const reset = await snapshot(page, identity);
   expect(reset.country).toEqual(initial.country);
+  expect(reset.development).toEqual(initial.development);
   expect(reset.settlements).toEqual(initial.settlements);
   await inspectLedger(page, reset);
 });
 
+
+test('a released growth save keeps protocol 5 decisions and accounting until reset enables investment', async ({ page }, testInfo) => {
+  let environment: SettlementEnvironment;
+  await page.route('**/api/simulation/open', async route => {
+    const input = route.request().postDataJSON() as SimulationOpen;
+    const temporary = { ...input, instanceId: randomUUID(), observerId: randomUUID() };
+    const prepared = await page.request.post('/api/simulation/open', { data: temporary });
+    expect(prepared.ok()).toBe(true);
+    const { state } = await prepared.json() as SimulationView;
+    const { development: _development, ...initial } = state;
+    const released = await page.request.post('/api/simulation/release', { data: { instanceId: temporary.instanceId, observerId: temporary.observerId } });
+    expect(released.ok()).toBe(true);
+    const database = new DatabaseSync(join('test-results', 'saves', testInfo.project.name, 'simulation.sqlite'), { timeout: 1000 });
+    try {
+      environment = JSON.parse(database.prepare('SELECT body FROM environments WHERE world_key = ?').get(state.worldKey)!.body as string) as SettlementEnvironment;
+      const country = initialCountryGrowth(initial.tribe.id, initial.tribe.originCellId, environment);
+      const legacy = parseSimulationState({ ...initial, country, id: input.instanceId, protocolVersion: 5, rulesVersion: 4 });
+      database.prepare('INSERT INTO checkpoints (id, current, previous) VALUES (?, ?, NULL)').run(legacy.id, JSON.stringify(legacy));
+    } finally { database.close(); }
+    await route.continue();
+  }, { times: 1 });
+  await page.goto('/');
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-rendered', 'true');
+  await page.getByRole('button', { name: 'Spawn civilization', exact: true }).click();
+  await page.getByLabel('History seed', { exact: true }).fill('Browser legacy growth 01');
+  const opening = page.waitForRequest('**/api/simulation/open');
+  await page.getByRole('button', { name: 'Random location', exact: true }).click();
+  let identity = (await opening).postDataJSON() as SimulationOpen;
+  await expect(lab(page)).toHaveAttribute('data-elapsed-days', '0');
+  const initial = await snapshot(page, identity);
+  expect(initial.protocolVersion).toBe(5);
+  expect(initial.rulesVersion).toBe(4);
+  expect(initial.development).toBeUndefined();
+  await expect(page.getByRole('region', { name: 'Country investment', exact: true })).toHaveCount(0);
+  const expected = { ...advanceTribeDays(initial, 30, environment!), revision: initial.revision + 1 };
+  await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
+  await expect(lab(page)).toHaveAttribute('data-elapsed-days', '30');
+  expect(await snapshot(page, identity)).toEqual(expected);
+  const reopening = page.waitForRequest('**/api/simulation/open');
+  await page.reload();
+  identity = (await reopening).postDataJSON() as SimulationOpen;
+  await expect(lab(page)).toHaveAttribute('data-elapsed-days', '30');
+  expect(await snapshot(page, identity)).toEqual(expected);
+  await page.getByRole('button', { name: 'Reset simulation', exact: true }).click();
+  await expect(page.getByRole('group', { name: 'Reset simulation confirmation' })).toContainText('enables productive investment and country growth');
+  await page.getByRole('button', { name: 'Confirm reset simulation', exact: true }).click();
+  await expect(lab(page)).toHaveAttribute('data-elapsed-days', '0');
+  const reset = await snapshot(page, identity);
+  expect(reset.protocolVersion).toBe(6);
+  expect(reset.rulesVersion).toBe(5);
+  expect(reset.development!.investmentSpent).toBe(0);
+  expect(reset.development!.projects).toEqual([]);
+  expect(reset.tribe.originCellId).toBe(initial.tribe.originCellId);
+  expect(reset.ai).toEqual(initial.ai);
+  await expect(page.getByRole('region', { name: 'Country investment', exact: true })).toBeVisible();
+});
 
 test('an archived collapsed country has no active marker, territory or working area and remains collapsed after a month', async ({ page }, testInfo) => {
   // Produce a saved collapse through the real core with a clearly synthetic

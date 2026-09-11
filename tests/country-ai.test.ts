@@ -1,13 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countryFixture, growthFixture } from './helpers/country-ai.ts';
+import { countryFixture, investmentFixture } from './helpers/country-ai.ts';
 import { advanceTribeDays, resetTribeState } from '../src/simulation/tribe.ts';
 import { parseSimulationState } from '../shared/simulation.ts';
 
 // Missing seeded policy, accidental rerolls and ignored history seeds must all fail here.
 test('monthly countries receive saved preferences from a separate history seed', () => {
   const { state } = countryFixture();
-  assert.ok('ai' in state, 'a new monthly civilization must receive a persistent AI');
+  assert.equal(state.protocolVersion, 4);
+  assert.equal(state.rulesVersion, 3);
+  assert.equal(state.country, undefined);
+  assert.equal(state.development, undefined);
+  assert.ok('ai' in state, 'released monthly civilizations retain a persistent AI');
   assert.deepEqual(state, countryFixture().state);
   assert.notDeepEqual(state.ai!.profile, countryFixture('History 2').state.ai!.profile);
 });
@@ -19,7 +23,7 @@ test('AI decisions survive JSON reload and daily/monthly batching with exact acc
   for (let n = 0; n < 6; n++) monthly = advanceTribeDays(parseSimulationState(JSON.parse(JSON.stringify(monthly))), 30, environment);
   assert.ok(daily.ai?.history.length, 'decisions must record actual reasons');
   assert.deepEqual(daily, monthly);
-  assert.deepEqual(resetTribeState(monthly, environment), { ...growthFixture().state, incarnation: 2 });
+  assert.deepEqual(resetTribeState(monthly, environment), { ...investmentFixture().state, incarnation: 2 });
   assert.equal(monthly.settlements!.centers.reduce((n,c) => n+c.population,0),250);
   assert.equal(monthly.settlements!.centers.reduce((n,c) => n+c.food,0),7500+monthly.settlements!.totalCollected-monthly.settlements!.totalConsumed-monthly.settlements!.establishmentSpent);
 });

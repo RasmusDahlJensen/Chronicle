@@ -15,7 +15,7 @@ async function installLegacySettlement(page: Page, project: string) {
     const prepared = await page.request.post('/api/simulation/open', { data: temporary });
     expect(prepared.ok()).toBe(true);
     const { state } = await prepared.json() as SimulationView;
-    const { ai: _ai, country: _country, ...initial } = state;
+    const { ai: _ai, country: _country, development: _development, ...initial } = state;
     const legacy = parseSimulationState({ ...initial, id: input.instanceId, protocolVersion: 3, rulesVersion: 2 });
     const released = await page.request.post('/api/simulation/release', { data: { instanceId: temporary.instanceId, observerId: temporary.observerId } });
     expect(released.ok()).toBe(true);
@@ -62,7 +62,7 @@ test('an explicit legacy tribe exposes its food economy, maintained territory an
   const resetResponse = await page.request.post('/api/simulation/observe', { data: { instanceId: identity.instanceId, observerId: identity.observerId } });
   expect(resetResponse.ok()).toBe(true);
   const reset = (await resetResponse.json() as SimulationView).state;
-  expect(reset.protocolVersion).toBe(5);
+  expect(reset.protocolVersion).toBe(6);
   expect(reset.country!.personDays).toBe(0);
   expect(reset.tribe.population).toBe(250);
   await expect(canvas).toHaveAttribute('data-territory-cells', String(reset.country!.territory.cells.length));
@@ -147,14 +147,14 @@ test('legacy prosperity supports a second community without duplicating people a
   }
   expect(state.settlements!.totalConsumed + state.settlements!.totalShortfall).toBe(state.elapsedDays * 250);
   await page.getByRole('button', { name: 'Reset simulation', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'Reset simulation confirmation' })).toContainText('enables country growth');
+  await expect(page.getByRole('group', { name: 'Reset simulation confirmation' })).toContainText('enables productive investment and country growth');
   await page.getByRole('button', { name: 'Confirm reset simulation', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   await expect(page.getByRole('region', { name: 'Country decisions', exact: true })).toBeVisible();
   const resetResponse = await page.request.post('/api/simulation/observe', { data: { instanceId, observerId } });
   expect(resetResponse.ok()).toBe(true);
   const reset = (await resetResponse.json() as SimulationView).state;
-  expect(reset.protocolVersion).toBe(5);
+  expect(reset.protocolVersion).toBe(6);
   expect(reset.country!.territory.capitalCellId).toBe(46821);
   expect(reset.country!.personDays).toBe(0);
   expect(reset.ai!.historySeed).toBe(state.placementSeed);

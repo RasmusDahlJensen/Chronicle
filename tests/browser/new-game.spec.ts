@@ -67,7 +67,7 @@ test('New game replaces the current civilization and history, and refresh resume
   expect(next.ai!.historySeed).toBe(identity.placementSeed);
   await expect(canvas).toHaveAttribute('data-civilization-id', next.tribe.id);
   await expect(canvas).toHaveAttribute('data-settlement-count', '1');
-  expect(next.protocolVersion).toBe(5);
+  expect(next.protocolVersion).toBe(6);
   expect(next.country!.personDays).toBe(0);
   expect(next.country!.births + next.country!.naturalDeaths + next.country!.starvationDeaths).toBe(0);
   expect(next.settlements!.centers[0].territory).toEqual([next.country!.territory.capitalCellId]);

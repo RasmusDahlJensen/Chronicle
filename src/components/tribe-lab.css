@@ -62,3 +62,13 @@
 .country-growth h4 { font-size: .8rem; color: #38564a; margin: 1rem 0 .5rem; }
 .country-growth summary { cursor: pointer; font-size: .8rem; color: #38564a; margin: .6rem 0; }
 .country-growth .world-water-facts > div { min-width: 0; }
+
+.country-development { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #d7dbce; overflow-wrap: anywhere; }
+.country-development h3 { font-size: 1rem; margin: 0 0 .65rem; }
+.country-development h4 { font-size: .8rem; color: #38564a; margin: 1rem 0 .5rem; }
+.country-development summary { cursor: pointer; font-size: .8rem; color: #38564a; margin: .6rem 0; }
+.country-development .world-water-facts > div { min-width: 0; }
+.country-projects { padding: 0; list-style: none; margin: .75rem 0; }
+.country-projects > li { padding: .75rem 0; border-top: 1px solid #d7dbce; }
+.country-projects progress { width: 100%; height: .55rem; accent-color: #365440; }
+.country-project-progress { color: #38564a; font-size: .75rem; margin: .35rem 0; }

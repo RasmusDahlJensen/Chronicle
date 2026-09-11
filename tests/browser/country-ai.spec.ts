@@ -29,7 +29,7 @@ test('a chosen history seed persists decisions through reload and reproduces the
     ['Commitment duration', `${initial.ai!.profile.commitmentDays} days`],
     ['Expansion preference', `${initial.ai!.profile.expansion}/100`],
   ]) await expect(decisions.getByText(label, { exact: true }).locator('..')).toContainText(value);
-  expect(initial.protocolVersion).toBe(5);
+  expect(initial.protocolVersion).toBe(6);
   await expect(decisions.getByText('Mobility preference', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Advance 1 month', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
@@ -37,7 +37,10 @@ test('a chosen history seed persists decisions through reload and reproduces the
   expect(advanced.ai!.decisions.length).toBeGreaterThan(0);
   const commitment = decisions.locator('[data-country-decision]').first();
   await expect(commitment).toContainText(advanced.ai!.decisions[0].reason);
-  await expect(commitment).toContainText('Reserved locally');
+  await expect(commitment).toContainText('Strategic priority; project reservations and progress appear in Country investment.');
+  expect(advanced.ai!.decisions[0].reservedFood).toBe(0);
+  expect(advanced.ai!.decisions[0].reservedPeople).toBe(0);
+  expect(advanced.settlements!.centers[0].prospectDays).toBe(0);
   await expect(commitment).toContainText(`Since day ${advanced.ai!.decisions[0].sinceDay + 1}`);
   await expect(commitment).toContainText(`Review day ${advanced.ai!.decisions[0].reviewDay + 1}`);
   await commitment.getByText('Alternatives considered', { exact: true }).click();
@@ -109,7 +112,7 @@ test('a released country AI save retains mobility and fixed-population rules unt
     const prepared = await page.request.post('/api/simulation/open', { data: temporary });
     expect(prepared.ok()).toBe(true);
     const { state } = await prepared.json() as SimulationView;
-    const { country: _country, ...initial } = state;
+    const { country: _country, development: _development, ...initial } = state;
     const legacy = parseSimulationState({ ...initial, id: input.instanceId, protocolVersion: 4, rulesVersion: 3 });
     await page.request.post('/api/simulation/release', { data: { instanceId: temporary.instanceId, observerId: temporary.observerId } });
     const database = new DatabaseSync(join('test-results', 'saves', testInfo.project.name, 'simulation.sqlite'), { timeout: 1000 });
@@ -146,12 +149,12 @@ test('a released country AI save retains mobility and fixed-population rules unt
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
   expect((await snapshot(page, identity)).ai).toEqual(advanced.ai);
   await page.getByRole('button', { name: 'Reset simulation', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'Reset simulation confirmation' })).toContainText('enables country growth');
+  await expect(page.getByRole('group', { name: 'Reset simulation confirmation' })).toContainText('enables productive investment and country growth');
   await page.getByRole('button', { name: 'Confirm reset simulation', exact: true }).click();
   await expect(panel).toHaveAttribute('data-elapsed-days', '0');
   const reset = await snapshot(page, identity);
-  expect(reset.protocolVersion).toBe(5);
-  expect(reset.rulesVersion).toBe(4);
+  expect(reset.protocolVersion).toBe(6);
+  expect(reset.rulesVersion).toBe(5);
   expect(reset.country!.territory.capitalCellId).toBe(initial.tribe.originCellId);
   expect(reset.country!.personDays).toBe(0);
   expect(reset.ai).toEqual(initial.ai);
