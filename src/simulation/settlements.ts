@@ -84,6 +84,7 @@ export function validateSettlementGeography(state: SimulationState, env: Settlem
   if (!land(env,c.cellId) || !isFoundingBiome(WORLD_BIOMES[env.biome[c.cellId]])
    || [...c.territory,...c.workingCells].some(id => !land(env,id))) throw new Error('Settlement geography contains invalid inhabited or claimed land.');
  }
+ if(state.country) return; // Country claim routes/reservations have their own geography validator.
  for(const d of state.ai?.decisions ?? []) {
   if(d.targetCellId===null) continue;
   const c=state.settlements!.centers.find(center=>center.id===d.settlementId)!;

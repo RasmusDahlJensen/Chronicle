@@ -1,3 +1,4 @@
+import { validateCountryGeography } from '../../src/simulation/country-growth.ts';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
@@ -108,7 +109,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
             || digest(stored.body) !== stored.digest) throw invalidSave();
           environment = validateEnvironment(JSON.parse(stored.body), state);
         }
-        validateSettlementGeography(state, environment);
+        validateSettlementGeography(state, environment); validateCountryGeography(state, environment);
       } catch { throw invalidSave(); }
     }
     const entry: Resident = { state, observers: new Map(), lastTick: now(), error: null, persisted: true,
@@ -136,7 +137,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
       database.exec('BEGIN IMMEDIATE;');
       if (state.rulesVersion >= 2 && !entry.environmentPersisted) {
         validateEnvironment(environment, state);
-        validateSettlementGeography(state, environment!);
+        validateSettlementGeography(state, environment!); validateCountryGeography(state, environment!);
         const environmentBody = JSON.stringify(environment);
         if (Buffer.byteLength(environmentBody) > MAX_ENVIRONMENT_BYTES) throw invalidSave();
         const existing = database.prepare('SELECT body, digest FROM environments WHERE world_key = ?').get(state.worldKey);
@@ -177,7 +178,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
       if (bundle.tiles.length !== columns * manifest.height / WORLD_TILE_SIZE) throw invalidRequest();
       const tiles = bundle.tiles.map((body, index) => parseWorldTile(JSON.parse(body), manifest, index % columns, Math.floor(index / columns)));
       environment = createSettlementEnvironment(manifest, tiles);
-      state = existing ? migrateTribeState(existing.state, environment) : createTribeState(input.instanceId, input.placementSeed, manifest, civilization, tiles, input);
+      state = existing ? migrateTribeState(existing.state, environment) : createTribeState(input.instanceId, input.placementSeed, manifest, civilization, tiles, {...input,environment});
     } catch (error) {
       if (error instanceof UnsuitableSpawnError) throw new SimulationError('INVALID_REQUEST', error.message, 400);
       throw new SimulationError('SIMULATION_ERROR', 'Unable to start a tribe on suitable land in this world. Its saved data has been preserved.');
@@ -216,7 +217,7 @@ export function createSimulationRuntime(options: RuntimeOptions = {}) {
     if (input.action === 'step') {
       if (next.running) throw simulationConflict('Pause the tribal clock before stepping days.');
       next = advanceTribeDays(next, input.days!, entry.environment);
-    } else if (input.action === 'reset') next = resetTribeState(next);
+    } else if (input.action === 'reset') next = resetTribeState(next, entry.environment);
     else if (input.action === 'speed') next = { ...next, speed: input.speed! };
     else next = { ...next, running: input.action === 'play' };
     save(entry, { ...next, revision: entry.state.revision + 1 });

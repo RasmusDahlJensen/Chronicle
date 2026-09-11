@@ -279,8 +279,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     canvas.dataset.civilizationId = civilization?.id ?? '';
     canvas.dataset.territoryCells = String(territory.length);
     canvas.dataset.territoryVisible = String(layer === 'biomes' && territory.length > 0);
-    canvas.dataset.settlementCount = String(society?.centers.length ?? 0);
-    canvas.dataset.workingAreaVisible = String(layer === 'biomes' && !!workingCenter);
+    canvas.dataset.settlementCount = String(civilization ? society?.centers.length ?? 0 : 0);
+    canvas.dataset.workingAreaVisible = String(layer === 'biomes' && !!civilization && !!workingCenter);
     canvas.dataset.textureCount = String(textures.size); canvas.dataset.renderMs = (performance.now() - started).toFixed(2);
   }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
@@ -389,8 +389,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     zoomBy, fit,
     setCivilization(next: Civilization | null) { civilization = next; safe(draw); },
     setSociety(state: SimulationState | null) {
-      civilization = state?.tribe ?? null; society = state?.settlements;
-      territory = [...new Set(society?.centers.flatMap(center => center.territory) ?? [])];
+      civilization = state?.country && state.tribe.population === 0 ? null : state?.tribe ?? null; society = state?.settlements;
+      territory = state?.country ? [...state.country.territory.cells] : [...new Set(society?.centers.flatMap(center => center.territory) ?? [])];
       border = territoryEdges(territory, world.width, world.height);
       workingCenter = society?.centers.find(center => center.cellId === (selection ? selection.y * world.width + selection.x : -1))?.id ?? null;
       safe(draw);

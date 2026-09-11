@@ -56,3 +56,9 @@
 .country-alternatives p, .country-history p { font-size: .8rem; line-height: 1.5; margin: .4rem 0; }
 .country-history ol { padding-left: 1rem; max-height: 20rem; overflow-y: auto; }
 .country-history li { margin: .75rem 0; }
+
+.country-growth { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #d7dbce; overflow-wrap: anywhere; }
+.country-growth h3 { font-size: 1rem; margin: 0 0 .65rem; }
+.country-growth h4 { font-size: .8rem; color: #38564a; margin: 1rem 0 .5rem; }
+.country-growth summary { cursor: pointer; font-size: .8rem; color: #38564a; margin: .6rem 0; }
+.country-growth .world-water-facts > div { min-width: 0; }

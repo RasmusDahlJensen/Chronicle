@@ -7,7 +7,7 @@ export const SettlementStateSchema = Type.Object({
  centers: Type.Array(Type.Object({ id, name: Type.String({ minLength: 1, maxLength: 96 }), cellId: cell,
   kind: Type.Enum(['camp', 'settlement']), foundedDay: count, prosperousDays: count,
   foundingCellId: Type.Union([cell, Type.Null()]), foundingDays: count,
-  territoryLastWorked: Type.Array(count, { minItems: 1, maxItems: 524288 }), population: Type.Integer({ minimum: 1, maximum: 250 }), food: count,
+  territoryLastWorked: Type.Array(count, { minItems: 1, maxItems: 524288 }), population: Type.Integer({ minimum: 0, maximum: 1000000000 }), food: count,
   territory: Type.Array(cell, { minItems: 1, maxItems: 524288 }), workingCells: Type.Array(cell, { maxItems: 524288 }),
   collected: count, consumed: count, shortfall: count, decision: Type.String({ maxLength: 256 }),
   prospectCellId: Type.Union([cell, Type.Null()]), prospectDays: count,

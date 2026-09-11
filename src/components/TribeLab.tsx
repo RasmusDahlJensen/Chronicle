@@ -5,6 +5,7 @@ import { simulationDate, type SimulationCommand, type SimulationState, type Simu
 import { commandSimulation, observeSimulation, openSimulation, releaseSimulation, SimulationConflictError } from '../api/simulation.ts';
 import './tribe-lab.css';
 import { CountryDecisions, SettlementEconomy } from './SettlementDetails.tsx';
+import { CountryGrowth } from './CountryGrowth.tsx';
 
 interface Props {
   world: WorldManifest;
@@ -188,16 +189,16 @@ export function TribeLab({ world, onTribeChange, onLocate, onLocateSettlement, m
     {state ? <>
       <div className="world-civilization-heading"><span className="world-civilization-swatch" style={{ backgroundColor: state.tribe.color }} aria-hidden="true" /><h2 data-tribe-name>{state.tribe.name}</h2></div>
 
-      <dl className="world-water-facts"><div><dt>Population</dt><dd data-tribe-population>{state.tribe.population}</dd></div><div><dt>Camp cell</dt><dd>{state.tribe.originCellId}</dd></div></dl>
-      <p className="atlas-panel-note">This study has 250 people in total. Founding communities redistributes them; births and deaths come later. The calendar has 360 days per year.</p>
-      <button className="world-locate-civilization" type="button" onClick={onLocate} disabled={!mapAvailable}>Locate civilization <span aria-hidden="true">↗</span></button>
+      <dl className="world-water-facts"><div><dt>Population</dt><dd data-tribe-population>{state.tribe.population}</dd></div><div><dt>{state.country ? 'Capital cell' : 'Camp cell'}</dt><dd>{state.tribe.originCellId}</dd></div></dl>
+      <p className="atlas-panel-note">{state.country ? 'One founding capital supports its people through food and connected country claims. Births and deaths change its population. The calendar has 360 days per year.' : 'This study has 250 people in total. Founding communities redistributes them; births and deaths come later. The calendar has 360 days per year.'}</p>
+      <button className="world-locate-civilization" type="button" onClick={onLocate} disabled={!mapAvailable || state.tribe.population === 0}>Locate civilization <span aria-hidden="true">↗</span></button>
       <p className="tribe-run-status" role="status">{error ? 'Last confirmed progress' : busy ? 'Updating simulation…' : state.running ? view.active ? 'Running' : 'Waiting to resume' : 'Paused'}</p>
-      {confirmReset ? <div className="tribe-reset-confirmation" role="group" aria-label="Reset simulation confirmation"><p>Reset {state.tribe.name} to Month 1, Year 1, paused at its original camp? Saved progress will be replaced.{state.clockMode === 'monthly' && !state.ai && ' Reset also enables country AI using the original history seed.'}</p><button type="button" disabled={blocked} onClick={() => { setConfirmReset(false); act.current({ action: 'reset' }); }}>Confirm reset simulation</button><button type="button" disabled={busy} onClick={() => setConfirmReset(false)}>Cancel reset</button></div>
+      {confirmReset ? <div className="tribe-reset-confirmation" role="group" aria-label="Reset simulation confirmation"><p>Reset {state.tribe.name} to Month 1, Year 1, paused at its original camp? Saved progress will be replaced.{state.clockMode === 'monthly' && !state.country && ' Reset also enables country growth from one capital using the original history seed.'}</p><button type="button" disabled={blocked} onClick={() => { setConfirmReset(false); act.current({ action: 'reset' }); }}>Confirm reset simulation</button><button type="button" disabled={busy} onClick={() => setConfirmReset(false)}>Cancel reset</button></div>
         : <button className="tribe-reset-button" type="button" disabled={blocked} onClick={() => setConfirmReset(true)}>Reset simulation</button>}
-      {state.settlements && <SettlementEconomy society={state.settlements} onLocate={onLocateSettlement} mapAvailable={mapAvailable} />}
-      {state.ai && state.settlements && <CountryDecisions ai={state.ai} society={state.settlements} />}
-      {state.clockMode === 'monthly' && !state.ai && <p className="atlas-panel-note">This saved history keeps its earlier settlement rules. Reset simulation enables country AI from the original location and history seed.</p>}
-      <p className="atlas-panel-note">Completed days are saved on this PC. The main center anchors the tribe. Formal capitals and provinces develop later.</p>
+      {state.settlements && (state.country ? <CountryGrowth country={state.country} society={state.settlements} cellAreaKm2={world.areaKm2 / (world.width * world.height)} onLocate={onLocateSettlement} mapAvailable={mapAvailable} /> : <SettlementEconomy society={state.settlements} onLocate={onLocateSettlement} mapAvailable={mapAvailable} />)}
+      {state.ai && state.settlements && <CountryDecisions ai={state.ai} society={state.settlements} countryGrowth={!!state.country} />}
+      {state.clockMode === 'monthly' && !state.country && <p className="atlas-panel-note">This saved history keeps its earlier settlement rules. Reset simulation enables country growth from the original location and history seed.</p>}
+      <p className="atlas-panel-note">{state.country ? 'Completed days are saved on this PC. The founding capital stays at its original site. Villages and formal provinces develop later.' : 'Completed days are saved on this PC. The main center anchors the tribe. Formal capitals and provinces develop later.'}</p>
     </> : target ? <><h2>Your civilization</h2><p className="atlas-panel-note">{busy ? 'Opening the saved civilization…' : 'The saved instance has not been loaded.'}</p></>
       : <><h2>An unsettled world</h2><p className="atlas-panel-note">New game creates a fresh civilization on this map. Use Spawn civilization for a chosen history seed or manual placement.</p></>}
     {error && <div className="tribe-error"><p className="atlas-panel-note" role="alert">{error}</p>{view?.error

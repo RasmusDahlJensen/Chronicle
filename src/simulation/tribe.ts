@@ -1,6 +1,7 @@
+import { initialCountryGrowth, advanceCountryGrowth } from './country-growth.ts';
 import { initialCountryAI } from './country-ai.ts';
 import { createSpawnIdentity } from '../world/civilization.ts';
-import { initialSettlements, advanceSettlements } from './settlements.ts';
+import { initialSettlements, advanceSettlements, createSettlementEnvironment } from './settlements.ts';
 import type { SettlementEnvironment } from '../../shared/settlements.ts';
 import { isSuitableCivilizationSite, CIVILIZATION_SITE_RULES, type CivilizationSnapshot } from '../../shared/civilization.ts';
 import { WORLD_BIOMES, WORLD_SIZES, WORLD_TILE_SIZE, worldKey, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
@@ -13,7 +14,7 @@ const initialRng = (key: string, placementSeed: string) => seedNumber(`${key}:${
 
 /** The transport owns validation of full tiles; the core checks complete, unique geography coverage. */
 export function createTribeState(instanceId: string, placementSeed: string, world: WorldManifest,
-  civilization: CivilizationSnapshot, tiles: WorldTile[], options: { clockMode?: 'monthly'; originCellId?: number } = {}): SimulationState {
+  civilization: CivilizationSnapshot, tiles: WorldTile[], options: { clockMode?: 'monthly'; originCellId?: number; environment?: SettlementEnvironment } = {}): SimulationState {
   if (options.originCellId !== undefined && (options.clockMode !== 'monthly' || !Number.isInteger(options.originCellId) || options.originCellId < 0)) throw new UnsuitableSpawnError('Choose a suitable start cell.');
   const shape = WORLD_SIZES[world.settings.size], columns = shape.width / WORLD_TILE_SIZE;
   if (world.worldKey !== worldKey(world.settings) || civilization.worldKey !== world.worldKey
@@ -43,7 +44,7 @@ export function createTribeState(instanceId: string, placementSeed: string, worl
     ? 'This world has no suitable land for a civilization.' : 'Choose suitable land: a habitable biome, fertility at least 25 and temperature at least 5°C.');
   return parseSimulationState({
     protocolVersion: options.clockMode === 'monthly' ? SIMULATION_PROTOCOL_VERSION : 2,
-    ...(options.clockMode === 'monthly' ? { clockMode: 'monthly', spawnOriginCellId: options.originCellId ?? null, ai: initialCountryAI(placementSeed) } : {}), rulesVersion: options.clockMode === 'monthly' ? SIMULATION_RULES_VERSION : 2,
+    ...(options.clockMode === 'monthly' ? { clockMode: 'monthly', spawnOriginCellId: options.originCellId ?? null, ai: initialCountryAI(placementSeed), country: initialCountryGrowth(identity.id,originCellId,options.environment ?? createSettlementEnvironment(world,tiles)) } : {}), rulesVersion: options.clockMode === 'monthly' ? SIMULATION_RULES_VERSION : 2,
     id: instanceId, incarnation: 1, revision: 0, worldKey: world.worldKey, settings: { ...world.settings }, placementSeed,
     tribe: { ...identity, originCellId, population: INITIAL_TRIBE_POPULATION },
     settlements: initialSettlements(identity.name, originCellId),
@@ -59,14 +60,16 @@ export function advanceTribeDays(state: SimulationState, days: number, environme
   const next = structuredClone(state);
   for (let day = 0; day < days; day++) {
     next.elapsedDays++;
-    if (next.settlements) advanceSettlements(next, environment!);
+    if (next.country) advanceCountryGrowth(next, environment!);
+    else if (next.settlements) advanceSettlements(next, environment!);
   }
   return parseSimulationState(next);
 }
 
-export function resetTribeState(state: SimulationState): SimulationState {
+export function resetTribeState(state: SimulationState, environment?: SettlementEnvironment): SimulationState {
   parseSimulationState(state);
-  return parseSimulationState({ ...state, ...(state.clockMode === 'monthly' ? { protocolVersion: SIMULATION_PROTOCOL_VERSION, rulesVersion: SIMULATION_RULES_VERSION, ai: initialCountryAI(state.placementSeed) } : {}), incarnation: state.incarnation + 1,
-    ...(state.settlements ? { tribe: { ...state.tribe, originCellId: state.settlements.initialCellId }, settlements: initialSettlements(state.tribe.name, state.settlements.initialCellId) } : {}),
+  if (state.clockMode === 'monthly' && !environment) throw new Error('Country geography is required to reset a monthly save.');
+  return parseSimulationState({ ...state, ...(state.clockMode === 'monthly' ? { protocolVersion: SIMULATION_PROTOCOL_VERSION, rulesVersion: SIMULATION_RULES_VERSION, ai: initialCountryAI(state.placementSeed), country: initialCountryGrowth(state.tribe.id,state.settlements!.initialCellId,environment!) } : {}), incarnation: state.incarnation + 1,
+    ...(state.settlements ? { tribe: { ...state.tribe, population: INITIAL_TRIBE_POPULATION, originCellId: state.settlements.initialCellId }, settlements: initialSettlements(state.tribe.name, state.settlements.initialCellId) } : {}),
     elapsedDays: 0, rngState: initialRng(state.worldKey, state.placementSeed), running: false, speed: 1 });
 }

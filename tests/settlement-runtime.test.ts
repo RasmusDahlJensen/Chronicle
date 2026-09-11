@@ -156,7 +156,7 @@ test('country AI crosses the real worker and SQLite boundary and resumes exact p
  const environment=createSettlementEnvironment(manifest,world.tiles.map((tile,i)=>parseWorldTile(JSON.parse(tile),manifest,i%(manifest.width/128),Math.floor(i/(manifest.width/128)))));
  let service=createSimulationService({directory});t.after(()=>service.close());
  let state=(await service.initialize(opening,world)).state;
- assert.ok(state.ai);assert.equal(state.rulesVersion,3);
+ assert.ok(state.ai);assert.equal(state.rulesVersion,4);assert.ok(state.country);
  for(let month=0;month<4;month++) state=(await service.command(step(state))).state;
  assert.ok(state.ai!.history.length);
  const expected={...advanceTribeDays(state,30,environment),revision:state.revision+1};

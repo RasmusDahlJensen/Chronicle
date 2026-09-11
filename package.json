@@ -19,6 +19,7 @@
     "test:browser": "npm run build && playwright test",
     "bench:backend": "node scripts/bench-backend.ts",
     "bench:world": "node scripts/bench-world.ts",
+    "study:country": "node scripts/study-country-growth.ts",
     "build:tectonics": "node scripts/build-platec.ts",
     "check:tectonics": "node scripts/build-platec.ts --check"
   },
@@ -41,6 +42,7 @@
     "pure-rand": "8.4.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "tinyqueue": "3.0.0",
     "typebox": "1.3.30"
   }
 }

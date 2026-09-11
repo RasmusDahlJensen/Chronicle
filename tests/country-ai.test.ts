@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { countryFixture } from './helpers/country-ai.ts';
+import { countryFixture, growthFixture } from './helpers/country-ai.ts';
 import { advanceTribeDays, resetTribeState } from '../src/simulation/tribe.ts';
 import { parseSimulationState } from '../shared/simulation.ts';
 
@@ -19,7 +19,7 @@ test('AI decisions survive JSON reload and daily/monthly batching with exact acc
   for (let n = 0; n < 6; n++) monthly = advanceTribeDays(parseSimulationState(JSON.parse(JSON.stringify(monthly))), 30, environment);
   assert.ok(daily.ai?.history.length, 'decisions must record actual reasons');
   assert.deepEqual(daily, monthly);
-  assert.deepEqual(resetTribeState(monthly), { ...state, incarnation: 2 });
+  assert.deepEqual(resetTribeState(monthly, environment), { ...growthFixture().state, incarnation: 2 });
   assert.equal(monthly.settlements!.centers.reduce((n,c) => n+c.population,0),250);
   assert.equal(monthly.settlements!.centers.reduce((n,c) => n+c.food,0),7500+monthly.settlements!.totalCollected-monthly.settlements!.totalConsumed-monthly.settlements!.establishmentSpent);
 });
@@ -106,7 +106,7 @@ test('legacy monthly checkpoints keep their decisions until explicit reset enabl
  const old={...state,protocolVersion:3 as const,rulesVersion:2 as const}; delete old.ai;
  const before=parseSimulationState(old), stepped=advanceTribeDays(before,30,environment);
  assert.equal(stepped.ai,undefined); assert.equal(stepped.rulesVersion,2);
- const reset=resetTribeState(stepped);
+ const reset=resetTribeState(stepped,environment);
  assert.ok(reset.ai); assert.equal(reset.elapsedDays,0);assert.equal(reset.tribe.originCellId,before.tribe.originCellId);
  assert.equal(reset.ai.historySeed,before.placementSeed);
 });

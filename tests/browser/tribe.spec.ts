@@ -55,7 +55,7 @@ test('Begin saves its identity before opening and refresh restores the same trib
   await expect(panel).toHaveAttribute('data-elapsed-days', '30');
   await expect(page.getByRole('region', { name: 'World simulation', exact: true })).toContainText('Month 2, Year 1');
   await page.getByRole('button', { name: 'Locate civilization', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Selected tribe camp' })).toContainText(name!);
+  await expect(page.getByRole('region', { name: 'Selected capital camp' })).toContainText(name!);
   await page.screenshot({ path: testInfo.outputPath('tribe-day-31.png'), fullPage: true });
   await page.reload();
   await expect(panel).toHaveAttribute('data-instance-id', instance!);
@@ -187,7 +187,7 @@ test('mobile tribe controls locate the camp without overflowing the page', async
   await page.getByRole('radio', { name: 'Fertility', exact: true }).check();
   await page.getByRole('button', { name: 'Locate civilization', exact: true }).click();
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-layer', 'biomes');
-  await expect(page.getByRole('region', { name: 'Selected tribe camp' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Selected capital camp' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('tribe-mobile.png'), fullPage: true });
 });

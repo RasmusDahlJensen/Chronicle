@@ -14,15 +14,15 @@ function remember(ai: CountryAI, decision: CountryDecision, day: number, reason 
   if (ai.history.length>64) ai.history.shift();
 }
 /** Scores describe local opportunities; RNG breaks close alternatives only at dated reviews. */
-export function chooseCountryIntent(ai: CountryAI, settlementId: string, day: number, candidates: CountryCandidate[], crisis: boolean): CountryDecision {
+export function chooseCountryIntent(ai: CountryAI, settlementId: string, day: number, candidates: CountryCandidate[], crisis: boolean, crisisGoals: readonly CountryAlternative['goal'][] = ['relocate','consolidate']): CountryDecision {
   const previous = ai.decisions.find(d=>d.settlementId===settlementId);
   const matching = candidates.find(c=>c.eligible && c.goal===previous?.goal && c.targetCellId===previous.targetCellId);
   // Recheck legality/affordability daily, but do not reroll a viable commitment each day.
-  if (previous && matching && day<previous.reviewDay && crisis===previous.foodPressure && (!crisis || previous.goal==='relocate' || previous.goal==='consolidate')) {
+  if (previous && matching && day<previous.reviewDay && crisis===previous.foodPressure && (!crisis || crisisGoals.includes(previous.goal))) {
     previous.reservedFood=matching.reservedFood; previous.reservedPeople=matching.reservedPeople;
     return previous;
   }
-  const eligible=candidates.filter(c=>c.eligible && (!crisis || c.goal==='consolidate' || c.goal==='relocate'));
+  const eligible=candidates.filter(c=>c.eligible && (!crisis || crisisGoals.includes(c.goal)));
   if (!eligible.length) throw new Error('Country AI has no legal consolidation option.');
   const best=Math.max(...eligible.map(c=>c.score));
   const close=eligible.filter(c=>c.score>=best-12).sort((a,b)=>(a.goal<b.goal ? -1 : a.goal>b.goal ? 1 : 0) || (a.targetCellId??-1)-(b.targetCellId??-1));
