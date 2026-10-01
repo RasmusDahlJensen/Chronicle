@@ -1,8 +1,8 @@
 # Fertility 01 — natural growing potential
 
-> Note, 1 October 2026: the authored Verdant/Aster studies, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference. Statements below about them are historical.
+> Note, 1 October 2026: the authored Verdant/Aster studies, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference. Statements below about them are historical, and next-step statements below are superseded by [VISION.md](../VISION.md), which keeps geography annual and read-only except its slice G1. The authored Verdant/Aster studies are unrelated to VISION.md's generated study seeds of the same names.
 
-Status: implemented and verified locally, 10 September 2026; visually accepted by the user. Baseline `23cbb3b`; clean at startup. Hydrology is visually accepted and remains closed.
+Status: implemented and verified locally, 10 September 2026; visually accepted by the user. Baseline `23cbb3b`; clean at startup. Hydrology was visually accepted and closed at that time (VISION.md slice G1 later approves fixing seeds that fail hydrology convergence).
 
 ## Outcome and scope
 
@@ -23,7 +23,7 @@ The complete `npm run check` passes: architecture (50 files), vendored artifact 
 
 The actual watched lab at **http://127.0.0.1:5173/** was inspected in Chromium: generator 5 / protocol 4 identity matched the canvas, Fertility displayed a 95/100 alluvial river cell with exact factor values, and no page errors occurred. Overview, neutral water and the factor panel were visually inspected; automated scenarios also cover water exclusion, exact colors before/after detail tiles, layer changes, malformed replacement preservation and retry. Screenshots are local review artifacts under `/tmp/chronicle-fertility-*.png`; the full gate log is `/tmp/chronicle-fertility-check-verified.log`.
 
-**Review accepted.** The user considers the geography baseline complete. Subsequent work is recorded in Civilization 01. Original review steps: Run `npm start` if needed, open the usual address, choose **Fertility**, and click land to inspect its five factors. Compare flat river lowlands with dry, cold and mountainous regions; zoom for exact cells and click water to confirm it is excluded. No farming, settlements or subsequent geography slice has started.
+**Review accepted.** The user considers the geography baseline complete. Subsequent work was recorded in Civilization 01, which was removed on 1 October 2026; VISION.md now defines the game and its civilizations. Original review steps: Run `npm start` if needed, open the usual address, choose **Fertility**, and click land to inspect its five factors. Compare flat river lowlands with dry, cold and mountainous regions; zoom for exact cells and click water to confirm it is excluded. No farming, settlements or subsequent geography slice had started at that review.
 
 ## Model basis and limits
 

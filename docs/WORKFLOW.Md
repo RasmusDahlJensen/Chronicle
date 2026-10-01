@@ -6,11 +6,11 @@
 
 The product is the accepted geography baseline: the seeded generated-world page with plate-generated landmasses ([Worldgen 01](features/worldgen-01.md)), rivers and lakes ([Hydrology 01](features/hydrology-01.md)) and natural fertility ([Fertility 01](features/fertility-01.md)), together with annual climate, biomes and sparse resource sites. The same day the user and Claude agreed [VISION.md](VISION.md), which defines the game and its civilizations and authorizes one run: G1 (failing seeds, tin and oil), M0, M1, M2, a stop for user review, then M3, M3b, P and M4–M9. For that run, its agent rules 1–2 replace the per-slice user review (feature cycle step 6) and the joint choice of the next slice (step 7): each verified slice is recorded in its brief as verified and awaiting user review, and the run continues, stopping only after M2 and at the stop conditions VISION.md lists. Work is committed directly on `main` with milestone tags and is not pushed.
 
-Last verified result: complete `npm run check` exit 0 on 1 October 2026 after the removal (109 headless/process tests, production build, 45 development/production Chromium scenarios), locally on Node 24.21.0 (`.nvmrc` pins 24.20.0); CI was not run. Generated worlds for four seeds are byte-identical to `39363e8`. Known pre-existing issue: some seeds fail to generate (for example `Timing`, standard: "Hydrology did not converge within 12 drainage passes"); G1 fixes it. The five study seeds (`Chronicle`, `Elsewhere`, `Atlas`, `Verdant`, `Aster`) generate at Large. Current slice: G1, not started. Next action: write the G1 brief in `docs/features/`, capture the per-column digests VISION.md requires, then diagnose the hydrology non-convergence.
+Last verified result: complete `npm run check` exit 0 on 1 October 2026 after the removal, and again after the audit that made VISION.md the source of truth and relabelled older documents as historical (each run: 109 headless/process tests, production build, 45 development/production Chromium scenarios), locally on Node 24.21.0 (`.nvmrc` pins 24.20.0); CI was not run. Generated worlds for four seeds are byte-identical to `39363e8`. Known pre-existing issue: some seeds fail to generate (for example `Timing`, standard: "Hydrology did not converge within 12 drainage passes"); G1 fixes it. The five study seeds (`Chronicle`, `Elsewhere`, `Atlas`, `Verdant`, `Aster`) generate at Large. Current slice: G1, not started. Next action: write the G1 brief in `docs/features/`, capture the per-column digests VISION.md requires, then diagnose the hydrology non-convergence.
 
 The user has chosen small, gradual feature delivery and a **browser lab with repeatable scenarios, visual inspection, and automated checks**. Chronicle is expected to become a substantial project: small slices describe delivery size, not a small-system assumption. The user authorizes necessary local packages and tools for maintainability and future growth. The lab grows alongside Chronicle; the active brief defines current implementation and verification, including refinements to its architecture checks.
 
-`CHRONICLE_SPEC.md` records the accepted geography requirements; `VISION.md` defines the game and its civilizations. This document defines how we work. Recent explicit user instructions take precedence; proposed defaults in the spec remain proposals.
+`CHRONICLE_SPEC.md` records the accepted geography requirements; `VISION.md` is the source of truth for the game and its civilizations, and older briefs, research notes and the archive branch never override it. This document defines how we work. Recent explicit user instructions take precedence; proposed defaults in the spec remain proposals.
 
 ## One active slice
 
@@ -19,7 +19,7 @@ A milestone is a destination, not a single coding task. Each slice delivers an o
 - Keep one active feature brief. Park unrelated ideas in its follow-up list.
 - Name the smallest useful outcome, acceptance checks, and exclusions before coding.
 - Split work that adds several independently testable behaviors or needs multiple new systems at once. Identify required foundations explicitly.
-- Complete the authorized slice, its checks, and its review before starting another. Do not automatically implement the next roadmap item.
+- Complete the authorized slice, its checks, and its review before starting another. Do not automatically implement the next roadmap item, except within the run VISION.md authorizes, which continues to the next slice and stops only where its rule 2 says.
 - Within that scope, make routine reversible implementation choices without repeated permission requests. Discuss consequential behavior or data-contract changes before doing dependent work.
 - Adopt established libraries and tools for a concrete purpose rather than rebuilding infrastructure solely to avoid dependencies. Necessary local package/tool installation is authorized without additional approval. Check maintenance, license, runtime compatibility, operating and migration costs, and actual behavior; pin versions, update the lockfile, and preserve the documented setup commands.
 - Keep world rules, transport, rendering, compute ownership, and persistence separate so growth can change their implementation without mixing responsibilities. Introduce extra services when requirements justify them; plan and verify any process or storage migration explicitly.
@@ -29,7 +29,7 @@ A milestone is a destination, not a single coding task. Each slice delivers an o
 1. **Discover:** clarify the remaining user need, constraints, and smallest valuable outcome. Reuse established product decisions instead of repeating discovery.
 2. **Write the brief:** record intended behavior, non-goals, assumptions, and unresolved decisions. Use the short template below.
 3. **Define scenarios:** describe what we should see in a normal case, a relevant boundary case, and a failure case where applicable. Separate correctness from desired balance.
-4. **Plan and agree:** list small tasks, affected areas, and verification steps in the same brief. Present concrete scope for implementation; a request to plan does not authorize building.
+4. **Plan and agree:** list small tasks, affected areas, and verification steps in the same brief. Present concrete scope for implementation; a request to plan does not authorize building. Within the VISION.md run, its authorization is the agreement: record the plan in the brief and build without waiting (its rules 2 and 6).
 5. **Build and check:** implement that slice using shared application code. Run focused automated checks and exercise affected browser behavior. Reproduce failures before changing rules or tuning.
 6. **Try and review:** provide a consistent review package: what changed, the exact launch command, scenario, steps, expected behavior, checks performed with actual results, and remaining limitations. The user tries the interaction; until then, record it as awaiting user review. Passing automated checks does not establish that the experience feels right.
 7. **Maintain the record:** update status and durable decisions, remove stale tasks, and preserve a working Git checkpoint for accepted work. Improve workflow rules when repeated friction demonstrates a need; keep them short and practical. Choose the next slice together.
@@ -87,7 +87,7 @@ Handoff: revision/uncommitted work, last verified result, unresolved issue, next
 Follow-up ideas:
 ```
 
-Use extra architecture notes only for durable decisions shared across features. Keep the current status here until a roadmap file adds value.
+Record durable decisions shared across features in `docs/ARCHITECTURE.md`; keep the current status here and in the active brief. Do not add separate roadmap, progress or decision files (VISION.md rule 1).
 
 ## Verification proportional to the change
 

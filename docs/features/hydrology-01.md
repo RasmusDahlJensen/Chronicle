@@ -1,6 +1,8 @@
 # Hydrology 01 — rivers, lakes and freshwater
 
-Status: visually accepted and considered done by the user, 10 September 2026. Runtime checkpoint remains `ffce09d` (135 headless/process tests and 95 browser scenarios passed). The user said “That looks great” and considers this area done; select the next geography slice without reopening river/drainage changes. No drainage morphology prototype was implemented.
+> Note, 1 October 2026: the authored Verdant Reach regional atlas and Aster Island terrain studies (hand-made maps, unrelated to [VISION.md](../VISION.md)'s generated study seeds `Verdant` and `Aster`), the atlas protocol and their scenarios were removed at the user's request. References below to authored studies are historical, and next-step statements below are superseded by VISION.md.
+
+Status: visually accepted and considered done by the user, 10 September 2026. Runtime checkpoint remains `ffce09d` (135 headless/process tests and 95 browser scenarios passed). The user said “That looks great” and considers this area done; the next geography slice was then to be chosen without reopening river/drainage changes. Exception: VISION.md slice G1 approves fixing the generation bug behind "Hydrology did not converge within 12 drainage passes", changing output only for seeds that currently fail; it does not reopen the drainage morphology proposal. No drainage morphology prototype was implemented.
 
 ## Outcome and boundaries
 
@@ -20,7 +22,7 @@ Existing enclosed inland water is not automatically freshwater. Outflowing lakes
 
 ## Contracts and rendering
 
-Generator version 4 and generated-world protocol 3 invalidate incompatible cached previews. Authored atlas protocol 3 remains a separate unchanged contract. Append `lake` and `lakeIce` biome codes; terrain elevation is lake-bed elevation, and lake surface level is separate. Water counts must use surface-water classification, not merely negative elevation.
+Generator version 4 and generated-world protocol 3 invalidate incompatible cached previews. Authored atlas protocol 3 then remained a separate unchanged contract (the authored atlas was removed on 1 October 2026). Append `lake` and `lakeIce` biome codes; terrain elevation is lake-bed elevation, and lake surface level is separate. Water counts must use surface-water classification, not merely negative elevation.
 
 Keep existing compact elevation/biome surface bytes and exact climate/resource tiles. Add a sparse authoritative hydrology graph to the manifest: river source/destination cell IDs and moisture-weighted runoff, registered dry terminal IDs, plus lake IDs, member cells, levels and optional outlet edges. The same validated graph drives rendering and inspection, so no second approximate river system or extra endpoint is needed. Set the manifest bound to 4 MiB to allow the added sparse network and larger lake metadata; retain the 512 KiB tile and 20 MiB bundle bounds and existing concurrency/cache limits. Validate actual dimensions, unique ownership, adjacent edges, cycles, downstream continuation, lake/biome agreement, levels and outlet consistency before publication or browser use.
 
@@ -131,7 +133,7 @@ Actual browser review at `http://127.0.0.1:5173/` inspected Chronicle, Elsewhere
 3. Click a river or lake cell. Check mapped freshwater, lake surface/bed/depth and closed versus open drainage.
 4. Try Elsewhere, Harbors and Sundown, and compare fit/detail views. Temperature and moisture retain literal climate colors.
 
-The user has now accepted the rivers/lakes and considers this area done. Continue geography after that review; seasonal water, further climate detail or terrain refinements can be separate slices. Fertility, settlements and political provinces are not started here.
+The user has now accepted the rivers/lakes and considers this area done. Geography was then to continue after that review; seasonal water, further climate detail or terrain refinements could be separate slices. Fertility, settlements and political provinces were not started here. VISION.md now keeps geography annual and read-only except its slice G1.
 
 
 ## River rendering correction — current iteration
@@ -144,7 +146,7 @@ Acceptance: smooth connected bends, legible larger rivers, substantially fewer m
 
 Visual checks at the exact running lab covered Chronicle, Elsewhere, Harbors and Sundown at fit plus Chronicle detail. The final pass also strengthened major overview strokes after visual inspection; final screenshots are `/tmp/chronicle-river-style-final-{fit,detail}.png`. The Chronicle graph still has 4,202 channel/outlet edges; 341 are eligible for overview drawing under the display threshold, and all become eligible at detail. This reduces tiny marks without changing the generated graph or water facts. The lab returned `climate-4:large:Chronicle` with no page errors. Diagnostic last-frame timings were 1.30 ms at fit and 7.40 ms at detail under concurrent verification load; these are not a benchmark of sustained frame rate.
 
-Baseline is `0e9444b`; the river-style checkpoint is the commit containing this correction record. No generator, shared contract, or resource-generation file changed. README and the river-control note explain the zoom hierarchy; launch remains `npm start`. User visual acceptance is now recorded; choose the next geography slice.
+Baseline is `0e9444b`; the river-style checkpoint is the commit containing this correction record. No generator, shared contract, or resource-generation file changed. README and the river-control note explain the zoom hierarchy; launch remains `npm start`. User visual acceptance is now recorded; the next geography slice chosen afterward was Fertility 01.
 
 
 ### Earlier visual rejection and diagnosis (superseded by user acceptance)
@@ -160,4 +162,4 @@ Exact next action: resolve the refresh comparison, then discuss a bounded draina
 
 The latest explicit user response is: “That looks great. And I'd consider that area done.” This closes Hydrology 01’s visual review. The hard-refresh outcome was not separately reported; do not claim that stale code was proven to be the cause. The structural observations above remain historical diagnostics, not an active request to redesign drainage. No runtime changes followed `ffce09d`.
 
-The user asks for entirely geographical next-step ideas. Discuss soils/fertility, landforms, coastal geography or geological resource coherence as separate small slices. No next feature is selected or authorized for implementation yet. Keep countries, settlements and simulation gameplay deferred. This acceptance update changes documentation only; no runtime checks were rerun.
+As of 10 September 2026 (since superseded: Fertility 01 followed, and VISION.md now defines the next work): the user asks for entirely geographical next-step ideas. Discuss soils/fertility, landforms, coastal geography or geological resource coherence as separate small slices. No next feature is selected or authorized for implementation yet. Keep countries, settlements and simulation gameplay deferred. This acceptance update changes documentation only; no runtime checks were rerun.

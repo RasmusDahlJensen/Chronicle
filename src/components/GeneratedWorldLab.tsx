@@ -209,7 +209,7 @@ export function GeneratedWorldLab() {
           {loadError && <p className="atlas-error" role="alert">{loadError}</p>}
           {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={() => retryDetail.current()}>Retry detail</button></div>}
           {canvasError && <div className="world-inline-error"><p className="atlas-error" role="alert">{canvasError}</p><button className="atlas-reset-button" type="button" onClick={() => setCanvasRevision(current => current + 1)}>Retry canvas</button></div>}
-          <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A geographic preview, before history begins. Rivers connect their catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin. Seasons and living societies are still to come.</p></div>
+          <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A geographic preview, before history begins. Rivers connect their catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin. Living societies are still to come.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">
           <p className="atlas-section-index">03 / Inspect</p><div className="atlas-section-heading"><h2 id="world-inspector-title">{cell || inspecting ? 'Cell detail' : 'Read the landscape'}</h2>{(cell || inspecting) && <button className="atlas-clear-selection" type="button" aria-label="Clear selection" onClick={() => clearSelection.current()}>×</button>}</div>

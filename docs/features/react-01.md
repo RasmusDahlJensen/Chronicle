@@ -1,6 +1,6 @@
 # React 01 — existing terrain lab migration
 
-> Historical: the authored studies this brief describes were removed on 1 October 2026.
+> **Historical record only.** The authored Aster Island fixture described here was removed on 1 October 2026; it is unrelated to VISION.md's generated study seed `Aster`. Its statuses, plans, contracts, acceptance scenarios and next actions are not current guidance. [VISION.md](../VISION.md) is the source of truth for the game and its civilizations, and [CHRONICLE_SPEC.md](../CHRONICLE_SPEC.md) for geography; the current stage is in [WORKFLOW.Md](../WORKFLOW.Md).
 
 Status: implemented, locally verified, and accepted by the user, 9 September 2026.
 

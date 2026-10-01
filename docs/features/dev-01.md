@@ -1,6 +1,6 @@
 # Dev 01 — synchronized development and connected checks
 
-> Note, 1 October 2026: the authored Verdant/Aster studies, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference. Statements below about them are historical.
+> Note, 1 October 2026: the authored Verdant Reach regional atlas (Atlas 02, served at `/api/atlas`) and Aster Island studies, which are unrelated to [VISION.md](../VISION.md)'s generated study seeds `Verdant` and `Aster`, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference only. This brief's status, Atlas 02 and atlas-route checks, verification results and next action are historical; the current stage is in [WORKFLOW.Md](../WORKFLOW.Md), and the map routes are now `/api/world` and `/api/world/tile`. Its automatic restarts and complete `npm run check` gate remain required, as extended by VISION.md.
 
 Status: implemented and locally verified on 9 September 2026. Atlas 02 remains available for visual user review; this slice addresses the user's reported missing map and request to prevent recurrence through growing integration coverage.
 
@@ -20,7 +20,7 @@ The running Vite frontend picked up Atlas 02 while its long-lived Node backend s
 
 ## Boundary and limitations
 
-This is development tooling for the current stateless lab. It does not introduce production hot reload, persistent simulation, saves, network exposure, or a promise that every possible failure is eliminated. Future meaningful state requires save/recovery before automatic restart can be applied to it. Linux tests establish Linux behavior; additional operating systems need their own runtime evidence.
+This is development tooling for the current stateless lab. It does not introduce production hot reload, persistent simulation, saves, network exposure, or a promise that every possible failure is eliminated. Future meaningful state requires save/recovery before automatic restart can be applied to it (superseded by VISION.md: until slice P, a host restart, including a development reload, resets the simulation to year 0 and the lab says so; from slice P, a restart resumes from the last save). Linux tests establish Linux behavior; additional operating systems need their own runtime evidence.
 
 ## Handoff
 
@@ -32,7 +32,7 @@ Starting revision: `c316650`, clean working tree. Prior baseline: 50 headless te
 - Final `npm run check` passed: architecture checks over 26 files, TypeScript, **55 headless tests** with no failures/skips, production build, and **47 Chromium scenarios** (25 development, 22 production). Headless tests took 19.4 seconds; browser scenarios took 32.9 seconds on this PC.
 - `git diff --check` passed. CI configuration was reviewed against the current official action releases and uses pinned commit SHAs. GitHub execution has not run; the workflow takes effect when pushed.
 - Before the watcher fix, adding an actual API route to an isolated running application left that route returning 404 until the regression timed out. The same regression now passes at the same public origin and verifies closure of the old backend listener.
-- Review exposed a missing watch for a previously absent `src/simulation` directory. The regression reproduced stale worker data on its second, simulation-only edit before the brace-glob fix; it now passes. Fixture edits, rapid saves, shared/core dependency changes, removal/restoration, and SIGINT/SIGTERM cleanup also pass through real processes.
+- Review exposed a missing watch for a previously absent `src/simulation` directory. The regression reproduced stale worker data on its second, simulation-only edit before the brace-glob fix; it now passes. Fixture edits, rapid saves, shared/core dependency changes, removal/restoration, and SIGINT/SIGTERM cleanup also pass through real processes. (On 1 October 2026 the civilization removal narrowed `nodemon.json` to `src/world` under `src/`, and `tests/dev-reload.test.ts` no longer covers `src/simulation` or fixture edits; VISION.md requires adding `src/simulation/**/*` back with a source-edit regression.)
 - Browser recovery initially could have accepted retained data. It now requires a distinct recovered name, matching API output, ready status, and no alert on the same open tab. Frontend-only hot updates preserve the page identity, selected cell, and original backend listener. Independent reviewers rechecked the changes and reported no remaining material findings.
 - Windows test cleanup now targets the owned process tree while its parent exists; this was reviewed statically. Windows runtime behavior remains unverified.
 - Vite's report-file reload logs prompted an additional noninterference scenario. Creating and overwriting reports preserved the atlas page and selection before any fix; the client filters HTML reloads by path. This is added coverage, not a reproduced application defect, and no Vite configuration change was made.

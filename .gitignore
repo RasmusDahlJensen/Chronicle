@@ -4,5 +4,6 @@ test-results/
 playwright-report/
 .DS_Store
 
-# Saves written by the archived civilization branch (archive/civilization-v1), never source files.
+# Local output, never source files: review screenshots and charts under .chronicle/review/<milestone>/ (docs/VISION.md rule 2).
+# The archived civilization branch (archive/civilization-v1) also wrote saves here.
 .chronicle/

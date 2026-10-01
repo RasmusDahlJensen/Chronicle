@@ -1,6 +1,6 @@
 # Resources 01 — scattered resource sites
 
-> Historical: the authored studies this brief describes were removed on 1 October 2026.
+> **Historical record only.** The authored Verdant Reach and Aster Island studies described here, with their provinces, protocol-3 atlas contract and the `/api/atlas` and `/api/terrain` routes, were removed on 1 October 2026; they are unrelated to VISION.md's generated study seeds `Verdant` and `Aster`. The sparse-site direction is carried forward in CHRONICLE_SPEC.md; the province and country decisions below were superseded. Its statuses, plans, contracts, acceptance scenarios and next actions are not current guidance. [VISION.md](../VISION.md) is the source of truth for the game and its civilizations, and [CHRONICLE_SPEC.md](../CHRONICLE_SPEC.md) for geography; the current stage is in [WORKFLOW.Md](../WORKFLOW.Md).
 
 Status: sparse sites and the province → cell → province click cycle implemented and locally verified on 10 September 2026; awaiting user review. The user's atlas review replaces the prior requirement for a resource on every cell with scattered Civilization-inspired resource sites and technology requirements for exploitation.
 
@@ -86,6 +86,8 @@ Final **`npm run check` passed**: architecture checks over 28 files, TypeScript,
 Handoff: source, regressions, help text, and docs checkpointed together after verification; no unrelated changes, package changes, or launch changes. No known issue remains from these checks. Next action: click the same land location repeatedly in the running lab to review the cycle. Country selection and simulation remain later slices.
 
 ## Agreed province direction — 10 September 2026
+
+> Superseded: this province and country direction was removed from the specification on 1 October 2026 and does not bind current work. VISION.md governs: civilizations own regions, and in war a region is first occupied and changes owner through peace terms.
 
 Following the visual review, the user agreed country-created provinces centered on settlements and confirmed immediate ownership transfer when a provincial capital is captured. The founding national capital also centers the first province; other provincial capitals and ordinary towns support growth and resource use. Uncaptured cells may retain defending forces despite the province's new owner. Specification §§3–4 and §9 now replace fixed pre-generated provinces and peace-gated conquest with this design.
 

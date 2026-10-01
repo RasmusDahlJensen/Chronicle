@@ -1,6 +1,6 @@
 # Backend 02 — researched runtime baseline
 
-> Note, 1 October 2026: the authored Verdant/Aster studies, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference. Statements below about them are historical.
+> **Historical record, 9 September 2026.** The host foundation it introduced (Fastify, the bounded Piscina geography pool, shared validation, the built-app server and the Biome architecture check) is still in use, and README has the current commands and limits. This brief's status, fixture benchmark, storage choice, plans and next actions are historical and do not bind the run in [VISION.md](../VISION.md); the current stage is in [WORKFLOW.Md](../WORKFLOW.Md). On 1 October 2026 the authored Verdant Reach and Aster Island studies (unrelated to VISION.md's generated study seeds `Verdant` and `Aster`), the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference only.
 
 Status: implemented and verified, 9 September 2026. Awaiting user review.
 

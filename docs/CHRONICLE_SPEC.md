@@ -3,7 +3,7 @@
 
 Version 2.1 · 1 October 2026 · Geography baseline only
 
-This document records the accepted requirements for Chronicle's generated world. It is not a game specification. On 1 October 2026 the user removed the civilization prototype and asked for the civilization design to be thought through again; the earlier product sections on tribes, settlements, countries, provinces, decision-making, economy, diplomacy, warfare, history and pacing were removed from this file. The game and its civilizations are defined by [VISION.md](VISION.md), agreed with the user the same day. Do not infer game rules from earlier versions of this file (available in Git history) or from the archived `archive/civilization-v1` branch.
+This document records the accepted requirements for Chronicle's generated world. It is not a game specification. On 1 October 2026 the user removed the civilization prototype and asked for the civilization design to be thought through again; the earlier product sections on tribes, settlements, countries, provinces, decision-making, economy, diplomacy, warfare, history and pacing were removed from this file. The game and its civilizations are defined by [VISION.md](VISION.md), agreed with the user the same day. Do not infer game rules from earlier versions of this file (available in Git history), from feature briefs written before VISION.md, or from the archived `archive/civilization-v1` branch.
 
 ## 1. Evidence and precedence
 
@@ -50,7 +50,7 @@ The current generator derives cell data in this order: elevation and landmass �
 
 ## 4. Resources
 
-**Current geography:** generated worlds contain sparse, terrain-appropriate mineral deposits and renewable concentrations. Cells have either one displayed resource site or no site; absence of a special site does not mean zero fertility, timber, or future base productivity. The map shows sites and their required extraction technology for review. These requirements are catalog data; there is no running research, extraction, depletion, or stockpile system. Additional deposits and renewable capacities remain a contract to define; the singular display resource does not impose a permanent one-resource limit on a place.
+**Current geography:** generated worlds contain sparse, terrain-appropriate mineral deposits and renewable concentrations. Cells have either one displayed resource site or no site; absence of a special site does not mean zero fertility, timber, or future base productivity. The map shows sites and their required extraction technology for review. These requirements are catalog data; geography itself runs no research, extraction, depletion or stockpile system. Additional deposits and renewable capacities are not part of VISION.md's run: geography keeps at most one site per cell (G1 places tin and oil only on land cells without a site), and the simulation derives timber and stone supply from forest and rough land.
 
 Geography only places resource sites. How civilizations reveal, extract and use them, including uranium and nuclear mechanics, is defined in [VISION.md](VISION.md). Tin and oil are added by its slice G1.
 
@@ -60,7 +60,7 @@ Geography only places resource sites. How civilizations reveal, extract and use 
 
 ## 6. Technical decisions
 
-**Hosting update, 9 September 2026:** the user confirmed separate worlds per person, with world generation and simulation hosted on the user's PC. Worlds pause and save when the person leaves and resume on return. This replaces the original browser-worker/no-server proposal. It does not introduce shared-world multiplayer. See `docs/ARCHITECTURE.md` for the decision record and unresolved details.
+**Hosting update, 9 September 2026:** the user confirmed separate worlds per person, with world generation and simulation hosted on the user's PC. Worlds pause and save when the person leaves and resume on return; VISION.md schedules saving and resuming as slice P, and until then a host restart or a seed change resets the simulation to year 0. This replaces the original browser-worker/no-server proposal. It does not introduce shared-world multiplayer. See `docs/ARCHITECTURE.md` for the decision record and unresolved details.
 
 **Frontend decision, 9 September 2026:** React + TypeScript + Vite is confirmed for the browser interface. Keep one repository and one package initially; split modules without creating unnecessary services or a complex monorepo.
 

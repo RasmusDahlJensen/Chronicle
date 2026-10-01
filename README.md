@@ -8,7 +8,7 @@ The React + TypeScript + Vite browser lab opens a **seeded world preview** with 
 
 A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives full-resolution terrain for the overview, then requests climate and resource detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; mining, research and production are not running. Deterministic rivers, tributaries, inland lakes and frozen lakes add surface water to the geography. Seasonal weather is not modeled.
 
-The page shows geography only. It has no civilizations, countries, provinces, simulation clock or saved games yet; [docs/VISION.md](docs/VISION.md) describes the planned game and its civilizations.
+The page shows geography only. It has no bands, civilizations, settlements, simulation clock or saved games yet; [docs/VISION.md](docs/VISION.md) describes the planned game and its civilizations.
 
 ## First setup on your PC
 
@@ -164,6 +164,7 @@ Map response admission is also bounded to worker count plus queue allowance unti
 
 ## Project record
 
+- [Game and civilization vision](docs/VISION.md), the source of truth for the game and its civilizations
 - [Development workflow and current stage](docs/WORKFLOW.Md)
 - [Architecture decisions](docs/ARCHITECTURE.md)
 - [Geography specification](docs/CHRONICLE_SPEC.md)
@@ -172,8 +173,8 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - [Accepted rivers and lakes](docs/features/hydrology-01.md)
 - [Accepted natural fertility layer](docs/features/fertility-01.md)
 - [Development reliability and verification](docs/features/dev-01.md)
-- [Backend foundation and verification evidence](docs/features/backend-02.md)
-- [Backend research and technology decisions](docs/BACKEND_RESEARCH.md)
+- [Backend foundation and verification evidence, 9 September 2026](docs/features/backend-02.md); its proposed next slice predates VISION.md
+- [Backend research, 9 September 2026](docs/BACKEND_RESEARCH.md): reasons for the current Fastify, Piscina and TypeBox choices; its storage, world-identity and persistence proposals predate VISION.md, which governs the simulation worker and persistence (slice P)
 - Historical briefs for earlier authored studies, since removed: [original terrain slice](docs/features/atlas-01.md), [React migration](docs/features/react-01.md), [original local backend](docs/features/backend-01.md), [regional atlas](docs/features/atlas-02.md), [resource sites](docs/features/resources-01.md)
 
 ## Code map

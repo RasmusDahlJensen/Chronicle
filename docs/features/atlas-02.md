@@ -1,6 +1,6 @@
 # Atlas 02 — biomes and resource atlas
 
-> Historical: the authored studies this brief describes were removed on 1 October 2026.
+> **Historical record only.** The authored Verdant Reach and Aster Island studies described here, with their provinces, protocol-3 atlas contract and the `/api/atlas` and `/api/terrain` routes, were removed on 1 October 2026; they are unrelated to VISION.md's generated study seeds `Verdant` and `Aster`. Its statuses, plans, contracts, acceptance scenarios and next actions are not current guidance. [VISION.md](../VISION.md) is the source of truth for the game and its civilizations, and [CHRONICLE_SPEC.md](../CHRONICLE_SPEC.md) for geography; the current stage is in [WORKFLOW.Md](../WORKFLOW.Md).
 
 Status: implemented and verified; awaiting user review of the visual direction. The user's visual feedback supersedes the proposed seed-generator-first sequence.
 
