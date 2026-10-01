@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 1;
+export const SIMULATION_PROTOCOL_VERSION = 2;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -69,6 +69,26 @@ export const ObserverFrameSchema = Type.Object({
   /** Events with id ≥ the requested cursor, oldest first, at most MAX_FRAME_EVENTS (the newest ones when more exist). */
   events: Type.Array(ChronicleEventSchema, { maxItems: MAX_FRAME_EVENTS }),
   counters: Type.Object({ regions: Type.Integer({ minimum: 0 }), landmasses: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
+  population: Type.Integer({ minimum: 0 }), polities: Type.Integer({ minimum: 0 }),
+  /** Living bands as parallel arrays (id, region, population), for map markers. */
+  bands: Type.Object({
+    ids: Type.Array(id(), { maxItems: 20_000 }), regions: Type.Array(id(), { maxItems: 20_000 }),
+    populations: Type.Array(Type.Integer({ minimum: 1 }), { maxItems: 20_000 }),
+  }, { additionalProperties: false }),
+  /** [year, world population, living polities] every SERIES_YEARS, for the world chart. */
+  series: Type.Array(Type.Tuple([Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 })]), { maxItems: 1_000 }),
+  /** Details of the region the observer asked about, or null. */
+  inspect: Type.Union([Type.Null(), Type.Object({
+    region: id(), capacity: Type.Number({ minimum: 0 }), gameStock: Type.Number({ minimum: 0, maximum: 1 }),
+    food: Type.Object({ forage: Type.Number({ minimum: 0 }), hunt: Type.Number({ minimum: 0 }), fish: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
+    band: Type.Union([Type.Null(), Type.Object({
+      id: id(), name: Type.String({ maxLength: 40 }), culture: Type.String({ maxLength: 40 }), population: Type.Integer({ minimum: 0 }),
+      birthsThisYear: Type.Integer({ minimum: 0 }), deathsThisYear: Type.Integer({ minimum: 0 }),
+      birthsLastYear: Type.Integer({ minimum: 0 }), deathsLastYear: Type.Integer({ minimum: 0 }),
+      foodSecurity: Type.Number({ minimum: 0 }), foodStoreMonths: Type.Number({ minimum: 0 }), founded: Type.Integer({ minimum: 0 }),
+      arrived: Type.Integer({ minimum: 0 }),
+    }, { additionalProperties: false })]),
+  }, { additionalProperties: false })]),
 }, { additionalProperties: false });
 export type ObserverFrame = Static<typeof ObserverFrameSchema>;
 
@@ -98,6 +118,9 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   const frame = value as ObserverFrame;
   for (let at = 1; at < frame.events.length; at++) if (frame.events[at].id <= frame.events[at - 1].id) throw invalid();
   if (frame.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
+  const { ids, regions, populations } = frame.bands;
+  if (ids.length !== regions.length || ids.length !== populations.length) throw invalid();
+  if (frame.series.some(([year], at) => year * 12 > frame.tick || (at > 0 && year <= frame.series[at - 1][0]))) throw invalid();
   return frame;
 }
 
@@ -126,8 +149,8 @@ export function parseRegionMap(value: unknown): { map: RegionMap; cells: Uint16A
 
 /** Messages between the host and its simulation worker (structured clone, same process). */
 export type SimulationRequest =
-  | { kind: 'frame'; id: number; cursor: number }
-  | { kind: 'control'; id: number; control: SimulationControl; cursor: number }
+  | { kind: 'frame'; id: number; cursor: number; inspect?: number }
+  | { kind: 'control'; id: number; control: SimulationControl; cursor: number; inspect?: number }
   | { kind: 'regions'; id: number }
   | { kind: 'report'; id: number; events: boolean };
 export type SimulationReply =

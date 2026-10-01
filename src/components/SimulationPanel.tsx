@@ -22,7 +22,28 @@ interface Props {
   settings: WorldSettings | null;
   /** True when the observer chose this world in place of another one: its history starts again at year 0. */
   startFresh?: boolean;
+  /** Region whose details each frame should carry (null for none). */
+  inspect?: number | null;
   onFrame?: (frame: ObserverFrame) => void;
+}
+
+/** World population and living polities over time, from the frame's series. */
+function WorldChart({ series }: { series: ObserverFrame['series'] }) {
+  if (series.length < 2) return null;
+  const width = 520, height = 120, pad = 4;
+  const maxYear = series[series.length - 1][0] || 1;
+  const maxPopulation = Math.max(1, ...series.map(point => point[1]));
+  const maxPolities = Math.max(1, ...series.map(point => point[2]));
+  const line = (value: (point: ObserverFrame['series'][number]) => number, max: number) => series.map(point =>
+    `${(pad + point[0] / maxYear * (width - 2 * pad)).toFixed(1)},${(height - pad - value(point) / max * (height - 2 * pad)).toFixed(1)}`).join(' ');
+  const last = series[series.length - 1];
+  return <figure className="world-history-chart" aria-label="World population chart">
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`World population ${last[1].toLocaleString('en')} in year ${last[0]}`}>
+      <polyline className="world-chart-population" points={line(point => point[1], maxPopulation)} />
+      <polyline className="world-chart-polities" points={line(point => point[2], maxPolities)} />
+    </svg>
+    <figcaption><span className="world-chart-key-population">World population</span> {last[1].toLocaleString('en')} (max {maxPopulation.toLocaleString('en')}) · <span className="world-chart-key-polities">Bands and civilizations</span> {last[2].toLocaleString('en')} · years 0–{maxYear.toLocaleString('en')}</figcaption>
+  </figure>;
 }
 
 /**
@@ -30,7 +51,7 @@ interface Props {
  * each request takes a sequence number and an older response never replaces a newer one. A frame from another world,
  * run or reset epoch never mixes into the displayed history.
  */
-export function SimulationPanel({ settings, startFresh = false, onFrame }: Props) {
+export function SimulationPanel({ settings, startFresh = false, inspect = null, onFrame }: Props) {
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +60,9 @@ export function SimulationPanel({ settings, startFresh = false, onFrame }: Props
   const latest = useRef({ key: '', sequence: 0, applied: 0, runId: '', epoch: -1, cursor: 0, playing: false });
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
+  const inspectRef = useRef(inspect);
+  inspectRef.current = inspect;
+  const pollNow = useRef<() => void>(() => {});
   const key = settings ? worldKey(settings) : '';
 
   /** Apply a frame that holds the events from id `from` on. */
@@ -75,10 +99,16 @@ export function SimulationPanel({ settings, startFresh = false, onFrame }: Props
       try {
         // After a reset or restart the cursor from the old history would skip the new one's first events.
         const cursor = latest.current.runId ? latest.current.cursor : 0;
-        apply(sequence, await fetchObserverFrame(settings!, cursor, controller.signal), cursor);
+        apply(sequence, await fetchObserverFrame(settings!, cursor, controller.signal, inspectRef.current), cursor);
       } catch (cause) { if (!controller.signal.aborted) setError(message(cause)); }
       if (!controller.signal.aborted) timer = setTimeout(poll, latest.current.playing ? POLL_PLAYING_MS : POLL_PAUSED_MS);
     }
+    let polling = false;
+    pollNow.current = () => {
+      if (polling || controller.signal.aborted) return;
+      clearTimeout(timer); polling = true;
+      void poll().finally(() => { polling = false; });
+    };
     async function begin() {
       if (startFresh) {
         // Choosing another world starts its history again at year 0 (until saving exists).
@@ -87,17 +117,21 @@ export function SimulationPanel({ settings, startFresh = false, onFrame }: Props
       }
       if (!controller.signal.aborted) await poll();
     }
-    void begin();
-    return () => { controller.abort(); clearTimeout(timer); };
+    polling = true;
+    void begin().finally(() => { polling = false; });
+    return () => { controller.abort(); clearTimeout(timer); pollNow.current = () => {}; };
   // The world key identifies the world; startFresh is read when that world is first shown.
   }, [key]);
+
+  // A new selection should show its region's details now, not at the next paused poll.
+  useEffect(() => { pollNow.current(); }, [inspect]);
 
   async function send(control: SimulationControl) {
     if (!settings) return;
     const sequence = ++latest.current.sequence, world = latest.current.key;
     const cursor = control.action === 'reset' ? 0 : latest.current.cursor;
     try {
-      const next = await sendSimulationControl(settings, control, cursor, AbortSignal.timeout(30_000));
+      const next = await sendSimulationControl(settings, control, cursor, AbortSignal.timeout(30_000), inspectRef.current);
       if (latest.current.key === world) apply(sequence, next, cursor);
     } catch (cause) { if (latest.current.key === world) setError(message(cause)); }
   }
@@ -126,6 +160,8 @@ export function SimulationPanel({ settings, startFresh = false, onFrame }: Props
       <button type="button" className="world-history-reset" disabled={!frame} onClick={() => void send({ action: 'reset' })}>Reset to year 0</button>
     </div>
     {error && <p className="atlas-error" role="alert">{error}</p>}
+    {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {frame.polities.toLocaleString('en')} {frame.polities === 1 ? 'band' : 'bands'}</p>}
+    {frame && <WorldChart series={frame.series} />}
     <p className="atlas-panel-note">{restarted ? 'This world’s simulation started again at year 0: Chronicle restarted or the simulation was stopped. ' : ''}Until saving exists, restarting Chronicle or choosing another seed starts the simulation again at year 0.</p>
     <div className="world-history-events">
       <h3>Chronicle <span>{frame ? `${frame.eventCount.toLocaleString('en')} events` : ''}</span></h3>

@@ -61,9 +61,9 @@ export function createRng(...key: number[]): Rng {
   };
 }
 
-/** The stream for one system at one tick, optionally split further by an entity id. */
-export function systemStream(rootSeed: number, tick: number, system: number, entity = 0) {
-  return createRng(rootSeed, tick, system, entity);
+/** The stream for one system at one tick, optionally split further by an entity id and a salt for a second use. */
+export function systemStream(rootSeed: number, tick: number, system: number, entity = 0, salt?: number) {
+  return salt === undefined ? createRng(rootSeed, tick, system, entity) : createRng(rootSeed, tick, system, entity, salt);
 }
 
 /** Per-year probability applied to a step of `years` years: 1 − (1 − p)^t. */

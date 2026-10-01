@@ -27,13 +27,18 @@ async function requestJson(path: string, maximum: number, callerSignal: AbortSig
   return body;
 }
 
-export async function fetchObserverFrame(settings: WorldSettings, cursor: number, signal: AbortSignal): Promise<ObserverFrame> {
-  return parseObserverFrame(await requestJson(`/api/simulation/frame?${query(settings, { cursor: String(cursor) })}`, MAX_FRAME_BYTES, signal));
+/** The newest frame with events from `cursor` on; `inspect` asks for one region's details. */
+export async function fetchObserverFrame(settings: WorldSettings, cursor: number, signal: AbortSignal, inspect: number | null = null): Promise<ObserverFrame> {
+  const extra: Record<string, string> = { cursor: String(cursor) };
+  if (inspect !== null) extra.inspect = String(inspect);
+  return parseObserverFrame(await requestJson(`/api/simulation/frame?${query(settings, extra)}`, MAX_FRAME_BYTES, signal));
 }
 
 /** Apply a control; the reply is a frame with the events from `cursor` on, including any the control itself caused. */
-export async function sendSimulationControl(settings: WorldSettings, control: SimulationControl, cursor: number, signal: AbortSignal): Promise<ObserverFrame> {
-  return parseObserverFrame(await requestJson(`/api/simulation/control?${query(settings, { cursor: String(cursor) })}`, MAX_FRAME_BYTES, signal, {
+export async function sendSimulationControl(settings: WorldSettings, control: SimulationControl, cursor: number, signal: AbortSignal, inspect: number | null = null): Promise<ObserverFrame> {
+  const extra: Record<string, string> = { cursor: String(cursor) };
+  if (inspect !== null) extra.inspect = String(inspect);
+  return parseObserverFrame(await requestJson(`/api/simulation/control?${query(settings, extra)}`, MAX_FRAME_BYTES, signal, {
     method: 'POST', body: JSON.stringify(control), headers: { 'Content-Type': 'application/json' },
   }));
 }

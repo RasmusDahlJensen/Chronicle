@@ -24,7 +24,7 @@ interface HostOptions {
 
 export interface SimulationReport {
   instance: SimulationInstance; tick: number; eventLogHash: string; stateHash: string; eventCount: number;
-  stats: unknown[]; events?: unknown[];
+  stats: unknown[]; events?: unknown[]; metrics: Record<string, number>;
   timing: { system: string; ms: number; calls: number }[];
   partition: Record<string, number>;
 }
@@ -93,8 +93,8 @@ export class SimulationWorker {
     });
   }
 
-  frame(cursor: number) { return this.request<ObserverFrame>({ kind: 'frame', cursor }); }
-  control(control: SimulationControl, cursor = Number.MAX_SAFE_INTEGER) { return this.request<ObserverFrame>({ kind: 'control', control, cursor }); }
+  frame(cursor: number, inspect?: number) { return this.request<ObserverFrame>({ kind: 'frame', cursor, inspect }); }
+  control(control: SimulationControl, cursor = Number.MAX_SAFE_INTEGER, inspect?: number) { return this.request<ObserverFrame>({ kind: 'control', control, cursor, inspect }); }
   regions() { return this.request<RegionMap>({ kind: 'regions' }); }
   report(events = false) { return this.request<SimulationReport>({ kind: 'report', events }); }
 

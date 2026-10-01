@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EVENT_TYPES, parseObserverFrame, simulationDate } from '../shared/simulation.ts';
+import { EVENT_TYPES, parseObserverFrame, SIMULATION_PROTOCOL_VERSION, simulationDate } from '../shared/simulation.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
@@ -58,9 +58,11 @@ test('every event type has a text template that fills its data, actors and regio
   assert.deepEqual(Object.keys(EVENT_TEMPLATES).sort(), [...EVENT_TYPES].sort());
   const text = describeEvent({
     id: 0, tick: 0, type: 'bandSpawned', actors: [{ id: 4, role: 'band' }], region: 17, settlement: null, causes: [], parents: [],
-    importance: 0.5, data: { population: 1200 },
-  }, id => `Band ${id}`);
-  assert.equal(text, 'A band of 1,200 people (Band 4) appears in region 17.');
+    importance: 0.5, data: { population: 1200, name: 'Tarun', culture: 'Vaeli' },
+  });
+  assert.equal(text, 'The Tarun band of 1,200 people (Vaeli culture) appears in region 17.');
+  assert.equal(describeEvent({ id: 1, tick: 0, type: 'raid', actors: [{ id: 4, role: 'attacker' }], region: 2, settlement: null, causes: [], parents: [], importance: 0, data: {} },
+    id => `Band ${id}`), 'Band 4 raids ? in region 2.', 'actor names come from the observer, missing ones show as ?');
   assert.match(describeEvent({ id: 0, tick: 0, type: 'famine', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0, data: {} }), /\?/);
 });
 
@@ -82,7 +84,11 @@ test('determinism: the same world and seed give identical history, systems run i
     return state;
   };
   const first = run(), second = run();
+  assert.ok(first.chronicle.events.length > 30, 'bands spawn, split and move, so the log has real history to compare');
   assert.equal(stateHash(first), stateHash(second));
+  const other = createSimulation(geography, partition, 'Another seed');
+  for (let month = 0; month < 12 * 120; month++) stepSimulation(other);
+  assert.notEqual(other.chronicle.hash, first.chronicle.hash, 'another simulation seed gives another history');
   assert.equal(first.chronicle.hash, second.chronicle.hash);
   assert.deepEqual(first.stats, second.stats);
   assert.deepEqual(first.stats.map(row => row.year), [0, 100]);
@@ -96,8 +102,9 @@ test('determinism: the same world and seed give identical history, systems run i
 
 test('observer frames reject events newer than the frame or out of order', () => {
   const frame = {
-    protocolVersion: 1, instance: { key: 'k', worldKey: 'w', partitionVersion: 1, rulesVersion: 1, seed: 's', runId: 'r' },
+    protocolVersion: SIMULATION_PROTOCOL_VERSION, instance: { key: 'k', worldKey: 'w', partitionVersion: 1, rulesVersion: 1, seed: 's', runId: 'r' },
     tick: 5, playing: false, speed: 'year', epoch: 0, runTo: null, eventCount: 2, counters: { regions: 1, landmasses: 1 },
+    population: 30, polities: 1, bands: { ids: [0], regions: [0], populations: [30] }, series: [[0, 30, 1]], inspect: null,
     events: [
       { id: 0, tick: 1, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
       { id: 1, tick: 2, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
@@ -107,4 +114,6 @@ test('observer frames reject events newer than the frame or out of order', () =>
   assert.throws(() => parseObserverFrame({ ...frame, events: [...frame.events].reverse() }));
   assert.throws(() => parseObserverFrame({ ...frame, tick: 1 }));
   assert.throws(() => parseObserverFrame({ ...frame, speed: 'warp' }));
+  assert.throws(() => parseObserverFrame({ ...frame, bands: { ids: [0], regions: [], populations: [30] } }), 'band arrays must line up');
+  assert.throws(() => parseObserverFrame({ ...frame, series: [[10, 30, 1]] }), 'the series cannot run ahead of the clock');
 });

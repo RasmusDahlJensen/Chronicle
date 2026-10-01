@@ -27,6 +27,44 @@ export function checkInvariants(state: SimulationState) {
   }
   state.checkedEvents = events.length;
   for (const [index, value] of state.timing.ms.entries()) if (!(value >= 0)) fail(`system ${index} timing is ${value}`);
+  // Exact accounting (VISION.md rule 8): every region's population change is explained by this tick's births,
+  // deaths by cause and migration; every band's food store change by production, consumption, spoilage and carrying.
+  const { ledger } = state;
+  const now = new Int32Array(regions);
+  const seen = new Int32Array(regions).fill(-1);
+  for (const id of state.bands) {
+    const band = state.polities[id];
+    if (!band || band.kind !== 'band' || band.deathTick !== null) fail(`live band list names ${id}`);
+    const group = state.groups[band.group];
+    if (!group || group.polity !== id || group.region !== band.region || group.deathTick !== null) fail(`band ${id} has an inconsistent group`);
+    if (!Number.isInteger(group.size) || group.size <= 0) fail(`band ${id} has size ${group.size}`);
+    if (!Number.isInteger(group.store) || group.store < 0) fail(`band ${id} has food store ${group.store}`);
+    if (!Number.isFinite(group.foodSecurity) || group.foodSecurity < 0) fail(`band ${id} has food security ${group.foodSecurity}`);
+    if (band.region < 0 || band.region >= regions) fail(`band ${id} is in missing region ${band.region}`);
+    if (seen[band.region] >= 0) fail(`region ${band.region} holds bands ${seen[band.region]} and ${id}`);
+    if (state.occupant[band.region] !== id) fail(`region ${band.region} does not record its band ${id}`);
+    seen[band.region] = id;
+    now[band.region] += group.size;
+    const flows = ledger.food.get(group.id);
+    if (!flows) fail(`band ${id} has no food flows this tick`);
+    else if (group.store !== flows.before + flows.production - flows.consumption - flows.spoilage + flows.carriedIn - flows.carriedOut) {
+      fail(`band ${id}'s food store ${group.store} is not explained by its flows ${JSON.stringify(flows)}`);
+    }
+  }
+  // Transfers close: everyone who left a region arrived in another, and food carried out was carried in somewhere.
+  let migratedIn = 0, migratedOut = 0, carriedIn = 0, carriedOut = 0;
+  for (let region = 0; region < regions; region++) { migratedIn += ledger.migrantsIn[region]; migratedOut += ledger.migrantsOut[region]; }
+  for (const flows of ledger.food.values()) { carriedIn += flows.carriedIn; carriedOut += flows.carriedOut; }
+  if (migratedIn !== migratedOut) fail(`${migratedOut} people left regions but ${migratedIn} arrived`);
+  if (carriedIn !== carriedOut) fail(`${carriedOut} food units were carried out but ${carriedIn} carried in`);
+  for (let region = 0; region < regions; region++) {
+    if (state.occupant[region] >= 0 && seen[region] !== state.occupant[region]) fail(`region ${region} records a band that is not there`);
+    const expected = ledger.before[region] + ledger.births[region] - ledger.naturalDeaths[region] - ledger.famineDeaths[region]
+      + ledger.migrantsIn[region] - ledger.migrantsOut[region];
+    if (now[region] !== expected) fail(`region ${region} population ${now[region]} differs from its accounted ${expected}`);
+    const game = state.gameStock[region];
+    if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);
+  }
 }
 
 /**

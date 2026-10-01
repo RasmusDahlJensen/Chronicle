@@ -8,6 +8,7 @@ import { decodeGeography } from '../../src/simulation/geography.ts';
 import { checkPartition } from '../../src/simulation/invariants.ts';
 import { partitionRegions, partitionStats, REGION_PARTITION_VERSION } from '../../src/simulation/regions.ts';
 import { createSimulation, frameCounters, SIMULATION_RULES_VERSION, stateHash, stepSimulation } from '../../src/simulation/simulation.ts';
+import { observerView } from '../../src/simulation/observer.ts';
 import { SYSTEMS } from '../../src/simulation/state.ts';
 import { CLOCK_TUNING, validateTunables } from '../../src/simulation/tunables.ts';
 
@@ -82,11 +83,11 @@ function control(command: SimulationControl) {
   }
 }
 
-function frame(cursor: number): ObserverFrame {
+function frame(cursor: number, inspect: number | null = null): ObserverFrame {
   return {
     protocolVersion: SIMULATION_PROTOCOL_VERSION, instance, tick: state.tick, playing, speed, epoch,
     runTo: target === null ? null : target / 12, eventCount: state.chronicle.events.length,
-    events: state.chronicle.since(cursor, MAX_FRAME_EVENTS), counters: frameCounters(state),
+    events: state.chronicle.since(cursor, MAX_FRAME_EVENTS), counters: frameCounters(state), ...observerView(state, inspect),
   };
 }
 
@@ -111,7 +112,7 @@ function regions(): RegionMap {
 
 function report(events: boolean) {
   return {
-    instance, tick: state.tick, stats: state.stats, eventLogHash: state.chronicle.hash, stateHash: stateHash(state),
+    instance, tick: state.tick, stats: state.stats, metrics: state.metrics, eventLogHash: state.chronicle.hash, stateHash: stateHash(state),
     eventCount: state.chronicle.events.length, events: events ? state.chronicle.events : undefined,
     timing: SYSTEMS.map(system => ({ system: system.key, ms: state.timing.ms[system.id], calls: state.timing.calls[system.id] })),
     partition: partitionStats(geography, partition),
@@ -120,8 +121,8 @@ function report(events: boolean) {
 
 port.on('message', (request: SimulationRequest) => {
   try {
-    const body = request.kind === 'frame' ? frame(request.cursor)
-      : request.kind === 'control' ? (control(request.control), frame(request.cursor))
+    const body = request.kind === 'frame' ? frame(request.cursor, request.inspect ?? null)
+      : request.kind === 'control' ? (control(request.control), frame(request.cursor, request.inspect ?? null))
       : request.kind === 'regions' ? regions()
       : report(request.events);
     port.postMessage({ kind: 'reply', id: request.id, ok: true, body } satisfies SimulationReply);

@@ -6,9 +6,9 @@ import type { ChronicleEvent, EventType } from '../../shared/simulation.ts';
  * `{region}` the event's region. The simulation never writes prose.
  */
 export const EVENT_TEMPLATES: Record<EventType, string> = {
-  bandSpawned: 'A band of {population} people ({@band}) appears in region {region}.',
-  bandMoved: '{@band} moves from region {from} to region {region}.',
-  bandSplit: '{@child} splits from {@parent} and settles region {region} with {population} people.',
+  bandSpawned: 'The {name} band of {population} people ({culture} culture) appears in region {region}.',
+  bandMoved: 'The {name} band of {population} people moves from region {from} to region {region}.',
+  bandSplit: 'The {name} band of {population} people splits from the {parentName} band and settles region {region}.',
   bandAbsorbed: '{@band} is absorbed by {@civ} in region {region}.',
   bandJoined: '{@band} joins {@civ} in region {region}.',
   settled: '{@polity} settles in region {region} and becomes a civilization.',

@@ -86,3 +86,39 @@ test('the region overlay draws region borders and the inspector names the select
   await page.getByLabel('Regions', { exact: true }).uncheck();
   await expect(canvas).toHaveAttribute('data-region-borders', '0');
 });
+
+test('bands appear as markers, the world chart grows and a band region shows its people, births, deaths and food', async ({ page }) => {
+  await ready(page);
+  const canvas = page.locator('#generated-world-canvas');
+  await expect(canvas).toHaveAttribute('data-band-markers', '30');
+  await history(page).getByLabel('Run to year').fill('200');
+  await history(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(history(page)).toHaveAttribute('data-tick', String(200 * 12), { timeout: 60_000 });
+  await expect(page.getByRole('figure', { name: 'World population chart' })).toBeVisible();
+  await expect.poll(async () => Number(await canvas.getAttribute('data-band-markers'))).toBeGreaterThan(30);
+  const query = `seed=${encodeURIComponent(SEED)}&size=${SIZE}`;
+  const frame = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  const regions = await (await page.request.get(`/api/simulation/regions?${query}`)).json();
+  // The most populous band away from the poles, so its centre cell is on screen at fit.
+  const candidates = frame.bands.regions.map((region: number, index: number) => ({ region, population: frame.bands.populations[index], centroid: regions.regions[region].centroid }))
+    .filter((band: { centroid: number }) => Math.abs(Math.floor(band.centroid / WIDTH) - regions.height / 2) < regions.height / 4)
+    .sort((a: { population: number }, b: { population: number }) => b.population - a.population);
+  const band = candidates[0];
+  const cell = { x: band.centroid % WIDTH, y: Math.floor(band.centroid / WIDTH) };
+  await canvas.scrollIntoViewIfNeeded();
+  const point = await canvas.evaluate((element: HTMLCanvasElement, coordinate) => {
+    const rect = element.getBoundingClientRect(), scale = Number(element.dataset.scale);
+    return { x: rect.x + rect.width / 2 + (coordinate.x + 0.5 - Number(element.dataset.centerX)) * scale,
+      y: rect.y + rect.height / 2 + (coordinate.y + 0.5 - Number(element.dataset.centerY)) * scale };
+  }, cell);
+  await page.mouse.click(point.x, point.y);
+  const details = page.getByRole('group', { name: 'Band in this region' });
+  await expect(details).toBeVisible();
+  await expect(page.locator('#band-population')).toHaveText(band.population.toLocaleString('en'));
+  await expect(details).toContainText('Births this year');
+  await expect(details).toContainText('Food security');
+  await expect(page.locator('#region-capacity')).toContainText('people');
+  await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/band of [\d,]+ people/);
+  await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
+  await expect(history(page)).toHaveAttribute('data-tick', '0');
+});

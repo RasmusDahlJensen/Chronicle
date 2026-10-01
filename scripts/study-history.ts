@@ -81,10 +81,25 @@ console.log(`\n${summary}\nWrote ${values.out}`);
 
 /** The brief's story-health table: per seed and century, plus per-system timing per simulated year. */
 function storyHealth(rows: SeedResult[]) {
-  const lines = ['| Seed | Year | Polities | Bands | Civs | Population | Largest share | Events |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
+  const lines = ['| Seed | Year | Polities | Bands | Civs | Population | Occupied regions | Largest share | Water-region population share (land share) | Moves | Splits | Famine deaths | Events |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |'];
   for (const result of rows) for (const stats of result.report.stats as Stats[]) {
-    if (stats.year % 500 !== 0 && stats.year !== 100 && stats.year !== 250) continue;
-    lines.push(`| ${result.seed} | ${stats.year} | ${stats.polities} | ${stats.bands} | ${stats.civs} | ${stats.population.toLocaleString('en')} | ${(stats.largestShare * 100).toFixed(1)}% | ${stats.events} |`);
+    if (stats.year > 1000 && stats.year % 500 !== 0) continue;
+    lines.push(`| ${result.seed} | ${stats.year} | ${stats.polities} | ${stats.bands} | ${stats.civs} | ${stats.population.toLocaleString('en')} | ${stats.occupiedRegions} | ${(stats.largestShare * 100).toFixed(1)}% | ${(stats.waterPopulationShare * 100).toFixed(0)}% (${(stats.waterRegionShare * 100).toFixed(0)}%) | ${stats.bandMoves} | ${stats.bandSplits} | ${stats.famineDeaths.toLocaleString('en')} | ${stats.events} |`);
+  }
+  // M1 acceptance (VISION.md), read from the same run.
+  lines.push('', '| Seed | Occupied habitable land, least-settled starting landmass (years 300 / 500 / 700 / 1000) |', '| --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[];
+    lines.push(`| ${result.seed} | ${[300, 500, 700, 1000].map(year => { const row = stats.find(entry => entry.year === year); return row ? `${Math.round(row.occupiedHabitableShare * 100)}%` : '—'; }).join(' / ')} |`);
+  }
+  lines.push('', '| Seed | Population ×(0→500) | Grows 0→500 | Bands ×(0→500) | Occupied ×(0→500) | Silent band-years | Longest stay above 1.1× capacity (months) | Moves citing depletion or pressure (led by them) | Water population ÷ water land (year 500) |',
+    '| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], start = stats.find(row => row.year === 0), at500 = stats.find(row => row.year === 500), m = result.report.metrics;
+    if (!start || !at500) continue;
+    const ratio = (a: number, b: number) => b > 0 ? (a / b).toFixed(1) : '—';
+    lines.push(`| ${result.seed} | ${ratio(at500.population, start.population)} | ${at500.population > start.population ? 'yes' : 'no'} | ${ratio(at500.bands, start.bands)} | ${ratio(at500.occupiedRegions, start.occupiedRegions)} | ${m.silentBandYears} | ${m.maxOverCapacityMonths} | ${m.moves ? `${Math.round(m.movesCitingPressure / m.moves * 100)}% of ${m.moves} (${Math.round(m.movesLedByPressure / m.moves * 100)}%)` : '—'} | ${at500.waterRegionShare > 0 ? (at500.waterPopulationShare / at500.waterRegionShare).toFixed(2) : '—'} |`);
   }
   lines.push('', '| Seed | Regions | Islands | Landmasses | Outside range | Area p5 / p50 / p95 km² | Coastal | River ≥ river | Great river | Open lake |',
     '| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |');

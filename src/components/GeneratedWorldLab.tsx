@@ -13,7 +13,7 @@ import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
 import { fetchRegionMap } from '../api/simulation.ts';
-import { RIVER_TIERS, type RegionMap } from '../../shared/simulation.ts';
+import { RIVER_TIERS, simulationDate, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -75,6 +75,7 @@ export function GeneratedWorldLab() {
   const [cell, setCell] = useState<InspectedWorldCell | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const overlay = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<ReturnType<typeof createGeneratedWorldRenderer> | null>(null);
   const client = useRef<ReturnType<typeof createWorldTileClient> | null>(null);
   const visible = useRef<WorldCoordinate[]>([]);
@@ -133,7 +134,7 @@ export function GeneratedWorldLab() {
           tileClient.setVisibleTiles(next.tiles); requestVisible();
         },
         onError: cause => { if (alive) setCanvasError(message(cause)); },
-      });
+      }, overlay.current ?? undefined);
     } catch (cause) { setCanvasError(message(cause)); }
     return () => {
       alive = false; selectionRevision++; tileClient.destroy(); client.current = null;
@@ -154,6 +155,19 @@ export function GeneratedWorldLab() {
   }, [world]);
   useEffect(() => { renderer.current?.setRegions(regions?.cells ?? null, showRegions); }, [regions, showRegions, world, canvasRevision]);
   const cellRegion = cell && regions ? regions.map.regions[regions.cells[cell.id] - 1] ?? null : null;
+  const [frame, setFrame] = useState<ObserverFrame | null>(null);
+  useEffect(() => { setFrame(null); }, [world]);
+  // Band markers sit at their region's centre cell.
+  useEffect(() => {
+    if (!renderer.current) return;
+    if (!frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setBands([]); return; }
+    const { regions: at, populations } = frame.bands;
+    renderer.current.setBands(at.map((region, index) => {
+      const centroid = regions.map.regions[region]?.centroid ?? 0;
+      return { x: centroid % world.width, y: Math.floor(centroid / world.width), population: populations[index], color: '#c8743a' };
+    }));
+  }, [frame, regions, world, canvasRevision]);
+  const inspected = frame?.inspect && cellRegion && frame.inspect.region === cellRegion.id ? frame.inspect : null;
 
   function generate(event?: FormEvent) {
     event?.preventDefault();
@@ -225,7 +239,7 @@ export function GeneratedWorldLab() {
               <button type="button" aria-label="Zoom in" disabled={!world || !!canvasError} onClick={() => renderer.current?.zoomBy(1.6)}>+</button>
               <button type="button" className="atlas-fit-button" disabled={!world || !!canvasError} onClick={() => renderer.current?.fit()}>Fit map</button>
             </div></div>
-            {world ? <div className="atlas-canvas-frame"><canvas ref={canvas} id="generated-world-canvas" tabIndex={0} role="img" aria-label="Generated planet: biomes, rivers, lakes, temperature, moisture, fertility and natural resource sites. Click to inspect a cell." aria-describedby="world-map-help">This world preview requires Canvas 2D support.</canvas><span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span></div>
+            {world ? <div className="atlas-canvas-frame"><canvas ref={canvas} id="generated-world-canvas" tabIndex={0} role="img" aria-label="Generated planet: biomes, rivers, lakes, temperature, moisture, fertility and natural resource sites. Click to inspect a cell." aria-describedby="world-map-help">This world preview requires Canvas 2D support.</canvas><canvas ref={overlay} className="world-map-overlay" aria-hidden="true" /><span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span></div>
               : <div className="atlas-loading-map"><span className="atlas-loading-compass" aria-hidden="true">✦</span><p>{loadError ? 'The world is unavailable.' : 'A new geography is forming…'}</p><span>{loadError ? 'Use Retry generation to try again.' : 'Preparing continents, climate, and resource sites on the local host.'}</span></div>}
             <p id="world-map-help" className="atlas-map-help">Click to inspect · Drag to explore · Scroll to zoom. Keyboard: arrows inspect, Enter selects, Shift + arrows pan, + / − zoom, Home fits, Escape clears.</p>
           </div>
@@ -234,7 +248,7 @@ export function GeneratedWorldLab() {
           {loadError && <p className="atlas-error" role="alert">{loadError}</p>}
           {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={() => retryDetail.current()}>Retry detail</button></div>}
           {canvasError && <div className="world-inline-error"><p className="atlas-error" role="alert">{canvasError}</p><button className="atlas-reset-button" type="button" onClick={() => setCanvasRevision(current => current + 1)}>Retry canvas</button></div>}
-          <SimulationPanel settings={world?.settings ?? null} startFresh={shown.current.fresh} />
+          <SimulationPanel settings={world?.settings ?? null} startFresh={shown.current.fresh} inspect={cellRegion?.id ?? null} onFrame={setFrame} />
           <div className="world-climate-note"><span aria-hidden="true">◌</span><p>Rivers connect their catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin. The simulation runs on this PC; the page only observes it.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">
@@ -256,7 +270,22 @@ export function GeneratedWorldLab() {
                 <div><dt>Area</dt><dd>{number.format(cellRegion.areaKm2)} km²</dd></div>
                 <div><dt>Water</dt><dd>{[cellRegion.coastal && 'coast', cellRegion.openLake && 'open lake', cellRegion.riverTier > 0 && ({ stream: 'stream', river: 'river', greatRiver: 'great river', none: '' } as const)[RIVER_TIERS[cellRegion.riverTier]]].filter(Boolean).join(', ') || 'none'}</dd></div>
                 <div><dt>Neighbours</dt><dd>{cellRegion.neighbors.length}{cellRegion.island ? ' · island' : ''}</dd></div>
+                {inspected && <div><dt>Capacity</dt><dd id="region-capacity">{number.format(inspected.capacity)} people</dd></div>}
+                {inspected && <div><dt>Game stock</dt><dd>{Math.round(inspected.gameStock * 100)}%</dd></div>}
               </dl>
+              {inspected && <p className="atlas-panel-note">At capacity this land yields about {number.format(inspected.food.forage)} from foraging, {number.format(inspected.food.hunt)} from hunting and {number.format(inspected.food.fish)} from fishing (people fed per year). Capacity is the population whose food equals its need at the current game stock.</p>}
+              {inspected?.band ? <div className="world-cell-band" aria-label="Band in this region" role="group">
+                <p className="atlas-detail-label">Band</p><h3>{inspected.band.name} <span>· {inspected.band.culture} culture</span></h3>
+                <dl className="world-water-facts">
+                  <div><dt>Population</dt><dd id="band-population">{number.format(inspected.band.population)}</dd></div>
+                  <div><dt>Births this year</dt><dd>{inspected.band.birthsThisYear} <span>(last year {inspected.band.birthsLastYear})</span></dd></div>
+                  <div><dt>Deaths this year</dt><dd>{inspected.band.deathsThisYear} <span>(last year {inspected.band.deathsLastYear})</span></dd></div>
+                  <div><dt>Food security</dt><dd id="band-food-security">{inspected.band.foodSecurity.toFixed(2)}</dd></div>
+                  <div><dt>Food store</dt><dd>{inspected.band.foodStoreMonths.toFixed(2)} months</dd></div>
+                  <div><dt>Here since</dt><dd>year {simulationDate(inspected.band.arrived).year}</dd></div>
+                </dl>
+                <p className="atlas-panel-note">Food security is stored plus expected food over the year's need; below 1 the band goes hungry and famine deaths rise.</p>
+              </div> : inspected && <p className="atlas-panel-note">No band lives here.</p>}
             </section>}
             <FertilityDetail facts={cell.fertility} expanded={layer === 'fertility'} />
             <section className="world-cell-water" aria-label="Selected cell water">

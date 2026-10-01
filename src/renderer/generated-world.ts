@@ -13,6 +13,7 @@ export const WORLD_BIOME_STYLE: Record<WorldBiome, { label: string; color: strin
 };
 export type WorldLayer = 'biomes' | 'temperature' | 'moisture' | 'fertility';
 export interface WorldCoordinate { x: number; y: number }
+export interface BandMarker { x: number; y: number; population: number; color: string }
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
   onSelect: (cell: WorldCoordinate | null) => void;
@@ -51,7 +52,11 @@ const wrap = (value: number, width: number) => ((value % width) + width) % width
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 
 /** Rendering and pointer/keyboard navigation only. Geography is supplied by the host. */
-export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: WorldManifest, callbacks: Callbacks) {
+/**
+ * `overlay` (optional) is a transparent canvas stacked on the map for simulation marks (region borders, band markers):
+ * they change with every observer frame, so they are redrawn there without repainting the terrain.
+ */
+export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: WorldManifest, callbacks: Callbacks, overlay?: HTMLCanvasElement) {
   const context = canvas.getContext('2d', { alpha: false });
   if (!context) throw new Error('This browser could not open the world canvas. Use Retry canvas or reload in a browser with Canvas 2D support.');
   const ctx: CanvasRenderingContext2D = context;
@@ -59,6 +64,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let resources = true;
   let rivers = true;
   let regionCells: Uint16Array | null = null, regionBorders: Path2D | null = null, regionBorderCount = 0, showRegions = false;
+  let markers: BandMarker[] = [];
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
@@ -167,14 +173,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     // Draw after all world copies so the next background cannot erase a seam edge.
     drawRivers(left, top, m.scale, m.width, m.height);
-    if (showRegions && regionBorders) {
-      ctx.save(); ctx.strokeStyle = '#5b3a29'; ctx.globalAlpha = 0.55; ctx.lineCap = 'square';
-      for (let copy = startCopy; copy <= endCopy; copy++) {
-        ctx.save(); ctx.translate(left + copy * world.width * m.scale, top); ctx.scale(m.scale, m.scale);
-        ctx.lineWidth = Math.min(1.4, 0.35 + m.scale * 0.12) / m.scale; ctx.stroke(regionBorders); ctx.restore();
-      }
-      ctx.restore();
-    }
+
     for (let copy = startCopy; copy <= endCopy; copy++) {
       const origin = left + copy * world.width * m.scale;
       if (m.detail && resources && m.scale >= 5) for (const tile of tiles) {
@@ -212,8 +211,55 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     canvas.dataset.zoom = String(zoom); canvas.dataset.centerX = String(centerX); canvas.dataset.centerY = String(centerY);
     canvas.dataset.scale = String(m.scale); canvas.dataset.detail = String(m.detail);
     canvas.dataset.loadedTileCount = String(tiles.length);
-    canvas.dataset.regionBorders = String(showRegions ? regionBorderCount : 0);
+    drawOverlay(m, left, top, startCopy, endCopy);
     canvas.dataset.textureCount = String(textures.size); canvas.dataset.renderMs = (performance.now() - started).toFixed(2);
+  }
+  /** Simulation marks on the overlay canvas (or on the map when there is none), in the map's current camera. */
+  function drawOverlay(m = metrics(), left = m.width / 2 - centerX * m.scale, top = m.height / 2 - centerY * m.scale,
+    startCopy = Math.floor((-left) / (world.width * m.scale)), endCopy = Math.floor((m.width - left) / (world.width * m.scale))) {
+    if (destroyed) return;
+    let target = ctx;
+    if (overlay) {
+      const pixelWidth = Math.round(m.width * m.ratio), pixelHeight = Math.round(m.height * m.ratio);
+      if (overlay.width !== pixelWidth || overlay.height !== pixelHeight) { overlay.width = pixelWidth; overlay.height = pixelHeight; }
+      const paint = overlay.getContext('2d');
+      if (!paint) return;
+      target = paint;
+      target.setTransform(1, 0, 0, 1, 0, 0); target.clearRect(0, 0, overlay.width, overlay.height);
+      target.setTransform(m.ratio, 0, 0, m.ratio, 0, 0);
+    }
+    if (showRegions && regionBorders) {
+      target.save(); target.strokeStyle = '#5b3a29'; target.globalAlpha = 0.55; target.lineCap = 'square';
+      for (let copy = startCopy; copy <= endCopy; copy++) {
+        target.save(); target.translate(left + copy * world.width * m.scale, top); target.scale(m.scale, m.scale);
+        target.lineWidth = Math.min(1.4, 0.35 + m.scale * 0.12) / m.scale; target.stroke(regionBorders); target.restore();
+      }
+      target.restore();
+    }
+    // Band markers at their region's centre, area proportional to population.
+    if (markers.length) {
+      target.save(); target.lineWidth = m.scale < 3 ? 0.6 : 1.2; target.strokeStyle = '#2b1d12';
+      // Small at world scale (a region is a few pixels wide), larger when zoomed in.
+      const grow = Math.sqrt(m.scale);
+      // Every visible copy of the wrapped world, like the region borders.
+      for (let copy = startCopy; copy <= endCopy; copy++) for (const marker of markers) {
+        const x = left + (copy * world.width + marker.x + 0.5) * m.scale, y = top + (marker.y + 0.5) * m.scale;
+        const radius = Math.max(1.4, Math.min(14, (0.6 + Math.sqrt(marker.population) * 0.035) * grow));
+        if (x < -radius || x > m.width + radius || y < -radius || y > m.height + radius) continue;
+        target.beginPath(); target.arc(x, y, radius, 0, Math.PI * 2);
+        target.fillStyle = marker.color; target.globalAlpha = 0.85; target.fill(); target.globalAlpha = 1; target.stroke();
+      }
+      target.restore();
+    }
+    // Keep the selected cell's outline above the marks.
+    if (overlay && selection && (markers.length || showRegions)) {
+      const offsetX = wrap(selection.x + 0.5 - centerX + world.width / 2, world.width) - world.width / 2;
+      const x = m.width / 2 + offsetX * m.scale, y = top + (selection.y + 0.5) * m.scale, edge = Math.max(8, m.scale);
+      target.strokeStyle = '#172c26'; target.lineWidth = 3; target.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
+      target.strokeStyle = '#fff7d5'; target.lineWidth = 1.5; target.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
+    }
+    canvas.dataset.regionBorders = String(showRegions ? regionBorderCount : 0);
+    canvas.dataset.bandMarkers = String(markers.length);
   }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
   function changed() {
@@ -322,6 +368,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       safe(draw);
     },
     clearSelection() { select(null); },
+    /** Band markers in world cell coordinates; replaces the previous set. */
+    setBands(next: BandMarker[]) { markers = next; safe(() => overlay ? drawOverlay() : draw()); },
     /** Region index from the simulation (region id + 1, 0 for water); null clears it. */
     setRegions(cells: Uint16Array | null, visible: boolean) {
       if (cells !== regionCells) {
@@ -332,7 +380,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
           regionBorders = path; regionBorderCount = runs.length;
         }
       }
-      showRegions = visible; safe(draw);
+      showRegions = visible; safe(() => overlay ? drawOverlay() : draw());
     },
     destroy() {
       destroyed = true; observer.disconnect(); cancelAnimationFrame(frame);
@@ -340,7 +388,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; canvas.style.touchAction = '';
+      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; markers = []; canvas.style.touchAction = '';
+      if (overlay) overlay.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
     },
   };
 }
