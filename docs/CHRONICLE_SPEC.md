@@ -1,9 +1,9 @@
 # Chronicle — A Living World
 ## Geography specification
 
-Version 2.0 · 1 October 2026 · Geography baseline only
+Version 2.1 · 1 October 2026 · Geography baseline only
 
-This document records the accepted requirements for Chronicle's generated world. It is not a game specification. On 1 October 2026 the user removed the civilization prototype and asked for the civilization design to be thought through again; the earlier product sections on tribes, settlements, countries, provinces, decision-making, economy, diplomacy, warfare, history and pacing were removed from this file. The user is writing a vision document for the game and its civilizations, which will define those areas. Until then, do not infer game rules from earlier versions of this file (available in Git history) or from the archived `archive/civilization-v1` branch.
+This document records the accepted requirements for Chronicle's generated world. It is not a game specification. On 1 October 2026 the user removed the civilization prototype and asked for the civilization design to be thought through again; the earlier product sections on tribes, settlements, countries, provinces, decision-making, economy, diplomacy, warfare, history and pacing were removed from this file. The game and its civilizations are defined by [VISION.md](VISION.md), agreed with the user the same day. Do not infer game rules from earlier versions of this file (available in Git history) or from the archived `archive/civilization-v1` branch.
 
 ## 1. Evidence and precedence
 
@@ -15,6 +15,7 @@ This document records the accepted requirements for Chronicle's generated world.
 | Atlas visual correction, 9 September | Prioritize a larger map with several landmasses, richer textures and distinct biomes. Include uranium as resource potential; no extraction or nuclear mechanics implied. |
 | Resource distribution correction, later on 9 September | Replace resources on every cell with scattered resource sites that require appropriate technology to exploit, inspired by Civilization. Most cells have no special site; preserve ordinary biome productivity as a separate concept. |
 | Geography reset, 1 October | Remove all civilization work and the authored regional/terrain studies; the project is the generated-world page. Civilizations will be redesigned from the user's vision document. |
+| Vision agreed, 1 October | `VISION.md` defines the game and its civilizations, including technology-gated extraction, industry and nuclear mechanics. Its slice G1 is the only approved geography change: fix seeds that fail to generate, and add tin and oil sites without moving existing sites. |
 
 Precedence: newer explicit user choices override older choices. In particular:
 
@@ -51,7 +52,7 @@ The current generator derives cell data in this order: elevation and landmass �
 
 **Current geography:** generated worlds contain sparse, terrain-appropriate mineral deposits and renewable concentrations. Cells have either one displayed resource site or no site; absence of a special site does not mean zero fertility, timber, or future base productivity. The map shows sites and their required extraction technology for review. These requirements are catalog data; there is no running research, extraction, depletion, or stockpile system. Additional deposits and renewable capacities remain a contract to define; the singular display resource does not impose a permanent one-resource limit on a place.
 
-No uranium/enrichment or nuclear mechanics; uranium is geological resource potential only.
+Geography only places resource sites. How civilizations reveal, extract and use them, including uranium and nuclear mechanics, is defined in [VISION.md](VISION.md). Tin and oil are added by its slice G1.
 
 ## 5. Map presentation
 
@@ -73,4 +74,4 @@ Browser testing must verify actual interaction when available. Build/headless ch
 
 ## 8. Game and civilization design
 
-Deferred to the user's vision document and a plan agreed with the user. No civilization, settlement, country, province, economy, diplomacy, warfare or time-progression requirement is currently specified.
+Defined in [VISION.md](VISION.md), agreed with the user on 1 October 2026. This file remains authoritative for geography except where VISION.md names an approved change.

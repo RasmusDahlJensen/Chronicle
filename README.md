@@ -8,7 +8,7 @@ The React + TypeScript + Vite browser lab opens a **seeded world preview** with 
 
 A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives full-resolution terrain for the overview, then requests climate and resource detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; mining, research and production are not running. Deterministic rivers, tributaries, inland lakes and frozen lakes add surface water to the geography. Seasonal weather is not modeled.
 
-The page shows geography only. It has no civilizations, countries, provinces, simulation clock or saved games; the game and its civilizations are being redesigned before any of that returns.
+The page shows geography only. It has no civilizations, countries, provinces, simulation clock or saved games yet; [docs/VISION.md](docs/VISION.md) describes the planned game and its civilizations.
 
 ## First setup on your PC
 
