@@ -5,7 +5,7 @@ import { Type, type Static } from 'typebox';
  * generated worlds (biome byte; resource code = index + 1), so never reorder or rename them.
  */
 export const BIOME_IDS = ['ocean', 'coast', 'grassland', 'forest', 'rainforest', 'desert', 'savanna', 'wetland', 'tundra', 'mountain', 'snow'] as const;
-export const RESOURCE_IDS = ['fish', 'grain', 'timber', 'game', 'stone', 'iron', 'copper', 'gold', 'salt', 'coal', 'uranium'] as const;
+export const RESOURCE_IDS = ['fish', 'grain', 'timber', 'game', 'stone', 'iron', 'copper', 'gold', 'salt', 'coal', 'uranium', 'tin', 'oil'] as const;
 export const BiomeSchema = Type.Enum(BIOME_IDS);
 export const ResourceSchema = Type.Enum(RESOURCE_IDS);
 export type Biome = Static<typeof BiomeSchema>;

@@ -188,10 +188,13 @@ test('rare minerals remain reachable and resource spacing crosses the world seam
   const world = await generateWorld({ seed: 'Chronicle', size: 'large' });
   const sites: number[] = [];
   const counts = new Array(RESOURCE_IDS.length + 1).fill(0);
+  // G1 appends tin and oil as deliberate clusters (tests/resource-clusters.test.ts); the sparse spacing rule covers the rest.
+  const clustered = new Set([RESOURCE_IDS.indexOf('tin') + 1, RESOURCE_IDS.indexOf('oil') + 1]);
   for (let id = 0; id < world.fields.resource.length; id++) {
     counts[world.fields.resource[id]]++;
-    if (world.fields.resource[id]) sites.push(id);
+    if (world.fields.resource[id] && !clustered.has(world.fields.resource[id])) sites.push(id);
   }
+  assert.ok(counts[RESOURCE_IDS.indexOf('tin') + 1] * 2 < counts[RESOURCE_IDS.indexOf('copper') + 1], 'tin is far rarer than copper');
   const gold = counts[RESOURCE_IDS.indexOf('gold') + 1];
   const uranium = counts[RESOURCE_IDS.indexOf('uranium') + 1];
   const iron = counts[RESOURCE_IDS.indexOf('iron') + 1];
@@ -218,6 +221,14 @@ test('generated-world validation rejects wrong identity, corrupt fields and inco
   tile.fields.temperature[0] = Number.NaN;
   assert.throws(() => parseWorldTile(tile, manifest, 0, 0));
   tile.fields.temperature[0] = 50;
+  const water = tile.fields.biome.findIndex((code: number) => WORLD_BIOMES[code] === 'ocean');
+  for (const resource of ['tin', 'oil'] as const) {
+    const before = tile.fields.resource[water];
+    tile.fields.resource[water] = RESOURCE_IDS.indexOf(resource) + 1;
+    assert.throws(() => parseWorldTile(tile, manifest, 0, 0), `${resource} must stay on land`);
+    tile.fields.resource[water] = before;
+  }
+  assert.doesNotThrow(() => parseWorldTile(tile, manifest, 0, 0));
   tile.fields.biome.pop();
   assert.throws(() => parseWorldTile(tile, manifest, 0, 0));
 });

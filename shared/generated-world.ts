@@ -4,8 +4,8 @@ import { createFertilityContext, fertilityAt, type FertilityContext, type Fertil
 import { BIOME_IDS, RESOURCE_IDS } from './atlas.ts';
 import { WorldHydrologySchema, validateWorldHydrology, inspectWorldWater, type HydrologyIndex, type WaterFacts } from './world-hydrology.ts';
 
-export const WORLD_PROTOCOL_VERSION = 4;
-export const WORLD_GENERATOR_VERSION = 5;
+export const WORLD_PROTOCOL_VERSION = 5;
+export const WORLD_GENERATOR_VERSION = 6;
 export const WORLD_TILE_SIZE = 128;
 export const WORLD_AREA_KM2 = 510_000_000;
 export const MAX_WORLD_MANIFEST_BYTES = 4 * 1024 * 1024;
@@ -67,6 +67,8 @@ export interface InspectedWorldCell {
 
 export function isWorldLake(biome: WorldBiome) { return biome === 'lake' || biome === 'lakeIce'; }
 export function isWorldWater(biome: WorldBiome) { return biome === 'ocean' || biome === 'coast' || biome === 'seaIce' || isWorldLake(biome); }
+// Generator 6 (G1) places tin and oil on land only.
+const TIN = RESOURCE_IDS.indexOf('tin') + 1, OIL = RESOURCE_IDS.indexOf('oil') + 1;
 const lakeCode = (code: number) => isWorldLake(WORLD_BIOMES[code]);
 const marineCode = (code: number) => isWorldWater(WORLD_BIOMES[code]) && !lakeCode(code);
 const hydrologyIndexes = new WeakMap<WorldManifest, HydrologyIndex>();
@@ -75,7 +77,8 @@ function validateFields(fields: WorldFields, length: number) {
   for (let id = 0; id < length; id++) {
     const biome = WORLD_BIOMES[fields.biome[id]], resource = fields.resource[id];
     if ((biome === 'lake' && resource !== 0 && resource !== RESOURCE_IDS.indexOf('fish') + 1)
-      || (biome === 'lakeIce' && resource !== 0)) throw invalid();
+      || (biome === 'lakeIce' && resource !== 0)
+      || ((resource === TIN || resource === OIL) && isWorldWater(biome))) throw invalid();
     if (!lakeCode(fields.biome[id]) && marineCode(fields.biome[id]) !== (fields.elevation[id] < 0)) throw invalid();
   }
 }

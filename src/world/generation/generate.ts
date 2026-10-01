@@ -6,6 +6,7 @@ import { hashNoise, seedNumber, smoothNoise } from './noise.ts';
 import { generateElevation } from './geography.ts';
 import { generateHydrology } from './hydrology.ts';
 import { hydrologyGraph } from './hydrology-graph.ts';
+import { placeClusteredSites } from './resource-clusters.ts';
 import type { WorldHydrology } from '../../../shared/world-hydrology.ts';
 
 export interface GeneratedWorld {
@@ -58,6 +59,7 @@ export async function generateWorld(input: WorldSettings): Promise<GeneratedWorl
       blocked[(cy + dy) * width + (cx + dx + width) % width] = 1;
     }
   }
+  placeClusteredSites({ elevation, biome, resource }, width, height, settings.size, seed);
   const fertility = new Uint8Array(width * height);
   const context = createFertilityContext({ elevation, biome }, { width, height, areaKm2: WORLD_AREA_KM2 }, hydrology, WORLD_BIOMES);
   for (let id = 0; id < fertility.length; id++) fertility[id] = fertilityAt(context, id, temperature[id] / 10, moisture[id] / 1000).score;

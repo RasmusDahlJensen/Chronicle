@@ -154,6 +154,36 @@ test('real resource glyph edges select the site and hidden glyphs do not capture
   await page.screenshot({ path: testInfo.outputPath('generated-world-detail.png'), fullPage: true });
 });
 
+test('the legend and inspector show the tin and oil sites added in G1', async ({ page }) => {
+  await page.goto('/');
+  const canvas = page.locator('#generated-world-canvas');
+  await expect(canvas).toHaveAttribute('data-rendered', 'true');
+  const legend = page.getByRole('list', { name: 'Resource site legend' });
+  for (const label of ['Copper', 'Tin', 'Oil', 'Uranium']) await expect(legend).toContainText(label);
+  const found = new Map<number, { x: number; y: number }>();
+  for (let ty = 0; ty < 4 && found.size < 2; ty++) for (let tx = 0; tx < 8 && found.size < 2; tx++) {
+    const tile = await (await page.request.get(`/api/world/tile?seed=Chronicle&size=large&x=${tx}&y=${ty}`)).json();
+    for (const code of [12, 13]) { // Protocol resource codes 12 and 13 are tin and oil.
+      const at = tile.fields.resource.indexOf(code);
+      if (at >= 0 && !found.has(code)) found.set(code, { x: tx * 128 + at % 128, y: ty * 128 + Math.floor(at / 128) });
+    }
+  }
+  expect([...found.keys()].sort()).toEqual([12, 13]);
+  for (const [code, label, technology] of [[12, 'Tin', 'Mining'], [13, 'Oil', 'Drilling']] as const) {
+    const cell = found.get(code)!;
+    const point = await canvas.evaluate((element: HTMLCanvasElement, coordinate) => {
+      const rect = element.getBoundingClientRect(), scale = Number(element.dataset.scale);
+      return { x: rect.x + rect.width / 2 + (coordinate.x + 0.5 - Number(element.dataset.centerX)) * scale,
+        y: rect.y + rect.height / 2 + (coordinate.y + 0.5 - Number(element.dataset.centerY)) * scale };
+    }, cell);
+    await page.mouse.click(point.x, point.y);
+    await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(cell.y * 1024 + cell.x));
+    const region = page.getByRole('region', { name: 'Selected cell resource' });
+    await expect(region).toContainText(label);
+    await expect(region).toContainText(technology);
+  }
+});
+
 test('keyboard panning wraps longitude, clamps polar edges, and fits the world again', async ({ page }) => {
   await page.goto('/');
   const canvas = page.locator('#generated-world-canvas');

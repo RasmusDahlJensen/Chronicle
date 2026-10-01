@@ -89,6 +89,21 @@ export function drawAtlasResourceIcon(
         context.arc(Math.cos(angle) * radius * 0.5, Math.sin(angle) * radius * 0.5, radius * 0.3, angle - 1.1, angle + 1.1);
       }
       break;
+    case 'tin':
+      // Three cassiterite nuggets.
+      for (const [dx, dy] of [[-0.36, 0.26], [0.36, 0.26], [0, -0.36]]) {
+        context.moveTo(radius * (dx + 0.3), radius * dy);
+        context.arc(radius * dx, radius * dy, radius * 0.3, 0, Math.PI * 2);
+      }
+      break;
+    case 'oil':
+      // A drop of crude oil.
+      context.moveTo(0, -radius * 0.8);
+      context.bezierCurveTo(radius * 0.32, -radius * 0.32, radius * 0.6, radius * 0.02, radius * 0.6, radius * 0.28);
+      context.arc(0, radius * 0.28, radius * 0.6, 0, Math.PI);
+      context.bezierCurveTo(-radius * 0.6, radius * 0.02, -radius * 0.32, -radius * 0.32, 0, -radius * 0.8);
+      context.closePath();
+      break;
   }
   context.fill();
   context.stroke();

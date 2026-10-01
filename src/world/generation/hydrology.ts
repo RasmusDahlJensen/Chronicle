@@ -9,7 +9,7 @@ export interface Hydrology {
 }
 
 const MAX_CELLS = 1024 * 512;
-const MAX_PASSES = 12;
+const MAX_PASSES = 48;
 const MAX_NEW_DEPTH = 20;
 const MAX_NEW_LAKE_AREA = 100000;
 const RIVER_RUNOFF = 5000;
@@ -38,6 +38,12 @@ export function generateHydrology(input: HydrologyInput): Hydrology {
   const sources = Uint32Array.from(moisture, (value, cell) => elevation[cell] < 0 ? 0
     : Math.round(cellArea * (Math.max(0, value - 250) / 750) ** 2));
   const sinks = new Map<number, number>();
+  // Retention can oscillate: a pit beside a spill path at the same level (or two equal minima) is
+  // raised as a dry river terminal, loses its catchment to the spill path, is lowered again as an
+  // unsupplied pond, and the next pass repeats it. A repeated sink state can never converge, so its
+  // oscillating cells keep the highest level they reached as fixed ponds, which may be small closed
+  // lakes without supply. Worlds that never repeat a state are unaffected (G1).
+  const seen = new Map<string, number>(), states: Map<number, number>[] = [], fixed = new Set<number>();
   for (let pass = 0; pass < MAX_PASSES; pass++) {
     const drainage = flood(elevation, sinks, adjacent);
     const bodies = waterBodies(elevation, ocean, drainage.waterLevel, adjacent);
@@ -73,14 +79,44 @@ export function generateHydrology(input: HydrologyInput): Hydrology {
       const retention = area * (0.08 + 0.12 * (1 - meanMoisture));
       const supplied = supply[body.id] >= retention;
       const resolvedTerminal = depth <= 1 && supply[body.id] >= RIVER_RUNOFF && area <= MAX_NEW_LAKE_AREA;
-      if (depth <= MAX_NEW_DEPTH && area <= MAX_NEW_LAKE_AREA && (supplied || resolvedTerminal)) continue;
+      const pinned = fixed.size > 0 && body.cells.some(cell => fixed.has(cell));
+      if (depth <= MAX_NEW_DEPTH && area <= MAX_NEW_LAKE_AREA && (supplied || resolvedTerminal || pinned)) continue;
       const pondDepth = supplied ? 5 : supply[body.id] >= RIVER_RUNOFF ? 1 : 0;
       const level = elevation[minimum] + Math.min(pondDepth, depth);
       const previous = sinks.get(minimum);
       if (previous === undefined || level < previous) { sinks.set(minimum, level); changed = true; }
       else throw new Error('Hydrology cannot resolve a basin within its lake depth and area bounds.');
     }
-    if (changed) continue;
+    if (changed) {
+      let key = '';
+      for (const [cell, level] of sinks) key += `${cell}:${level},`;
+      const repeated = seen.get(key);
+      if (repeated === undefined) { seen.set(key, states.length); states.push(new Map(sinks)); continue; }
+      const lowest = new Map<number, number>(), highest = new Map<number, number>();
+      for (const state of states.slice(repeated)) for (const [cell, level] of state) {
+        lowest.set(cell, Math.min(lowest.get(cell) ?? level, level)); highest.set(cell, Math.max(highest.get(cell) ?? level, level));
+      }
+      for (const [cell, level] of highest) if (level !== lowest.get(cell)) { sinks.set(cell, level); fixed.add(cell); }
+      // Passes now also depend on the fixed ponds, so earlier states no longer predict later ones.
+      seen.clear(); states.length = 0;
+      continue;
+    }
+    // A converged pond held above a lower neighbour outside it (other than its outlet) would leak, which
+    // the water contract rejects. Release its sinks so it drains through that neighbour, then route again (G1).
+    // Worlds whose converged ponds never leak are unaffected.
+    const leaking: number[] = [];
+    for (const body of bodies.lakes) {
+      if (body.cells.some(cell => elevation[cell] < 0)) continue;
+      const exit = body.outlet === null ? -1 : drainage.downstream[body.outlet];
+      if (body.cells.some(cell => adjacent(cell).some(next => next >= 0 && bodies.lake[next] !== body.id && next !== exit && elevation[next] < body.level))) {
+        for (const cell of body.cells) if (sinks.has(cell)) leaking.push(cell);
+      }
+    }
+    if (leaking.length) {
+      for (const cell of leaking) { sinks.delete(cell); fixed.delete(cell); }
+      seen.clear(); states.length = 0;
+      continue;
+    }
     const river = new Uint8Array(count);
     const terminal = new Int32Array(count);
     for (const cell of order) terminal[cell] = drainage.downstream[cell] < 0 ? cell : terminal[drainage.downstream[cell]];

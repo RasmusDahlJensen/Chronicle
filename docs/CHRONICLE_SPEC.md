@@ -52,7 +52,7 @@ The current generator derives cell data in this order: elevation and landmass â†
 
 **Current geography:** generated worlds contain sparse, terrain-appropriate mineral deposits and renewable concentrations. Cells have either one displayed resource site or no site; absence of a special site does not mean zero fertility, timber, or future base productivity. The map shows sites and their required extraction technology for review. These requirements are catalog data; geography itself runs no research, extraction, depletion or stockpile system. Additional deposits and renewable capacities are not part of VISION.md's run: geography keeps at most one site per cell (G1 places tin and oil only on land cells without a site), and the simulation derives timber and stone supply from forest and rough land.
 
-Geography only places resource sites. How civilizations reveal, extract and use them, including uranium and nuclear mechanics, is defined in [VISION.md](VISION.md). Tin and oil are added by its slice G1.
+Geography only places resource sites. How civilizations reveal, extract and use them, including uranium and nuclear mechanics, is defined in [VISION.md](VISION.md). Tin and oil were added by its slice G1 (generator 6): tin in a few rare upland clusters, oil in a few lowland basins, only on land cells that had no site.
 
 ## 5. Map presentation
 

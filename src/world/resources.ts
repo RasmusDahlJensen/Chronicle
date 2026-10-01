@@ -18,4 +18,6 @@ export const RESOURCE_RULES: Readonly<Record<Resource, Readonly<ResourceRule>>> 
   salt: { kind: 'mineral', extractionTechnology: 'Salt harvesting' },
   coal: { kind: 'mineral', extractionTechnology: 'Deep mining' },
   uranium: { kind: 'mineral', extractionTechnology: 'Advanced mining' },
+  tin: { kind: 'mineral', extractionTechnology: 'Mining' },
+  oil: { kind: 'mineral', extractionTechnology: 'Drilling' },
 };

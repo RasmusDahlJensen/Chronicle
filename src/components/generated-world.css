@@ -17,6 +17,9 @@
 .world-layer-options label { display: flex; align-items: center; gap: .6rem; padding: .55rem .6rem; border: 1px solid transparent; border-radius: 3px; cursor: pointer; font-size: .71rem; color: #687263; }
 .world-layer-options .world-layer-selected { background: #e7eadf; border-color: #c9d0bf; color: #304d39; }
 .world-layer-options input, .world-resource-toggle input { accent-color: #486b4e; margin: 0; }
+.world-resource-legend { list-style: none; margin: .7rem 0 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: .3rem .8rem; font-size: .66rem; }
+.world-resource-legend li { display: flex; align-items: center; gap: .4rem; }
+.world-resource-legend .atlas-resource-icon { width: 18px; height: 18px; flex: 0 0 18px; }
 .world-resource-toggle { display: flex; gap: .6rem; align-items: center; margin-top: .9rem; font-size: .7rem; cursor: pointer; }
 .generated-world-lab .world-legend .atlas-biome-legend { gap: .53rem; }
 .world-climate-gradient { height: 12px; border: 1px solid #30483826; border-radius: 2px; margin: .5rem 0; }

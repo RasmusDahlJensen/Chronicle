@@ -16,5 +16,6 @@ export const RESOURCES: Record<Resource, { label: string; color: string; symbol:
   stone: { label: 'Stone', color: '#c7cac4', symbol: '◆' }, iron: { label: 'Iron', color: '#ccd3d8', symbol: 'Fe' },
   copper: { label: 'Copper', color: '#e8a174', symbol: 'Cu' }, gold: { label: 'Gold', color: '#f1cb69', symbol: 'Au' },
   salt: { label: 'Salt', color: '#edeae0', symbol: '◇' }, coal: { label: 'Coal', color: '#a7abb1', symbol: '●' },
-  uranium: { label: 'Uranium', color: '#bdd783', symbol: 'U' },
+  uranium: { label: 'Uranium', color: '#bdd783', symbol: 'U' }, tin: { label: 'Tin', color: '#9fb4ae', symbol: 'Sn' },
+  oil: { label: 'Oil', color: '#5d5470', symbol: '▲' },
 };
