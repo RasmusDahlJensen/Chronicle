@@ -100,7 +100,7 @@ export async function startProject(project: TestProject, options: { args?: strin
   const child = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['start', '--', '--port', String(port), ...(options.args ?? [])], {
     cwd: project.root, detached: process.platform !== 'win32', shell: process.platform === 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, CHRONICLE_DATA_DIR: join(project.root, '.chronicle'), NO_COLOR: '1', CHRONICLE_WORKERS: '1', CHRONICLE_QUEUE_LIMIT: '1', CHRONICLE_JOB_TIMEOUT_MS: '20000', CHRONICLE_LOG_LEVEL: 'error', ...options.env },
+    env: { ...process.env, NO_COLOR: '1', CHRONICLE_WORKERS: '1', CHRONICLE_QUEUE_LIMIT: '1', CHRONICLE_JOB_TIMEOUT_MS: '20000', CHRONICLE_LOG_LEVEL: 'error', ...options.env },
   });
   let output = '';
   let spawnError: Error | undefined;

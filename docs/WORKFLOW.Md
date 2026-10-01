@@ -2,23 +2,19 @@
 
 ## Current stage and agreed direction
 
-The active slice is **Country planner 01**, implemented and fully verified locally, awaiting user review; see [its brief](features/country-planner-01.md). Fifteen measured runs compare utility, hierarchical and outcome-scored planning through the same simulation. The complete gate passes 251 headless/process and 165 browser scenarios; independent review is resolved. Both planners recover Helara’s initial investment, but method bias, later stockpiling and forecast costs argue against unchanged adoption. Preserve live saves/current policy; review the report before scoping useful-territory incentives.
+**No active slice.** On 1 October 2026 the user asked to remove everything to do with civilizations. The civilization runtime (tribes, settlements, countries, decision AI and planner research, the simulation server, saves/SQLite and civilization identity), the authored regional atlas study and the original terrain lab were removed. The civilization briefs and research notes were removed with them; the briefs of the authored studies remain as historical records. The local branch `archive/civilization-v1` keeps the removed work as reference only; it does not bind future design.
 
-The preceding slice is **Country investment 01**, implemented and fully verified locally; see [its brief](features/country-investment-01.md). Utility AI now allocates paid productive investments and claims through shared project budgets. The complete gate passes 232 headless/process and 163 browser scenarios, with independent review resolved. Eight old/new comparative studies and actual localhost 5173 inspection show materially faster supported expansion. User review now identifies an investment-access plateau in Helara at year 13/month 9. The investment brief preserves exact saved-state evidence; Country planner 01 now compares alternative decisions while the released runtime remains unchanged. The previous growth foundation below is retained, but its pacing was rejected.
+The product is the accepted geography baseline: the seeded generated-world page with plate-generated landmasses ([Worldgen 01](features/worldgen-01.md)), rivers and lakes ([Hydrology 01](features/hydrology-01.md)) and natural fertility ([Fertility 01](features/fertility-01.md)), together with annual climate, biomes and sparse resource sites. The user is writing a vision document for the game and its civilizations. Civilization work restarts from that document and a plan made jointly with the user; no civilization slice is authorized until then.
 
-The preceding foundation is **Country growth 01**, implemented and fully verified locally, with its slow pacing subsequently rejected: one capital, population/food support and connected country claims. See [country-growth-01.md](features/country-growth-01.md) for its plan, rules and behavioral acceptance scenarios. This replaces the rejected three-community growth outcome; New game is accepted. The complete local gate passes 221 headless/process and 157 browser scenarios; independent review is resolved. Eight ten-year generated-geography studies and actual localhost 5173 growth/hardship observations are recorded in the brief. The next action is user review, not automatic village or diplomacy work.
-
-The preceding slice is **World controls 01**, implemented and fully verified locally after the user's correction to the Settlement 01 starting flow. See `docs/features/world-controls-01.md`. It replaces the preset/tribal controls with explicit random or clicked civilization spawning and a page-level monthly clock. Existing settlement, food and territory behavior remains; new sessions start empty and earlier browser references do not automatically restore an actor. The previous implementation checkpoint `6de8980` passed 191 headless/process and 133 browser scenarios. The complete local gate passes 195 headless/process and 139 browser scenarios; independent review is resolved. User review of controls remains pending. The user has subsequently specified capital-centered exclusive country claims and requested algorithm/library research, now recorded in the active brief and spec. The deeper [game-AI assessment](GAME_AI_RESEARCH.md) now records architecture recommendations, library comparisons and isolated reproducible evidence. That research led to the now-authorized Country growth 01 implementation above.
-
-The province design remains agreed and unimplemented: countries create provinces around settlements; a founding capital also centers the first province; other provincial capitals and ordinary towns develop later. Successful provincial-capital capture immediately transfers province ownership, while surviving defenders can retain military control of cells. Settlement 01 follows the historical identity and saved-tribe slices; Country growth 01 now supplies a founding capital and national claimed land; formal provincial organization remains subsequent work. Generated unclaimed geography has no political province membership; the retained Verdant fixture still exercises its province → cell → province click cycle and resource summaries.
+Last verified result: complete `npm run check` exit 0 on 1 October 2026 after the removal (109 headless/process tests, production build, 45 development/production Chromium scenarios), locally on Node 24.21.0 (`.nvmrc` pins 24.20.0); CI was not run. Generated worlds for four seeds are byte-identical to `39363e8`. Known pre-existing issue: some seeds fail to generate (for example `Timing`, standard: "Hydrology did not converge within 12 drainage passes"); generation code is unchanged by the removal. Next action: when the user supplies the vision document, read it and plan the first slice together. Do not start feature work automatically.
 
 The user has chosen small, gradual feature delivery and a **browser lab with repeatable scenarios, visual inspection, and automated checks**. Chronicle is expected to become a substantial project: small slices describe delivery size, not a small-system assumption. The user authorizes necessary local packages and tools for maintainability and future growth. The lab grows alongside Chronicle; the active brief defines current implementation and verification, including refinements to its architecture checks.
 
-`CHRONICLE_SPEC.md` defines product behavior. This document defines how we work. Recent explicit user instructions take precedence; proposed defaults in the spec remain proposals.
+`CHRONICLE_SPEC.md` records the accepted geography requirements; the user's vision document will define the game and its civilizations. This document defines how we work. Recent explicit user instructions take precedence; proposed defaults in the spec remain proposals.
 
 ## One active slice
 
-A milestone is a destination, not a single coding task. Each slice delivers an observable outcome that can be tried and assessed on its own, with foundations designed for the larger product. Consider large world datasets, high entity counts, long histories, and multiple independent worlds when choosing contracts and representative verification workloads; do not invent capacity promises from the current fixture.
+A milestone is a destination, not a single coding task. Each slice delivers an observable outcome that can be tried and assessed on its own, with foundations designed for the larger product. Consider large world datasets, high entity counts, long histories, and multiple independent worlds when choosing contracts and representative verification workloads; do not invent capacity promises from the current workload.
 
 - Keep one active feature brief. Park unrelated ideas in its follow-up list.
 - Name the smallest useful outcome, acceptance checks, and exclusions before coding.
@@ -69,17 +65,9 @@ Development setup controls do not add player management or god tools to the obse
 
 Keep the lab small. A scenario builder, plugin system, general debug dashboard, automated parameter search, and replay editor are outside the initial design. Prefer a few explicit scenarios over a framework built in anticipation.
 
-## First lab slice
+## Earlier lab slices
 
-The original brief, `docs/features/atlas-01.md`, records the minimum world-data and rendering contracts for displaying and resetting one small authored terrain fixture. The React migration preserves those behaviors and shared modules. Full M0 and M1 gates remain incomplete.
-
-Acceptance checks:
-
-- The labeled fixture renders its expected cells and terrain without errors.
-- Reset reconstructs the same initial world data and restores the initial view.
-- An automated fixture/reset check passes, and browser inspection confirms the rendered result.
-
-This validates the basic development loop. It does not validate seeded generation or simulation determinism. Atlas 02 adds connected province grouping; Resources 01 adds sparse sites and province → cell inspection for the authored study. Procedural geography, country-level selection, population, economy, warfare, and time progression require later scoped work. All M1 milestone gates still apply before declaring M1 complete.
+The first slices validated the basic development loop on authored fixtures ([Atlas 01](features/atlas-01.md), [Atlas 02](features/atlas-02.md), [Resources 01](features/resources-01.md)); those authored studies were removed on 1 October 2026, so their briefs are historical. Seeded geography, starting with [Worldgen 01](features/worldgen-01.md), is the current baseline.
 
 ## Minimal feature brief
 

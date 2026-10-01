@@ -1,5 +1,7 @@
 # Fertility 01 — natural growing potential
 
+> Note, 1 October 2026: the authored Verdant/Aster studies, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference. Statements below about them are historical.
+
 Status: implemented and verified locally, 10 September 2026; visually accepted by the user. Baseline `23cbb3b`; clean at startup. Hydrology is visually accepted and remains closed.
 
 ## Outcome and scope

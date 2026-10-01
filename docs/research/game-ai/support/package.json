@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "fast-check": "4.10.0",
-    "flatqueue": "3.1.0",
-    "pure-rand": "8.4.2",
-    "tinyqueue": "3.0.0"
-  }
-}

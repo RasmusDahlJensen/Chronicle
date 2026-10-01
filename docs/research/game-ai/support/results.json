@@ -1,1 +1,0 @@
-{"node":"v24.20.0","tinyqueue":"3.0.0 comparator tie-order PASS","flatqueue":"3.1.0 distinct-priority PASS","pureRand":"8.4.2 1000-value continuation after JSON checkpoint PASS","fastCheck":"4.10.0 1000 queue properties and intentional-failure replay PASS","scope":"Isolated package API smoke; no Chronicle gameplay or performance claim"}

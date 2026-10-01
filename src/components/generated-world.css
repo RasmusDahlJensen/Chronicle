@@ -49,17 +49,6 @@
 .world-water-facts > div { display: flex; justify-content: space-between; gap: .6rem; }
 .world-water-facts dt { font-size: .61rem; color: var(--atlas-muted); }
 .world-water-facts dd { margin: 0; font-size: .68rem; text-align: right; }
-.world-civilization-card { padding-bottom: 1.2rem; margin-bottom: 1.2rem; border-bottom: 1px solid var(--atlas-line); }
-.world-civilization-heading { display: flex; gap: .55rem; align-items: center; margin: .6rem 0; }
-.world-civilization-heading h2 { margin: 0; overflow-wrap: anywhere; }
-.world-civilization-swatch { display: inline-block; width: 12px; height: 12px; border: 1px solid #263e32; outline: 2px solid #fff9e4; border-radius: 50%; flex-shrink: 0; }
-.world-locate-civilization { display: flex; align-items: center; justify-content: space-between; gap: .4rem; width: 100%; padding: .65rem .6rem; border: 1px solid #bdc8b5; border-radius: 3px; background: #e5eadc; color: #365440; font: 600 .65rem system-ui; cursor: pointer; }
-.world-locate-civilization:hover { background: #d7e1cf; }
-.world-locate-civilization:disabled { opacity: .6; cursor: default; }
-.world-selected-civilization { border-bottom: 1px solid var(--atlas-line); padding: .9rem 0; margin-bottom: 1rem; }
-.world-selected-civilization h3 { font: 1.2rem Georgia, serif; margin: .5rem 0; }
-.world-selected-civilization dd { overflow-wrap: anywhere; min-width: 0; }
-.world-selected-civilization dd .world-civilization-swatch { width: 8px; height: 8px; margin-right: .4rem; }
 .world-identity { margin-top: 1.2rem; padding-top: 1rem; border-top: 1px solid #cfd4c4; overflow-wrap: anywhere; }
 .world-identity strong { display: block; font: 1.1rem Georgia, serif; margin: .4rem 0; }
 .world-identity p:not(.atlas-detail-label) { color: #5e6d5f; font-size: .66rem; line-height: 1.6; margin: .5rem 0; }

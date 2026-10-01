@@ -4,5 +4,5 @@ test-results/
 playwright-report/
 .DS_Store
 
-# Local saved tribal worlds (never source files).
+# Saves written by the archived civilization branch (archive/civilization-v1), never source files.
 .chronicle/

@@ -3,7 +3,9 @@ import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { BroadcastChannel } from 'node:worker_threads';
 import { test } from 'node:test';
-import { createAsterIsland } from '../src/fixtures/aster-island.ts';
+import { parseWorldManifest, worldKey, type WorldSettings } from '../shared/generated-world.ts';
+import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
+import { generateWorld } from '../src/world/generation/generate.ts';
 import {
   createTerrainCompute, ComputeClosedError, ComputeOverloadedError, ComputeTimeoutError,
 } from '../server/compute.ts';
@@ -11,17 +13,26 @@ import {
 const defaults = { workers: 1, maxQueue: 1, jobTimeoutMs: 2_000, shutdownTimeoutMs: 1_000 };
 const controlledWorker = new URL('./fixtures/compute-controlled.ts', import.meta.url);
 
-test('native TypeScript workers return the shared authored terrain, independently on each job', async t => {
-  const compute = createTerrainCompute(defaults);
+test('native TypeScript workers run the readiness probe and the shared world generator, counting only requested jobs', async t => {
+  // A real tectonic world costs seconds, so this job alone gets a generous deadline.
+  const compute = createTerrainCompute({ ...defaults, jobTimeoutMs: 60_000 });
   t.after(() => compute.close());
   await compute.ready();
-  const first = JSON.parse(await compute.generate());
-  assert.equal(first.protocolVersion, 1);
-  assert.equal(first.world.cells.length, 27_648);
-  assert.deepEqual(first.world, createAsterIsland());
-  first.world.cells[0].elevation = 999;
-  assert.deepEqual(JSON.parse(await compute.generate()).world, createAsterIsland());
-  assert.deepEqual(compute.snapshot(), { workers: 1, active: 0, queued: 0, completed: 2, failed: 0 });
+  assert.deepEqual(compute.snapshot(), { workers: 1, active: 0, queued: 0, completed: 0, failed: 0 }, 'the warm-up is not counted');
+  assert.deepEqual(JSON.parse(await compute.generate()), { status: 'ready' }, 'the default job is the cheap probe');
+  assert.deepEqual(JSON.parse(await compute.generate(undefined, { kind: 'probe' })), { status: 'ready' });
+  const settings: WorldSettings = { seed: 'Repeat', size: 'standard' };
+  const job = compute.generate(undefined, { kind: 'world', ...settings });
+  // The worker must return exactly the shared generator and encoder output; build the reference meanwhile.
+  const expected = JSON.stringify(encodeGeneratedWorld(await generateWorld(settings)));
+  const body = await job;
+  assert.equal(body, expected);
+  const bundle = JSON.parse(body) as { manifest: string; tiles: string[] };
+  const manifest = parseWorldManifest(JSON.parse(bundle.manifest));
+  assert.equal(manifest.worldKey, worldKey(settings));
+  assert.equal(bundle.tiles.length, manifest.width * manifest.height / manifest.tileSize ** 2);
+  await assert.rejects(compute.generate(undefined, { kind: 'retired' } as never), /Unknown terrain job/);
+  assert.deepEqual(compute.snapshot(), { workers: 1, active: 0, queued: 0, completed: 3, failed: 1 });
 });
 
 test('the host timer runs while a confirmed worker job is consuming CPU', async t => {

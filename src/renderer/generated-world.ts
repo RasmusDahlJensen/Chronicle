@@ -1,7 +1,4 @@
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
-import type { Civilization } from '../../shared/civilization.ts';
-import type { SimulationState } from '../../shared/simulation.ts';
-import { territoryEdges, type TerritoryEdge } from '../../shared/territory.ts';
 import { isWorldWater, WORLD_BIOMES, type WorldBiome, type WorldFields, type WorldManifest, type WorldTile } from '../../shared/generated-world.ts';
 import { BIOMES } from '../world/atlas.ts';
 import { drawAtlasResourceIcon } from './biome-atlas.ts';
@@ -18,7 +15,6 @@ export interface WorldCoordinate { x: number; y: number }
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
   onSelect: (cell: WorldCoordinate | null) => void;
-  onActivate?: (cell: WorldCoordinate | null) => boolean;
   onView: (view: WorldView) => void;
   onError: (cause: unknown) => void;
 }
@@ -61,11 +57,6 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let layer: WorldLayer = 'biomes';
   let resources = true;
   let rivers = true;
-  let civilization: Civilization | null = null;
-  let society: SimulationState['settlements'];
-  let territory: number[] = [];
-  let border: TerritoryEdge[] = [];
-  let workingCenter: string | null = null;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
@@ -143,69 +134,6 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     ctx.restore();
   }
-  function civilizationMarkers(identity: Civilization | null = civilization) {
-    if (!identity || layer !== 'biomes') return [];
-    const m = metrics(), cell = identity.originCellId;
-    const y = m.height / 2 + (Math.floor(cell / world.width) + .5 - centerY) * m.scale;
-    if (y < -12 || y > m.height + 12) return [];
-    const firstX = m.width / 2 + (cell % world.width + .5 - centerX) * m.scale, span = world.width * m.scale;
-    ctx.font = '600 12px system-ui';
-    const labelWidth = Math.min(ctx.measureText(identity.name).width + 16, m.width - 16);
-    const markers = [];
-    for (let copy = Math.ceil((-12 - firstX) / span); copy <= Math.floor((m.width + 12 - firstX) / span); copy++) {
-      const x = firstX + copy * span;
-      const labelX = clamp(x + 15 + labelWidth > m.width - 4 ? x - 15 - labelWidth : x + 15, 4, m.width - labelWidth - 4);
-      markers.push({ x, y, labelX, labelY: clamp(y - 12, 4, m.height - 28), labelWidth });
-    }
-    return markers;
-  }
-  function identities() {
-    if (!civilization) return [];
-    return society ? society.centers.map(center => ({ ...civilization!, name: center.name,
-      originCellId: center.cellId, centerId: center.id, main: center.id === society!.mainSettlementId }))
-      : [{ ...civilization, centerId: '', main: true }];
-  }
-  function drawCivilization() {
-    ctx.save();
-    for (const identity of identities()) for (const marker of civilizationMarkers(identity)) {
-      ctx.fillStyle = '#faf7e9'; ctx.strokeStyle = '#263e32'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(marker.labelX, marker.labelY, marker.labelWidth, 24, 3); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#263e32'; ctx.textBaseline = 'middle';
-      ctx.fillText(identity.name, marker.labelX + 8, marker.labelY + 12, marker.labelWidth - 16);
-      ctx.beginPath(); ctx.arc(marker.x, marker.y, 8, 0, Math.PI * 2);
-      ctx.lineWidth = 5; ctx.strokeStyle = '#263e32'; ctx.stroke();
-      ctx.lineWidth = 2; ctx.strokeStyle = '#fff9e4'; ctx.stroke();
-      ctx.fillStyle = identity.color; ctx.fill();
-      ctx.beginPath(); ctx.moveTo(marker.x, marker.y - 3); ctx.lineTo(marker.x + 3, marker.y);
-      ctx.lineTo(marker.x, marker.y + 3); ctx.lineTo(marker.x - 3, marker.y); ctx.closePath();
-      if (identity.main) { ctx.fillStyle = '#fff9e4'; ctx.fill(); }
-    }
-    ctx.restore();
-  }
-  function drawTerritory(left: number, top: number, scale: number, first: number, last: number) {
-    if (!civilization || layer !== 'biomes') return;
-    ctx.save();
-    const selectedCenter = society?.centers.find(center => center.id === workingCenter);
-    for (let copy = first; copy <= last; copy++) {
-      const origin = left + copy * world.width * scale;
-      ctx.fillStyle = civilization.color; ctx.globalAlpha = .15;
-      for (const id of territory) ctx.fillRect(origin + id % world.width * scale, top + Math.floor(id / world.width) * scale, scale, scale);
-      ctx.globalAlpha = 1; ctx.lineJoin = 'round';
-      ctx.beginPath();
-      for (const edge of border) {
-        ctx.moveTo(origin + edge.x1 * scale, top + edge.y1 * scale);
-        ctx.lineTo(origin + edge.x2 * scale, top + edge.y2 * scale);
-      }
-      ctx.strokeStyle = '#fff7df'; ctx.lineWidth = 3.5; ctx.stroke();
-      ctx.strokeStyle = civilization.color; ctx.lineWidth = 2; ctx.stroke();
-      if (selectedCenter) {
-        ctx.strokeStyle = '#fff9e4'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-        for (const id of selectedCenter.workingCells) ctx.strokeRect(origin + id % world.width * scale, top + Math.floor(id / world.width) * scale, scale, scale);
-        ctx.setLineDash([]);
-      }
-    }
-    ctx.restore();
-  }
   function draw() {
     if (destroyed) return;
     const started = performance.now();
@@ -237,7 +165,6 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     // Draw after all world copies so the next background cannot erase a seam edge.
     drawRivers(left, top, m.scale, m.width, m.height);
-    drawTerritory(left, top, m.scale, startCopy, endCopy);
     for (let copy = startCopy; copy <= endCopy; copy++) {
       const origin = left + copy * world.width * m.scale;
       if (m.detail && resources && m.scale >= 5) for (const tile of tiles) {
@@ -271,16 +198,10 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       ctx.strokeStyle = '#172c26'; ctx.lineWidth = 3; ctx.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
       ctx.strokeStyle = '#fff7d5'; ctx.lineWidth = 1.5; ctx.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
     }
-    drawCivilization();
     canvas.dataset.rendered = 'true'; canvas.dataset.worldKey = world.worldKey; canvas.dataset.layer = layer;
     canvas.dataset.zoom = String(zoom); canvas.dataset.centerX = String(centerX); canvas.dataset.centerY = String(centerY);
     canvas.dataset.scale = String(m.scale); canvas.dataset.detail = String(m.detail);
     canvas.dataset.loadedTileCount = String(tiles.length);
-    canvas.dataset.civilizationId = civilization?.id ?? '';
-    canvas.dataset.territoryCells = String(territory.length);
-    canvas.dataset.territoryVisible = String(layer === 'biomes' && territory.length > 0);
-    canvas.dataset.settlementCount = String(civilization ? society?.centers.length ?? 0 : 0);
-    canvas.dataset.workingAreaVisible = String(layer === 'biomes' && !!civilization && !!workingCenter);
     canvas.dataset.textureCount = String(textures.size); canvas.dataset.renderMs = (performance.now() - started).toFixed(2);
   }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
@@ -300,7 +221,6 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   }
   function select(cell: WorldCoordinate | null) {
     selection = cell; if (cell) focus = cell;
-    workingCenter = society?.centers.find(center => center.cellId === (cell ? cell.y * world.width + cell.x : -1))?.id ?? null;
     callbacks.onSelect(cell); safe(draw);
   }
   function atPoint(x: number, y: number): WorldCoordinate | null {
@@ -323,13 +243,6 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     return nearest;
   }
-  function civilizationAtPoint(x: number, y: number): WorldCoordinate | null {
-    const painted = identities().reverse().flatMap(identity => civilizationMarkers(identity).map(marker => ({ identity, marker })));
-    const hit = painted.find(({ marker }) => Math.hypot(marker.x - x, marker.y - y) <= 12)
-      ?? painted.find(({ marker }) => x >= marker.labelX && x <= marker.labelX + marker.labelWidth && y >= marker.labelY && y <= marker.labelY + 24);
-    if (hit) return { x: hit.identity.originCellId % world.width, y: Math.floor(hit.identity.originCellId / world.width) };
-    return null;
-  }
   function pointerDown(event: PointerEvent) {
     if (event.button !== 0 || gesture) return;
     canvas.focus(); canvas.setPointerCapture(event.pointerId);
@@ -347,7 +260,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     if (!gesture || gesture.id !== event.pointerId) return;
     if (!gesture.dragged) {
       const box = canvas.getBoundingClientRect(), x = event.clientX - box.left, y = event.clientY - box.top;
-      if (!callbacks.onActivate?.(atPoint(x, y))) select(civilizationAtPoint(x, y) ?? resourceAtPoint(x, y) ?? atPoint(x, y));
+      select(resourceAtPoint(x, y) ?? atPoint(x, y));
     }
     gesture = null;
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
@@ -374,7 +287,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
     } else if (['Enter', 'Escape', 'Home', '+', '=', '-'].includes(event.key)) {
       event.preventDefault();
-      if (event.key === 'Enter') { if (!callbacks.onActivate?.(focus)) select(focus); }
+      if (event.key === 'Enter') select(focus);
       else if (event.key === 'Escape') select(null);
       else if (event.key === 'Home') fit();
       else zoomBy(event.key === '-' ? 1 / 1.6 : 1.6);
@@ -387,26 +300,6 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   changed();
   return {
     zoomBy, fit,
-    setCivilization(next: Civilization | null) { civilization = next; safe(draw); },
-    setSociety(state: SimulationState | null) {
-      civilization = state?.country && state.tribe.population === 0 ? null : state?.tribe ?? null; society = state?.settlements;
-      territory = state?.country ? [...state.country.territory.cells] : [...new Set(society?.centers.flatMap(center => center.territory) ?? [])];
-      border = territoryEdges(territory, world.width, world.height);
-      workingCenter = society?.centers.find(center => center.cellId === (selection ? selection.y * world.width + selection.x : -1))?.id ?? null;
-      safe(draw);
-    },
-    focusSettlement(id: string) {
-      const center = society?.centers.find(center => center.id === id); if (!center) return;
-      const cell = { x: center.cellId % world.width, y: Math.floor(center.cellId / world.width) };
-      centerX = cell.x + .5; centerY = cell.y + .5; zoom = Math.max(zoom, 16);
-      changed(); select(cell);
-    },
-    focusCivilization() {
-      if (!civilization) return;
-      const cell = { x: civilization.originCellId % world.width, y: Math.floor(civilization.originCellId / world.width) };
-      centerX = cell.x + .5; centerY = cell.y + .5; zoom = Math.max(zoom, 16);
-      changed(); select(cell);
-    },
     setLayer(next: WorldLayer, showResources: boolean, showRivers = true) {
       if (layer !== next) { layer = next; overview = null; textures.clear(); }
       resources = showResources; rivers = showRivers; safe(draw);
@@ -424,7 +317,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; civilization = null; society = undefined; territory = []; border = []; canvas.style.touchAction = '';
+      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; canvas.style.touchAction = '';
     },
   };
 }

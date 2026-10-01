@@ -3,7 +3,7 @@
     "scripts/",
     "server/",
     "shared/",
-    "src/{world,fixtures,simulation}/**/*",
+    "src/world/**/*",
     "vendor/",
     "vite.config.ts",
     "tsconfig.json",
@@ -12,11 +12,5 @@
   ],
   "ext": "ts,tsx,js,mjs,cjs,json",
   "signal": "SIGTERM",
-  "delay": 200,
-  "ignore": [
-    ".chronicle/**",
-    "test-results/**",
-    "**/*.sqlite",
-    "**/*.sqlite-*"
-  ]
+  "delay": 200
 }

@@ -1,5 +1,7 @@
 # Dev 01 — synchronized development and connected checks
 
+> Note, 1 October 2026: the authored Verdant/Aster studies, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference. Statements below about them are historical.
+
 Status: implemented and locally verified on 9 September 2026. Atlas 02 remains available for visual user review; this slice addresses the user's reported missing map and request to prevent recurrence through growing integration coverage.
 
 ## Outcome and cause

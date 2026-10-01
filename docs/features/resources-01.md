@@ -1,5 +1,7 @@
 # Resources 01 — scattered resource sites
 
+> Historical: the authored studies this brief describes were removed on 1 October 2026.
+
 Status: sparse sites and the province → cell → province click cycle implemented and locally verified on 10 September 2026; awaiting user review. The user's atlas review replaces the prior requirement for a resource on every cell with scattered Civilization-inspired resource sites and technology requirements for exploitation.
 
 ## Outcome and scope

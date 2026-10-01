@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { parseAtlasResponse, type AtlasWorld } from '../shared/atlas.ts';
+import { parseWorldManifest, type WorldManifest } from '../shared/generated-world.ts';
 import { createTestProject, startProject, type RunningProject } from './helpers/project.ts';
 
-async function eventuallyJson<T = Record<string, unknown>>(app: RunningProject, path: string, accepts: (body: T) => boolean): Promise<T> {
-  const deadline = Date.now() + 10_000;
+interface Polling { deadlineMs?: number; requestTimeoutMs?: number }
+
+async function eventuallyJson<T = Record<string, unknown>>(app: RunningProject, path: string, accepts: (body: T) => boolean,
+  { deadlineMs = 10_000, requestTimeoutMs = 2_000 }: Polling = {}): Promise<T> {
+  const deadline = Date.now() + deadlineMs;
   let last = 'No response';
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${app.origin}${path}`, { signal: AbortSignal.timeout(2_000) });
+      const response = await fetch(`${app.origin}${path}`, { signal: AbortSignal.timeout(requestTimeoutMs) });
       const body = await response.json() as T;
       last = `HTTP ${response.status}`;
       if (response.ok && accepts(body)) return body;
@@ -21,6 +24,29 @@ async function eventuallyJson<T = Record<string, unknown>>(app: RunningProject, 
   assert.fail(`The running app did not serve the edited source at ${path}: ${last}\n${app.output()}`);
 }
 
+// Every host restart regenerates a standard world in its worker (a few seconds each).
+const worldPolling: Polling = { deadlineMs: 90_000, requestTimeoutMs: 25_000 };
+
+/** Wait until the proxied worker serves this seed's geography with the expected annual temperature shift. */
+async function eventuallyWorld(app: RunningProject, seed: string, accepts: (world: WorldManifest) => boolean) {
+  const body = await eventuallyJson<unknown>(app, `/api/world?seed=${encodeURIComponent(seed)}&size=standard`, body => {
+    try {
+      return accepts(parseWorldManifest(body));
+    } catch {
+      return false;
+    }
+  }, worldPolling);
+  return parseWorldManifest(body);
+}
+
+/** Same terrain, every annual mean moved by `tenths` (±0.1 °C rounding), so distinct revisions are unambiguous. */
+function temperatureShift(initial: WorldManifest, tenths: number) {
+  return (world: WorldManifest) => world.worldKey === initial.worldKey
+    && world.overview.fields.temperature.length === initial.overview.fields.temperature.length
+    && world.overview.fields.temperature.every((value, at) => Math.abs(value - initial.overview.fields.temperature[at] - tenths) <= 1)
+    && world.overview.fields.elevation.every((value, at) => value === initial.overview.fields.elevation[at]);
+}
+
 function replaceOnce(source: string, before: string, after: string) {
   assert.equal(source.split(before).length, 2, `Expected one source marker: ${before}`);
   return source.replace(before, after);
@@ -30,6 +56,9 @@ async function assertUnavailable(origin: string) {
   const response = await fetch(`${origin}/api/ready`, { signal: AbortSignal.timeout(2_000) }).catch(() => null);
   assert.ok(response === null || response.status === 503, 'Failed code must not leave the old host reporting ready.');
 }
+
+const CLIMATE_PATH = 'src/world/generation/climate.ts';
+const CLIMATE_MARKER = 'return 31 - 62';
 
 test('adding a new HTTP route updates the same running development origin', async t => {
   const project = await createTestProject(t);
@@ -46,29 +75,25 @@ test('adding a new HTTP route updates the same running development origin', asyn
   await assert.rejects(fetch(`${originalBackend}/api/health`, { signal: AbortSignal.timeout(1_000) }));
 });
 
-test('worker fixture edits and rapid saves publish the newest name and area through the same proxy', async t => {
+test('worker geography edits and rapid saves publish the newest climate through the same proxy', async t => {
   const project = await createTestProject(t);
   const app = await startProject(project);
-  const source = await project.read('src/fixtures/verdant-reach.ts');
-  function revision(name: string, area: number) {
-    return replaceOnce(replaceOnce(source, "name: 'The Verdant Reach'", `name: '${name}'`), 'cellAreaKm2: 4', `cellAreaKm2: ${area}`);
-  }
-  await project.write('src/fixtures/verdant-reach.ts', revision('Reloaded region', 8));
-  const updated = await eventuallyJson<{ protocolVersion: number; world: AtlasWorld }>(app, '/api/atlas', body =>
-    body.world?.name === 'Reloaded region' && body.world.cellAreaKm2 === 8);
-  assert.equal(parseAtlasResponse(updated).cells.length, 64_000);
+  const seed = 'Rapid saves';
+  const initial = await eventuallyWorld(app, seed, () => true);
+  const source = await project.read(CLIMATE_PATH);
+  // The annual temperature baseline runs only inside the terrain worker thread.
+  const revision = (baseline: number) => replaceOnce(source, CLIMATE_MARKER, `return ${baseline} - 62`);
+  await project.write(CLIMATE_PATH, revision(21));
+  await eventuallyWorld(app, seed, temperatureShift(initial, -100));
   // Editors can replace the same file repeatedly before a restart settles.
-  for (const name of ['Intermediate region', 'Another region', 'Newest region']) {
-    await project.write('src/fixtures/verdant-reach.ts', revision(name, 12));
-  }
-  const newest = await eventuallyJson<{ protocolVersion: number; world: AtlasWorld }>(app, '/api/atlas', body =>
-    body.world?.name === 'Newest region' && body.world.cellAreaKm2 === 12);
-  const world = parseAtlasResponse(newest);
-  assert.equal(world.cells.length * world.cellAreaKm2, 768_000);
+  for (const baseline of [29, 27, 25]) await project.write(CLIMATE_PATH, revision(baseline));
+  const newest = await eventuallyWorld(app, seed, temperatureShift(initial, -60));
+  assert.deepEqual(newest.overview.fields.elevation, initial.overview.fields.elevation);
+  assert.ok(temperatureShift(initial, -60)(await eventuallyWorld(app, seed, () => true)), 'The newest save remains served after restarts settle.');
   assert.equal((await fetch(`${app.origin}/api/ready`)).status, 200);
 });
 
-test('new shared, world and nested simulation dependencies reload and recover after restoration', async t => {
+test('new shared, world and nested world dependencies reload and recover after restoration', async t => {
   const project = await createTestProject(t);
   const app = await startProject(project);
   await project.write('shared/reload-test.ts', "export const sharedRevision = 'initial';\n");
@@ -92,20 +117,22 @@ test('new shared, world and nested simulation dependencies reload and recover af
   assert.deepEqual(restored, { shared: 'updated shared', world: 'restored world' });
 
   // This scope does not exist when the watcher starts. Adding it must establish
-  // future watches, not only reload once because the existing worker was edited.
-  const simulationPath = 'src/simulation/subdir/reload-test.ts';
-  await assert.rejects(project.read(simulationPath), { code: 'ENOENT' });
-  await project.write(simulationPath, "export const simulationRevision = 'New simulation module';\n");
-  const worker = await project.read('server/workers/terrain-worker.ts');
-  await project.write('server/workers/terrain-worker.ts',
-    "import { simulationRevision } from '../../src/simulation/subdir/reload-test.ts';\n" +
-    replaceOnce(worker, "if (study === 'verdant') parseAtlasResponse(payload);",
-      "if (study === 'verdant') { payload.world.name = simulationRevision; parseAtlasResponse(payload); }"));
-  await eventuallyJson<{ world: AtlasWorld }>(app, '/api/atlas', body => body.world?.name === 'New simulation module');
-  await project.write(simulationPath, "export const simulationRevision = 'Edited simulation module';\n");
-  const reloaded = await eventuallyJson<{ protocolVersion: number; world: AtlasWorld }>(app, '/api/atlas', body =>
-    body.world?.name === 'Edited simulation module');
-  assert.equal(parseAtlasResponse(reloaded).cells.length, 64_000);
+  // future watches, not only reload once because the existing worker graph was edited.
+  const seed = 'Nested reload';
+  const initial = await eventuallyWorld(app, seed, () => true);
+  const nestedPath = 'src/world/nested/subdir/reload-test.ts';
+  await assert.rejects(project.read(nestedPath), { code: 'ENOENT' });
+  await assert.rejects(project.read('src/world/nested'), { code: 'ENOENT' });
+  await project.write(nestedPath, 'export const nestedOffset = -10;\n');
+  const climate = await project.read(CLIMATE_PATH);
+  await project.write(CLIMATE_PATH, "import { nestedOffset } from '../nested/subdir/reload-test.ts';\n" +
+    replaceOnce(climate, CLIMATE_MARKER, `return 31 + nestedOffset - 62`));
+  await eventuallyWorld(app, seed, temperatureShift(initial, -100));
+  // Only the newly created nested module changes; the worker must load its new value.
+  await project.write(nestedPath, 'export const nestedOffset = -5;\n');
+  const reloaded = await eventuallyWorld(app, seed, temperatureShift(initial, -50));
+  assert.deepEqual(reloaded.overview.fields.elevation, initial.overview.fields.elevation);
+  assert.equal((await fetch(`${app.origin}/api/ready`)).status, 200);
 });
 
 const shutdownCases = process.platform === 'win32'

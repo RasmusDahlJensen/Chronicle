@@ -1,5 +1,7 @@
 # React 01 — existing terrain lab migration
 
+> Historical: the authored studies this brief describes were removed on 1 October 2026.
+
 Status: implemented, locally verified, and accepted by the user, 9 September 2026.
 
 The subsequently authorized backend slice is recorded in `docs/features/backend-01.md`; see that brief and README for the current host connection and launch behavior.

@@ -1,4 +1,3 @@
-import { MAX_CIVILIZATION_BYTES, parseCivilizationSnapshot } from '../../shared/civilization.ts';
 import { Check } from 'typebox/value';
 import { ApiErrorSchema } from '../../shared/http.ts';
 import {
@@ -70,17 +69,6 @@ export async function loadGeneratedWorld(settings: WorldSettings, signal: AbortS
   const manifest = parseWorldManifest(await requestJson(`/api/world?${query}`, MAX_WORLD_MANIFEST_BYTES, signal));
   if (manifest.worldKey !== worldKey(settings)) throw new Error('The host returned a different world. Try generating it again.');
   return manifest;
-}
-
-export async function loadCivilization(world: WorldManifest, signal: AbortSignal) {
-  try {
-    const query = new URLSearchParams(world.settings);
-    const payload = await requestJson(`/api/world/civilization?${query}`, MAX_CIVILIZATION_BYTES, signal);
-    signal.throwIfAborted();
-    return parseCivilizationSnapshot(payload, world);
-  } catch {
-    throw new Error('The civilization could not be loaded. The map is still available. Use Retry civilization.');
-  }
 }
 
 interface TileJob { x: number; y: number; resolve: (tile: WorldTile) => void; reject: (cause: unknown) => void }

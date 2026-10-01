@@ -1,5 +1,7 @@
 # Atlas 02 — biomes and resource atlas
 
+> Historical: the authored studies this brief describes were removed on 1 October 2026.
+
 Status: implemented and verified; awaiting user review of the visual direction. The user's visual feedback supersedes the proposed seed-generator-first sequence.
 
 Later review correction: [Resources 01](resources-01.md) replaces the every-cell resource model recorded below with scattered sites, optional cell resources, and extraction technology requirements. This brief retains Atlas 02's original implementation and measurement evidence.

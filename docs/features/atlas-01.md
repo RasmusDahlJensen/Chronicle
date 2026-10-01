@@ -1,5 +1,7 @@
 # Atlas 01 — Aster Island
 
+> Historical: the authored studies this brief describes were removed on 1 October 2026.
+
 Status: implemented, locally verified, and accepted by the user on 9 September 2026.
 
 This records the original terrain implementation. Its UI integration and launch instructions are superseded by `docs/features/react-01.md` and the root README; terrain contracts and acceptance scenarios remain in force.

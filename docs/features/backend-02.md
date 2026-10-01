@@ -1,5 +1,7 @@
 # Backend 02 — researched runtime baseline
 
+> Note, 1 October 2026: the authored Verdant/Aster studies, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference. Statements below about them are historical.
+
 Status: implemented and verified, 9 September 2026. Awaiting user review.
 
 Growth clarification, 9 September: the user authorizes package/tool installation for Chronicle's long-term needs and explicitly rejects treating the eventual game as a small project. The follow-up adds automated module-boundary enforcement to the same foundation and records that small slices govern delivery size. The original runtime results below belong to checkpoint `351d417`; follow-up evidence is recorded at the end of this brief.
@@ -70,6 +72,6 @@ The README remains current, and `npm start` remains the launch command. Larger w
 
 ## Next-step planning
 
-After checkpoint `01bf1a9`, the user requested a review of the next project steps. Planning recommends seeded landforms next, followed by atlas inspection, independent world instances, and checkpoint recovery; the proposed sequence and constraints are recorded in [ARCHITECTURE.md](../ARCHITECTURE.md#proposed-next-slices). Independent planning review supported generation first because it gives visible M1 progress and meaningful varied data for subsequent identity/storage work. This refines the earlier identity-first proposal without starting another implementation slice.
+After checkpoint `01bf1a9`, the user requested a review of the next project steps. Planning recommends seeded landforms next, followed by atlas inspection, independent world instances, and checkpoint recovery; the proposed sequence and constraints are recorded in [ARCHITECTURE.md](../ARCHITECTURE.md). Independent planning review supported generation first because it gives visible M1 progress and meaningful varied data for subsequent identity/storage work. This refines the earlier identity-first proposal without starting another implementation slice.
 
 This planning update changes documentation only. The last runtime evidence remains the 40-test/type/build/architecture pass above; no runtime or browser tests were rerun for the planning change. Next action: select the seeded-landforms slice and finalize its short implementation brief. No new code or package installation is part of this planning request.

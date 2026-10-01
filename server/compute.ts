@@ -57,7 +57,7 @@ export function createTerrainCompute(options: ComputeOptions): TerrainCompute {
     }
   });
 
-  function submit(signal?: AbortSignal, count = true, study: TerrainStudy = 'aster'): Promise<string> {
+  function submit(signal?: AbortSignal, count = true, study: TerrainStudy = { kind: 'probe' }): Promise<string> {
     if (closed) return Promise.reject(new ComputeClosedError());
     if (signal?.aborted) return Promise.reject(signal.reason);
     if (bootstrapError) return Promise.reject(bootstrapError);
@@ -92,7 +92,7 @@ export function createTerrainCompute(options: ComputeOptions): TerrainCompute {
   return {
     ready() {
       if (closed) return Promise.reject(new ComputeClosedError());
-      // Exercise the real worker imports, fixture, validation, and serialization.
+      // Exercise the real worker and its geography imports with a cheap, uncounted probe job.
       readiness ??= submit(undefined, false).then(() => {});
       return readiness;
     },

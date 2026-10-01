@@ -1,5 +1,7 @@
 # Backend 01 — terrain from the local host
 
+> Historical: the authored studies this brief describes were removed on 1 October 2026.
+
 Status: implemented and locally verified, 9 September 2026; user review pending.
 
 ## Outcome and scope

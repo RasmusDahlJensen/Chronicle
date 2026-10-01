@@ -17,7 +17,7 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, content);
   }
-  await source('package.json', JSON.stringify({ type: 'module', dependencies: { react: '19.2.8' }, devDependencies: { vite: '8.2.2', 'development-only-tool': '1.0.0', 'gameplan-htn': '1.0.1' } }));
+  await source('package.json', JSON.stringify({ type: 'module', dependencies: { react: '19.2.8' }, devDependencies: { vite: '8.2.2', 'development-only-tool': '1.0.0' } }));
   await source('shared/contract.ts', 'export type World = { id: string };');
   await source('src/world/state.ts', "export type { World } from '../../shared/contract.ts';");
   await source('src/fixtures/island.ts', 'export const island = {};');
@@ -74,15 +74,10 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   await source('src/renderer/network.ts', "import '../api/terrain.ts';");
   await source('src/components/world-generator.ts', "import '../world/generation/generate.ts';");
   await source('src/renderer/world-generator.ts', "import '../world/generation/generate.ts';");
-  const civilizationLeaks = ['src/components/civilization.ts', 'src/renderer/civilization.ts', 'server/civilization.ts'];
-  for (const path of civilizationLeaks) await source(path, `export { createCivilizationSnapshot } from '${path.startsWith('server/') ? '../src/world' : '../world'}/civilization.ts';`);
   await source('server/world-generator.ts', "import '../src/world/generation/generate.ts';");
   await source('src/simulation/browser.ts', "export const view = import('../components/view.tsx');");
-  await source('src/simulation/planner-dependency.ts', "import 'gameplan-htn';");
-  await source('src/simulation/planner-study.ts', "import '../../scripts/planning/planner.ts';");
   await source('src/simulation/storage.ts', "export const storage = import('node:sqlite');");
-  await source('server/sqlite.ts', "export const storage = import('node:sqlite');");
-  await source('src/components/simulation.ts', "export const state = import('../simulation/tribe.ts');");
+  await source('src/components/simulation.ts', "export const state = import('../simulation/state.ts');");
 
   await source('server/app.ts', "export { island } from '../src/fixtures/island.ts';");
   await source('server/workers/terrain.ts', "import '../app.ts';");
@@ -103,10 +98,9 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   for (const [path, target] of vendorLeaks) await source(path, `export const module = import('${target}');`);
   const invalid = check();
   assert.equal(invalid.status, 1, invalid.output);
-  for (const path of ['src/simulation/planner-dependency.ts', 'src/simulation/planner-study.ts', 'src/simulation/browser.ts', 'src/simulation/storage.ts', 'server/sqlite.ts', 'src/components/simulation.ts', 'src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
+  for (const path of ['src/simulation/browser.ts', 'src/simulation/storage.ts', 'src/components/simulation.ts', 'src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
     assert.ok(invalid.output.includes(path), `Missing boundary diagnostic for ${path}: ${invalid.output}`);
   }
-  for (const path of civilizationLeaks) assert.ok(invalid.output.includes(path), `Missing civilization boundary diagnostic: ${path}`);
   for (const [path] of vendorLeaks) assert.ok(invalid.output.includes(path), `Missing vendor boundary diagnostic for ${path}: ${invalid.output}`);
   for (const path of ['src/world/generation/node.ts', 'src/world/generation/view.ts']) {
     assert.ok(invalid.output.includes(path), `Generation's vendor permission must preserve its other boundaries: ${path}: ${invalid.output}`);

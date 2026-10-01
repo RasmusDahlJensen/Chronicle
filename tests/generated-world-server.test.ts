@@ -39,7 +39,6 @@ test('large generated world travels through actual workers, manifest, cache and 
   const ready = (await app.inject('/api/ready')).json();
   assert.equal(ready.compute.completed, 1, 'manifest requests and tile requests reuse one bounded generation');
   assert.equal(ready.admitted, 0);
-  assert.equal((await app.inject('/api/atlas')).json().world.fixtureId, 'verdant-reach');
 });
 
 test('world routes reject malformed and out-of-range inputs before consuming compute', async t => {

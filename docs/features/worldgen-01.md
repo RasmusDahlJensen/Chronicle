@@ -1,5 +1,7 @@
 # Worldgen 01 — larger worlds and regional climate
 
+> Note, 1 October 2026: the authored Verdant/Aster studies, the civilization slices that followed this brief and `npm run bench:backend` were removed at the user's request; the local branch `archive/civilization-v1` keeps them as reference. Statements below about them are historical.
+
 Status: implemented, verified locally and visually accepted by the user, 10 September 2026. Baseline `1879fd1`; working tree was clean at startup. The user found the landmass shapes artificial, authorized external generation tools, and explicitly chose a full generator replacement with all checks passing. The replacement, independent code review and complete iteration gate are finished. The user explicitly approved the resulting terrain and asked to discuss the next steps.
 
 ## Observable outcome and scope
