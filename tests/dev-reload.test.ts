@@ -59,6 +59,7 @@ async function assertUnavailable(origin: string) {
 
 const CLIMATE_PATH = 'src/world/generation/climate.ts';
 const CLIMATE_MARKER = 'return 31 - 62';
+const SIMULATION_PATH = 'src/simulation/simulation.ts';
 
 test('adding a new HTTP route updates the same running development origin', async t => {
   const project = await createTestProject(t);
@@ -133,6 +134,24 @@ test('new shared, world and nested world dependencies reload and recover after r
   const reloaded = await eventuallyWorld(app, seed, temperatureShift(initial, -50));
   assert.deepEqual(reloaded.overview.fields.elevation, initial.overview.fields.elevation);
   assert.equal((await fetch(`${app.origin}/api/ready`)).status, 200);
+});
+
+test('simulation rule edits restart the host and the next frame comes from a fresh simulation at year 0', async t => {
+  const project = await createTestProject(t);
+  const app = await startProject(project);
+  const path = '/api/simulation/frame?seed=Simulation%20reload&size=standard';
+  const first = await eventuallyJson<{ tick: number; instance: { rulesVersion: number; runId: string } }>(app, path, body => body.tick === 0, worldPolling);
+  const control = await fetch(`${app.origin}/api/simulation/control?seed=Simulation%20reload&size=standard`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'step' }),
+  });
+  assert.equal((await control.json()).tick, 1);
+  const source = await project.read(SIMULATION_PATH);
+  // The rules version lives in src/simulation, which only the simulation worker imports.
+  await project.write(SIMULATION_PATH, replaceOnce(source, `SIMULATION_RULES_VERSION = ${first.instance.rulesVersion};`, `SIMULATION_RULES_VERSION = ${first.instance.rulesVersion + 100};`));
+  const reloaded = await eventuallyJson<{ tick: number; instance: { rulesVersion: number; runId: string } }>(app, path,
+    body => body.instance.rulesVersion === first.instance.rulesVersion + 100, worldPolling);
+  assert.equal(reloaded.tick, 0, 'A restart begins the simulation again at year 0');
+  assert.notEqual(reloaded.instance.runId, first.instance.runId);
 });
 
 const shutdownCases = process.platform === 'win32'

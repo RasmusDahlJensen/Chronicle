@@ -8,7 +8,7 @@ The React + TypeScript + Vite browser lab opens a **seeded world preview** with 
 
 A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives full-resolution terrain for the overview, then requests climate and resource detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; tin forms a few rare upland clusters and oil a few lowland basins. Mining, research and production are not running. Deterministic rivers, tributaries, inland lakes and frozen lakes add surface water to the geography. Seasonal weather is not modeled.
 
-The page shows geography only. It has no bands, civilizations, settlements, simulation clock or saved games yet; [docs/VISION.md](docs/VISION.md) describes the planned game and its civilizations.
+Below the map, the **History** panel runs the civilization simulation that [docs/VISION.md](docs/VISION.md) defines, one month per tick, on this PC. It is being built milestone by milestone: the simulation divides the land into regions and keeps a clock and a chronicle; bands, settlements and civilizations arrive in later milestones. There are no saved games yet.
 
 ## First setup on your PC
 
@@ -55,13 +55,19 @@ Drag to pan, scroll or use **+ / −** to zoom, and choose **Fit map** to return
 
 **Rivers** are enabled by default on the Biomes layer; toggle them to compare the underlying terrain. The overview emphasizes larger rivers; zoom in to reveal smaller streams and follow tributaries and lake outlets. Rounded paths follow the same underlying river cells. Click river or lake cells to inspect freshwater access, relative river flow, or lake area, surface level and depth. Elevation on a lake cell is its bed elevation. Closed lakes are inland water whose salinity is not modeled; they are not automatically labeled freshwater. Weak streams can end in dry basins. Flow is a moisture-based relative index, not measured discharge; seasonal availability is not simulated. Lakes and rivers remain visible without fetching detail tiles.
 
+### Watch history
+
+The **History** panel shows the simulated date (year and month) and the time controls: **Play**, **Pause**, **Step month**, a **Speed** preset (1 month, 1 year or 10 years per second, or Fastest), **Run to year** (plays at full speed and pauses in January of that year) and **Reset to year 0**. Below them the chronicle lists events with their date, type and causes. The simulation runs on the host in its own worker thread; the page only observes it and sends these controls, so several tabs show the same history. Until saving exists, restarting Chronicle (including an automatic development restart) or choosing another seed starts the simulation again at year 0, and the panel says so after a restart.
+
+Tick **Regions** under Map layers to draw the simulation's regions: the land divided into units of 20,000–60,000 km² that follow mountains and deserts; small islands are their own region. Selecting a cell shows its region's area, water (coast, open lake, stream, river or great river) and number of neighbours.
+
 For keyboard exploration, focus the map with Tab: arrows inspect neighboring cells, Enter selects the focused location, Shift + arrows pan, + / − zoom, Home fits the map, and Escape clears selection.
 
 If generation fails, **Retry generation** retries the requested seed while retaining any previous map. If a detail request fails, the overview remains visible and **Retry detail** retries it. A rendering error offers **Retry canvas**.
 
 ### Development updates
 
-Frontend component and style edits update through Vite. `npm start` also watches the backend, workers, shared contracts, world modules under `src/world`, the vendored runtime and rebuilt artifact, and launch configuration: relevant changes restart the combined application and its worker pool, then Vite reloads the open browser tab. You keep the same browser address. Map selection and camera state reset after a restart.
+Frontend component and style edits update through Vite. `npm start` also watches the backend, workers, shared contracts, world modules under `src/world`, simulation rules under `src/simulation`, the vendored runtime and rebuilt artifact, and launch configuration: relevant changes restart the combined application and its worker pool, then Vite reloads the open browser tab. You keep the same browser address. Map selection and camera state reset after a restart.
 
 If an edit contains an error, the terminal reports it and the watcher waits for a correction. Save the corrected file to restart automatically. After dependency installation, Node upgrades, or changes to the watch configuration itself, stop the terminal with Ctrl+C and run `npm start` again. Built serving with `npm run serve` or `npm run preview` requires an explicit rebuild/restart when code changes.
 
@@ -100,6 +106,11 @@ Extend the suite alongside each change, especially when data crosses a module or
 | Workers → validated HTTP responses; admission and shutdown | `tests/compute.test.ts`, `tests/server.test.ts` |
 | Launcher → proxy/built server; live source changes → new workers | `tests/launcher.test.ts`, `tests/dev-reload.test.ts`, `tests/browser/reload.spec.ts` |
 | HTTP → browser validation → visible map, inspection, regenerate/retry | `tests/browser/`, run against development and production serving |
+| Validated geography → regions (area range, contiguity, water, sites, neighbours, sea links) | `tests/simulation-regions.test.ts` |
+| RNG streams, chronicle, tunables, determinism, invariants, event templates | `tests/simulation-core.test.ts` |
+| Host → simulation worker → clock, controls, frames, region map, routes and admission | `tests/simulation-worker.test.ts` |
+| Time controls and region overlay in the lab | `tests/browser/simulation.spec.ts` |
+| Simulation rule edits → restarted worker at year 0 | `tests/dev-reload.test.ts` |
 
 `npm run check:tectonics` verifies that the vendored source, compiler settings and generated artifact match their recorded hashes; it is included in `npm run check`. Maintainers changing the C++ core or compiler settings need Emscripten 6.0.5 and `npm run build:tectonics`; those changes reach the running lab after the artifact is rebuilt. See the vendor instructions.
 
@@ -125,7 +136,11 @@ The local API is available through either running browser URL:
 - `/api/world?seed=Chronicle&size=large` returns a generated-world protocol-5 manifest with full-resolution elevation/biome surface data, an authoritative river/lake graph, a 256 × 128 climate/fertility overview, units, settings, generator version and biome counts.
 - `/api/world/tile?seed=Chronicle&size=large&x=0&y=0` returns the corresponding 128 × 128 detail tile. Coordinates are tile indices. `size` accepts `standard` or `large`; seeds accept 1–64 ASCII letters, numbers, spaces, dots, underscores and hyphens.
 
-These routes accept only GET; other methods return HTTP 405, and other `/api` paths return 404.
+- `/api/simulation/frame?seed=Chronicle&size=large&cursor=0` returns the simulation's observer frame for that world: date, clock state, chronicle events from the cursor on, and counters. The first request for a world starts its simulation at year 0.
+- `/api/simulation/regions?seed=Chronicle&size=large` returns the region map (each cell's region and per-region summaries).
+- `POST /api/simulation/control?seed=Chronicle&size=large` with a JSON body such as `{ "action": "step" }`, `{ "action": "speed", "speed": "decade" }` or `{ "action": "runTo", "year": 500 }` applies an observer control and returns the new frame.
+
+The control route accepts only POST and the others only GET; other methods return HTTP 405, and other `/api` paths return 404.
 
 Generated-world manifests are bounded to 4 MiB, detail tiles to 512 KiB, and complete worker bundles to 20 MiB. The host retains at most two immutable generation bundles, including jobs in progress, and shares requests for the same seed/settings. A failed job can be retried; disconnecting the last waiting observer cancels unfinished work. All map requests share the same worker pool and response admission allowance. Each tectonic job uses a fresh WASM instance with a 128 MiB heap cap and a 2,500-step limit; the heap cap does not bound total process memory.
 
@@ -147,8 +162,19 @@ The defaults need no configuration. For development measurements, these environm
 | `CHRONICLE_QUEUE_LIMIT` | 4 waiting jobs | Integers 0–32 |
 | `CHRONICLE_JOB_TIMEOUT_MS` | 20000, including queue time | Integers 100–25000; clients allow 30 seconds for the full response |
 | `CHRONICLE_LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` |
+| `CHRONICLE_SIMULATIONS` | 2 live world simulations, each in its own worker | Integers 1–8; the least recently used one restarts at year 0 when exceeded |
+| `CHRONICLE_SIMULATION_REQUESTS` | 16 simulation requests in flight | Integers 1–256 |
 
 Map response admission is also bounded to worker count plus queue allowance until responses finish or close. These conservative limits do not promise a particular user capacity. No `--host` option or network exposure is provided.
+
+## Study history headlessly
+
+```sh
+npm run study:history -- --seed Chronicle --years 3000
+npm run study:history -- --all --years 3000 --out .chronicle/studies/latest
+```
+
+The study generates each world through the same path as the lab and runs the same simulation worker without a browser. It writes per-century statistics, the event log, per-system timing, a story-health table (`story-health.md`) and charts (`population.svg`, `polities.svg`, `largestShare.svg`) under the output folder (default `.chronicle/studies/latest`, ignored by Git). `--all` runs the five study seeds `Chronicle`, `Elsewhere`, `Atlas`, `Verdant` and `Aster`. With the lab running, `node scripts/review-screenshots.ts --out .chronicle/review/latest --years 0,100,250,500,1000` captures it at those years.
 
 ## Troubleshooting
 
@@ -201,4 +227,9 @@ Map response admission is also bounded to worker count plus queue allowance unti
 - `src/renderer/biome-atlas.ts`: Canvas drawing helpers for terrain texture marks and resource icons, independent of React.
 - `vendor/platec/`: pinned C++ source, bundled WASM/ESM, authored runtime helper and licenses; `scripts/build-platec.ts` rebuilds or verifies the artifact.
 - `scripts/bench-world.ts`: the `npm run bench:world` measurement.
+- `scripts/study-history.ts` and `scripts/review-screenshots.ts`: the headless history study and review screenshots of the running lab.
+- `shared/simulation.ts`: simulation contracts (observer frames, region maps, controls, event types).
+- `src/simulation/`: the simulation's rules and state (regions, RNG streams, chronicle, fixed-order systems, invariants, tunables), run only in the simulation worker, tests and scripts.
+- `server/simulation-host.ts`, `server/simulation-routes.ts` and `server/workers/simulation-worker.ts`: one worker per live world simulation, its clock and the observer routes.
+- `src/components/SimulationPanel.tsx`, `src/api/simulation.ts`, `src/observer/events.ts`: time controls and chronicle list, browser client, event text templates.
 - `scripts/world-digests.ts`: per-column geography digests over a seed sweep and generator comparisons (usage in [G1](docs/features/g1.md)).

@@ -6,6 +6,9 @@ export interface BackendConfig {
   jobTimeoutMs: number;
   shutdownTimeoutMs: number;
   logLevel: string;
+  /** Live world simulations kept at once (each in its own worker) and in-flight simulation requests. */
+  simulations: number;
+  simulationRequests: number;
 }
 
 /** Explicit limits keep a default launch small and malformed configuration fails early. */
@@ -31,5 +34,7 @@ export function readBackendConfig(env: NodeJS.ProcessEnv = process.env): Backend
     jobTimeoutMs: integer('CHRONICLE_JOB_TIMEOUT_MS', 20_000, 100, 25_000),
     shutdownTimeoutMs: 5_000,
     logLevel,
+    simulations: integer('CHRONICLE_SIMULATIONS', 2, 1, 8),
+    simulationRequests: integer('CHRONICLE_SIMULATION_REQUESTS', 16, 1, 256),
   };
 }

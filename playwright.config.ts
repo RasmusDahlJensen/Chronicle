@@ -32,11 +32,14 @@ export default defineConfig({
       command: 'npm start -- --port 4173',
       url: 'http://127.0.0.1:4173',
       reuseExistingServer: false,
+      // Scenarios run in parallel on several worlds; keep each world's simulation alive while its scenario runs.
+      env: { CHRONICLE_SIMULATIONS: '8' },
     },
     {
       command: 'npm run serve -- --port 4174',
       url: 'http://127.0.0.1:4174',
       reuseExistingServer: false,
+      env: { CHRONICLE_SIMULATIONS: '8' },
     },
   ],
 });

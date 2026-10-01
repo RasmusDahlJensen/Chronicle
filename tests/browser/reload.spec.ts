@@ -48,7 +48,8 @@ test('host-side geography edits and failures reach the same open development pag
     await app.waitForOutput(/reloadProbeSyntaxError|SyntaxError|expected/i, outputOffset);
     await expect.poll(() => hostIsReady(app), { timeout: 15_000 }).toBe(false);
     await page.getByRole('button', { name: 'Regenerate world', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('could not be loaded', { timeout: 15_000 });
+    // The History panel reports the unreachable simulation separately; this checks the world's own failure message.
+    await expect(page.getByRole('alert').filter({ hasText: 'The world could not be loaded' })).toContainText('could not be loaded', { timeout: 15_000 });
     await expect(page.locator('#world-status')).toHaveText('Previous world retained · Generation failed');
     await expect(canvas).toHaveAttribute('data-world-key', DEFAULT_WORLD_KEY);
     expect(await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL())).toBe(retainedMap);

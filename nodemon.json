@@ -4,6 +4,7 @@
     "server/",
     "shared/",
     "src/world/**/*",
+    "src/simulation/**/*",
     "vendor/",
     "vite.config.ts",
     "tsconfig.json",

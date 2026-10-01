@@ -4,6 +4,7 @@ import { BIOMES } from '../world/atlas.ts';
 import { drawAtlasResourceIcon } from './biome-atlas.ts';
 import { createWorldTerrainTexture } from './world-terrain-texture.ts';
 import { buildRiverReaches, riverPathCommands, riverAppearance } from './river-paths.ts';
+import { regionBorderRuns } from './region-borders.ts';
 
 export const WORLD_BIOME_STYLE: Record<WorldBiome, { label: string; color: string }> = {
   ...BIOMES, boreal: { label: 'Boreal forest', color: '#567766' },
@@ -57,6 +58,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let layer: WorldLayer = 'biomes';
   let resources = true;
   let rivers = true;
+  let regionCells: Uint16Array | null = null, regionBorders: Path2D | null = null, regionBorderCount = 0, showRegions = false;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
@@ -165,6 +167,14 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     // Draw after all world copies so the next background cannot erase a seam edge.
     drawRivers(left, top, m.scale, m.width, m.height);
+    if (showRegions && regionBorders) {
+      ctx.save(); ctx.strokeStyle = '#5b3a29'; ctx.globalAlpha = 0.55; ctx.lineCap = 'square';
+      for (let copy = startCopy; copy <= endCopy; copy++) {
+        ctx.save(); ctx.translate(left + copy * world.width * m.scale, top); ctx.scale(m.scale, m.scale);
+        ctx.lineWidth = Math.min(1.4, 0.35 + m.scale * 0.12) / m.scale; ctx.stroke(regionBorders); ctx.restore();
+      }
+      ctx.restore();
+    }
     for (let copy = startCopy; copy <= endCopy; copy++) {
       const origin = left + copy * world.width * m.scale;
       if (m.detail && resources && m.scale >= 5) for (const tile of tiles) {
@@ -202,6 +212,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     canvas.dataset.zoom = String(zoom); canvas.dataset.centerX = String(centerX); canvas.dataset.centerY = String(centerY);
     canvas.dataset.scale = String(m.scale); canvas.dataset.detail = String(m.detail);
     canvas.dataset.loadedTileCount = String(tiles.length);
+    canvas.dataset.regionBorders = String(showRegions ? regionBorderCount : 0);
     canvas.dataset.textureCount = String(textures.size); canvas.dataset.renderMs = (performance.now() - started).toFixed(2);
   }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
@@ -311,13 +322,25 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       safe(draw);
     },
     clearSelection() { select(null); },
+    /** Region index from the simulation (region id + 1, 0 for water); null clears it. */
+    setRegions(cells: Uint16Array | null, visible: boolean) {
+      if (cells !== regionCells) {
+        regionCells = cells; regionBorders = null; regionBorderCount = 0;
+        if (cells && cells.length === world.width * world.height) {
+          const path = new Path2D(), runs = regionBorderRuns(cells, world.width, world.height);
+          for (const run of runs) { path.moveTo(run.x1, run.y1); path.lineTo(run.x2, run.y2); }
+          regionBorders = path; regionBorderCount = runs.length;
+        }
+      }
+      showRegions = visible; safe(draw);
+    },
     destroy() {
       destroyed = true; observer.disconnect(); cancelAnimationFrame(frame);
       canvas.removeEventListener('pointerdown', pointerDown); canvas.removeEventListener('pointermove', pointerMove);
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; canvas.style.touchAction = '';
+      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; canvas.style.touchAction = '';
     },
   };
 }

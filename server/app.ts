@@ -7,6 +7,8 @@ import type { ApiError } from '../shared/http.ts';
 import { readBackendConfig, type BackendConfig } from './config.ts';
 import { createTerrainCompute, ComputeClosedError, ComputeOverloadedError, ComputeTimeoutError, type TerrainCompute } from './compute.ts';
 import { createGeneratedWorldStore } from './generated-world-store.ts';
+import { createSimulationHost, SimulationUnavailableError } from './simulation-host.ts';
+import { registerSimulationRoutes } from './simulation-routes.ts';
 
 interface AppOptions {
   config?: BackendConfig;
@@ -40,6 +42,8 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   app.server.headersTimeout = 10_000;
   const compute = options.compute ?? createTerrainCompute(config);
   const generatedWorlds = createGeneratedWorldStore(compute);
+  // Simulation workers receive the same validated geography bundle the lab is served.
+  const simulations = createSimulationHost({ loadWorld: (settings, signal) => generatedWorlds.get(settings, signal), maxInstances: config.simulations });
   const controllers = new Set<AbortController>();
   const admissionLimit = config.workers + config.maxQueue;
   let stopping = false;
@@ -48,8 +52,12 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     reply.header('x-request-id', request.id).header('x-content-type-options', 'nosniff');
     const path = request.url.split('?')[0];
     if (path === '/api' || path.startsWith('/api/')) reply.header('cache-control', 'no-store');
-    if (['/api/health', '/api/ready', '/api/world', '/api/world/tile'].includes(path) && request.method !== 'GET') {
+    if (['/api/health', '/api/ready', '/api/world', '/api/world/tile', '/api/simulation/frame', '/api/simulation/regions'].includes(path) && request.method !== 'GET') {
       reply.header('allow', 'GET');
+      return failure(reply, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
+    }
+    if (path === '/api/simulation/control' && request.method !== 'POST') {
+      reply.header('allow', 'POST');
       return failure(reply, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
     }
   });
@@ -61,6 +69,10 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     if (error instanceof ComputeOverloadedError || error instanceof ComputeClosedError) {
       reply.header('retry-after', '1');
       return failure(reply, 503, error instanceof ComputeClosedError ? 'UNAVAILABLE' : 'OVERLOADED', error.message);
+    }
+    if (error instanceof SimulationUnavailableError) {
+      reply.header('retry-after', '1');
+      return failure(reply, 503, 'UNAVAILABLE', error.message);
     }
     if (error instanceof ComputeTimeoutError) {
       reply.header('retry-after', '1');
@@ -78,11 +90,12 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     if (!ready) reply.code(503).header('retry-after', '1');
     return {
       status: ready ? 'ready' : 'busy', compute: snapshot,
-      admitted: controllers.size,
+      admitted: controllers.size, simulation: simulationRoutes.snapshot(),
       limits: { workers: config.workers, queued: config.maxQueue, admitted: admissionLimit, jobTimeoutMs: config.jobTimeoutMs },
     };
   });
 
+  const simulationRoutes = registerSimulationRoutes(app, simulations, config.simulationRequests);
   const worldQuery = {
     seed: Type.Optional(WorldSettingsSchema.properties.seed), size: Type.Optional(WorldSettingsSchema.properties.size),
   };
@@ -148,7 +161,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     // Current jobs are disposable generation; future committed world saves need their own drain.
     for (const controller of controllers) controller.abort(new ComputeClosedError());
   });
-  app.addHook('onClose', async () => { await compute.close(); });
+  app.addHook('onClose', async () => { await simulations.close(); await compute.close(); });
   try {
     if (options.staticRoot) await app.register(fastifyStatic, {
       root: options.staticRoot, index: ['index.html'], maxAge: 0,

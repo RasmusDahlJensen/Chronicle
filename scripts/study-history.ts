@@ -1,0 +1,115 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { parseArgs } from 'node:util';
+import { parseWorldSettings, type WorldBundle, type WorldSettings } from '../shared/generated-world.ts';
+import { createSimulationHost, type SimulationReport } from '../server/simulation-host.ts';
+import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
+import { generateWorld } from '../src/world/generation/generate.ts';
+
+/**
+ * Headless history study (VISION.md "Headless study"). Each seed's world comes through the lab's path
+ * (generateWorld → encodeGeneratedWorld → the simulation worker's manifest/tile validation → region derivation) and
+ * runs in the same dedicated simulation worker the host uses, so timings are measured through the real worker path.
+ *
+ *   npm run study:history -- --seed Chronicle --years 3000
+ *   npm run study:history -- --all --years 3000 --out .chronicle/studies/m0
+ */
+const STUDY_SEEDS = ['Chronicle', 'Elsewhere', 'Atlas', 'Verdant', 'Aster'] as const;
+
+interface Stats { year: number; [metric: string]: number }
+interface SeedResult { seed: string; settings: WorldSettings; report: SimulationReport; wallMs: number; setupMs: number }
+
+const { values } = parseArgs({
+  options: {
+    seed: { type: 'string', multiple: true }, all: { type: 'boolean', default: false },
+    years: { type: 'string', default: '3000' }, size: { type: 'string', default: 'large' },
+    out: { type: 'string', default: '.chronicle/studies/latest' }, events: { type: 'boolean', default: true },
+  },
+});
+const seeds = values.all ? [...STUDY_SEEDS] : values.seed?.length ? values.seed : ['Chronicle'];
+const years = Number(values.years);
+if (!Number.isInteger(years) || years < 1 || years > 5000) throw new Error('--years must be an integer from 1 to 5000.');
+await mkdir(values.out, { recursive: true });
+
+const bundles = new Map<string, WorldBundle>();
+const host = createSimulationHost({
+  loadWorld: async settings => {
+    const bundle = bundles.get(settings.seed);
+    if (!bundle) throw new Error(`No study world for ${settings.seed}.`);
+    return bundle;
+  },
+  maxInstances: seeds.length, requestTimeoutMs: 600_000,
+});
+const results: SeedResult[] = [];
+try {
+  // Geography is generated one seed at a time; the simulations then run in parallel workers.
+  for (const seed of seeds) {
+    const settings = parseWorldSettings({ seed, size: values.size });
+    const started = performance.now();
+    bundles.set(seed, encodeGeneratedWorld(await generateWorld(settings)));
+    console.log(`${seed}: geography ready in ${Math.round(performance.now() - started)} ms`);
+  }
+  results.push(...await Promise.all(seeds.map(async seed => {
+    const settings = parseWorldSettings({ seed, size: values.size });
+    const setupStarted = performance.now();
+    const simulation = await host.attach(settings);
+    const setupMs = performance.now() - setupStarted;
+    const started = performance.now();
+    await simulation.runTo(years);
+    const wallMs = performance.now() - started;
+    const report = await simulation.report(values.events);
+    console.log(`${seed}: ${years} years in ${(wallMs / 1000).toFixed(1)} s (${(wallMs / years).toFixed(2)} ms/year), ${report.eventCount} events, hash ${report.eventLogHash}`);
+    return { seed, settings, report, wallMs, setupMs };
+  })));
+} finally {
+  await host.close();
+}
+
+for (const result of results) {
+  const directory = join(values.out, result.seed);
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, 'stats.json'), `${JSON.stringify(result.report.stats, null, 1)}\n`);
+  await writeFile(join(directory, 'timing.json'), `${JSON.stringify({ wallMs: result.wallMs, setupMs: result.setupMs, years, systems: result.report.timing }, null, 1)}\n`);
+  if (result.report.events) await writeFile(join(directory, 'events.jsonl'), result.report.events.map(event => JSON.stringify(event)).join('\n') + (result.report.events.length ? '\n' : ''));
+}
+const summary = storyHealth(results);
+await writeFile(join(values.out, 'story-health.md'), summary);
+for (const [metric, label] of [['population', 'World population'], ['polities', 'Polities (bands and civs)'], ['largestShare', 'Largest polity share']] as const) {
+  await writeFile(join(values.out, `${metric}.svg`), chart(label, results.map(result => ({ name: result.seed, points: (result.report.stats as Stats[]).map(row => [row.year, row[metric]] as const) }))));
+}
+console.log(`\n${summary}\nWrote ${values.out}`);
+
+/** The brief's story-health table: per seed and century, plus per-system timing per simulated year. */
+function storyHealth(rows: SeedResult[]) {
+  const lines = ['| Seed | Year | Polities | Bands | Civs | Population | Largest share | Events |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |'];
+  for (const result of rows) for (const stats of result.report.stats as Stats[]) {
+    if (stats.year % 500 !== 0 && stats.year !== 100 && stats.year !== 250) continue;
+    lines.push(`| ${result.seed} | ${stats.year} | ${stats.polities} | ${stats.bands} | ${stats.civs} | ${stats.population.toLocaleString('en')} | ${(stats.largestShare * 100).toFixed(1)}% | ${stats.events} |`);
+  }
+  lines.push('', '| Seed | Regions | Islands | Landmasses | Outside range | Area p5 / p50 / p95 km² | Coastal | River ≥ river | Great river | Open lake |',
+    '| --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |');
+  for (const result of rows) {
+    const p = result.report.partition;
+    lines.push(`| ${result.seed} | ${p.regions} | ${p.islands} | ${p.landmasses} | ${p.outsideRange} | ${p.areaP5} / ${p.areaP50} / ${p.areaP95} | ${p.coastal} | ${p.river} | ${p.greatRiver} | ${p.openLake} |`);
+  }
+  lines.push('', '| Seed | Setup ms | ms per simulated year | Slowest systems (ms total) | State hash |', '| --- | ---: | ---: | --- | --- |');
+  for (const result of rows) {
+    const slowest = [...result.report.timing].sort((a, b) => b.ms - a.ms).slice(0, 3).map(entry => `${entry.system} ${entry.ms.toFixed(0)}`).join(', ');
+    lines.push(`| ${result.seed} | ${Math.round(result.setupMs)} | ${(result.wallMs / years).toFixed(2)} | ${slowest} | \`${result.report.stateHash}\` |`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** A small dependency-free SVG line chart with one line per seed. */
+function chart(title: string, series: { name: string; points: (readonly [number, number])[] }[]) {
+  const width = 720, height = 360, left = 70, right = 140, top = 40, bottom = 40;
+  const xs = series.flatMap(line => line.points.map(point => point[0])), ys = series.flatMap(line => line.points.map(point => point[1]));
+  const maxX = Math.max(1, ...xs), maxY = Math.max(1e-9, ...ys);
+  const x = (value: number) => left + value / maxX * (width - left - right);
+  const y = (value: number) => height - bottom - value / maxY * (height - top - bottom);
+  const colors = ['#2a6f97', '#c05746', '#6a994e', '#8e5ea2', '#d4a017'];
+  const format = (value: number) => maxY <= 1 ? `${(value * 100).toFixed(0)}%` : Math.round(value).toLocaleString('en');
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(fraction => `<line x1="${left}" x2="${width - right}" y1="${y(maxY * fraction)}" y2="${y(maxY * fraction)}" stroke="#ddd"/><text x="${left - 6}" y="${y(maxY * fraction) + 4}" text-anchor="end" font-size="11">${format(maxY * fraction)}</text>`).join('');
+  const lines = series.map((line, index) => `<polyline fill="none" stroke="${colors[index % colors.length]}" stroke-width="2" points="${line.points.map(([px, py]) => `${x(px).toFixed(1)},${y(py).toFixed(1)}`).join(' ')}"/><text x="${width - right + 10}" y="${top + 16 * index + 10}" font-size="12" fill="${colors[index % colors.length]}">${line.name}</text>`).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="system-ui, sans-serif"><rect width="100%" height="100%" fill="#fff"/><text x="${left}" y="24" font-size="15" font-weight="600">${title}</text>${ticks}<line x1="${left}" x2="${width - right}" y1="${height - bottom}" y2="${height - bottom}" stroke="#333"/><text x="${left}" y="${height - 14}" font-size="11">Year 0</text><text x="${width - right}" y="${height - 14}" font-size="11" text-anchor="end">Year ${maxX}</text>${lines}</svg>\n`;
+}

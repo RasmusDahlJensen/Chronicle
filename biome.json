@@ -115,6 +115,7 @@
                       "vite",
                       "vite/**",
                       "@vitejs/**",
+                      "**/world/generation/**",
                       "**/vendor/**",
                       "node:*"
                     ],
@@ -348,6 +349,51 @@
                       "**/vendor/**"
                     ],
                     "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "server/workers/simulation-worker.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "react",
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "**/components/**",
+                      "**/renderer/**",
+                      "**/api/**",
+                      "**/App.tsx",
+                      "**/main.tsx",
+                      "fastify",
+                      "@fastify/**",
+                      "piscina",
+                      "**/app.ts",
+                      "**/compute.ts",
+                      "**/config.ts",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**",
+                      "**/vendor/**",
+                      "**/world/generation/**"
+                    ],
+                    "message": "The simulation worker derives everything from the validated geography it receives; it never imports world generation (docs/VISION.md)."
                   }
                 ]
               }

@@ -11,6 +11,9 @@ import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { RESOURCES } from '../world/atlas.ts';
 import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
+import { SimulationPanel } from './SimulationPanel.tsx';
+import { fetchRegionMap } from '../api/simulation.ts';
+import { RIVER_TIERS, type RegionMap } from '../../shared/simulation.ts';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -62,6 +65,12 @@ export function GeneratedWorldLab() {
   const [layer, setLayer] = useState<WorldLayer>('biomes');
   const [resources, setResources] = useState(true);
   const [rivers, setRivers] = useState(true);
+  const [showRegions, setShowRegions] = useState(false);
+  const [regions, setRegions] = useState<{ map: RegionMap; cells: Uint16Array } | null>(null);
+  const [regionError, setRegionError] = useState<string | null>(null);
+  // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
+  const shown = useRef<{ key: string; fresh: boolean }>({ key: '', fresh: false });
+  if (world && shown.current.key !== world.worldKey) shown.current = { key: world.worldKey, fresh: shown.current.key !== '' };
   const [view, setView] = useState({ zoom: 1, detail: false });
   const [cell, setCell] = useState<InspectedWorldCell | null>(null);
   const [inspecting, setInspecting] = useState(false);
@@ -133,6 +142,18 @@ export function GeneratedWorldLab() {
   }, [world, canvasRevision]);
 
   useEffect(() => { renderer.current?.setLayer(layer, resources, rivers); }, [layer, resources, rivers, world, canvasRevision]);
+  // The simulation's region partition for the displayed world (a separate versioned contract from geography).
+  useEffect(() => {
+    if (!world) return;
+    const controller = new AbortController();
+    setRegions(null); setRegionError(null);
+    void fetchRegionMap(world.settings, controller.signal).then(next => {
+      if (!controller.signal.aborted && next.map.worldKey === world.worldKey) setRegions(next);
+    }).catch(cause => { if (!controller.signal.aborted) setRegionError(message(cause)); });
+    return () => controller.abort();
+  }, [world]);
+  useEffect(() => { renderer.current?.setRegions(regions?.cells ?? null, showRegions); }, [regions, showRegions, world, canvasRevision]);
+  const cellRegion = cell && regions ? regions.map.regions[regions.cells[cell.id] - 1] ?? null : null;
 
   function generate(event?: FormEvent) {
     event?.preventDefault();
@@ -151,7 +172,7 @@ export function GeneratedWorldLab() {
   return <div className="regional-atlas generated-world-lab">
     <header className="atlas-header">
       <a className="atlas-brand" href="/" aria-label="Chronicle home"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" /><path d="M16 2v28M2 16h28M10 22l4-8 8-4-4 8Z" /></svg>Chronicle</a>
-      <span className="atlas-header-study">The living world <span aria-hidden="true">/</span> Geography 01</span>
+      <span className="atlas-header-study">The living world <span aria-hidden="true">/</span> History lab</span>
     </header>
     <main>
       <div className="atlas-intro">
@@ -184,6 +205,8 @@ export function GeneratedWorldLab() {
             </fieldset>
             <label className="world-resource-toggle"><input type="checkbox" checked={rivers} onChange={event => setRivers(event.target.checked)} /> Rivers</label>
             <p className="atlas-panel-note world-river-note">Larger rivers stand out at world scale. Zoom in to see smaller streams.</p>
+            <label className="world-resource-toggle"><input type="checkbox" checked={showRegions} onChange={event => setShowRegions(event.target.checked)} /> Regions</label>
+            <p className="atlas-panel-note">{regions ? `${number.format(regions.map.regions.length)} simulation regions of 20,000–60,000 km²; small islands are their own region.` : regionError ?? 'Dividing the land into regions…'}</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={resources} onChange={event => setResources(event.target.checked)} /> Resource sites</label>
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
             <ul className="world-resource-legend" aria-label="Resource site legend">{RESOURCE_IDS.map(resource => <li key={resource} title={`Extraction: ${RESOURCE_RULES[resource].extractionTechnology}`}><ResourceIcon resource={resource} />{RESOURCES[resource].label}</li>)}</ul>
@@ -211,7 +234,8 @@ export function GeneratedWorldLab() {
           {loadError && <p className="atlas-error" role="alert">{loadError}</p>}
           {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={() => retryDetail.current()}>Retry detail</button></div>}
           {canvasError && <div className="world-inline-error"><p className="atlas-error" role="alert">{canvasError}</p><button className="atlas-reset-button" type="button" onClick={() => setCanvasRevision(current => current + 1)}>Retry canvas</button></div>}
-          <div className="world-climate-note"><span aria-hidden="true">◌</span><p>A geographic preview, before history begins. Rivers connect their catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin. Living societies are still to come.</p></div>
+          <SimulationPanel settings={world?.settings ?? null} startFresh={shown.current.fresh} />
+          <div className="world-climate-note"><span aria-hidden="true">◌</span><p>Rivers connect their catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin. The simulation runs on this PC; the page only observes it.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">
           <p className="atlas-section-index">03 / Inspect</p><div className="atlas-section-heading"><h2 id="world-inspector-title">{cell || inspecting ? 'Cell detail' : 'Read the landscape'}</h2>{(cell || inspecting) && <button className="atlas-clear-selection" type="button" aria-label="Clear selection" onClick={() => clearSelection.current()}>×</button>}</div>
@@ -226,6 +250,14 @@ export function GeneratedWorldLab() {
               <div><dt>Grid position</dt><dd>{cell.x}, {cell.y}</dd></div>
             </dl>
             <p className="atlas-panel-note world-cell-explanation">{climateDescription}</p>
+            {cellRegion && <section className="world-cell-region" aria-label="Selected cell region">
+              <p className="atlas-detail-label">Simulation region</p><h3>Region {cellRegion.id}</h3>
+              <dl className="world-water-facts">
+                <div><dt>Area</dt><dd>{number.format(cellRegion.areaKm2)} km²</dd></div>
+                <div><dt>Water</dt><dd>{[cellRegion.coastal && 'coast', cellRegion.openLake && 'open lake', cellRegion.riverTier > 0 && ({ stream: 'stream', river: 'river', greatRiver: 'great river', none: '' } as const)[RIVER_TIERS[cellRegion.riverTier]]].filter(Boolean).join(', ') || 'none'}</dd></div>
+                <div><dt>Neighbours</dt><dd>{cellRegion.neighbors.length}{cellRegion.island ? ' · island' : ''}</dd></div>
+              </dl>
+            </section>}
             <FertilityDetail facts={cell.fertility} expanded={layer === 'fertility'} />
             <section className="world-cell-water" aria-label="Selected cell water">
               <p className="atlas-detail-label">Water &amp; freshwater</p>
@@ -246,7 +278,7 @@ export function GeneratedWorldLab() {
             <section className="atlas-cell-resource" aria-label="Selected cell resource">{cell.resource ? <><p className="atlas-detail-label">Resource site</p><p className="atlas-resource-value"><span><ResourceIcon resource={cell.resource} /></span>{RESOURCES[cell.resource].label}</p><dl className="atlas-resource-facts"><div><dt>Site type</dt><dd>{RESOURCE_RULES[cell.resource].kind === 'renewable' ? 'Renewable' : 'Mineral'}</dd></div><div><dt>Required extraction technology</dt><dd>{RESOURCE_RULES[cell.resource].extractionTechnology}</dd></div></dl><p className="atlas-panel-note">Natural potential. Extraction and production are not active.</p></> : <><p className="atlas-detail-label">Natural potential</p><p className="atlas-resource-empty">No resource site in this cell</p><p className="atlas-panel-note">Sites are scattered across suitable terrain. Most cells have no special site.</p></>}</section>
           </div> : inspecting ? <p className="atlas-panel-note" role="status">Reading full-resolution cell data…</p> : <div className="atlas-inspector-empty"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 10h44v44H10zM10 25h44M10 39h44M25 10v44M39 10v44" /><path className="atlas-inspector-cell" d="M25 25h14v14H25z" /></svg><h3>A closer look</h3><p>Select any cell to inspect its biome, annual climate, fertility, water access, and resource potential.</p><span>Zoom in to explore terrain textures and individual resource markers.</span></div>}
           <div className="world-identity"><p className="atlas-detail-label">Current world</p><strong id="world-current-seed">{world?.settings.seed ?? 'Preparing…'}</strong><p>{world ? `${number.format(world.resourceSites)} scattered resource sites` : 'Geography is being generated'}</p><span>{world ? `Generator ${world.generatorVersion} · ${number.format(world.width * world.height)} cells` : 'Annual climate preview'}</span></div>
-          <p className="atlas-panel-note world-projection-note">Equal-area cells; polar shapes are stretched. Map distances are not uniform ground distances. This geography has no political provinces.</p>
+          <p className="atlas-panel-note world-projection-note">Equal-area cells; polar shapes are stretched. Map distances are not uniform ground distances. Regions are the simulation's units of land.</p>
         </aside>
       </div>
     </main>

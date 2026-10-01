@@ -77,6 +77,9 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   await source('server/world-generator.ts', "import '../src/world/generation/generate.ts';");
   await source('src/simulation/browser.ts', "export const view = import('../components/view.tsx');");
   await source('src/simulation/storage.ts', "export const storage = import('node:sqlite');");
+  await source('src/simulation/generation.ts', "export const generate = import('../world/generation/generate.ts');");
+  await source('server/workers/simulation-worker.ts', "export const generate = import('../../src/world/generation/generate.ts');");
+  await source('server/workers/terrain-generation.ts', "export const generate = import('../../src/world/generation/generate.ts');");
   await source('src/components/simulation.ts', "export const state = import('../simulation/state.ts');");
 
   await source('server/app.ts', "export { island } from '../src/fixtures/island.ts';");
@@ -98,10 +101,11 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   for (const [path, target] of vendorLeaks) await source(path, `export const module = import('${target}');`);
   const invalid = check();
   assert.equal(invalid.status, 1, invalid.output);
-  for (const path of ['src/simulation/browser.ts', 'src/simulation/storage.ts', 'src/components/simulation.ts', 'src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
+  for (const path of ['src/simulation/browser.ts', 'src/simulation/storage.ts', 'src/simulation/generation.ts', 'server/workers/simulation-worker.ts', 'src/components/simulation.ts', 'src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
     assert.ok(invalid.output.includes(path), `Missing boundary diagnostic for ${path}: ${invalid.output}`);
   }
   for (const [path] of vendorLeaks) assert.ok(invalid.output.includes(path), `Missing vendor boundary diagnostic for ${path}: ${invalid.output}`);
+  assert.ok(!invalid.output.includes('server/workers/terrain-generation.ts'), 'Other workers may still generate geography');
   for (const path of ['src/world/generation/node.ts', 'src/world/generation/view.ts']) {
     assert.ok(invalid.output.includes(path), `Generation's vendor permission must preserve its other boundaries: ${path}: ${invalid.output}`);
   }
