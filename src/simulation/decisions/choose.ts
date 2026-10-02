@@ -1,17 +1,18 @@
-import type { Candidate, Neighbour, PolityView } from '../perception.ts';
+import type { Candidate, Neighbour, Partner, PolityView } from '../perception.ts';
 import type { Rng } from '../rng.ts';
-import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, UNITE_TUNING } from '../tunables.ts';
+import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, UNITE_TUNING } from '../tunables.ts';
 
 /** Factors named with a leading × are multipliers (logged, never cited as causes); the rest are contributions to the score. */
 export const MULTIPLIER = '×';
 
 /**
- * The decision step (VISION.md "Personality and the decision model"), M3's form: Expand, Explore or Do nothing,
- * weighed from the needs land pressure, hunger and opportunity and the civilization's values. Pure: it sees only the
+ * The decision step (VISION.md "Personality and the decision model"), M3's form: Expand, Explore, Unite, Share
+ * knowledge or Do nothing, weighed from the needs land pressure, hunger and opportunity, what it could learn, and the
+ * civilization's values. Pure: it sees only the
  * view `perception.ts` builds from the civilization's own state and what it knows (VISION.md "Implementation rule";
  * a Biome rule keeps this folder from importing anything else).
  */
-export type Action = 'expand' | 'explore' | 'nothing' | 'unite';
+export type Action = 'expand' | 'explore' | 'nothing' | 'unite' | 'share';
 export interface Factor { factor: string; weight: number }
 export interface Option { action: Action; score: number; target: number | null; label: string | null; factors: Factor[] }
 
@@ -103,6 +104,35 @@ export function bestUnion(view: PolityView): Option | null {
   return best;
 }
 
+/**
+ * Sharing knowledge with one people in contact (VISION.md "Sharing knowledge"): what it would learn draws it most;
+ * kinship, likeness and its Openness make it glad to teach what it knows; its Tradition and the exchanges it already
+ * keeps up hold it back. All of it is scaled by how likely they are to accept. Nothing to teach or learn: no exchange.
+ */
+export function shareScore(view: PolityView, partner: Partner): Option {
+  const tuning = SHARE_TUNING;
+  const learn = Math.min(1, partner.learn / tuning.techScale), teach = Math.min(1, partner.teach / tuning.techScale);
+  const parts = {
+    learning: tuning.learn * learn, kinship: partner.kin ? tuning.kin * teach : 0, similarity: tuning.similarity * partner.similarity * teach,
+    openness: tuning.openness * view.values.openness * teach, tradition: -tuning.tradition * view.values.tradition,
+    busy: -tuning.busy * view.exchanges,
+  };
+  const score = Object.values(parts).reduce((sum, value) => sum + value, 0) * partner.willing;
+  return {
+    action: 'share', score: partner.teach + partner.learn > 0 ? score : Number.NEGATIVE_INFINITY, target: partner.polity, label: partner.name,
+    factors: [...Object.entries(parts).map(([factor, weight]) => ({ factor, weight: round(weight * partner.willing) })), { factor: `${MULTIPLIER}willing`, weight: round(partner.willing) }],
+  };
+}
+
+export function bestShare(view: PolityView): Option | null {
+  let best: Option | null = null;
+  for (const partner of view.partners) {
+    const option = shareScore(view, partner);
+    if (!best || option.score > best.score) best = option;
+  }
+  return best;
+}
+
 /** Every option of this step, best first (Do nothing is always one). */
 export function options(view: PolityView): Option[] {
   const all: Option[] = [{ action: 'nothing', score: DECISION_TUNING.doNothing, target: null, label: null, factors: [{ factor: 'contentment', weight: DECISION_TUNING.doNothing }] }];
@@ -111,7 +141,9 @@ export function options(view: PolityView): Option[] {
   all.push(explorationScore(view));
   const unite = bestUnion(view);
   if (unite) all.push(unite);
-  const order: Action[] = ['expand', 'explore', 'unite', 'nothing'];
+  const share = bestShare(view);
+  if (share) all.push(share);
+  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }
 

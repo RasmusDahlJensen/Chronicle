@@ -15,7 +15,7 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, SERIES_YEARS } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 6;
+export const SIMULATION_RULES_VERSION = 7;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
@@ -39,12 +39,13 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     seedText, seed: seedFromText(seedText), tick: 0, geography, partition, food: buildFoodModel(geography, partition),
     chronicle: new Chronicle(), cultures: [], polities: [], groups: [], living: [],
     settlements: [], owner: new Int32Array(regions).fill(-1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions),
-    learnedCount: new Int32Array(TECHS.length), deathCount: 0, lineages: [],
+    lineages: [],
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1), groupAt: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
     ledger: emptyLedger(regions), habitable: new Uint8Array(regions), settledLandmasses: [],
     metrics: { silentBandYears: 0, maxOverCapacityMonths: 0, moves: 0, movesCitingPressure: 0, movesLedByPressure: 0, splits: 0, breakaways: 0, births: 0, deaths: 0, famineDeaths: 0, settled: 0, discoveries: 0, firstContacts: 0,
-      chosen: { expand: 0, explore: 0, nothing: 0, unite: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0, unions: 0 },
+      chosen: { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0, unions: 0,
+      exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -90,6 +91,8 @@ function seriesPoint(state: SimulationState, year: number): [number, number, num
 
 export function collectStats(state: SimulationState, year: number): CenturyStats {
   let population = 0, largest = 0, largestRegions = 0, waterPopulation = 0, bands = 0, tribes = 0, occupied = 0, specialists = 0, leadingEra = 0, civKnown = 0;
+  let civTechsMin = Number.POSITIVE_INFINITY, civTechsMax = 0;
+  const civEras = new Set<number>();
   for (const id of state.living) {
     const polity = state.polities[id];
     let people = 0;
@@ -101,7 +104,12 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     }
     population += people; largest = Math.max(largest, people); largestRegions = Math.max(largestRegions, polity.groups.length);
     if (polity.kind === 'band') tribes++;
-    else civKnown += knownRegionCount(polity);
+    else {
+      civKnown += knownRegionCount(polity); civEras.add(polity.knowledge.era);
+      let techs = 0;
+      for (const known of polity.knowledge.known) techs += known;
+      civTechsMin = Math.min(civTechsMin, techs); civTechsMax = Math.max(civTechsMax, techs);
+    }
     leadingEra = Math.max(leadingEra, polity.knowledge.era);
   }
   let waterRegions = 0;
@@ -113,16 +121,18 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     if (habitable) occupiedHabitableShare = Math.min(occupiedHabitableShare, occupied / habitable);
   }
   const m = state.metrics;
-  // Borders follow barriers: travel cost of land edges between different civilizations against all land edges.
-  const all: number[] = [], borders: number[] = [];
+  // Borders follow barriers: travel cost of land edges between different civilizations against the edges within the land
+  // civilizations hold (M3) and against all land edges (M6).
+  const all: number[] = [], held: number[] = [], borders: number[] = [];
   for (const region of state.partition.regions) for (const edge of region.neighbors) {
     if (edge.region < region.id) continue;
     const km = edgeKm(edge.travelKm, edge.riverTier), a = state.owner[region.id], b = state.owner[edge.region];
     all.push(km);
-    if (a >= 0 && b >= 0 && a !== b) borders.push(km);
+    if (a >= 0 && b >= 0) { held.push(km); if (a !== b) borders.push(km); }
   }
   const median = (values: number[]) => { values.sort((x, y) => x - y); return values.length ? values[Math.floor(values.length / 2)] : 0; };
-  const borderRatio = borders.length && all.length ? Math.round(median(borders) / median(all) * 1000) / 1000 : 0;
+  const border = median(borders), ratio = (baseline: number[]) => borders.length && baseline.length ? Math.round(border / median(baseline) * 1000) / 1000 : 0;
+  const borderRatio = ratio(held), borderRatioAll = ratio(all);
   let ruled = 0, stable = 0, unrestRegions = 0;
   for (let region = 0; region < state.owner.length; region++) if (state.owner[region] >= 0) { ruled++; stable += state.stability[region]; unrestRegions += state.unrest[region]; }
   return {
@@ -134,9 +144,10 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     agricultureShare: Math.round(shareKnowing(state, 'Agriculture') * 1000) / 1000, leadingEra,
     occupiedHabitableShare: Math.round(occupiedHabitableShare * 1000) / 1000,
     firstContacts: m.firstContacts, civKnownRegions: state.living.length > tribes ? Math.round(civKnown / (state.living.length - tribes)) : 0,
-    chosenExpand: m.chosen.expand, chosenExplore: m.chosen.explore, chosenNothing: m.chosen.nothing, chosenUnite: m.chosen.unite, unions: m.unions,
-    expansions: m.expansions, absorbed: m.absorbed, displaced: m.displaced, expeditions: m.expeditions, migrants: m.migrants, borderRatio,
+    chosenExpand: m.chosen.expand, chosenExplore: m.chosen.explore, chosenNothing: m.chosen.nothing, chosenUnite: m.chosen.unite, chosenShare: m.chosen.share, unions: m.unions,
+    expansions: m.expansions, absorbed: m.absorbed, displaced: m.displaced, expeditions: m.expeditions, migrants: m.migrants, borderRatio, borderRatioAll,
     joined: m.joined, unrestRegions, unrestOutbreaks: m.unrestOutbreaks, meanStability: ruled ? Math.round(stable / ruled * 1000) / 1000 : 0,
+    exchangeOffers: m.exchangeOffers, exchanges: m.exchanges, tribeExchanges: m.tribeExchanges, agricultureInventions: m.agricultureInventions, civEras: civEras.size, civTechsMin: civEras.size ? civTechsMin : 0, civTechsMax,
   };
 }
 

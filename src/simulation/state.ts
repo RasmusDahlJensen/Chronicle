@@ -53,11 +53,12 @@ export interface Polity {
   knowledge: Knowledge;
   /** The landmass it began on; without Sailing it can never be anywhere else (VISION.md M2). */
   homeLandmass: number;
-  /** Polities it is in contact with (within two regions; refreshed by the knowledge system), and each contact's intensity (0–1). */
-  contacts: number[]; contactWeights: number[];
-  /** Exposure to its research target, valid while the target, contacts, that tech's discovery count and the world's
-   *  death count are unchanged (the only things exposure depends on); derived, recomputed when any changes. */
-  exposure: { tech: number; learned: number; deaths: number; value: number };
+  /** Polities it has met within two regions (refreshed yearly by the knowledge system), and the most advanced era it
+   *  knows of: its own or a living people's it has met (catch-up). */
+  contacts: number[]; frontierEra: number;
+  /** Peoples it shares knowledge with, and the tick each exchange ends (VISION.md "Sharing knowledge"; both sides hold
+   *  the same entry); and peoples that refused an exchange, with when. */
+  exchanges: Map<number, number>; exchangeRefused: Map<number, number>;
   /** A civilization's capital settlement, and when it settled. */
   capital: number | null; settledTick: number | null;
   /** What it knows of the map (VISION.md "Knowledge of the world"); read through `perception.ts`. */
@@ -74,7 +75,7 @@ export interface Polity {
   rebuffed: Map<number, number>;
 }
 
-export const ACTIONS = ['expand', 'explore', 'nothing', 'unite'] as const;
+export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share'] as const;
 export type Action = typeof ACTIONS[number];
 
 /** One decision step: every option with its score and the factors behind it, and the one chosen. */
@@ -147,7 +148,7 @@ export interface CenturyStats {
   /** First contacts so far, and the mean number of regions a civilization knows (in sight or remembered). */
   firstContacts: number; civKnownRegions: number;
   /** Decision steps so far by chosen action, expansions, bands absorbed or displaced by them, and expeditions. */
-  chosenExpand: number; chosenExplore: number; chosenNothing: number; chosenUnite: number;
+  chosenExpand: number; chosenExplore: number; chosenNothing: number; chosenUnite: number; chosenShare: number;
   /** Civilizations that united with a larger one so far. */
   unions: number;
   expansions: number; absorbed: number; displaced: number; expeditions: number;
@@ -156,9 +157,14 @@ export interface CenturyStats {
   /** Tribes that joined a civilization instead of founding their own, and civilization regions in unrest now (with
    *  how often unrest broke out so far), and the mean stability of civilization regions. */
   joined: number; unrestRegions: number; unrestOutbreaks: number; meanStability: number;
-  /** Median travel cost of land edges between regions of different civilizations over the median of all land edges
-   *  (VISION.md M3: borders follow barriers; 0 when no two civilizations border). */
-  borderRatio: number;
+  /** Median travel cost of land edges between regions of different civilizations over the median of land edges within
+   *  civilization-held land (VISION.md M3: borders follow barriers), and over the median of all land edges (VISION.md
+   *  M6's target); 0 when no two civilizations border. */
+  borderRatio: number; borderRatioAll: number;
+  /** Knowledge exchanges offered and agreed so far (and of those, with tribes); Agriculture discoveries with no sharing
+   *  so far (independent inventions); the number of eras the living civilizations are in, and the fewest and most techs
+   *  any of them knows. */
+  exchangeOffers: number; exchanges: number; tribeExchanges: number; agricultureInventions: number; civEras: number; civTechsMin: number; civTechsMax: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -192,6 +198,9 @@ export interface Metrics {
   expansions: number; absorbed: number; displaced: number; expeditions: number; migrants: number;
   /** Tribes that joined a civilization, outbreaks of unrest, and civilizations that united with a larger one. */
   joined: number; unrestOutbreaks: number; unions: number;
+  /** Knowledge exchanges offered and agreed (and of those, with tribes), and Agriculture learned with no help from a
+   *  sharing partner. */
+  exchangeOffers: number; exchanges: number; tribeExchanges: number; agricultureInventions: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -216,9 +225,7 @@ export interface SimulationState {
   firsts: FirstDiscovery[];
   /** Per lineage, the culture name of its starting band (the observer names peoples by it). */
   lineages: string[];
-  /** Discoveries of each tech so far and polities that have died out so far (exposure caches read them). */
-  learnedCount: Int32Array; deathCount: number;
-  /** Year when a quarter of living polities first knew Agriculture (−1 until then). */
+  /** Year when a quarter of the world's people first lived in polities that know Agriculture (−1 until then). */
   agricultureQuarterYear: number;
   /** Per region: environment conditions that raise research weights (static). */
   affinity: Set<Affinity>[];

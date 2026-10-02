@@ -1,5 +1,6 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
-import { endPolity, foundVillage, move, newGroup, polityPopulation, refuge, regionCapacity, transferGroup } from './bands.ts';
+import { endPolity, foundVillage, learnFrom, move, newGroup, polityPopulation, refuge, regionCapacity, transferGroup } from './bands.ts';
+import { newTechs } from './knowledge.ts';
 import { absorbMap, arrive, governable, lookAgain, meet, reveal, UNKNOWN } from './perception.ts';
 import { assess } from './stability.ts';
 import type { Rng } from './rng.ts';
@@ -43,10 +44,12 @@ export function expand(state: SimulationState, context: Pick<TickContext, 'tick'
     // A band with nowhere to go that would feed it stays and joins; so does one the newcomers could not replace.
     const to = refuge(state, tribe, band, target);
     if (to < 0 || settling !== null || rng.chance(chance)) {
+      // The people taken in bring what they know (`transferGroup`).
+      const techs = newTechs(civ.knowledge, tribe.knowledge);
       state.chronicle.emit({
         type: 'bandAbsorbed', actors: [{ id: tribe.id, role: 'band' }, { id: civ.id, role: 'civ' }], region: target,
         causes: [...cited, ...(to >= 0 ? [] : [{ factor: 'nowhereToGo', weight: 1 }])].slice(0, 4), importance: 0.08,
-        data: { name: tribe.name, civ: civ.name, population: band.size, ended: tribe.groups.length === 1 },
+        data: { name: tribe.name, civ: civ.name, population: band.size, ended: tribe.groups.length === 1, techs, learned: techs > 0 },
       });
       transferGroup(state, rng, band, tribe, civ, tick, cited);
       regionCapacity(state, target);
@@ -123,7 +126,7 @@ export function explore(state: SimulationState, tick: number, rng: Rng, civ: Pol
  * Unification (VISION.md "Unification"): `small` asks to join `large`, which admits it if it can govern the land from
  * its capital (a graded chance by travel-km to where they meet). On union every region, its people and village pass
  * to `large`; the small civilization's capital becomes an ordinary village; its people keep their culture; `large`
- * learns what it knew; `small` ends. Returns what happened, for the decision log.
+ * comes to know the land and the techs it knew; `small` ends. Returns what happened, for the decision log.
  */
 export function unite(state: SimulationState, tick: number, rng: Rng, small: Polity, large: Polity, border: number, cited: ChronicleEvent['causes']): string {
   if (large.deathTick !== null || large.kind !== 'civ') return 'the other civilization is gone';
@@ -131,13 +134,15 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
   // It takes in only people it can govern, weighed over all their land; a refusal is remembered.
   const admit = governable(state, large, small.groups, UNITE_TUNING.admitPower);
   if (!rng.chance(admit)) { small.rebuffed.set(large.id, tick); return `the ${large.name} would not take them in`; }
-  const people = polityPopulation(state, small), regions = small.groups.length;
+  const people = polityPopulation(state, small), regions = small.groups.length, techs = newTechs(large.knowledge, small.knowledge);
   const capital = small.capital !== null ? state.settlements[small.capital] : null;
   state.chronicle.emit({
     type: 'unification', actors: [{ id: small.id, role: 'civ' }, { id: large.id, role: 'union' }], region: capital?.region ?? border, causes: cited,
-    importance: 0.4, data: { name: small.name, civ: large.name, regions, population: people, kin: small.lineage === large.lineage, into: large.groups.length },
+    importance: 0.4, data: { name: small.name, civ: large.name, regions, population: people, kin: small.lineage === large.lineage, into: large.groups.length, techs, learned: techs > 0 },
   });
   absorbMap(state, large, small, tick);
+  // The united people knows what either knew (VISION.md "Paths, not a timeline": merging).
+  learnFrom(large, small, tick);
   for (const id of small.groups.slice()) {
     const group = state.groups[id], region = group.region;
     small.groups.splice(small.groups.indexOf(id), 1);

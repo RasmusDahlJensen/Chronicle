@@ -68,7 +68,7 @@ Every stage that succeeds also feeds a counter-force, which is what produces ris
 1. Environment, monthly: harvest calendar, yield variance, droughts, climate shocks
 2. Production, monthly: food and resources per region
 3. Population, monthly: births, deaths, starvation, plague, migration, band moves and fission
-4. Knowledge, monthly: research progress, discoveries, diffusion
+4. Knowledge, monthly: research progress, discoveries, shared knowledge
 5. Culture and religion, yearly (staggered by culture id across months): drift, influence, assimilation, spread, splits, hybrids, religion founding and schisms
 6. Stability, monthly: happiness, cohesion, unrest
 7. Decisions, every 6 months per polity, staggered by polity id: score and pick actions
@@ -126,12 +126,28 @@ All polities share one technology graph defined in data, but each progresses thr
 - mobility level (see below)
 - unlocks for government forms, religion founding, actions, treaty types, buildings, wonders and infrastructure kinds
 
-**Research.** Every polity, including bands, earns a small base research per person per year (experience and tinkering), scaled by contact; base research alone must make Agriculture reachable for well-placed bands within a few centuries. Specialists add research on top once surplus exists, and buildings (libraries, universities) multiply it. Points flow into one active tech at a time, chosen by weighted random among available techs. Weights come from:
+**Research.** Every polity, including bands, earns a small base research per person per year (experience and tinkering), scaled by contact; it grows with a people's size with diminishing returns, so a large people researches faster than a small one, but not in proportion. Base research alone must make Agriculture reachable for well-placed bands within a few centuries. Specialists add research on top once surplus exists, and buildings (libraries, universities) multiply it. Points flow into one active tech at a time, chosen by weighted random among available techs. Weights come from:
 
 - **need:** starving raises food techs, an unmet resource demand raises its extraction tech, war raises military techs
 - **environment:** coastal raises sailing; grassland raises herding; fertile river or lake land and wild grain or game sites raise Agriculture and Animal husbandry; known-but-unusable deposits raise their extraction tech
-- **exposure:** a tech known by a contacted polity gets a large cost discount and weight bonus, scaled by contact intensity (trade, roads, borders, war). This is how knowledge diffuses.
-- **culture:** the Tradition value slows research of techs that change the economy; Openness raises the exposure bonus
+- **shared knowledge:** a tech known by a people that shares its knowledge with the polity (see Sharing knowledge) weighs more
+- **culture:** the Tradition value slows research of techs that change the economy; Openness raises the sharing bonus
+
+**Paths, not a timeline.** (Changed after the M3 review, 2 October 2026, at the user's request: contact used to make a neighbour's techs almost free, so every people learned farming within a few decades of its invention.) Each people chooses its research from its own needs, land and culture, and researches at its own speed. Peoples therefore follow different paths through the same graph and reach the eras at different times. A river people may farm centuries before its hill neighbours, who may work stone and metal first. No polity learns a tech automatically from its neighbours, however friendly. Knowledge moves between peoples only in these ways:
+
+- **invention:** a people researches the tech itself
+- **inheritance:** a breakaway keeps what its parent knew
+- **merging:** a tribe that joins a civilization, a band a civilization takes in, or a civilization that unites with another, brings its knowledge; the united people knows what either knew. (The clause on bands taken in is an agent default added after the M3 review, pending the user's review: without it, herders taken in by farmers who could not herd starved. See the M3.5 brief.)
+- **catch-up:** a tech of an earlier era than the most advanced era the polity knows of (its own, or that of a people it has met) is researched a little faster: 25% per era behind, at most twice as fast (data). Knowing that something can be done makes it easier, never free.
+- **sharing:** while a people it knows shares its knowledge with it, the polity researches the techs that people knows several times faster (Openness raises this) and weighs them more. From M5, trade agreements and alliances also share knowledge.
+
+**Sharing knowledge.** (Added after the M3 review, 2 October 2026, at the user's request.) At its decision step a civilization may offer to share knowledge with a people it is in contact with: a tribe or civilization it has met, within two regions. It weighs:
+
+- what it would learn from them, the main draw;
+- its kinship and likeness with them, and its Openness: open, kin peoples also teach for nothing in return;
+- against its Tradition and the exchanges it already keeps up.
+
+The other side accepts unless its Tradition and the cultural distance between them make it refuse, and it is readier when it would learn something too; a refusal is remembered for a while. An accepted exchange runs both ways for 40 years (data) and can be renewed. It is a chronicle event (knowledge shared) with its causes. Sharing is always chosen, never automatic. Tribes have no decision step yet, so they share only when a civilization offers.
 
 **Where a discovery happens.** A polity that spans many regions discovers a tech where its people live in the conditions that drew it to that tech: the region with the most people × the strength of the tech's environment affinities there, or its heartland when none apply. For example, farming is invented in its fertile river valley. The record of firsts and the chronicle use the same place. (Added at the M3 review, 2 October 2026, at the user's request.)
 
@@ -259,7 +275,7 @@ Demand for a resource comes only from the techs a civ knows, so the strategic ma
 
 **Wealth.** One abstract currency per civ, produced by specialists, markets and trade. No per-good prices. Wealth pays for building, upkeep and military, and can buy resources in trade deals.
 
-**Trade.** Two civs can trade if they have contact and a reachable route under either civ's mobility. At each decision step, civs with a deficit look for partners with a surplus, scored by relations, route distance, hubs and the partner's Openness. A trade agreement transfers a fixed resource amount per year in exchange for another resource or wealth, and lasts until cancelled by war, a relations drop or the need disappearing. Trade agreements are contact edges: they raise relations, speed tech diffusion, carry cultural and religious influence and make road agreements likelier. Store them as edges for the trade-routes lens.
+**Trade.** Two civs can trade if they have contact and a reachable route under either civ's mobility. At each decision step, civs with a deficit look for partners with a surplus, scored by relations, route distance, hubs and the partner's Openness. A trade agreement transfers a fixed resource amount per year in exchange for another resource or wealth, and lasts until cancelled by war, a relations drop or the need disappearing. Trade agreements are contact edges: they raise relations, share knowledge as an exchange does, carry cultural and religious influence and make road agreements likelier. Store them as edges for the trade-routes lens.
 
 When a civ needs a resource it cannot trade for (no route, hostile owner, or the owner refuses), the shortage becomes a war motive in the decision model. Trade or fight is an emergent choice, not a script.
 
@@ -285,7 +301,7 @@ A polity's behavior comes from three layers of sliders combined into one set of 
 
 **Decision step.** Every 6 months (data; staggered by polity id) each polity:
 
-1. Enumerates candidate actions: Explore, Expand, Unite (join a larger neighbour), Raid (bands and chiefdoms), Build (a building, wonder or infrastructure item), Declare war, Seek peace, Propose trade, Propose alliance, non-aggression or road agreement, Send missionaries, Reform government, Focus investment (research, military or economy for the next period), Do nothing.
+1. Enumerates candidate actions: Explore, Expand, Unite (join a larger neighbour), Share knowledge (added after the M3 review), Raid (bands and chiefdoms), Build (a building, wonder or infrastructure item), Declare war, Seek peace, Propose trade, Propose alliance, non-aggression or road agreement, Send missionaries, Reform government, Focus investment (research, military or economy for the next period), Do nothing.
 2. Scores each candidate using only the polity's own knowledge and beliefs (see Knowledge of the world). Score = Σ over needs of (need × how much the action addresses it × value weight), all terms normalized to 0–1, then × feasibility (strength ratio, reachability, cost) − risk. Store the decomposition.
 3. Picks by weighted random among the top 3 scores above a minimum threshold, using the seeded RNG. Do nothing is always a candidate.
 4. Records the step in the decision log (see The Chronicle) and stores the top two or three contributing factors on the resulting event.
@@ -470,7 +486,7 @@ Every movement, attempt, success and failure records its causes (events: indepen
 
 The late game reuses every existing system; it adds one structural break (industrialization), one rare catastrophic action (nuclear use) and a set of prestige milestones (space).
 
-**Industrial break.** When a civ knows Industrialization and has usable coal (or later oil) and factories, its specialist output stops scaling only with food surplus and starts scaling with energy supply. Fertilizer multiplies farm yields, lifting the carrying-capacity ceiling. Railways and later highways reshape travel costs and governance reach. Combined with the demographic transition from Medicine, this produces rapid growth that then levels off. Which civ industrializes first should depend on coal deposits, tech exposure and stability, not on a script.
+**Industrial break.** When a civ knows Industrialization and has usable coal (or later oil) and factories, its specialist output stops scaling only with food surplus and starts scaling with energy supply. Fertilizer multiplies farm yields, lifting the carrying-capacity ceiling. Railways and later highways reshape travel costs and governance reach. Combined with the demographic transition from Medicine, this produces rapid growth that then levels off. Which civ industrializes first should depend on coal deposits, shared knowledge and stability, not on a script.
 
 **Nuclear power.** Uranium, Nuclear power and a nuclear power plant add a large energy supply, reducing dependence on coal and oil and changing which deposits matter in trade and war.
 
@@ -492,7 +508,7 @@ The simulation never writes prose; it emits structured events with causes, and a
 
 **Event schema:** id, date (year and month), type, actors (entity ids with roles, such as attacker or founder), location (region id, and settlement id where relevant), causes (list of factor name and weight, taken from the decision step or the triggering condition), parent event ids (what led to this), importance score, and type-specific data.
 
-**Event types (minimum set):** band spawned, band moved, band split, band absorbed, band joined, settled, expansion, settlement founded, settlement grew or shrank a tier, capital moved, building completed, wonder begun, wonder completed, wonder destroyed, road or bridge built, road agreement, settlement looted, settlement burned, settlement razed, ruins resettled, infrastructure destroyed, tech discovered, expedition, voyage lost at sea, discovery of new lands, first contact, trade agreement, non-aggression pact, alliance, vassalage or tribute, treaty cancelled, treaty broken, raid, war declared, battle-year summary (only when notable), region conquered, peace signed, ruler succession, succession crisis, government change, unrest, revolt, secession, civil war, civ destroyed, unification, independence movement, referendum, dissolution, culture split, hybrid culture formed, religion founded, schism, conversion of state religion, drought, climate shock, famine, plague, migration wave, refugees, knowledge lost, industrialization, nuclear use, space milestone.
+**Event types (minimum set):** band spawned, band moved, band split, band absorbed, band joined, settled, expansion, settlement founded, settlement grew or shrank a tier, capital moved, building completed, wonder begun, wonder completed, wonder destroyed, road or bridge built, road agreement, settlement looted, settlement burned, settlement razed, ruins resettled, infrastructure destroyed, tech discovered, expedition, voyage lost at sea, discovery of new lands, first contact, knowledge shared, trade agreement, non-aggression pact, alliance, vassalage or tribute, treaty cancelled, treaty broken, raid, war declared, battle-year summary (only when notable), region conquered, peace signed, ruler succession, succession crisis, government change, unrest, revolt, secession, civil war, civ destroyed, unification, independence movement, referendum, dissolution, culture split, hybrid culture formed, religion founded, schism, conversion of state religion, drought, climate shock, famine, plague, migration wave, refugees, knowledge lost, industrialization, nuclear use, space milestone.
 
 **Decision log.** Every decision step also records its candidates, their score decompositions, the effective values used and the chosen action in a separate decision log (queryable and inspectable, not shown on the timeline). Actions that change the world also emit their own events, which carry the decision's top factors as causes.
 
@@ -597,22 +613,23 @@ Acceptance:
 - Every band move and split is an event (band moved, band split) with its causes; at least half of moves cite game depletion or land pressure.
 - At year 500, the share of band population in regions with a coast, open-lake access or river tier ≥ river is at least 1.25× the share of land regions with those features.
 
-**M2 — Knowledge and resources.** Tech graph in data (full list through Atomic), base and specialist research with need, environment and exposure weights, diffusion, resource reveal and extraction gating, mobility levels and per-polity reachability, specialists from surplus, settling into civilizations with a named village capital.
+**M2 — Knowledge and resources.** Tech graph in data (full list through Atomic), base and specialist research with need, environment and exposure weights, diffusion (changed after the M3 review, 2 October 2026, at the user's request: exposure and automatic diffusion were replaced by catch-up and agreed sharing; see Knowledge and technology), resource reveal and extraction gating, mobility levels and per-polity reachability, specialists from surplus, settling into civilizations with a named village capital.
 
 - Lab: inspection shows known techs, current research and its weights, and specialists; markers colored by era; settled villages appear.
 - In most seeds, Agriculture is first discovered in a region in the top quartile of land regions by farming potential with river tier ≥ river or open-lake access; Agriculture is discovered by year 600 in every seed.
-- The mean annual compound growth rate of world population over the 300 years after a quarter of living polities know Agriculture is positive and at least 3× the rate over the 300 years before (that window clipped at year 0; if the earlier rate is zero or negative, the later rate must be at least 0.1% per year).
+- The mean annual compound growth rate of world population over the 300 years after a quarter of the world's people live in polities that know Agriculture is positive and at least 3× the rate over the 300 years before (that window clipped at year 0; if the earlier rate is zero or negative, the later rate must be at least 0.1% per year). (Changed after the M3 review, 2 October 2026, at the user's decision: it counted a quarter of living polities, which once peoples follow their own paths are mostly forager tribes absorbed before they farm, so the mark fell centuries after the farming boom.)
 - No polity ever holds or enters a region on another landmass before it knows Sailing (checked every month).
 - A test fails if any `RESOURCE_RULES` technology name is missing from the tech data.
 - **Then stop for user review** (rule 2).
 
-**M3 — Civilizations and borders.** Region ownership and the Expand action (decision step skeleton and decision log), band joining, peaceful unification of civilizations (the Unite action; added at the M3 review, 2 October 2026), governance reach, basic stability, per-polity region knowledge (observed, known, unknown) behind the query layer, land exploration, knowledge sharing between neighbors, first contact, migration between populated regions.
+**M3 — Civilizations and borders.** Region ownership and the Expand action (decision step skeleton and decision log), band joining, peaceful unification of civilizations (the Unite action; added at the M3 review, 2 October 2026), governance reach, basic stability, per-polity region knowledge (observed, known, unknown) behind the query layer, land exploration, knowledge sharing between neighbors (map knowledge, and the Share knowledge action added after the M3 review), first contact, migration between populated regions.
 
 - Lab: political lens (required), capitals, a civ list with population.
 - By year 1,000, every seed has 10–60 settled civs (fixed for acceptance: tune the simulation, not the range).
-- Borders follow barriers more than chance: the median land travel cost of edges between regions of different civs exceeds the median of all land region edges in every seed. (Changed at the M3 review, 2 October 2026, at the user's request: the 1.5× target moved to M6, when war shifts borders onto defensible lines.)
+- Borders follow barriers more than chance: the median land travel cost of edges between regions of different civs exceeds the median of land edges within civ-held land (both regions owned by a civ) in every seed. (Changed at the M3 review, 2 October 2026, at the user's request: the 1.5× target moved to M6, when war shifts borders onto defensible lines. Changed again after the M3 review, 2 October 2026, at the user's decision: it compared with all land edges, but now that farming spreads people by people, at year 1,000 civs hold only the easy farmland, so the empty mountains and deserts in "all land" made borders look easy.)
 - Every seed has at least one first-contact event.
 - Every unification is an event with its causes, and no civilization unites into a smaller one.
+- Knowledge moves only by invention, inheritance, merging, catch-up and agreed sharing: a test fails if any tech is researched faster because a people the polity has no active exchange with knows it, and every exchange is an event with its causes. Peoples follow different paths: in every seed, Agriculture is invented independently in at least three places, and at year 1,000 the settled civs are in at least two different eras. (Added after the M3 review, 2 October 2026, at the user's request.)
 - In a labelled test scenario with one settled civ alone on the largest landmass of seed `Chronicle`, the civ keeps expanding while reachable habitable land remains within its governance reach: its longest gap between expansions is under 50 years whenever its land pressure is above 0.5. The study reports every civ's longest gap between expansions.
 - A test or Biome rule fails if decision, diplomacy, trade, building-placement or exploration code imports a true-state accessor for other polities or for regions the polity does not know.
 
@@ -697,6 +714,7 @@ Report per seed and per century in the active brief, as a table and charts; tune
 | Settlements | cities appear by year 1,500; ruins exist after M6 |
 | Roads | network length grows in most centuries after Wheel is known; shrinks visibly after collapses |
 | Leading civ's techs and era (±300 years) | Agriculture by 300, Bronze by 1,000, Classical by 2,000, Industrial by 3,300, Atomic by 3,700; hard cap year 5,000 |
+| Knowledge divergence | peoples reach farming and the eras at different times: Agriculture invented independently in several places over two centuries or more; settled civs at year 1,000 span two or more eras and differ in what they know |
 | Decision mix | share of chosen actions in the decision log per century: no single action other than Do nothing above 60%; Do nothing below 70% |
 | Resource access | share of settled civs with usable copper and tin, iron, and coal, per century |
 
@@ -715,6 +733,7 @@ Report per seed and per century in the active brief, as a table and charts; tune
 | Starting techs | Foraging, Fire, Hunting and Fishing; Agriculture requires Pottery |
 | Early consolidation | bands settling within a civ's reach weigh joining it; civilizations weigh uniting with larger neighbours (M3, added at the M3 review); war-driven consolidation from M6 |
 | Research before surplus | small base research per person for every polity |
+| How knowledge spreads | invention, inheritance, merging, a small era catch-up and agreed sharing; never automatically through contact (changed after the M3 review, 2 October 2026) |
 | Carrying capacity | emerges from saturating production and food security |
 | Expansion and migration | graded pressure and opportunity, no hard thresholds |
 | Tin and oil | approved; added in G1 before M0 |

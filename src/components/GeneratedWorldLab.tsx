@@ -55,29 +55,30 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
           <span>{ACTION_NAMES[option.action]} {option.score.toFixed(2)}</span>
           <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
         </li>)}</ol>
-      </> : <p className="atlas-panel-note">No decision yet: a civilization weighs expanding, exploring or doing nothing every six months.</p>}
+      </> : <p className="atlas-panel-note">No decision yet: a civilization weighs expanding, exploring, uniting, sharing knowledge or doing nothing every six months.</p>}
     </section>}
     <section className="world-polity-knowledge" aria-label="Knowledge">
       <p className="atlas-detail-label">Research · {polity.researchPerYear.toLocaleString('en', { maximumFractionDigits: 1 })} points a year · {polity.contacts} contacts</p>
       <p className="atlas-panel-note" id="polity-map">Knows {number.format(polity.regionsKnown)} regions ({number.format(polity.regionsInSight)} in sight{civ ? '; the rest as last seen' : ''}) and has met {number.format(polity.met)} living {polity.met === 1 ? 'people' : 'peoples'}.</p>
       {research ? <>
         <h4 id="polity-research">{research.tech} <span>{Math.round(percent)}%</span></h4>
-        <p className="atlas-panel-note">{number.format(Math.round(research.progress))} of {number.format(Math.round(research.cost))} points{research.exposure > 0 ? ` · known nearby (exposure ${research.exposure.toFixed(2)})` : ''}.{research.reasons.length ? ` Chosen for ${research.reasons.map(reason => `${reason.factor} ${reason.weight >= 0 ? '+' : ''}${reason.weight.toFixed(2)}`).join(', ')}.` : ''}</p>
+        <p className="atlas-panel-note" id="polity-research-speed">{number.format(Math.round(research.progress))} of {number.format(Math.round(research.cost))} points{research.sharedBy ? ` · ×${research.shareSpeed.toFixed(1)} while the ${research.sharedBy} share what they know` : ''}{research.catchUp > 1 ? ` · ×${research.catchUp.toFixed(2)} catching up on an older era` : ''}.{research.reasons.length ? ` Chosen for ${research.reasons.map(reason => `${reason.factor} ${reason.weight >= 0 ? '+' : ''}${reason.weight.toFixed(2)}`).join(', ')}.` : ''}</p>
         {research.candidates.length > 0 && <ol className="world-research-candidates" aria-label="Research options by weight">{research.candidates.map(option => <li key={option.tech}><span>{option.tech}</span> <span>{option.weight.toPrecision(2)}</span></li>)}</ol>}
       </> : <p className="atlas-panel-note">Nothing left to research.</p>}
+      {polity.exchanges.length > 0 && <p className="atlas-panel-note" id="polity-exchanges">Shares knowledge with {polity.exchanges.map(entry => `the ${entry.name} (until year ${number.format(entry.until)})`).join(', ')}.</p>}
       <p className="world-known-techs" id="polity-known">Knows {polity.known.join(', ')}.</p>
     </section>
   </div>;
 }
 
-const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with' } as const;
-const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite' } as const;
+const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with' } as const;
+const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge' } as const;
 
 /** What a decision was aimed at: the region to expand into, or the civilization to unite with. */
 function decisionTarget(step: NonNullable<NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision']>) {
   const option = step.options.find(entry => entry.action === step.chosen);
   if (!option || option.target === null) return '';
-  return option.action === 'unite' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
+  return option.action === 'unite' || option.action === 'share' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
 }
 
 const formatPeople = (people: number) => people >= 1e6 ? `${(people / 1e6).toFixed(1)} M` : people >= 1e4 ? `${Math.round(people / 1e3)} k` : number.format(people);

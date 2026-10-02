@@ -2,7 +2,7 @@ import { cultureSimilarity } from './culture.ts';
 import { greatCircleKm } from './geography.ts';
 import { landPressure } from './pressure.ts';
 import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
-import { MOBILITY_TUNING, REACH_TUNING, UNITE_TUNING } from './tunables.ts';
+import { MOBILITY_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
@@ -180,6 +180,19 @@ export interface PolityView {
   regions: number; unrestShare: number; stability: number;
   /** Civilizations it has met whose land touches its own, as far as it knows them (VISION.md "Unification"). */
   neighbours: Neighbour[];
+  /** Peoples it is in contact with and could share knowledge with (none it shares with now or that refused lately),
+   *  and how many exchanges it has now. */
+  partners: Partner[]; exchanges: number;
+}
+
+/** A people in contact (met, within two regions) that a civilization could offer an exchange of knowledge (VISION.md "Sharing knowledge"). */
+export interface Partner {
+  polity: number; name: string; kind: 'band' | 'civ'; kin: boolean; similarity: number;
+  /** Techs it knows that they do not (it would teach), and techs they know that it does not (it would learn): peoples
+   *  in contact see what each other can do. */
+  teach: number; learn: number;
+  /** How likely they are to accept: from their Tradition, how alike their cultures are and what they would learn. */
+  willing: number;
 }
 
 export interface Neighbour {
@@ -280,6 +293,14 @@ export function governable(state: SimulationState, civ: Polity, groups: readonly
   return people > 0 ? fit / people : 0;
 }
 
+/** How ready a people is to accept an exchange: less with strong Tradition and another way of life, less when it would
+ *  learn little (VISION.md "Sharing knowledge"). The decision weighs it and `sharing.ts` draws with it. */
+export function willingness(tradition: number, similarity: number, gain: number) {
+  const tuning = SHARE_TUNING;
+  const open = Math.max(0, Math.min(1, 1 - tuning.refusal * tradition * (1 - similarity)));
+  return open * (tuning.gainBase + (1 - tuning.gainBase) * Math.min(1, gain / tuning.techScale));
+}
+
 export function decisionView(state: SimulationState, polity: Polity): PolityView {
   const regions = state.partition.regions, map = polity.map, sea = polity.knowledge.sea;
   const own = new Set<number>();
@@ -348,6 +369,24 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   if (frontierStamp.length !== regions.length) { frontierStamp = new Int32Array(regions.length); frontierMark = 0; }
   frontierMark++;
   for (const region of map.observed) for (const edge of regions[region].neighbors) if (map.status[edge.region] === UNKNOWN && frontierStamp[edge.region] !== frontierMark) { frontierStamp[edge.region] = frontierMark; unknownFrontier++; }
+  // Peoples in contact it could share knowledge with.
+  const partners: Partner[] = [];
+  let exchanges = 0;
+  for (const [other, until] of polity.exchanges) if (until > state.tick && state.polities[other].deathTick === null) exchanges++;
+  for (const other of polity.contacts) {
+    const them = state.polities[other];
+    if (them.deathTick !== null || (polity.exchanges.get(other) ?? 0) > state.tick) continue;
+    const refused = polity.exchangeRefused.get(other);
+    if (refused !== undefined && state.tick - refused < SHARE_TUNING.refusedYears * 12) continue;
+    let teach = 0, learn = 0;
+    for (let tech = 0; tech < them.knowledge.known.length; tech++) {
+      if (polity.knowledge.known[tech] && !them.knowledge.known[tech]) teach++;
+      else if (!polity.knowledge.known[tech] && them.knowledge.known[tech]) learn++;
+    }
+    const theirs = state.cultures[them.culture].values, similarity = cultureSimilarity(culture, theirs);
+    partners.push({ polity: other, name: them.name, kind: them.kind, kin: them.lineage === polity.lineage, similarity, teach, learn, willing: willingness(theirs.tradition, similarity, teach) });
+  }
+  partners.sort((a, b) => a.polity - b.polity);
   return {
     id: polity.id, tick: state.tick, values: { ...state.cultures[polity.culture].values }, sea, seaTick: polity.seaTick,
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
@@ -355,7 +394,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     ownValue: own.size ? value / own.size : 0,
     candidates: [...found.values()].sort((a, b) => a.region - b.region), unknownFrontier,
     regions: own.size, unrestShare: own.size ? unrest / own.size : 0, stability: own.size ? stable / own.size : 1,
-    neighbours: [...neighbours.values()].sort((a, b) => a.civ - b.civ),
+    neighbours: [...neighbours.values()].sort((a, b) => a.civ - b.civ), partners, exchanges,
   };
 }
 

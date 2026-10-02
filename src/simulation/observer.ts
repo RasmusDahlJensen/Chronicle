@@ -1,7 +1,7 @@
 import type { ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
-import { remaining } from './knowledge.ts';
-import { exposureOf, researchRate } from './research.ts';
+import { speedOf } from './knowledge.ts';
+import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { capitalKm, knownRegionCount } from './perception.ts';
 import { stabilityOf } from './stability.ts';
@@ -70,7 +70,8 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   const output = (method: number) => Math.round(Math.max(0, yields[method] * labor[at + method] * (1 - Math.exp(-workers[method] / Math.max(labor[at + method], 1e-9)))));
   let view: NonNullable<ObserverFrame['inspect']>['polity'] = null;
   if (polity && group) {
-    const knowledge = polity.knowledge, target = knowledge.target, exposure = target < 0 ? 0 : exposureOf(state, polity, target);
+    const knowledge = polity.knowledge, target = knowledge.target, teacher = target < 0 ? -1 : teacherOf(state, polity, target);
+    const speed = target < 0 ? null : speedOf(target, { shared: () => teacher >= 0, frontier: polity.frontierEra, openness: state.cultures[polity.culture].values.openness });
     const capital = polity.capital === null ? null : state.settlements[polity.capital];
     const kmFromCapital = capitalKm(state, polity, region);
     view = {
@@ -90,9 +91,11 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
         return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
-      research: target < 0 ? null : {
-        tech: TECHS[target].name, progress: round(knowledge.progress[target], 1), exposure: round(exposure),
-        cost: round(knowledge.progress[target] + Math.max(0, remaining(knowledge, exposure)), 1),
+      exchanges: [...polity.exchanges].filter(([other, until]) => until > state.tick && state.polities[other].deathTick === null).slice(0, 64)
+        .map(([other, until]) => ({ id: other, name: state.polities[other].name, until: Math.floor(until / 12) })),
+      research: target < 0 || !speed ? null : {
+        tech: TECHS[target].name, progress: round(knowledge.progress[target], 1), cost: TECHS[target].cost,
+        sharedBy: teacher >= 0 ? state.polities[teacher].name : null, shareSpeed: round(speed.share, 2), catchUp: round(speed.catchUp, 2),
         reasons: knowledge.reasons.slice(0, 8), candidates: knowledge.candidates.slice(0, 8).map(entry => ({ tech: TECHS[entry.tech].name, weight: Math.max(0, entry.weight) })),
       },
     };

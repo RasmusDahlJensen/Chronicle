@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 9;
+export const SIMULATION_PROTOCOL_VERSION = 10;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -28,7 +28,7 @@ export const EVENT_TYPES = [
   'governmentChange', 'unrest', 'revolt', 'secession', 'civilWar', 'civDestroyed', 'cultureSplit', 'hybridCulture',
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
-  'unification', 'independenceMovement', 'referendum', 'dissolution',
+  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -139,18 +139,23 @@ export const ObserverFrameSchema = Type.Object({
       }, { additionalProperties: false })]),
       /** Its last decision step: every option with its score and factors, what it chose and what came of it. */
       lastDecision: Type.Union([Type.Null(), Type.Object({
-        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite')]),
+        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share')]),
         outcome: Type.String({ maxLength: 80 }),
         options: Type.Array(Type.Object({
-          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite')]), score: Type.Number(),
-          /** The region to expand into, or the civilization to unite with; and that civilization's name. */
+          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share')]), score: Type.Number(),
+          /** The region to expand into, or the civilization to unite or share knowledge with; and that people's name. */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
           factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
         }, { additionalProperties: false }), { maxItems: 4 }),
       }, { additionalProperties: false })]),
-      /** The active research target, its progress and cost at the current exposure, why it was chosen, and the strongest options at the last choice. */
+      /** Peoples it shares knowledge with (VISION.md "Sharing knowledge") and the year each exchange ends. */
+      exchanges: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), until: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 64 }),
+      /** The active research target, its progress and cost, why it was chosen, and the strongest options at the last
+       *  choice; how much faster it goes now: the sharing partner that knows it (its name, else null) and that speed-up,
+       *  and the catch-up speed-up (1 when none applies). */
       research: Type.Union([Type.Null(), Type.Object({
-        tech: Type.String({ maxLength: 40 }), progress: Type.Number({ minimum: 0 }), cost: Type.Number({ minimum: 0 }), exposure: Type.Number({ minimum: 0, maximum: 1 }),
+        tech: Type.String({ maxLength: 40 }), progress: Type.Number({ minimum: 0 }), cost: Type.Number({ minimum: 0 }),
+        sharedBy: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]), shareSpeed: Type.Number({ minimum: 1 }), catchUp: Type.Number({ minimum: 1 }),
         reasons: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
         candidates: Type.Array(Type.Object({ tech: Type.String({ maxLength: 40 }), weight: Type.Number({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 8 }),
       }, { additionalProperties: false })]),
@@ -241,7 +246,7 @@ export function parseRegionMap(value: unknown): { map: RegionMap; cells: Uint16A
   return { map, cells };
 }
 
-/** M2 facts in the worker's study report (VISION.md M2 acceptance): firsts, where Agriculture began, when a quarter of living polities knew it. */
+/** M2 facts in the worker's study report (VISION.md M2 acceptance): firsts, where Agriculture began, when a quarter of the world's people lived in polities that knew it. */
 export interface KnowledgeReport {
   firsts: { tech: string; era: string; year: number; region: number }[];
   /** First year any polity reached each era. */

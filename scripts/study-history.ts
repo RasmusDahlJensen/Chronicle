@@ -91,8 +91,9 @@ function storyHealth(rows: SeedResult[]) {
     if (stats.year > 1000 && stats.year % 500 !== 0) continue;
     lines.push(`| ${result.seed} | ${stats.year} | ${stats.polities} | ${stats.tribes} | ${stats.bands} | ${stats.civs} | ${stats.settlements} | ${stats.population.toLocaleString('en')} | ${stats.specialists.toLocaleString('en')} | ${Math.round(stats.agricultureShare * 100)}% | ${ERA_NAMES[stats.leadingEra]} | ${stats.occupiedRegions} | ${stats.largestRegions} | ${(stats.largestShare * 100).toFixed(1)}% | ${(stats.waterPopulationShare * 100).toFixed(0)}% (${(stats.waterRegionShare * 100).toFixed(0)}%) | ${stats.bandMoves} | ${stats.bandSplits} (${stats.bandBreakaways}) | ${stats.firstContacts} | ${stats.civKnownRegions} | ${stats.famineDeaths.toLocaleString('en')} | ${stats.events} |`);
   }
-  // M2 acceptance (VISION.md): where and when Agriculture began, and world growth around the year a quarter knew it.
-  lines.push('', '| Seed | First Agriculture (year) | Region: top-quartile farming, river tier, open lake | A quarter know it (year) | Growth 300 years before → after | After ÷ before | Plateau windows (first 1,000 years) | Eras first reached |',
+  // M2 acceptance (VISION.md): where and when Agriculture began, and world growth around the year a quarter of the
+  // world's people lived in polities that knew it.
+  lines.push('', '| Seed | First Agriculture (year) | Region: top-quartile farming, river tier, open lake | A quarter of people know it (year) | Growth 300 years before → after | After ÷ before | Plateau windows (first 1,000 years) | Eras first reached |',
     '| --- | ---: | --- | ---: | --- | ---: | --- | --- |');
   for (const result of rows) {
     const { knowledge, series } = result.report, agriculture = knowledge.agriculture;
@@ -105,26 +106,35 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${agriculture ? agriculture.year.toFixed(0) : 'not yet'} | ${agriculture ? `${agriculture.topQuartile ? 'yes' : 'no'}, ${RIVER_TIERS[agriculture.riverTier]}, ${agriculture.openLake ? 'yes' : 'no'}` : '—'} | ${quarter > 0 ? quarter : '—'} | ${growth} | ${factor} | ${plateaus(series).join(', ') || 'none'} | ${knowledge.eras.map(entry => `${entry.era} ${Math.round(entry.year)}`).join(', ')} |`);
   }
   // M3 acceptance (VISION.md): settled civilizations at 1,000, borders along barriers, first contact, expansion gaps.
-  lines.push('', '| Seed | Civilizations at 1,000 (10–60) | Border ratio at 1,000 / 3,000 (M3: > 1.0; M6: ≥ 1.5 by 3,000) | First contacts by 1,000 | Longest gap between expansions, median / max (years) | By 1,000: tribes joined · unions · expansions · bands taken in · bands moved on · expeditions · migrants | Unrest at 1,000: regions (outbreaks so far) · mean stability |',
+  lines.push('', '| Seed | Civilizations at 1,000 (10–60) | Border ratio against civilization land at 1,000 / 3,000 (M3: > 1.0) · against all land at 1,000 / 3,000 (M6: ≥ 1.5 by 3,000) | First contacts by 1,000 | Longest gap between expansions, median / max (years) | By 1,000: tribes joined · unions · expansions · bands taken in · bands moved on · expeditions · migrants | Unrest at 1,000: regions (outbreaks so far) · mean stability |',
     '| --- | ---: | --- | ---: | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year);
     const y1000 = at(1000), y3000 = at(3000), gaps = [...result.report.politics.longestExpansionGaps].sort((a, b) => a - b);
     const gap = gaps.length ? `${gaps[Math.floor(gaps.length / 2)]} / ${gaps[gaps.length - 1]}` : '—';
-    lines.push(`| ${result.seed} | ${y1000?.civs ?? '—'} | ${y1000?.borderRatio ?? '—'} / ${y3000?.borderRatio ?? '—'} | ${y1000?.firstContacts ?? '—'} | ${gap} | ${y1000 ? `${y1000.joined} · ${y1000.unions} · ${y1000.expansions} · ${y1000.absorbed} · ${y1000.displaced} · ${y1000.expeditions} · ${y1000.migrants.toLocaleString('en')}` : '—'} | ${y1000 ? `${y1000.unrestRegions} (${y1000.unrestOutbreaks}) · ${y1000.meanStability}` : '—'} |`);
+    lines.push(`| ${result.seed} | ${y1000?.civs ?? '—'} | ${y1000?.borderRatio ?? '—'} / ${y3000?.borderRatio ?? '—'} · ${y1000?.borderRatioAll ?? '—'} / ${y3000?.borderRatioAll ?? '—'} | ${y1000?.firstContacts ?? '—'} | ${gap} | ${y1000 ? `${y1000.joined} · ${y1000.unions} · ${y1000.expansions} · ${y1000.absorbed} · ${y1000.displaced} · ${y1000.expeditions} · ${y1000.migrants.toLocaleString('en')}` : '—'} | ${y1000 ? `${y1000.unrestRegions} (${y1000.unrestOutbreaks}) · ${y1000.meanStability}` : '—'} |`);
+  }
+  // Research paths (VISION.md "Paths, not a timeline", M3 acceptance added after the M3 review): independent
+  // inventions of Agriculture, the civilizations' eras and how much they differ in what they know, and exchanges.
+  lines.push('', '| Seed | Agriculture invented independently by 1,000 / 3,000 | Polities knowing Agriculture at 700 / 1,000 | Civilization eras at 1,000 / 2,000 / 3,000 | Fewest–most techs a civilization knows at 1,000 / 2,000 / 3,000 | Exchanges agreed (with tribes) of offered, by 1,000 / 3,000 |',
+    '| --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year);
+    const show = (years: number[], value: (row: Stats) => string | number) => years.map(year => { const row = at(year); return row ? value(row) : '—'; }).join(' / ');
+    lines.push(`| ${result.seed} | ${show([1000, 3000], row => row.agricultureInventions)} | ${show([700, 1000], row => `${Math.round(row.agricultureShare * 100)}%`)} | ${show([1000, 2000, 3000], row => row.civEras)} | ${show([1000, 2000, 3000], row => `${row.civTechsMin}–${row.civTechsMax}`)} | ${show([1000, 3000], row => `${row.exchanges} (${row.tribeExchanges}) of ${row.exchangeOffers}`)} |`);
   }
   // Story health: the decision mix per century (share of decision steps by chosen action).
-  lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[];
     for (let at = 1; at < stats.length; at++) {
       const row = stats[at], previous = stats[at - 1];
       if (row.year > 1000 && row.year % 500 !== 0) continue;
       const expand = row.chosenExpand - previous.chosenExpand, explore = row.chosenExplore - previous.chosenExplore, nothing = row.chosenNothing - previous.chosenNothing;
-      const unite = (row.chosenUnite ?? 0) - (previous.chosenUnite ?? 0), total = expand + explore + unite + nothing;
+      const unite = (row.chosenUnite ?? 0) - (previous.chosenUnite ?? 0), sharing = (row.chosenShare ?? 0) - (previous.chosenShare ?? 0), total = expand + explore + unite + sharing + nothing;
       if (!total) continue;
       const share = (count: number) => `${(count / total * 100).toFixed(1)}%`;
-      lines.push(`| ${result.seed} | ${row.year} | ${total.toLocaleString('en')} | ${share(expand)} | ${share(explore)} | ${share(unite)} | ${share(nothing)} |`);
+      lines.push(`| ${result.seed} | ${row.year} | ${total.toLocaleString('en')} | ${share(expand)} | ${share(explore)} | ${share(unite)} | ${share(sharing)} | ${share(nothing)} |`);
     }
   }
   // M1 acceptance (VISION.md), read from the same run.

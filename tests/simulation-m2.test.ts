@@ -5,18 +5,17 @@ import { generateWorld } from '../src/world/generation/generate.ts';
 import { farmingPotential } from '../src/simulation/food.ts';
 import { decodeGeography } from '../src/simulation/geography.ts';
 import { checkInvariants, InvariantError } from '../src/simulation/invariants.ts';
-import { learn } from '../src/simulation/knowledge.ts';
-import { exposureOf } from '../src/simulation/research.ts';
+import { catchUp, learn, shareSpeed } from '../src/simulation/knowledge.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { createSimulation, stepSimulation, worldPopulation } from '../src/simulation/simulation.ts';
-import { TECH_INDEX } from '../src/simulation/techs.ts';
+import { ERAS, TECH_INDEX, TECHS } from '../src/simulation/techs.ts';
 import { expand, unite } from '../src/simulation/expansion.ts';
 import { decisionView } from '../src/simulation/perception.ts';
 import { assess } from '../src/simulation/stability.ts';
 import { edgeKm } from '../src/simulation/perception.ts';
 import { STABILITY_TUNING } from '../src/simulation/tunables.ts';
 import type { Rng } from '../src/simulation/rng.ts';
-import { refuge } from '../src/simulation/bands.ts';
+import { polityPopulation, refuge } from '../src/simulation/bands.ts';
 
 async function chronicleWorld() {
   const bundle = encodeGeneratedWorld(await generateWorld({ seed: 'Chronicle', size: 'large' }));
@@ -31,33 +30,73 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   const state = createSimulation(geography, partition, 'Chronicle');
   // Every tick runs the invariants, including the rule that no polity holds another landmass before Sailing.
   const population = [worldPopulation(state)];
-  let viaNeighbours = 0;
+  let taughtDiscoveries = 0;
   let exercised = false;
   while (state.tick < 12 * 900) {
     // Once civilizations and tribes live side by side, carry out expansions into tribes' land directly (between months,
     // so the next month's accounting starts from the result): a band the settlers could not replace is taken in, and
     // one with land to go to that will not join moves on and the settlers found a village.
     if (!exercised && state.tick >= 12 * 560) exercised = exerciseExpansion(state);
-    // Knowledge moves at most one contact a month: whoever learns Agriculture from neighbours this month has a contact
-    // that knew it when the month began.
-    const knew = new Uint8Array(state.polities.length);
-    for (const id of state.living) knew[id] = state.polities[id].knowledge.known[AGRICULTURE];
+    // No automatic learning (VISION.md "Paths, not a timeline"): a tech is researched faster only when a people with an
+    // exchange in force knows it, and otherwise only by the catch-up for its era. Each polity's progress on its target
+    // this month must be its own research × exactly those speed-ups (polities due for their yearly reconsideration,
+    // which may switch target or refresh the frontier, are skipped that month).
+    const tick = state.tick;
+    const before = new Map<number, { tech: number; progress: number; taught: number; caught: number; frontier: number; openness: number; partners: number[]; helped: boolean; all: Float64Array }>();
+    for (const id of state.living) {
+      const polity = state.polities[id], tech = polity.knowledge.target;
+      const partners = [...polity.exchanges].filter(([other, until]) => until > tick && state.polities[other].deathTick === null).map(([other]) => other);
+      before.set(id, {
+        tech, progress: tech < 0 ? 0 : polity.knowledge.progress[tech], taught: tech < 0 ? 0 : polity.knowledge.taught[tech], caught: tech < 0 ? 0 : polity.knowledge.caught[tech],
+        frontier: polity.frontierEra, openness: state.cultures[polity.culture].values.openness, partners,
+        helped: tech >= 0 && partners.some(other => state.polities[other].knowledge.known[tech] === 1), all: polity.knowledge.taught.slice(),
+      });
+    }
     const from = state.chronicle.events.length;
     stepSimulation(state);
+    const discovered = new Set<string>();
+    for (const event of state.chronicle.events.slice(from)) if (event.type === 'techDiscovered') discovered.add(`${event.actors[0].id}:${event.data.tech}`);
+    for (const [id, entry] of before) {
+      const polity = state.polities[id], knowledge = polity.knowledge;
+      // A partner may also know the tech by a tribe joining it earlier this month (merging, in the population system);
+      // never by its own discovery this month.
+      const helper = (tech: number) => entry.partners.some(other => state.polities[other].knowledge.known[tech] === 1 && !discovered.has(`${other}:${TECHS[tech].name}`));
+      for (let tech = 0; tech < knowledge.taught.length; tech++) if (knowledge.taught[tech] > entry.all[tech]) assert.ok(helper(tech), `polity ${id} was helped with tech ${tech} in month ${tick} by no people sharing it`);
+      // Frontier: never beyond what it knows of (eras only grow until M7, so the eras now bound those it saw).
+      let known = knowledge.era;
+      for (const [other] of polity.met) known = Math.max(known, state.polities[other].knowledge.era);
+      assert.ok(polity.frontierEra <= known, `polity ${id}'s frontier era ${polity.frontierEra} is beyond any people it knows (${known})`);
+      if (entry.tech < 0 || knowledge.target !== entry.tech || ((tick - id) % 12 + 12) % 12 === 0 || polity.deathTick !== null) continue;
+      const tech = entry.tech, gained = knowledge.progress[tech] - entry.progress;
+      if (!(gained > 0)) continue;
+      const taught = knowledge.taught[tech] - entry.taught, caught = knowledge.caught[tech] - entry.caught, own = gained - taught - caught;
+      const share = taught > 0 ? shareSpeed(entry.openness) : 1, era = catchUp(ERAS.indexOf(TECHS[tech].era), entry.frontier);
+      if (taught > 0) assert.ok(entry.helped || helper(tech), `polity ${id} was helped with tech ${tech} by no people sharing it`);
+      // (Floating-point error grows with the size of the accumulated progress, not with this month's gain.)
+      const tolerance = 1e-9 * Math.max(gained, knowledge.progress[tech]);
+      assert.ok(own > 0 && Math.abs(gained - own * share * era) <= tolerance && Math.abs(caught - own * (era - 1)) <= tolerance,
+        `polity ${id}, month ${tick}: progress ${gained} from own research ${own} is not ×${share} sharing × ${era} catch-up`);
+    }
     for (const event of state.chronicle.events.slice(from)) {
-      if (event.type !== 'techDiscovered' || event.data.tech !== 'Agriculture' || !event.causes.some(cause => cause.factor === 'exposure')) continue;
-      const learner = state.polities[event.actors[0].id];
-      assert.ok(learner.contacts.some(other => knew[other]), `polity ${learner.id} learned Agriculture in month ${event.tick} from a contact who knew it before`);
-      viaNeighbours++;
+      // Peoples that become one keep what either knew.
+      if (event.type === 'bandJoined' || event.type === 'unification' || event.type === 'bandAbsorbed') {
+        const ended = state.polities[event.actors[0].id], into = state.polities[event.actors[1].id];
+        assert.ok(ended.knowledge.known.every((known, tech) => !known || into.knowledge.known[tech] === 1), `the ${into.name} learned what the ${ended.name} knew`);
+      }
+      if (event.type !== 'techDiscovered') continue;
+      const helped = event.causes.find(cause => cause.factor === 'sharedKnowledge'), teacher = event.actors.find(actor => actor.role === 'teacher');
+      // A discovery helped by a partner names it when the exchange still runs; one never helped names none.
+      if (teacher) { assert.ok(helped && event.data.taught === true); assert.ok(state.polities[event.actors[0].id].exchanges.has(teacher.id)); taughtDiscoveries++; }
+      if (!helped) assert.ok(!teacher && event.data.taught === false);
     }
     if (state.tick % 12 === 0) population.push(worldPopulation(state));
-    // The exposure cache, wherever it is valid, equals a fresh count.
-    if (state.tick % 60 === 0) for (const id of state.living) {
-      const polity = state.polities[id], cache = polity.exposure;
-      if (cache.tech >= 0 && cache.learned === state.learnedCount[cache.tech] && cache.deaths === state.deathCount) assert.equal(cache.value, exposureOf(state, polity, cache.tech));
-    }
   }
-  assert.ok(viaNeighbours > 100, `${viaNeighbours} polities learned Agriculture from neighbours`);
+  // Sharing is chosen, not automatic, so it is rare; but it happens, every exchange is an event with its causes, and
+  // some discoveries are helped by it.
+  assert.ok(taughtDiscoveries > 0, `${taughtDiscoveries} discoveries helped by a sharing partner`);
+  const exchanges = state.chronicle.events.filter(event => event.type === 'knowledgeShared');
+  assert.ok(exchanges.length > 0 && exchanges.length === state.metrics.exchanges && exchanges.length <= state.metrics.exchangeOffers, `${exchanges.length} exchanges`);
+  assert.ok(exchanges.every(event => event.causes.length > 0 && state.polities[event.actors[0].id].kind === 'civ'), 'a civilization offered each exchange, for reasons');
   const first = state.firsts.find(entry => entry.tech === AGRICULTURE);
   assert.ok(first, 'Agriculture is discovered');
   assert.ok(first.tick <= 600 * 12, `Agriculture by year 600 (year ${first.tick / 12})`);
@@ -65,9 +104,11 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   const potentials = partition.regions.map(entry => farmingPotential(state.food, entry.id)).sort((a, b) => a - b);
   assert.ok(farmingPotential(state.food, region.id) >= potentials[Math.floor(potentials.length * 0.75)], 'first in a top-quartile farming region');
   assert.ok(region.riverTier >= 2 || region.openLake, 'by a river or with open-lake access');
-  // Growth after a quarter of living polities know Agriculture is at least 3× the growth before.
+  // Growth after a quarter of the world's people live in polities that know Agriculture is at least 3× the growth before
+  // (VISION.md M2, changed after the M3 review: it counted polities, which are mostly forager tribes once peoples
+  // follow their own paths).
   const quarter = Math.floor(state.agricultureQuarterYear);
-  assert.ok(quarter > 0 && quarter + 300 <= 900, `a quarter know Agriculture in year ${quarter}`);
+  assert.ok(quarter > 0 && quarter + 300 <= 900, `a quarter of the world's people know Agriculture in year ${quarter}`);
   const rate = (from: number, to: number) => (population[to] / population[from]) ** (1 / (to - from)) - 1;
   const before = rate(Math.max(0, quarter - 300), quarter), after = rate(quarter, quarter + 300);
   const grows = before <= 0 ? after >= 0.001 : after > 0 && after >= 3 * before;
@@ -76,14 +117,28 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   assert.equal(state.metrics.silentBandYears, 0, 'every band of 50 or more has births and deaths every year');
   assert.ok(state.metrics.maxOverCapacityMonths <= 24, `no region above 1.1× capacity for more than 24 months (${state.metrics.maxOverCapacityMonths})`);
   // Farmers settled into civilizations with village capitals; discoveries record why.
+  // (Since peoples follow their own paths, many small forager tribes remain that never farmed; it is the farmers who
+  // settle, and they hold almost everyone.)
   const civs = state.living.filter(id => state.polities[id].kind === 'civ');
-  assert.ok(civs.length > state.living.length / 2, `${civs.length} of ${state.living.length} polities settled`);
+  const farming = state.living.filter(id => state.polities[id].knowledge.methods.farm || state.polities[id].knowledge.methods.herd);
+  const settledFarmers = farming.filter(id => state.polities[id].kind === 'civ').length;
+  assert.ok(settledFarmers * 2 > farming.length, `${settledFarmers} of ${farming.length} farming or herding polities settled`);
+  const inCivs = civs.reduce((sum, id) => sum + polityPopulation(state, state.polities[id]), 0);
+  assert.ok(inCivs * 2 > worldPopulation(state), `${inCivs} of ${worldPopulation(state)} people live in civilizations`);
   for (const id of civs) assert.equal(state.settlements[state.polities[id].capital!].owner, id);
   const discoveries = state.chronicle.events.filter(event => event.type === 'techDiscovered');
   assert.equal(discoveries.length, state.metrics.discoveries);
   // Every discovery says how it was reached; the first Agriculture also says why it was chosen there.
-  assert.ok(discoveries.every(event => event.causes.some(cause => cause.factor === 'exposure' && cause.weight > 0) || event.causes.some(cause => cause.factor === 'ownResearch' && cause.weight >= 0.99)),
-    'learned from neighbours, or invented with the polity\'s own research');
+  // How it was reached: shares of its progress from its own research, a sharing partner's help and catching up.
+  for (const event of discoveries) {
+    const share = (factor: string) => event.causes.find(cause => cause.factor === factor)?.weight ?? 0;
+    assert.ok(share('ownResearch') > 0 && Math.abs(share('ownResearch') + share('sharedKnowledge') + share('catchUp') - 1) < 0.005, JSON.stringify(event.causes));
+  }
+  // Peoples follow their own paths: Agriculture is invented, with no sharing partner's help, in several places over
+  // centuries (VISION.md M3, added after the M3 review).
+  const inventions = discoveries.filter(event => event.data.tech === 'Agriculture' && !event.causes.some(cause => cause.factor === 'sharedKnowledge'));
+  assert.equal(inventions.length, state.metrics.agricultureInventions);
+  assert.ok(inventions.length >= 3 && inventions.at(-1)!.tick - inventions[0].tick >= 200 * 12, `Agriculture invented ${inventions.length} times, in years ${inventions.map(event => Math.round(event.tick / 12)).join(', ')}`);
   const invention = discoveries.find(event => event.data.tech === 'Agriculture' && event.data.first === true)!;
   // The record of firsts and the event name the same place: where the inventors live on the land that drew them to it.
   assert.equal(invention.region, first.region);
@@ -177,6 +232,21 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
     band.kind = 'civ'; for (const group of band.groups) state.owner[state.groups[group].region] = band.id;
   }, /has no village there/);
   tamper(state => { state.groups[state.polities[state.living[3]].core].planted += 100; }, /crops in the field/);
+  // Knowledge: an exchange held by one side only, an exchange between two tribes, research on a known tech, or more
+  // progress from speed-ups than in all. (Knowledge is checked yearly per polity, staggered by id; these tamper with
+  // a polity due this month.)
+  const due = (state: ReturnType<typeof createSimulation>) => state.polities[state.living.find(id => (state.tick + id) % 12 === 0)!];
+  // (Early on every polity is a tribe: an exchange between two of them breaks the rule even when both sides hold it.)
+  const tribeExchange = (state: ReturnType<typeof createSimulation>, oneSided: boolean) => {
+    const polity = due(state), other = state.polities[state.living.find(id => id !== polity.id)!];
+    polity.met.set(other.id, 0); other.met.set(polity.id, 0);
+    polity.exchanges.set(other.id, state.tick + 120);
+    if (!oneSided) other.exchanges.set(polity.id, state.tick + 120);
+  };
+  tamper(state => tribeExchange(state, true), /not the other way round/);
+  tamper(state => tribeExchange(state, false), /only civilizations offer it/);
+  tamper(state => { const knowledge = due(state).knowledge; knowledge.progress[TECH_INDEX.get('Fire')!] = 5; }, /which it knows/);
+  tamper(state => { const knowledge = due(state).knowledge, pottery = TECH_INDEX.get('Pottery')!; knowledge.progress[pottery] = 10; knowledge.taught[pottery] = 8; knowledge.caught[pottery] = 4; }, /less than its speed-ups gave/);
 });
 
 /** A stand-in for a random stream whose chances always fail (the band never agrees to join). */

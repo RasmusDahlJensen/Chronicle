@@ -4,14 +4,18 @@ import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { decodeGeography } from '../src/simulation/geography.ts';
-import { arrive, decisionView, emptyMap, hasMet, inheritContacts, KNOWN, knownRegions, lookAgain, observe, regionView, shareSurroundings, UNKNOWN, type Candidate, type PolityView } from '../src/simulation/perception.ts';
-import { choose, drivers, expansionScore, explorationScore, options, unionScore } from '../src/simulation/decisions/choose.ts';
+import { arrive, decisionView, emptyMap, hasMet, inheritContacts, KNOWN, knownRegions, lookAgain, observe, regionView, shareSurroundings, UNKNOWN, willingness, type Candidate, type PolityView } from '../src/simulation/perception.ts';
+import { bestShare, choose, drivers, expansionScore, explorationScore, options, shareScore, unionScore } from '../src/simulation/decisions/choose.ts';
 import { chooseJoin, joinOptions, joinScore } from '../src/simulation/decisions/join.ts';
 import { stabilityOf } from '../src/simulation/stability.ts';
 import { unrestDepth } from '../src/simulation/pressure.ts';
-import type { JoinOption, JoinView, Neighbour } from '../src/simulation/perception.ts';
+import type { JoinOption, JoinView, Neighbour, Partner } from '../src/simulation/perception.ts';
+import { share } from '../src/simulation/sharing.ts';
+import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
+import { teacherOf } from '../src/simulation/research.ts';
+import { TECH_INDEX } from '../src/simulation/techs.ts';
 import { createRng } from '../src/simulation/rng.ts';
-import { DECISION_TUNING, REACH_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
+import { DECISION_TUNING, REACH_TUNING, SHARE_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { soleCivilization } from '../src/simulation/scenarios.ts';
 import { stepSimulation } from '../src/simulation/simulation.ts';
@@ -173,7 +177,7 @@ test('a tribe that settles starts to remember; a newer view is kept when neighbo
 function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] = []): PolityView {
   return {
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
-    reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [],
+    reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
     candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, ...entry })),
     ...overrides,
   };
@@ -200,7 +204,7 @@ test('decision scores: crowding, good land and Expansionism draw a civilization 
   // Do nothing is always weighed; the choice is weighted random among the best options above the minimum.
   const all = options(view({ unknownFrontier: 8 }, [{}]));
   assert.deepEqual(all.map(option => option.action).sort(), ['expand', 'explore', 'nothing']);
-  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0 };
+  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0 };
   for (let draw = 0; draw < 2000; draw++) picks[choose(view({ unknownFrontier: 8 }, [{}]), createRng(5, draw)).chosen.action]++;
   assert.ok(picks.expand > picks.explore && picks.explore > 0 && picks.nothing > 0, JSON.stringify(picks));
 });
@@ -268,4 +272,65 @@ test('uniting: kin, a much larger and better-kept neighbour and its own troubles
   assert.equal(option.label, 'Ora'); assert.equal(option.target, 7);
   // Uniting competes with the other actions at the same step.
   assert.ok(options(view({ regions: 4, neighbours: [neighbour({ kin: true, knownRegions: 200 })] }, [{}])).some(entry => entry.action === 'unite'));
+});
+
+test('sharing knowledge: what it would learn, kinship, likeness and Openness draw a civilization to share; Tradition and an unwilling people hold it back', () => {
+  const partner = (entry: Partial<Partner> = {}): Partner => ({ polity: 9, name: 'Kesh', kind: 'civ', kin: false, similarity: 0.6, teach: 2, learn: 2, willing: 0.8, ...entry });
+  const score = (entry: Partial<Partner>, values: Partial<PolityView['values']> = {}) => shareScore(view({ values: { ...view({}).values, ...values } }), partner(entry)).score;
+  assert.ok(score({ learn: 4 }) > score({ learn: 0 }), 'what it would learn');
+  assert.ok(score({ kin: true }) > score({}), 'kin');
+  assert.ok(score({ similarity: 0.9 }) > score({ similarity: 0.1 }), 'a like-minded people');
+  assert.ok(score({}, { openness: 0.9 }) > score({}, { openness: 0.1 }), 'Openness');
+  assert.ok(score({}, { tradition: 0.9 }) < score({}, { tradition: 0.1 }), 'Tradition holds it back');
+  assert.ok(score({ willing: 0.2 }) < score({ willing: 0.9 }), 'a people unlikely to accept');
+  assert.equal(score({ teach: 0, learn: 0 }), Number.NEGATIVE_INFINITY, 'nothing to teach or learn');
+  // What it would learn is the main draw. With nothing to learn, only an open people of little Tradition teaches its
+  // kin for nothing in return; an ordinary people does not bother.
+  assert.ok(score({ learn: 4 }) > DECISION_TUNING.doNothing, 'a people that knows much it lacks is worth an exchange');
+  assert.ok(score({ learn: 0, teach: 4, kin: true }, { openness: 0.9, tradition: 0.1 }) > DECISION_TUNING.minScore);
+  assert.ok(score({ learn: 0, teach: 4, kin: true }) < DECISION_TUNING.minScore);
+  // Each exchange it already keeps up makes another less attractive.
+  assert.ok(shareScore(view({ exchanges: 2 }), partner({ learn: 4 })).score < shareScore(view({}), partner({ learn: 4 })).score);
+  const option = bestShare(view({ partners: [partner({ polity: 4, learn: 0 }), partner({ polity: 5, learn: 4 })] }))!;
+  assert.equal(option.target, 5); assert.equal(option.label, 'Kesh'); assert.equal(option.action, 'share');
+  assert.ok(drivers(option).every(entry => !entry.factor.startsWith('×')), 'the willingness is a multiplier, never a cause');
+  assert.ok(options(view({ partners: [partner()] })).some(entry => entry.action === 'share'), 'sharing competes with the other actions');
+  // The other side: strong Tradition and another way of life make it refuse; so, partly, does having nothing to gain.
+  assert.equal(willingness(0, 0.2, 4), 1);
+  assert.ok(willingness(0.9, 0.2, 4) < willingness(0.9, 0.9, 4) && willingness(0.9, 0.9, 4) < 1);
+  assert.equal(willingness(0, 0.5, 0), SHARE_TUNING.gainBase, 'a people that would learn nothing is less ready to give');
+});
+
+test('an exchange runs both ways for decades, is an event with its causes, and a refusal is remembered', () => {
+  const { state, polity } = strip();
+  Object.assign(state, { cultures: [{ values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.2, expansionism: 0.5 } }, { values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 1, expansionism: 0.5 } }],
+    settlements: [{ region: 0 }], metrics: { firstContacts: 0, exchanges: 0 } });
+  const civ = polity('civ', 'Ora', 0), tribe = polity('band', 'Kesh', 1), stubborn = polity('band', 'Tal', 2);
+  for (const entry of [civ, tribe, stubborn]) Object.assign(entry, { culture: 0, lineage: entry.id, capital: entry === civ ? 0 : null, core: entry.groups[0], exchanges: new Map(), exchangeRefused: new Map(), knowledge: startingKnowledge() });
+  stubborn.culture = 1;
+  const always = { chance: () => true } as never, never = { chance: () => false } as never;
+  state.tick = 600;
+  assert.equal(share(state, 600, always, civ, tribe, [{ factor: 'openness', weight: 0.1 }]), 'shares knowledge with the Kesh');
+  const until = 600 + SHARE_TUNING.years * 12;
+  assert.equal(civ.exchanges.get(tribe.id), until); assert.equal(tribe.exchanges.get(civ.id), until);
+  state.chronicle.flush(600);
+  const event = state.chronicle.events.find(entry => entry.type === 'knowledgeShared')!;
+  assert.deepEqual(event.actors.map(actor => actor.id), [civ.id, tribe.id]); assert.ok(event.causes.length > 0);
+  assert.match(share(state, 606, always, civ, tribe, []), /already/);
+  // While it runs, each side is helped with what the other knows; never after it ends, nor by a people that is gone.
+  const pottery = TECH_INDEX.get('Pottery')!;
+  tribe.knowledge = learn(tribe.knowledge, pottery);
+  assert.equal(teacherOf(state, civ, pottery), tribe.id);
+  assert.equal(teacherOf(state, tribe, pottery), -1, 'the tribe knows nothing from the civilization that it lacks');
+  assert.equal(teacherOf(state, stubborn, pottery), -1, 'no exchange, no help, however near');
+  state.tick = until;
+  assert.equal(teacherOf(state, civ, pottery), -1, 'the exchange has run out');
+  state.tick = 606;
+  tribe.deathTick = 606;
+  assert.equal(teacherOf(state, civ, pottery), -1, 'the other people is gone');
+  tribe.deathTick = null;
+  // A people of strong Tradition and another way of life may refuse; the refusal is remembered.
+  assert.match(share(state, 606, never, civ, stubborn, []), /would not share/);
+  assert.equal(civ.exchangeRefused.get(stubborn.id), 606);
+  assert.equal(state.metrics.exchanges, 1);
 });

@@ -148,6 +148,7 @@
                       "PolityView",
                       "Candidate",
                       "Neighbour",
+                      "Partner",
                       "JoinView",
                       "JoinOption"
                     ]

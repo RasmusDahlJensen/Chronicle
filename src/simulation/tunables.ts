@@ -132,22 +132,26 @@ export const SPAWN_TUNING = {
 
 /** Research (VISION.md "Research"): base points per person a year scaled by contact, plus specialists; weights for the next target. */
 export const RESEARCH_TUNING = {
-  basePerPerson: 0.006, contactBonus: 0.08, contactCap: 12,
-  /** Base research (experience and tinkering) grows with a polity's people up to a community of this size; beyond it, research needs specialists. */
-  basePeople: 1_500,
+  basePerPerson: 0.004, contactBonus: 0.08, contactCap: 12,
+  /** Base research (experience and tinkering) grows with a polity's people in proportion up to a community of
+   *  `basePeople`, and beyond it as (people ÷ basePeople)^scalePower: a large people researches faster, but not in
+   *  proportion (VISION.md "Research", changed after the M3 review). */
+  basePeople: 1_500, scalePower: 0.15,
   specialistResearch: 0.3,
-  /** Weight multipliers: food need (hunger or land pressure) raises food techs; exposure raises a tech's weight by
-   *  1 + exposureWeight × exposure × (opennessBase + Openness) and lowers its cost; a deposit on the polity's land it knows
-   *  but cannot work multiplies its extraction tech's weight by blockedWeight. */
-  needWeight: 6, exposureWeight: 12, exposureDiscount: 0.998, opennessBase: 0.5, blockedWeight: 2,
+  /** Weight multipliers: food need (hunger or land pressure) raises food techs; a tech a sharing partner knows weighs
+   *  1 + shareWeight × (opennessBase + Openness) times as much and is researched 1 + shareSpeed × (opennessBase +
+   *  Openness) times as fast (VISION.md "Sharing knowledge"); a deposit on the polity's land it knows but cannot work
+   *  multiplies its extraction tech's weight by blockedWeight. */
+  needWeight: 6, shareWeight: 4, shareSpeed: 2, opennessBase: 0.5, blockedWeight: 2,
+  /** Catch-up (VISION.md "Paths, not a timeline"): a tech of an earlier era than the most advanced era the polity knows
+   *  of (its own, or a people's it has met) is researched 1 + catchUpPerEra × min(eras behind, catchUpEras) times as fast. */
+  catchUpPerEra: 0.25, catchUpEras: 4,
   /** Discovery causes keep the choice factors at least this strong, at most this many. */
   reasonMin: 0.05, reasonCount: 3,
   /** Tradition lowers the weight of techs that change the economy. */
   traditionBrake: 0.6,
-  /** Polities within this many regions of each other are in contact (VISION.md M2 simplification), refreshed this often (sea reach as for moves, `MOBILITY_TUNING`). */
+  /** Polities it has met within this many regions are its contacts (VISION.md M2 simplification), refreshed this often (sea reach as for moves, `MOBILITY_TUNING`). */
   contactRadius: 2, contactMonths: 12,
-  /** Contact intensity of a polity two regions away (neighbours count 1); exposure sums the intensities of contacts that know a tech, up to 1. */
-  farContact: 1,
   /** Years of research at which a tech's weight halves (effort). */
   effortYears: 100,
   /** Once a year a polity reconsiders its target if another tech now weighs this many times as much. */
@@ -291,6 +295,21 @@ export const EXPLORE_TUNING = {
   range: [3, 5, 8],
 } as const;
 
+/**
+ * Sharing knowledge (VISION.md "Sharing knowledge", added after the M3 review): at its decision step a civilization
+ * weighs an exchange with each people it is in contact with. Score = (learn × min(1, techs they know that it does not ÷
+ * techScale) + (kin if kin + similarity × culture similarity + openness × Openness) × min(1, techs it would teach ÷
+ * techScale) − tradition × Tradition − busy × exchanges it already has) × their willingness: what it would learn is
+ * the main draw; only open and kin peoples teach for nothing in return. Willingness = (1 − refusal × their Tradition ×
+ * (1 − similarity)) × (gainBase + (1 − gainBase) × min(1, techs they would learn ÷ techScale)): a people that would
+ * learn nothing is less ready to give. The other side accepts with that chance. An exchange runs both ways for
+ * `years`; a refusal is remembered for `refusedYears`.
+ */
+export const SHARE_TUNING = {
+  learn: 0.2, kin: 0.03, similarity: 0.02, openness: 0.06, techScale: 4, tradition: 0.12, busy: 0.05, refusal: 1, gainBase: 0.5,
+  years: 40, refusedYears: 20,
+} as const;
+
 /** Culture values of new cultures (0–1 sliders) and how far a daughter culture's values drift from its parent's. */
 export const CULTURE_TUNING = { valueMin: 0.15, valueSpan: 0.7, mutation: 0.1 } as const;
 
@@ -347,12 +366,12 @@ export function validateTunables() {
   if (!(Number.isInteger(sp.bands) && sp.bands >= 1 && sp.minPopulation >= 1 && sp.maxPopulation >= sp.minPopulation && sp.minSpacingKm >= 0)) problems.push('spawn settings are invalid');
   if (!(sp.temperatureWidth > 0 && sp.waterBonus >= 0)) problems.push('spawn weights are invalid');
   const re = RESEARCH_TUNING;
-  if (!(re.basePeople >= 1 && [re.basePerPerson, re.contactBonus, re.specialistResearch, re.needWeight, re.exposureWeight].every(value => value >= 0) && re.exposureDiscount >= 0 && re.exposureDiscount < 1
-    && re.traditionBrake >= 0 && re.traditionBrake < 1 && Number.isInteger(re.contactCap) && re.contactCap >= 0)) problems.push('research weights are invalid');
+  if (!(re.basePeople >= 1 && re.scalePower >= 0 && re.scalePower <= 1 && [re.basePerPerson, re.contactBonus, re.specialistResearch, re.needWeight, re.shareWeight, re.shareSpeed, re.catchUpPerEra].every(value => value >= 0)
+    && Number.isInteger(re.catchUpEras) && re.catchUpEras >= 0 && re.traditionBrake >= 0 && re.traditionBrake < 1 && Number.isInteger(re.contactCap) && re.contactCap >= 0)) problems.push('research weights are invalid');
   if (!(Number.isInteger(re.contactRadius) && re.contactRadius >= 1 && Number.isInteger(re.contactMonths) && re.contactMonths >= 1)) problems.push('contact settings are invalid');
   if (!(re.opennessBase >= 0 && re.blockedWeight >= 1 && re.reasonMin >= 0 && Number.isInteger(re.reasonCount) && re.reasonCount >= 1)) problems.push('research weight settings are invalid');
   if (!(re.fertileQuantile > 0 && re.fertileQuantile < 1 && Number.isInteger(re.fertileRiverTier) && re.fertileRiverTier >= 0 && re.fertileRiverTier <= 3)) problems.push('the fertile river land class is invalid');
-  if (!(re.farContact >= 0 && re.farContact <= 1 && re.effortYears > 0 && re.switchRatio >= 1)) problems.push('contact intensity and effort settings are invalid');
+  if (!(re.effortYears > 0 && re.switchRatio >= 1)) problems.push('effort settings are invalid');
   if (!(re.affinityShare > 0 && re.affinityShare <= 1 && re.roughShare > 0 && re.roughShare <= 1 && re.roughDefensibility > 0)) problems.push('environment flag thresholds are invalid');
   const fa = FARM_TUNING;
   for (const table of [fa.farmDensity, fa.herdDensity]) for (const [biome, value] of Object.entries(table)) if (!(value >= 0)) problems.push(`farm density for ${biome} must be non-negative`);
@@ -380,6 +399,8 @@ export function validateTunables() {
   if (!(Object.values(j).every(value => value >= 0) && j.prestigeScale > 0 && j.foundScore > 0 && j.admitPower > 0)) problems.push('joining settings are invalid');
   const u = UNITE_TUNING;
   if (!(Object.values(u).every(value => value >= 0) && u.sizeScale > 0 && u.admitPower > 0)) problems.push('unification settings are invalid');
+  const sh = SHARE_TUNING;
+  if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');
   const st2 = STABILITY_TUNING;
   if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   const x = EXPLORE_TUNING;

@@ -1,7 +1,7 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { capacity, FARM_METHOD, gameChange, harvest, HERD_METHOD, METHOD_COUNT, monthsToHarvest, regionYields, sow } from './food.ts';
 import { greatCircleKm } from './geography.ts';
-import { inheritKnowledge, learn, startingKnowledge, type Knowledge } from './knowledge.ts';
+import { inheritKnowledge, learn, mergeKnowledge, newTechs, startingKnowledge, type Knowledge } from './knowledge.ts';
 import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
@@ -141,8 +141,8 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     lineage: parent ? parent.lineage : state.lineages.length,
     knowledge: parent ? inheritKnowledge(parent.knowledge) : startingKnowledge(),
     // A lineage's home is where its first band began: a daughter on another landmass is still away from home.
-    homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], contactWeights: [],
-    exposure: { tech: -1, learned: 0, deaths: 0, value: 0 }, capital: null, settledTick: null,
+    homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], frontierEra: 0,
+    exchanges: new Map(), exchangeRefused: new Map(), capital: null, settledTick: null,
     map: emptyMap(state.partition.regions.length), met: new Map(),
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
   };
@@ -386,17 +386,26 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
 
 /** A polity whose last group died out or left ends; it stays in history. */
 export function endPolity(state: SimulationState, polity: Polity, tick: number) {
-  polity.deathTick = tick; state.deathCount++;
+  polity.deathTick = tick;
   state.living.splice(state.living.indexOf(polity.id), 1);
   forgetMap(polity);
 }
 
+/** `into` comes to know whatever `from` knew (a joining tribe, a uniting civilization); a new sea reach is fresh. */
+export function learnFrom(into: Polity, from: Polity, tick: number) {
+  const sea = into.knowledge.sea;
+  into.knowledge = mergeKnowledge(into.knowledge, from.knowledge);
+  if (into.knowledge.sea > sea) { into.seaTick = tick; lookAgain(into); }
+}
+
 /**
- * A group passes from one polity to another where it lives (a tribe's band absorbed by a civilization, later a tribe
- * joining one): the people, their culture, food and crops stay; only their polity changes. A civilization founds a
- * village there. The former polity ends with its last group.
+ * A group passes from one polity to another where it lives (a tribe's band absorbed by a civilization, a tribe
+ * joining one): the people, their culture, food and crops stay, and so does what they know — their new polity learns
+ * it (VISION.md "Paths, not a timeline": merging), so herders taken in by farmers go on herding. Only their polity
+ * changes. A civilization founds a village there. The former polity ends with its last group.
  */
 export function transferGroup(state: SimulationState, rng: Rng, group: PopulationGroup, from: Polity, to: Polity, tick: number, cited: ChronicleEvent['causes'] = []) {
+  learnFrom(to, from, tick);
   from.groups.splice(from.groups.indexOf(group.id), 1);
   lookAgain(from);
   to.groups.push(group.id); group.polity = to.id;
@@ -463,13 +472,14 @@ function considerSettling(state: SimulationState, context: TickContext, tribe: P
  */
 function joinCivilization(state: SimulationState, context: TickContext, tribe: Polity, civ: Polity, factors: { factor: string; weight: number }[]) {
   const rng = context.stream(tribe.id, SETTLING_NAMES), heartland = coreRegion(state, tribe);
-  const people = polityPopulation(state, tribe), regions = tribe.groups.length;
+  const people = polityPopulation(state, tribe), regions = tribe.groups.length, techs = newTechs(civ.knowledge, tribe.knowledge);
   const cited = causes(Object.fromEntries(factors.map(entry => [entry.factor, entry.weight])));
   state.chronicle.emit({
     type: 'bandJoined', actors: [{ id: tribe.id, role: 'band' }, { id: civ.id, role: 'civ' }], region: heartland, causes: cited, importance: 0.2,
-    data: { name: tribe.name, civ: civ.name, population: people, regions, kin: tribe.lineage === civ.lineage },
+    data: { name: tribe.name, civ: civ.name, population: people, regions, kin: tribe.lineage === civ.lineage, techs, learned: techs > 0 },
   });
   absorbMap(state, civ, tribe, context.tick);
+  // A people that joins brings what it knows (`transferGroup`; VISION.md "Paths, not a timeline": merging).
   for (const id of tribe.groups.slice()) transferGroup(state, rng, state.groups[id], tribe, civ, context.tick, cited);
   state.metrics.joined++;
 }

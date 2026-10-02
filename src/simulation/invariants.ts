@@ -86,6 +86,7 @@ export function checkInvariants(state: SimulationState) {
       else if (state.partition.regionOf[capital.cell] !== capital.region) fail(`settlement ${capital.id} is not on a land cell of its region`);
     } else if (polity.capital !== null) fail(`band ${id} has a capital`);
     checkMap(state, polity, fail);
+    checkKnowledge(state, polity, fail);
   }
   // Transfers close: everyone who left a region arrived in another, and food carried out was carried in somewhere.
   let migratedIn = 0, migratedOut = 0, carriedIn = 0, carriedOut = 0;
@@ -104,6 +105,28 @@ export function checkInvariants(state: SimulationState) {
     if (!(stable >= 0 && stable <= 1) || (owner < 0 && (stable !== 1 || state.unrest[region] !== 0))) fail(`region ${region} has stability ${stable} (unrest ${state.unrest[region]}) under owner ${owner}`);
     const game = state.gameStock[region];
     if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);
+  }
+}
+
+/**
+ * Knowledge (VISION.md "Paths, not a timeline"), yearly per polity (staggered by id): what speed-ups gave is part of a
+ * tech's progress, nothing known is still being researched, and every exchange in force is held by both sides with
+ * the same end, with a living people it has met, and was agreed with a civilization.
+ */
+function checkKnowledge(state: SimulationState, polity: Polity, fail: (message: string) => never) {
+  if ((state.tick + polity.id) % 12 !== 0) return;
+  const knowledge = polity.knowledge, id = polity.id;
+  for (let tech = 0; tech < knowledge.known.length; tech++) {
+    const progress = knowledge.progress[tech], taught = knowledge.taught[tech], caught = knowledge.caught[tech];
+    if (!(taught >= 0 && caught >= 0 && taught + caught <= progress * (1 + 1e-9) + 1e-9)) fail(`polity ${id}'s progress on tech ${tech} (${progress}) is less than its speed-ups gave (${taught} + ${caught})`);
+    if (knowledge.known[tech] && progress + taught + caught !== 0) fail(`polity ${id} still researches tech ${tech}, which it knows`);
+  }
+  for (const [other, until] of polity.exchanges) {
+    const them = state.polities[other];
+    if (until <= state.tick || them.deathTick !== null) continue;
+    if (them.exchanges.get(id) !== until) fail(`polity ${id} shares knowledge with ${other} until ${until}, but not the other way round`);
+    if (!polity.met.has(other)) fail(`polity ${id} shares knowledge with ${other}, which it has not met`);
+    if (polity.kind !== 'civ' && them.kind !== 'civ') fail(`tribes ${id} and ${other} share knowledge, but only civilizations offer it`);
   }
 }
 

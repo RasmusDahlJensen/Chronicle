@@ -68,6 +68,14 @@ test('every event type has a text template that fills its data, actors and regio
   const discovery = (first: boolean) => describeEvent({ id: 2, tick: 0, type: 'techDiscovered', actors: [], region: 3, settlement: null, causes: [], parents: [], importance: 0, data: { name: 'Kavo', tech: 'Agriculture', era: 'Neolithic', first } });
   assert.equal(discovery(true), 'The Kavo learn Agriculture (Neolithic era), the first people in the world to do so.');
   assert.equal(discovery(false), 'The Kavo learn Agriculture (Neolithic era).');
+  // The conditional text may hold placeholders of its own.
+  const event = (type: 'techDiscovered' | 'bandJoined' | 'unification' | 'knowledgeShared', data: Record<string, string | number | boolean>) =>
+    describeEvent({ id: 3, tick: 0, type, actors: [], region: 3, settlement: null, causes: [], parents: [], importance: 0, data });
+  assert.equal(event('techDiscovered', { name: 'Kavo', tech: 'Pottery', era: 'Neolithic', first: false, taught: true, teacher: 'Ora' }), 'The Kavo learn Pottery (Neolithic era), helped by the Ora.');
+  assert.equal(event('techDiscovered', { name: 'Kavo', tech: 'Pottery', era: 'Neolithic', first: false, taught: false }), 'The Kavo learn Pottery (Neolithic era).');
+  assert.equal(event('bandJoined', { name: 'Kesh', civ: 'Ora', population: 900, regions: 2, kin: false, learned: true, techs: 1 }), 'The Kesh tribe of 900 people joins the Ora, bringing 2 regions and 1 arts the Ora did not know.');
+  assert.equal(event('unification', { name: 'Tal', civ: 'Ora', regions: 3, population: 5000, kin: true, learned: false, techs: 0 }), 'The Tal join the Ora, their kin: 3 regions and 5,000 people unite under one rule.');
+  assert.equal(event('knowledgeShared', { name: 'Ora', other: 'Kesh', years: 40 }), 'The Ora and the Kesh agree to share what they know for 40 years.');
 });
 
 test('tunables are validated before a simulation starts', () => {

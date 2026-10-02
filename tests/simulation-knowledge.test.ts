@@ -5,7 +5,9 @@ import { RESOURCE_RULES } from '../src/world/resources.ts';
 import { depositState, validateTechData } from '../src/simulation/deposits.ts';
 import { ERA_NAMES } from '../shared/simulation.ts';
 import { ERA_COLORS, lineageColor, packColor, polityColor } from '../src/observer/palettes.ts';
-import { availableTechs, chooseTarget, inheritKnowledge, knows, learn, researchCost, researchWeight, startingKnowledge } from '../src/simulation/knowledge.ts';
+import { advance, availableTechs, catchUp, chooseTarget, inheritKnowledge, knows, learn, mergeKnowledge, newTechs, remaining, researchWeight, shareSpeed, speedOf, startingKnowledge } from '../src/simulation/knowledge.ts';
+import { researchPeople } from '../src/simulation/research.ts';
+import { RESEARCH_TUNING } from '../src/simulation/tunables.ts';
 import { createRng } from '../src/simulation/rng.ts';
 import { type Affinity, ERAS, TECH_INDEX, TECHS, validateTechs } from '../src/simulation/techs.ts';
 
@@ -47,23 +49,78 @@ test('knowledge starts with the Stone techs, inherits without progress and deriv
   assert.equal(child.target, -1); assert.ok(child.progress.every(points => points === 0));
 });
 
-test('research weights follow need, environment, exposure and culture, and contact makes techs cheaper', () => {
+test('peoples that become one know what either knew, and keep their own research in progress', () => {
+  const herders = learn(startingKnowledge(), TECH_INDEX.get('Animal husbandry')!);
+  let farmers = learn(learn(startingKnowledge(), TECH_INDEX.get('Pottery')!), TECH_INDEX.get('Agriculture')!);
+  farmers.target = TECH_INDEX.get('Masonry')!; farmers.progress[farmers.target] = 120;
+  // Herders were halfway to Pottery; the farmers knew it already.
+  herders.target = TECH_INDEX.get('Pottery')!; herders.progress[herders.target] = 300;
+  assert.equal(newTechs(farmers, herders), 1);
+  const merged = mergeKnowledge(farmers, herders);
+  for (const name of ['Pottery', 'Agriculture', 'Animal husbandry']) assert.ok(knows(merged, name), name);
+  assert.ok(merged.methods.farm && merged.methods.herd);
+  assert.equal(merged.target, TECH_INDEX.get('Masonry')); assert.equal(merged.progress[merged.target], 120);
+  assert.ok(!merged.available.includes(TECH_INDEX.get('Animal husbandry')!), 'what it now knows is no longer a research option');
+  // The herders, taking in the farmers, learn Pottery and Agriculture; their half-done Pottery is now known.
+  const other = mergeKnowledge(herders, farmers);
+  assert.equal(other.target, -1); assert.equal(other.progress[TECH_INDEX.get('Pottery')!], 0);
+  farmers = mergeKnowledge(farmers, startingKnowledge());
+  assert.equal(newTechs(farmers, startingKnowledge()), 0);
+});
+
+test('research speeds up only through sharing and, a little, catching up on older eras; the parts are recorded', () => {
+  const tuning = RESEARCH_TUNING, neolithic = ERAS.indexOf('Neolithic'), bronze = ERAS.indexOf('Bronze');
+  // Catch-up: nothing for the polity's own frontier era or later; a little more for each era behind, bounded.
+  assert.equal(catchUp(bronze, bronze), 1); assert.equal(catchUp(bronze, neolithic), 1);
+  assert.equal(catchUp(neolithic, bronze), 1 + tuning.catchUpPerEra);
+  assert.equal(catchUp(0, ERAS.length - 1), 1 + tuning.catchUpPerEra * tuning.catchUpEras, 'giga behind: a bounded boost');
+  assert.ok(catchUp(0, ERAS.length - 1) <= 2);
+  // Sharing: several times faster, more for open peoples.
+  assert.ok(shareSpeed(0) >= 2 && shareSpeed(1) > shareSpeed(0));
+  const agriculture = TECH_INDEX.get('Agriculture')!;
+  const none = { shared: () => false, frontier: neolithic, openness: 0.5 };
+  assert.deepEqual(speedOf(agriculture, none), { share: 1, catchUp: 1 }, 'a contact who farms speeds nothing up by itself');
+  const both = speedOf(agriculture, { shared: () => true, frontier: bronze, openness: 0.5 });
+  assert.equal(both.share, shareSpeed(0.5)); assert.equal(both.catchUp, 1 + tuning.catchUpPerEra);
+  // Progress records how much each speed-up gave.
+  const knowledge = learn(startingKnowledge(), TECH_INDEX.get('Pottery')!);
+  knowledge.target = agriculture;
+  advance(knowledge, 100, speedOf(agriculture, none));
+  advance(knowledge, 100, both);
+  const total = knowledge.progress[agriculture];
+  assert.equal(total, 100 + 100 * both.share * both.catchUp);
+  assert.equal(knowledge.caught[agriculture], 100 * (both.catchUp - 1));
+  assert.equal(knowledge.taught[agriculture], 100 * both.catchUp * (both.share - 1));
+  assert.equal(remaining(knowledge), TECHS[agriculture].cost - total);
+  const done = learn(knowledge, agriculture);
+  assert.equal(done.progress[agriculture] + done.taught[agriculture] + done.caught[agriculture], 0);
+});
+
+test('a large people researches faster than a small one, but not in proportion', () => {
+  const tuning = RESEARCH_TUNING;
+  assert.equal(researchPeople(500), 500);
+  assert.equal(researchPeople(tuning.basePeople), tuning.basePeople);
+  const large = researchPeople(100 * tuning.basePeople);
+  assert.ok(large > 1.5 * tuning.basePeople && large < 10 * tuning.basePeople, `${large}`);
+});
+
+test('research weights follow need, environment, shared knowledge and culture', () => {
   const knowledge = learn(startingKnowledge(), TECH_INDEX.get('Pottery')!);
   const agriculture = TECH_INDEX.get('Agriculture')!;
-  const base = { affinity: new Map<Affinity, number>(), foodNeed: 0, tradition: 0.2, openness: 0.5, exposure: () => 0, blocked: new Set<number>(), rate: 3 };
+  const base = { affinity: new Map<Affinity, number>(), foodNeed: 0, tradition: 0.2, openness: 0.5, shared: () => false, frontier: 1, blocked: new Set<number>(), rate: 3 };
   const plain = researchWeight(agriculture, base);
   const fertile = (share: number) => researchWeight(agriculture, { ...base, affinity: new Map<Affinity, number>([['fertileRiver', share]]) });
   assert.ok(fertile(1) > plain * 2, 'fertile river land');
   // A tribe weighs its land by where its people live: one fertile valley among many regions draws it to farming less.
   assert.ok(fertile(0.1) > plain && fertile(0.1) < fertile(0.5) && fertile(0.5) < fertile(1), 'graded by the share of people on such land');
   assert.ok(researchWeight(agriculture, { ...base, foodNeed: 0.7 }) > plain * 3, 'hunger or land pressure raises food techs');
-  assert.ok(researchWeight(agriculture, { ...base, exposure: () => 1 }) > plain * 2, 'neighbours who farm');
+  assert.ok(researchWeight(agriculture, { ...base, shared: () => true }) > plain * 2, 'a people sharing its knowledge, who farm');
+  assert.ok(researchWeight(agriculture, { ...base, shared: () => true, openness: 0.9 }) > researchWeight(agriculture, { ...base, shared: () => true, openness: 0.1 }), 'openness raises the sharing bonus');
   assert.ok(researchWeight(agriculture, { ...base, tradition: 0.9 }) < plain, 'tradition resists economic change');
-  assert.ok(researchCost(agriculture, 1) < researchCost(agriculture, 0) * 0.5);
   const mining = TECH_INDEX.get('Mining')!;
   assert.ok(researchWeight(mining, { ...base, blocked: new Set([mining]) }) > researchWeight(mining, base) * 1.5, 'known copper it cannot work draws a polity to Mining');
   // A large band on fertile river land that already knows the other Neolithic techs, with its land filling up, almost
-  // always turns to Agriculture, and weighs it far above a band on poor land does (which mostly learns it from neighbours).
+  // always turns to Agriculture, and weighs it far above a band on poor land does (which turns to it later, if at all).
   let settledIn = knowledge;
   for (const name of ['Boatbuilding', 'Masonry']) settledIn = learn(settledIn, TECH_INDEX.get(name)!);
   const fertileLand = new Map<Affinity, number>([['fertileRiver', 1], ['riverOrLake', 1]]);

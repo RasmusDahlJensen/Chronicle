@@ -2,11 +2,13 @@ import { causes } from './bands.ts';
 import { choose, drivers } from './decisions/choose.ts';
 import { expand, explore, unite } from './expansion.ts';
 import { decisionView } from './perception.ts';
+import { share } from './sharing.ts';
 import type { SimulationState, TickContext } from './state.ts';
 import { DECISION_TUNING } from './tunables.ts';
 
-// RNG salts within the decisions system: the choice (no salt), carrying out an expansion, an expedition's path.
-const EXPANDING = 1, EXPLORING = 2, UNITING = 3;
+// RNG salts within the decisions system: the choice (no salt), carrying out an expansion, an expedition's path, a
+// union's admission, an exchange's acceptance.
+const EXPANDING = 1, EXPLORING = 2, UNITING = 3, SHARING = 4;
 
 /**
  * Decisions system (VISION.md "Decision step"): every DECISION_TUNING.months per civilization, staggered by id. The
@@ -30,7 +32,7 @@ export function decide(state: SimulationState, context: TickContext) {
     else if (chosen.action === 'unite') {
       const neighbour = view.neighbours.find(entry => entry.civ === chosen.target)!;
       outcome = unite(state, context.tick, context.stream(id, UNITING), polity, state.polities[neighbour.civ], neighbour.border, cited);
-    }
+    } else if (chosen.action === 'share') outcome = share(state, context.tick, context.stream(id, SHARING), polity, state.polities[chosen.target!], cited);
     state.metrics.chosen[chosen.action]++;
     polity.decisions.push({
       tick: context.tick, chosen: chosen.action, outcome,

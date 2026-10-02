@@ -36,8 +36,8 @@ export interface TechEffects {
 export interface TechDefinition {
   id: string; name: string; era: Era; requires: string[]; cost: number; tags: TechTag[];
   affinity?: Partial<Record<Affinity, number>>;
-  /** Base research weight before need, environment, exposure and culture (1 unless set): a tech that is rarely
-   *  invented without its environment has a low base and a strong affinity, and otherwise spreads by exposure. */
+  /** Base research weight before need, environment, shared knowledge and culture (1 unless set): a tech that is
+   *  rarely invented without its environment has a low base and a strong affinity. */
   weight: number;
   effects: TechEffects;
   /** May be lost when a successor's specialists or libraries fall below a threshold (M7). */
