@@ -118,7 +118,11 @@ test('exact accounting catches any population or food change without a recorded 
     group.store += 500; state.ledger.food.get(group.id)!.carriedIn += 500;
   }, /carried out but .* carried in/);
   // Contact that only one side remembers, and a band that does not see its own region.
-  tamper(state => { const polity = state.polities[state.living[0]]; polity.met.set(state.living[1], state.tick); state.polities[state.living[1]].met.delete(polity.id); }, /not the other way round/);
+  tamper(state => {
+    // Contact is checked yearly per polity, staggered by id: tamper with one whose check falls this month.
+    const polity = state.polities[state.living.find(id => (state.tick + id) % 12 === 0)!], other = state.living.find(id => id !== polity.id)!;
+    polity.met.set(other, state.tick); state.polities[other].met.delete(polity.id);
+  }, /not the other way round/);
   tamper(state => { const polity = state.polities[state.living[2]]; polity.map.status[state.groups[polity.core].region] = 0; }, /does not see its own region/);
   // An empty region that still names a band.
   tamper(state => { state.groupAt[state.partition.regions.find(region => state.occupant[region.id] < 0)!.id] = 0; }, /records a band that is not there/);

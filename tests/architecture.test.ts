@@ -33,6 +33,13 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   await source('server/app.ts', 'export const app = {};');
   await source('scripts/start.ts', "import '../server/app.ts'; export const dev = import('vite');");
   await source('scripts/build-platec.ts', "export const module = import('../vendor/platec/generated.mjs'); export const tool = import('development-only-tool');");
+  // Decision code may read only the view types of the query layer, tunables, the RNG and its own folder.
+  await source('src/simulation/state.ts', 'export type SimulationState = { tick: number };');
+  await source('src/simulation/perception.ts', "import type { SimulationState } from './state.ts'; export type PolityView = { id: number }; export type Candidate = { region: number }; export const regionView = (state: SimulationState) => state.tick;");
+  await source('src/simulation/tunables.ts', 'export const DECISION_TUNING = { doNothing: 0.1 };');
+  await source('src/simulation/rng.ts', 'export type Rng = { next(): number };');
+  await source('src/simulation/decisions/factors.ts', 'export const weight = 1;');
+  await source('src/simulation/decisions/choose.ts', "import type { Candidate, PolityView } from '../perception.ts'; import type { Rng } from '../rng.ts'; import { DECISION_TUNING } from '../tunables.ts'; import { weight } from './factors.ts'; export const choose = (view: PolityView, candidate: Candidate, rng: Rng) => [view, candidate, rng.next(), DECISION_TUNING.doNothing, weight];");
   function check() {
     const result = spawnSync(process.execPath, [biome, 'lint', 'src', 'shared', 'server', 'scripts', 'vendor/platec/runtime.ts', '--max-diagnostics=100'], {
       cwd: root, encoding: 'utf8', timeout: 15_000,
@@ -58,7 +65,7 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
     assert.match(rejected.output, diagnostic);
   }
   await source('vendor/platec/runtime.ts', vendorRuntime);
-  assert.match(valid.output, /Checked 12 files/);
+  assert.match(valid.output, /Checked 18 files/);
 
   await source('src/world/leak.ts', "import type { Widget } from '../components/view.tsx'; export type Leak = Widget;");
   await source('src/world/node.ts', "export const fs = import('node:fs');");
@@ -81,6 +88,9 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   await source('server/workers/simulation-worker.ts', "export const generate = import('../../src/world/generation/generate.ts');");
   await source('server/workers/terrain-generation.ts', "export const generate = import('../../src/world/generation/generate.ts');");
   await source('src/components/simulation.ts', "export const state = import('../simulation/state.ts');");
+  await source('src/simulation/decisions/state.ts', "import type { SimulationState } from '../state.ts'; export type Truth = SimulationState;");
+  await source('src/simulation/decisions/query.ts', "import { regionView } from '../perception.ts'; export const peek = regionView;");
+  await source('src/simulation/decisions/dynamic.ts', "export const bands = import('../bands.ts');");
 
   await source('server/app.ts', "export { island } from '../src/fixtures/island.ts';");
   await source('server/workers/terrain.ts', "import '../app.ts';");
@@ -101,7 +111,7 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   for (const [path, target] of vendorLeaks) await source(path, `export const module = import('${target}');`);
   const invalid = check();
   assert.equal(invalid.status, 1, invalid.output);
-  for (const path of ['src/simulation/browser.ts', 'src/simulation/storage.ts', 'src/simulation/generation.ts', 'server/workers/simulation-worker.ts', 'src/components/simulation.ts', 'src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
+  for (const path of ['src/simulation/decisions/state.ts', 'src/simulation/decisions/query.ts', 'src/simulation/decisions/dynamic.ts', 'src/simulation/browser.ts', 'src/simulation/storage.ts', 'src/simulation/generation.ts', 'server/workers/simulation-worker.ts', 'src/components/simulation.ts', 'src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
     assert.ok(invalid.output.includes(path), `Missing boundary diagnostic for ${path}: ${invalid.output}`);
   }
   for (const [path] of vendorLeaks) assert.ok(invalid.output.includes(path), `Missing vendor boundary diagnostic for ${path}: ${invalid.output}`);

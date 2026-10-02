@@ -138,3 +138,18 @@
 .world-peoples-legend li > span:first-child { display: inline-flex; align-items: center; gap: .45rem; }
 .world-peoples-legend li > span:last-child { color: var(--atlas-muted); white-space: nowrap; }
 .world-peoples-legend .world-polity-kind { color: var(--atlas-muted); }
+
+.world-civ-list { margin: .8rem 0; font-size: .7rem; }
+.world-civ-list summary { cursor: pointer; font-weight: 600; }
+.world-civ-list summary span { color: var(--atlas-muted); font-weight: 400; }
+.world-civ-list ol { list-style: none; margin: .4rem 0 0; padding: 0; max-height: 14rem; overflow-y: auto; display: grid; gap: .15rem; }
+.world-civ-list button { width: 100%; display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: .45rem; padding: .15rem .3rem; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
+.world-civ-list button:hover, .world-civ-list button:focus-visible { background: var(--atlas-surface-hover, rgba(0, 0, 0, .05)); }
+.world-civ-swatch { width: .7rem; height: .7rem; border-radius: 2px; }
+.world-civ-era, .world-civ-size { color: var(--atlas-muted); }
+.world-civ-size { white-space: nowrap; }
+.world-polity-decision h4 { margin: .2rem 0; font-size: .78rem; }
+.world-polity-decision h4 span { color: var(--atlas-muted); font-weight: 400; }
+.world-decision-options { margin: .2rem 0 .6rem; padding-left: 1.1rem; font-size: .66rem; display: grid; gap: .2rem; }
+.world-decision-options li span:first-child { font-weight: 600; margin-right: .4rem; }
+.world-decision-options li span:last-child { color: var(--atlas-muted); }

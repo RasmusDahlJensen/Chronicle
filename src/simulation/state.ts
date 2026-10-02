@@ -64,6 +64,23 @@ export interface Polity {
   map: MapKnowledge;
   /** Polities it has met, with the tick they met (first contact, or a breakaway's birth); in the order met. */
   met: Map<number, number>;
+  /** Its last decision steps, newest last (VISION.md "Decision log"; at most DECISION_TUNING.logSize). */
+  decisions: DecisionRecord[];
+  /** Tick of its last expansion (or of settling), and the longest gap between expansions so far, in months. */
+  lastExpansion: number | null; longestExpansionGap: number;
+  /** Tick its sea reach last grew (−1 never): a fresh mobility unlock makes exploring attractive. */
+  seaTick: number;
+}
+
+export const ACTIONS = ['expand', 'explore', 'nothing'] as const;
+export type Action = typeof ACTIONS[number];
+
+/** One decision step: every option with its score and the factors behind it, and the one chosen. */
+export interface DecisionRecord {
+  tick: number; chosen: Action;
+  options: { action: Action; score: number; target: number | null; factors: { factor: string; weight: number }[] }[];
+  /** What came of it: done, or why not (for example a target taken by someone else first). */
+  outcome: string;
 }
 
 /**
@@ -127,6 +144,14 @@ export interface CenturyStats {
   occupiedHabitableShare: number;
   /** First contacts so far, and the mean number of regions a civilization knows (in sight or remembered). */
   firstContacts: number; civKnownRegions: number;
+  /** Decision steps so far by chosen action, expansions, bands absorbed or displaced by them, and expeditions. */
+  chosenExpand: number; chosenExplore: number; chosenNothing: number;
+  expansions: number; absorbed: number; displaced: number; expeditions: number;
+  /** People who migrated between populated regions. */
+  migrants: number;
+  /** Median travel cost of land edges between regions of different civilizations over the median of all land edges
+   *  (VISION.md M3: borders follow barriers; 0 when no two civilizations border). */
+  borderRatio: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -155,6 +180,9 @@ export interface Metrics {
   settled: number; discoveries: number;
   /** First contacts between polities. */
   firstContacts: number;
+  /** Decision steps by chosen action (VISION.md story health: the decision mix), and what expansion did. */
+  chosen: Record<Action, number>;
+  expansions: number; absorbed: number; displaced: number; expeditions: number; migrants: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -183,6 +211,9 @@ export interface SimulationState {
   agricultureQuarterYear: number;
   /** Per region: environment conditions that raise research weights (static). */
   affinity: Set<Affinity>[];
+  /** Per region: how many farmers and herders it could feed at full game with Neolithic knowledge (static; what a
+   *  civilization weighs when it looks for land). */
+  landValue: Float64Array;
   /** Regions with food for some method at full game, and the landmasses that started with bands. */
   habitable: Uint8Array; settledLandmasses: number[];
   ledger: Ledger;

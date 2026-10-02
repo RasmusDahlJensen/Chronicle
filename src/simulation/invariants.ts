@@ -4,7 +4,7 @@ import { cellNeighbors, type SimulationGeography } from './geography.ts';
 import { KNOWN, OBSERVED, UNKNOWN } from './perception.ts';
 import type { Polity, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
-import { REGION_TUNING } from './tunables.ts';
+import { MOBILITY_TUNING, REGION_TUNING } from './tunables.ts';
 
 /** Thrown when a tick leaves the world in an impossible state; the scenario and tick are in the message. */
 export class InvariantError extends Error {}
@@ -108,7 +108,8 @@ export function checkInvariants(state: SimulationState) {
 /**
  * Map knowledge (VISION.md "Knowledge of the world"): its own regions are in sight; only civilizations remember;
  * research contacts are polities it has met; and, yearly per polity, the sight list is ascending and marked observed,
- * every remembered region has a snapshot, contact is mutual and no region is marked without a record.
+ * and (unless due for a rebuild) exactly what its land and sea reach give, with everyone in it met; every remembered
+ * region has a snapshot, contact is mutual and no region is marked without a record.
  */
 function checkMap(state: SimulationState, polity: Polity, fail: (message: string) => never) {
   const map = polity.map, id = polity.id;
@@ -123,6 +124,21 @@ function checkMap(state: SimulationState, polity: Polity, fail: (message: string
   }
   map.snapshots.forEach((snapshot, region) => { if (map.status[region] !== KNOWN || snapshot.tick > state.tick) fail(`polity ${id} has a stray snapshot of region ${region}`); });
   for (const other of polity.met.keys()) { const them = state.polities[other]; if (them.deathTick === null && !them.met.has(id)) fail(`polity ${id} has met ${other}, but not the other way round`); }
+  // Sight that is not due for a rebuild is exactly what its groups and sea reach give, and it has met everyone in it.
+  if (!map.dirty && map.sea === polity.knowledge.sea) {
+    const regions = state.partition.regions, sea = polity.knowledge.sea, expected = new Set<number>();
+    for (const groupId of polity.groups) {
+      const here = regions[state.groups[groupId].region];
+      expected.add(here.id);
+      for (const edge of here.neighbors) expected.add(edge.region);
+      if (sea > 0) for (const link of here.sea) if (sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) expected.add(link.region);
+    }
+    if (expected.size !== map.observed.length || map.observed.some(region => !expected.has(region))) fail(`polity ${id}'s sight is not what its land and sea reach give`);
+    for (const region of map.observed) {
+      const other = state.occupant[region];
+      if (other >= 0 && other !== id && !polity.met.has(other)) fail(`polity ${id} sees ${other} in region ${region} but has not met it`);
+    }
+  }
   let marked = 0;
   const status = map.status;
   for (let region = 0; region < status.length; region++) if (status[region] !== UNKNOWN) marked++;

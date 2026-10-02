@@ -133,6 +133,43 @@
     },
     {
       "includes": [
+        "src/simulation/decisions/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "../perception.ts": {
+                    "message": "Decision code sees the world only through the view types perception.ts builds (VISION.md \"Implementation rule\").",
+                    "allowImportNames": [
+                      "PolityView",
+                      "Candidate"
+                    ]
+                  }
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "**",
+                      "!../perception.ts",
+                      "!../tunables.ts",
+                      "!../rng.ts",
+                      "!./*"
+                    ],
+                    "message": "Decision code may import only the view types (perception.ts), tunables, the RNG and its own folder (VISION.md \"Implementation rule\")."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
         "src/world/generation/**"
       ],
       "linter": {

@@ -1,12 +1,14 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { capacity, FARM_METHOD, gameChange, harvest, HERD_METHOD, METHOD_COUNT, monthsToHarvest, regionYields, sow } from './food.ts';
 import { greatCircleKm } from './geography.ts';
-import { inheritKnowledge, startingKnowledge, type Knowledge } from './knowledge.ts';
+import { inheritKnowledge, learn, startingKnowledge, type Knowledge } from './knowledge.ts';
+import { TECH_INDEX } from './techs.ts';
 import { createLanguage, createName } from './names.ts';
-import { emptyMap, forgetMap, inheritContacts, lookAgain, seeRegion } from './perception.ts';
+import { arrive, emptyMap, forgetMap, inheritContacts, lookAgain } from './perception.ts';
+import { landPressure } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
-import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING } from './tunables.ts';
+import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, MIGRATION_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING } from './tunables.ts';
 
 /**
  * Tribes and settled polities (VISION.md "Food, population and borders"). A polity holds one or more regions with
@@ -57,10 +59,29 @@ export function regionCapacity(state: SimulationState, region: number, knowledge
   return state.capacity[region];
 }
 
-/** Land pressure (VISION.md): a graded need from 0 to 1 that rises from `pressureFrom` of capacity. */
-export function landPressure(size: number, people: number) {
-  const tuning = BAND_TUNING;
-  return people > 0 ? clamp((size / people - tuning.pressureFrom) / (tuning.pressureFull - tuning.pressureFrom), 0, 1) : 1;
+/**
+ * Per region: the people its land could feed at full game with Neolithic farming and herding — static, the value a
+ * civilization weighs when it looks for land (its own techs scale all land alike).
+ */
+export function landValues(state: SimulationState) {
+  let knowledge = startingKnowledge();
+  for (const name of ['Pottery', 'Agriculture', 'Animal husbandry']) knowledge = learn(knowledge, TECH_INDEX.get(name)!);
+  return Float64Array.from(state.partition.regions, region => {
+    regionYields(state.food, 1, yields, region.id, knowledge);
+    return capacity(state.food.labor, region.id * METHOD_COUNT, yields);
+  });
+}
+
+export { landPressure } from './pressure.ts';
+
+/** Where a band forced to leave `region` would go: the free land within reach that feeds it best, if any feeds all of it. */
+export function refuge(state: SimulationState, tribe: Polity, group: PopulationGroup, region: number) {
+  let best = -1, most = 1;
+  for (const option of reachableFree(state, tribe, region)) {
+    const food = foodPerPerson(state, option.region, group.size, tribe.knowledge);
+    if (food >= most) { best = option.region; most = food; }
+  }
+  return best;
 }
 
 /** Free regions a band of this polity could move or split into from `region`: land neighbours, and sea crossings its knowledge allows. */
@@ -95,7 +116,7 @@ function newCulture(state: SimulationState, rng: Rng, parent: Culture | null): C
 }
 
 /** A new population group of `polity` in a free region. */
-function newGroup(state: SimulationState, polity: Polity, region: number, size: number): PopulationGroup {
+export function newGroup(state: SimulationState, polity: Polity, region: number, size: number): PopulationGroup {
   const group: PopulationGroup = {
     id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, foundedTick: state.tick, arrivedTick: state.tick,
     store: 0, planted: 0, birthCarry: 0, naturalCarry: 0, famineCarry: 0, foodSecurity: 1, birthsYear: 0, deathsYear: 0, lastBirths: 0, lastDeaths: 0,
@@ -103,7 +124,7 @@ function newGroup(state: SimulationState, polity: Polity, region: number, size: 
   };
   state.groups.push(group); polity.groups.push(group.id);
   state.occupant[region] = polity.id; state.groupAt[region] = group.id;
-  seeRegion(polity, region);
+  arrive(state, polity, region, state.tick);
   return group;
 }
 
@@ -118,8 +139,11 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], contactWeights: [],
     exposure: { tech: -1, learned: 0, deaths: 0, value: 0 }, capital: null, settledTick: null,
     map: emptyMap(state.partition.regions.length), met: new Map(),
+    decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1,
   };
   state.polities.push(polity); state.living.push(polity.id);
+  // A breakaway knows whom its parent knows before it looks around.
+  if (parent) inheritContacts(state, polity, parent, state.tick);
   newGroup(state, polity, region, size);
   return polity;
 }
@@ -277,10 +301,44 @@ export function populate(state: SimulationState, context: TickContext) {
     if (polity.deathTick !== null) continue;
     // Once every group has had its month, so a collapse within one month moves the capital at most once.
     rehome(state, polity);
-    if (polity.kind !== 'band') continue;
+    if (polity.kind !== 'band') { if (due(id)) migrate(state, polity); continue; }
     // The tribe settles before its bands move on.
     if (due(id) && considerSettling(state, context, polity)) continue;
     for (const groupId of polity.groups.slice()) if (due(groupId)) decide(state, context, polity, state.groups[groupId]);
+  }
+}
+
+/**
+ * Migration (VISION.md "Migration"): once a year per civilization, people move from each of its regions to less
+ * crowded populated regions next to it that civilizations hold — its own or across a border — in proportion to the
+ * difference in land pressure, never more than would even out how crowded the two are, and join the people there.
+ * Tribes spread by moving and splitting instead.
+ */
+function migrate(state: SimulationState, polity: Polity) {
+  const regions = state.partition.regions, rate = MIGRATION_TUNING.rate;
+  for (const id of polity.groups.slice()) {
+    const group = state.groups[id], from = group.region;
+    const pressure = landPressure(group.size, state.capacity[from]);
+    if (pressure <= 0) continue;
+    const targets: { group: PopulationGroup; gap: number }[] = [];
+    for (const edge of regions[from].neighbors) {
+      if (state.owner[edge.region] < 0 || state.groupAt[edge.region] < 0) continue;
+      const there = state.groups[state.groupAt[edge.region]], gap = pressure - landPressure(there.size, state.capacity[edge.region]);
+      if (gap > 0) targets.push({ group: there, gap });
+    }
+    if (!targets.length) continue;
+    const size = group.size;
+    for (const target of targets) {
+      // At most half of what would make both regions equally crowded for their land: migrants never leave a region
+      // more crowded than the one they left.
+      const here = state.capacity[from], there = state.capacity[target.group.region];
+      const level = here > 0 && there > 0 ? (group.size / here - target.group.size / there) * here * there / (here + there) : 0;
+      const people = Math.min(Math.floor(size * rate * target.gap / targets.length), Math.floor(level / 2), group.size - 1);
+      if (people <= 0) continue;
+      group.size -= people; target.group.size += people;
+      state.ledger.migrantsOut[from] += people; state.ledger.migrantsIn[target.group.region] += people;
+      state.metrics.migrants += people;
+    }
   }
 }
 
@@ -301,9 +359,7 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
     }
   }
   if (polity.groups.length) return;
-  polity.deathTick = tick; state.deathCount++;
-  state.living.splice(state.living.indexOf(polity.id), 1);
-  forgetMap(polity);
+  endPolity(state, polity, tick);
   if (polity.kind === 'civ') {
     const capital = polity.capital !== null ? state.settlements[polity.capital] : null;
     state.chronicle.emit({
@@ -314,10 +370,33 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
   }
 }
 
-/** After a group died out: the heartland passes to the largest remaining band, and a civilization that lost its
- *  capital moves it to the village there. */
-function rehome(state: SimulationState, polity: Polity) {
-  if (state.groups[polity.core].deathTick !== null) {
+/** A polity whose last group died out or left ends; it stays in history. */
+function endPolity(state: SimulationState, polity: Polity, tick: number) {
+  polity.deathTick = tick; state.deathCount++;
+  state.living.splice(state.living.indexOf(polity.id), 1);
+  forgetMap(polity);
+}
+
+/**
+ * A group passes from one polity to another where it lives (a tribe's band absorbed by a civilization, later a tribe
+ * joining one): the people, their culture, food and crops stay; only their polity changes. A civilization founds a
+ * village there. The former polity ends with its last group.
+ */
+export function transferGroup(state: SimulationState, rng: Rng, group: PopulationGroup, from: Polity, to: Polity, tick: number) {
+  from.groups.splice(from.groups.indexOf(group.id), 1);
+  lookAgain(from);
+  to.groups.push(group.id); group.polity = to.id;
+  state.occupant[group.region] = to.id;
+  arrive(state, to, group.region, tick);
+  if (to.kind === 'civ') { state.owner[group.region] = to.id; foundVillage(state, rng, to, group.region, false, tick); }
+  if (!from.groups.length) endPolity(state, from, tick);
+  else rehome(state, from);
+}
+
+/** After a group died out or left: the heartland passes to the largest remaining band, and a civilization that lost
+ *  its capital moves it to the village there. */
+export function rehome(state: SimulationState, polity: Polity) {
+  if (!polity.groups.includes(polity.core)) {
     polity.core = polity.groups.reduce((best, id) => state.groups[id].size > state.groups[best].size ? id : best, polity.groups[0]);
   }
   if (polity.kind !== 'civ' || polity.capital === null || state.settlements[polity.capital].status === 'alive') return;
@@ -394,7 +473,7 @@ function decide(state: SimulationState, context: TickContext, tribe: Polity, gro
   });
 }
 
-function move(state: SimulationState, context: TickContext, tribe: Polity, group: PopulationGroup, to: number, factors: Record<string, number>) {
+export function move(state: SimulationState, context: Pick<TickContext, 'tick'>, tribe: Polity, group: PopulationGroup, to: number, factors: Record<string, number>) {
   const from = group.region;
   state.ledger.migrantsOut[from] += group.size; state.ledger.migrantsIn[to] += group.size;
   // Crops in the field stay behind.
@@ -404,7 +483,7 @@ function move(state: SimulationState, context: TickContext, tribe: Polity, group
   state.occupant[from] = -1; state.groupAt[from] = -1; state.overCapacity[from] = 0;
   state.occupant[to] = tribe.id; state.groupAt[to] = group.id;
   group.region = to; group.arrivedTick = context.tick;
-  seeRegion(tribe, to);
+  arrive(state, tribe, to, context.tick);
   // The cached capacity may be a former occupant's; the over-capacity check needs this band's.
   regionCapacity(state, to);
   state.metrics.moves++;
@@ -436,7 +515,6 @@ function split(state: SimulationState, context: TickContext, tribe: Polity, grou
   if (breaksAway) {
     culture = newCulture(state, rng, state.cultures[tribe.culture]);
     polity = newTribe(state, rng, to, leaving, culture, tribe);
-    inheritContacts(state, polity, tribe, context.tick);
     child = state.groups[polity.core];
   } else {
     polity = tribe;
@@ -473,33 +551,46 @@ function split(state: SimulationState, context: TickContext, tribe: Polity, grou
  * A tribe settles (VISION.md "Settling", changed at the M2 review): the whole tribe becomes one civilization that owns
  * every region its bands live in, with a named village in each; the heartland's village is its capital.
  */
-function settle(state: SimulationState, context: TickContext, tribe: Polity, factors: Record<string, number>) {
+export function settle(state: SimulationState, context: Pick<TickContext, 'tick' | 'stream'>, tribe: Polity, factors: Record<string, number>) {
   const rng = context.stream(tribe.id, SETTLING_NAMES);
   const culture = state.cultures[tribe.culture], heartland = coreRegion(state, tribe);
-  tribe.kind = 'civ'; tribe.settledTick = context.tick;
+  tribe.kind = 'civ'; tribe.settledTick = context.tick; tribe.lastExpansion = context.tick;
   state.metrics.settled++;
   const cited = causes({ farming: factors.farming, yearsHere: factors.yearsHere });
   // The heartland first, so the capital is the tribe's first village.
   const regions = [heartland, ...tribe.groups.map(id => state.groups[id].region).filter(region => region !== heartland)];
-  let capital: Settlement | null = null;
-  for (const regionId of regions) {
-    const region = state.partition.regions[regionId];
-    const settlement: Settlement = {
-      id: state.settlements.length, name: createName(rng, culture.language), cell: region.settlementSites[0] ?? region.centroid,
-      region: region.id, owner: tribe.id, capital: regionId === heartland, foundedTick: context.tick, status: 'alive',
-    };
-    state.settlements.push(settlement);
-    state.owner[regionId] = tribe.id;
-    if (settlement.capital) { capital = settlement; tribe.capital = settlement.id; }
+  const villages: Settlement[] = [];
+  for (const region of regions) {
+    state.owner[region] = tribe.id;
+    villages.push(foundVillage(state, rng, tribe, region, region === heartland, context.tick, cited, false));
   }
   state.chronicle.emit({
     type: 'settled', actors: [{ id: tribe.id, role: 'polity' }], region: heartland, causes: cited, importance: 0.35,
-    data: { name: tribe.name, population: polityPopulation(state, tribe), capital: capital?.name ?? '?', culture: culture.name, regions: regions.length },
+    data: { name: tribe.name, population: polityPopulation(state, tribe), capital: villages[0].name, culture: culture.name, regions: regions.length },
   });
-  for (const settlement of state.settlements.slice(-regions.length)) {
-    state.chronicle.emit({
-      type: 'settlementFounded', actors: [{ id: tribe.id, role: 'civ' }], region: settlement.region, settlement: settlement.id, causes: cited,
-      importance: settlement.capital ? 0.2 : 0.04, data: { name: settlement.name, civ: tribe.name, capital: settlement.capital },
-    });
-  }
+  for (const village of villages) announceVillage(state, tribe, village, cited);
+}
+
+/**
+ * A named village of `polity` on its region's best site (VISION.md "Settlements"; until M3b only a village), the
+ * capital when `capital`. Announced at once unless the caller announces it after its own event.
+ */
+export function foundVillage(state: SimulationState, rng: Rng, polity: Polity, region: number, capital: boolean, tick: number,
+  cited: ChronicleEvent['causes'] = [], announce = true): Settlement {
+  const entry = state.partition.regions[region];
+  const settlement: Settlement = {
+    id: state.settlements.length, name: createName(rng, state.cultures[polity.culture].language), cell: entry.settlementSites[0] ?? entry.centroid,
+    region, owner: polity.id, capital, foundedTick: tick, status: 'alive',
+  };
+  state.settlements.push(settlement);
+  if (capital) polity.capital = settlement.id;
+  if (announce) announceVillage(state, polity, settlement, cited);
+  return settlement;
+}
+
+function announceVillage(state: SimulationState, polity: Polity, settlement: Settlement, cited: ChronicleEvent['causes']) {
+  state.chronicle.emit({
+    type: 'settlementFounded', actors: [{ id: polity.id, role: 'civ' }], region: settlement.region, settlement: settlement.id, causes: cited,
+    importance: settlement.capital ? 0.2 : 0.04, data: { name: settlement.name, civ: polity.name, capital: settlement.capital },
+  });
 }

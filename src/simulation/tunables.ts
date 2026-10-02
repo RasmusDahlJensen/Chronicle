@@ -185,6 +185,58 @@ export const SETTLE_TUNING = {
 
 export const MOBILITY_TUNING = { coastalSailingKm: 300 } as const;
 
+/**
+ * The decision step (VISION.md "Decision step"): every `months` per civilization, staggered by id. Scores are 0–1;
+ * the choice is weighted random among the `topChoices` best above `minScore`; Do nothing always scores `doNothing`.
+ * The last `logSize` steps of each polity are kept for inspection.
+ */
+export const DECISION_TUNING = { months: 6, minScore: 0.02, doNothing: 0.08, topChoices: 3, logSize: 8, factorCount: 3 } as const;
+
+/**
+ * Governance reach (VISION.md "Stability"): how far, in travel-km from the capital, a civilization governs well — a
+ * chiefdom's `baseKm` (government forms change it from M7) times its techs' reach multiplier. Travel cost is an edge's
+ * travel-km, plus a share of it for crossing a stream, river or great river, and sea crossings cost `seaFactor` per km.
+ */
+export const REACH_TUNING = { baseKm: 1_500, riverCrossing: [0, 0.1, 0.5, 1], seaFactor: 1.5 } as const;
+
+/**
+ * Expansion (VISION.md "Expansion", no threshold): a candidate's score is drive × value × culture − distance − reach.
+ * drive = the source region's land pressure + hungerWeight × hunger + opportunityWeight × opportunity (at most 1), where opportunity is how
+ * much better the best land it knows is than its own (at most 1); value = (the land's farming capacity over the mean of
+ * the civilization's own regions, at most 1)^valuePower, so poorer land keeps some worth to people short of land,
+ * × occupiedValue where a tribe's band lives; culture = (expansionismBase +
+ * Expansionism) ÷ (expansionismBase + 1); distance = distancePerKm × the crossing's travel cost; reach =
+ * reachWeight × (travel cost from the capital ÷ reach)^reachPower: mild within reach, prohibitive soon beyond it.
+ * Settlers are `settlerShare` of the source region's people (at least `minSettlers`, leaving at least as many), but no
+ * more than `settlerRoom` of what the new land can feed.
+ * A tribe's band in the way joins with chance absorbBase + absorbSize × (the civilization's share of their people −
+ * 0.5) − absorbTradition × (the band's Tradition − 0.5), within [absorbMin, absorbMax]; otherwise it moves on.
+ */
+export const EXPAND_TUNING = {
+  hungerWeight: 0.5, opportunityWeight: 0.5, valuePower: 0.5, occupiedValue: 0.7, expansionismBase: 0.5, distancePerKm: 0.00003, reachWeight: 0.05, reachPower: 4,
+  settlerShare: 0.15, settlerRoom: 0.5, minSettlers: 20,
+  absorbBase: 0.5, absorbSize: 0.6, absorbTradition: 0.6, absorbMin: 0.1, absorbMax: 0.95,
+} as const;
+
+/**
+ * Migration (VISION.md "Migration"): once a year per civilization (staggered by id), each of its regions sends
+ * `rate` × (its land pressure − a neighbour's) of its people, shared among the populated neighbouring regions that
+ * civilizations hold (its own or across a border) and are less crowded. Migrants join the people there.
+ */
+export const MIGRATION_TUNING = { rate: 0.1 } as const;
+
+/**
+ * Exploration (VISION.md "Exploration"): score = curiosity × (opennessWeight × Openness + expansionismWeight ×
+ * Expansionism) × (base + land pressure), plus `freshMobility` within `freshYears` of a new sea reach. Curiosity is the
+ * number of unknown regions next to its sight over `frontierScale` (at most 1). An expedition walks `range[sea]`
+ * steps (foot, coastal sailing, ocean navigation) from the own region with the most unknown neighbours, mapping
+ * what it passes and meeting who lives there.
+ */
+export const EXPLORE_TUNING = {
+  opennessWeight: 0.5, expansionismWeight: 0.5, base: 0.3, frontierScale: 8, freshMobility: 0.3, freshYears: 50,
+  range: [3, 5, 8],
+} as const;
+
 /** Culture values of new cultures (0–1 sliders) and how far a daughter culture's values drift from its parent's. */
 export const CULTURE_TUNING = { valueMin: 0.15, valueSpan: 0.7, mutation: 0.1 } as const;
 
@@ -261,5 +313,16 @@ export function validateTunables() {
   const st = SETTLE_TUNING;
   if (!(st.fromYears >= 0 && st.spanYears > 0 && st.baseShare >= 0 && st.baseShare <= 1)) problems.push('settling settings are invalid');
   if (!(MOBILITY_TUNING.coastalSailingKm > 0)) problems.push('the coastal sailing reach must be positive');
+  const d = DECISION_TUNING;
+  if (!(Number.isInteger(d.months) && d.months >= 1 && d.minScore >= 0 && d.doNothing > d.minScore && d.doNothing <= 1 && Number.isInteger(d.topChoices) && d.topChoices >= 1 && Number.isInteger(d.logSize) && d.logSize >= 1 && Number.isInteger(d.factorCount) && d.factorCount >= 1)) problems.push('decision settings are invalid');
+  const reach = REACH_TUNING;
+  if (!(reach.baseKm > 0 && reach.seaFactor >= 1 && reach.riverCrossing.length === 4 && reach.riverCrossing.every(value => value >= 0))) problems.push('reach settings are invalid');
+  const e = EXPAND_TUNING;
+  if (!(e.hungerWeight >= 0 && e.opportunityWeight >= 0 && e.valuePower > 0 && e.valuePower <= 1 && e.occupiedValue > 0 && e.occupiedValue <= 1 && e.expansionismBase >= 0 && e.distancePerKm >= 0 && e.reachWeight >= 0 && e.reachPower > 0)) problems.push('expansion scoring is invalid');
+  if (!(e.settlerShare > 0 && e.settlerShare < 0.5 && e.settlerRoom > 0 && e.settlerRoom <= 1 && Number.isInteger(e.minSettlers) && e.minSettlers >= 1)) problems.push('settler settings are invalid');
+  if (!(e.absorbMin >= 0 && e.absorbMin <= e.absorbMax && e.absorbMax <= 1 && e.absorbSize >= 0 && e.absorbTradition >= 0)) problems.push('absorption settings are invalid');
+  if (!(MIGRATION_TUNING.rate > 0 && MIGRATION_TUNING.rate < 0.5)) problems.push('the migration rate must be in (0, 0.5)');
+  const x = EXPLORE_TUNING;
+  if (!(x.opennessWeight >= 0 && x.expansionismWeight >= 0 && x.base >= 0 && x.frontierScale > 0 && x.freshMobility >= 0 && x.freshYears > 0 && x.range.length === 3 && x.range.every(steps => Number.isInteger(steps) && steps >= 1))) problems.push('exploration settings are invalid');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);
 }

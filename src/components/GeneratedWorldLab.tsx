@@ -46,6 +46,16 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
       {polity.capital && <div><dt>Capital</dt><dd id="polity-capital">{polity.capital.name}</dd></div>}
     </dl>
     <p className="atlas-panel-note">Food security is expected food over need — for farmers, the coming harvest and other food over the harvest cycle; below 1, or when the store runs out before the harvest, people go hungry and famine deaths rise. Crops sown since the last harvest come in at the next one. Surplus frees specialists, who live in settlements and research; bands have none.</p>
+    {civ && <section className="world-polity-decision" aria-label="Decisions">
+      <p className="atlas-detail-label">Governance · reach {number.format(polity.reachKm)} km of travel{polity.capitalKm !== null ? ` · this region ${number.format(polity.capitalKm)} km from the capital` : ''}</p>
+      {polity.lastDecision ? <>
+        <h4 id="polity-decision">{DECISION_LABELS[polity.lastDecision.chosen]}{polity.lastDecision.options.find(option => option.action === polity.lastDecision!.chosen)?.target != null ? ` region ${polity.lastDecision.options.find(option => option.action === polity.lastDecision!.chosen)!.target}` : ''} <span>year {simulationDate(polity.lastDecision.tick).year} · {polity.lastDecision.outcome}</span></h4>
+        <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map(option => <li key={option.action}>
+          <span>{ACTION_NAMES[option.action]} {option.score.toFixed(2)}</span>
+          <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
+        </li>)}</ol>
+      </> : <p className="atlas-panel-note">No decision yet: a civilization weighs expanding, exploring or doing nothing every six months.</p>}
+    </section>}
     <section className="world-polity-knowledge" aria-label="Knowledge">
       <p className="atlas-detail-label">Research · {polity.researchPerYear.toLocaleString('en', { maximumFractionDigits: 1 })} points a year · {polity.contacts} contacts</p>
       <p className="atlas-panel-note" id="polity-map">Knows {number.format(polity.regionsKnown)} regions ({number.format(polity.regionsInSight)} in sight{civ ? '; the rest as last seen' : ''}) and has met {number.format(polity.met)} living {polity.met === 1 ? 'people' : 'peoples'}.</p>
@@ -58,6 +68,9 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
     </section>
   </div>;
 }
+
+const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing' } as const;
+const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing' } as const;
 
 const formatPeople = (people: number) => people >= 1e6 ? `${(people / 1e6).toFixed(1)} M` : people >= 1e4 ? `${Math.round(people / 1e3)} k` : number.format(people);
 
@@ -297,9 +310,9 @@ export function GeneratedWorldLab() {
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
             <ul className="world-resource-legend" aria-label="Resource site legend">{RESOURCE_IDS.map(resource => <li key={resource} title={`Extraction: ${RESOURCE_RULES[resource].extractionTechnology}`}><ResourceIcon resource={resource} />{RESOURCES[resource].label}</li>)}</ul>
             <fieldset className="world-peoples-options"><legend>Peoples</legend>
-              {([['polity', 'By polity'], ['descent', 'By descent'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
+              {([['polity', 'Political'], ['descent', 'By descent'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
             </fieldset>
-            <p className="atlas-panel-note">Every region a tribe's band or a civilization's village lives in is filled: lighter for roaming tribes, stronger for settled civilizations. By polity, each tribe or civilization has its own colour; by descent, each of the starting peoples and all who broke away from it share one.</p>
+            <p className="atlas-panel-note">Every region a tribe's band or a civilization's village lives in is filled: lighter for roaming tribes, stronger for settled civilizations. Political: each civilization or tribe has its own colour, with capitals as stars; by descent, each of the starting peoples and all who broke away from it share one.</p>
           </section>
           {peoples !== 'off' && frame && <section className="atlas-panel-section world-peoples-legend" aria-label="Peoples legend">
             {peoples === 'polity' ? <><div className="atlas-section-heading"><h2>Largest polities</h2><span>regions · people</span></div>
@@ -335,7 +348,8 @@ export function GeneratedWorldLab() {
           {loadError && <p className="atlas-error" role="alert">{loadError}</p>}
           {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={() => retryDetail.current()}>Retry detail</button></div>}
           {canvasError && <div className="world-inline-error"><p className="atlas-error" role="alert">{canvasError}</p><button className="atlas-reset-button" type="button" onClick={() => setCanvasRevision(current => current + 1)}>Retry canvas</button></div>}
-          <SimulationPanel settings={world?.settings ?? null} startFresh={shown.current.fresh} inspect={cellRegion?.id ?? null} onFrame={setFrame} />
+          <SimulationPanel settings={world?.settings ?? null} startFresh={shown.current.fresh} inspect={cellRegion?.id ?? null} onFrame={setFrame}
+            onFocusCell={cell => { if (world) renderer.current?.focusCell({ x: cell % world.width, y: Math.floor(cell / world.width) }); }} />
           <div className="world-climate-note"><span aria-hidden="true">◌</span><p>Rivers connect their catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin. The simulation runs on this PC; the page only observes it.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">

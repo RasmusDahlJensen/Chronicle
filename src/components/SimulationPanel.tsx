@@ -3,6 +3,7 @@ import { worldKey, type WorldSettings } from '../../shared/generated-world.ts';
 import { ERA_NAMES, MAX_SIMULATION_YEAR, SIMULATION_SPEEDS, simulationDate, type ChronicleEvent, type ObserverFrame, type SimulationControl, type SimulationSpeed } from '../../shared/simulation.ts';
 import { fetchObserverFrame, sendSimulationControl } from '../api/simulation.ts';
 import { describeEvent, MONTH_NAMES } from '../observer/events.ts';
+import { cssColor, polityColor } from '../observer/palettes.ts';
 
 const SPEED_LABELS: Record<SimulationSpeed, string> = { month: '1 month/s', year: '1 year/s', decade: '10 years/s', max: 'Fastest' };
 // A paused simulation changes only through controls, so it is polled less often than a playing one.
@@ -25,6 +26,8 @@ interface Props {
   /** Region whose details each frame should carry (null for none). */
   inspect?: number | null;
   onFrame?: (frame: ObserverFrame) => void;
+  /** Show a civilization's capital on the map (the civilization list). */
+  onFocusCell?: (cell: number) => void;
 }
 
 /** World population and living polities over time, from the frame's series. */
@@ -51,7 +54,7 @@ function WorldChart({ series }: { series: ObserverFrame['series'] }) {
  * each request takes a sequence number and an older response never replaces a newer one. A frame from another world,
  * run or reset epoch never mixes into the displayed history.
  */
-export function SimulationPanel({ settings, startFresh = false, inspect = null, onFrame }: Props) {
+export function SimulationPanel({ settings, startFresh = false, inspect = null, onFrame, onFocusCell }: Props) {
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -164,6 +167,15 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
     {error && <p className="atlas-error" role="alert">{error}</p>}
     {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {(frame.polities - frame.civs).toLocaleString('en')} {frame.polities - frame.civs === 1 ? 'tribe' : 'tribes'} ({bands.toLocaleString('en')} {bands === 1 ? 'band' : 'bands'}) and {frame.civs.toLocaleString('en')} {frame.civs === 1 ? 'civilization' : 'civilizations'} · {frame.settlementCount.toLocaleString('en')} {frame.settlementCount === 1 ? 'village' : 'villages'} · {frame.specialists.toLocaleString('en')} specialists · most advanced: {ERA_NAMES[frame.leadingEra]} era</p>}
     {frame && <WorldChart series={frame.series} />}
+    {frame && frame.civList.length > 0 && <details className="world-civ-list" open>
+      <summary>Civilizations <span>{frame.civs.toLocaleString('en')}{frame.civs > frame.civList.length ? `, the largest ${frame.civList.length}` : ''} · regions · people</span></summary>
+      <ol aria-label="Civilizations">{frame.civList.map(civ => <li key={civ.id}>
+        <button type="button" onClick={() => onFocusCell?.(civ.capitalCell)} title={`Show ${civ.capital}, the capital, on the map`}>
+          <span className="world-civ-swatch" style={{ backgroundColor: cssColor(polityColor(civ.id)) }} aria-hidden="true" />
+          <span className="world-civ-name">{civ.name}</span> <span className="world-civ-era">{ERA_NAMES[civ.era]} · capital {civ.capital}</span>
+          <span className="world-civ-size">{civ.regions.toLocaleString('en')} · {civ.population.toLocaleString('en')}</span>
+        </button></li>)}</ol>
+    </details>}
     <p className="atlas-panel-note">{restarted ? 'This world’s simulation started again at year 0: Chronicle restarted or the simulation was stopped. ' : ''}Until saving exists, restarting Chronicle or choosing another seed starts the simulation again at year 0.</p>
     <div className="world-history-events">
       <h3>Chronicle <span>{frame ? `${frame.eventCount.toLocaleString('en')} events` : ''}</span></h3>

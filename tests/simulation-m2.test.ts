@@ -81,6 +81,16 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   // Specialists work in settlements only.
   assert.ok(state.living.every(id => state.polities[id].kind === 'civ' || state.polities[id].groups.every(group => state.groups[group].specialists === 0)));
   assert.ok(civs.some(id => state.polities[id].groups.some(group => state.groups[group].specialists > 0)), 'surplus frees specialists');
+  // Civilizations decide every six months (M3): each step is logged; expanding takes in tribes' bands or sends settlers,
+  // and every such change is an event with its causes.
+  const m = state.metrics;
+  assert.ok(m.chosen.expand > 0 && m.chosen.nothing > 0, JSON.stringify(m.chosen));
+  for (const [type, count] of [['expansion', m.expansions], ['bandAbsorbed', m.absorbed], ['expedition', m.expeditions]] as const) {
+    const events = state.chronicle.events.filter(event => event.type === type);
+    assert.equal(events.length, count, `${type} events`);
+    assert.ok(events.every(event => event.causes.length > 0), `${type} events cite causes`);
+  }
+  assert.ok(m.absorbed > 0, 'expanding civilizations take in tribes\' bands');
   // Civilizations remember land beyond their sight, from their own travels and from their neighbours (M3).
   assert.ok(civs.filter(id => state.polities[id].map.snapshots.size > 0).length * 2 > civs.length, 'most civilizations know land they cannot see');
   // Whole tribes settled: civilizations of many regions, a village in each (the invariants check one living village per

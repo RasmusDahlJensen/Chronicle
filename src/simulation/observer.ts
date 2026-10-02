@@ -3,12 +3,12 @@ import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { remaining } from './knowledge.ts';
 import { exposureOf, researchRate } from './research.ts';
 import { polityPopulation } from './bands.ts';
-import { knownRegionCount } from './perception.ts';
-import type { SimulationState } from './state.ts';
+import { capitalKm, knownRegionCount } from './perception.ts';
+import type { Polity, SimulationState } from './state.ts';
 import { TECHS } from './techs.ts';
-import { FOOD_TUNING } from './tunables.ts';
+import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'markers' | 'settlements' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'series' | 'inspect'>;
 
 /**
  * What an observer may see of the true world (VISION.md "Observer views": the god view). Built on request from the
@@ -33,6 +33,10 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     const polity = state.polities[id];
     return { id, name: polity.name, kind: polity.kind, regions: polity.groups.length, population: people };
   });
+  const civList = sizes.filter(({ id }) => state.polities[id].kind === 'civ').slice(0, 100).map(({ id, people }) => {
+    const polity = state.polities[id], capital = state.settlements[polity.capital!];
+    return { id, name: polity.name, regions: polity.groups.length, population: people, era: polity.knowledge.era, capital: capital.name, capitalCell: capital.cell };
+  });
   const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[] };
   for (const settlement of state.settlements) {
     if (settlement.status !== 'alive') continue;
@@ -42,7 +46,7 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
   const step = Math.max(1, Math.ceil(state.series.length / 500));
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
   return {
-    population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest,
+    population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest, civList,
     markers: { ids, regions, populations, kinds, eras, lineages }, settlements, series, inspect: inspect === null ? null : inspectRegion(state, inspect),
   };
 }
@@ -67,6 +71,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   if (polity && group) {
     const knowledge = polity.knowledge, target = knowledge.target, exposure = target < 0 ? 0 : exposureOf(state, polity, target);
     const capital = polity.capital === null ? null : state.settlements[polity.capital];
+    const kmFromCapital = capitalKm(state, polity, region);
     view = {
       id: polity.id, kind: polity.kind, name: polity.name, culture: state.cultures[polity.culture].name, lineage: state.lineages[polity.lineage] ?? '',
       regions: polity.groups.length, totalPopulation: polityPopulation(state, polity), population: group.size,
@@ -77,6 +82,8 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       capital: capital ? { name: capital.name, cell: capital.cell, settled: polity.settledTick ?? capital.foundedTick } : null,
       era: knowledge.era, known: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => definition.name),
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
+      reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: kmFromCapital === null ? null : Math.round(kmFromCapital),
+      lastDecision: lastDecision(polity),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
       research: target < 0 ? null : {
         tech: TECHS[target].name, progress: round(knowledge.progress[target], 1), exposure: round(exposure),
@@ -89,5 +96,18 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]),
     food: { forage: output(0), hunt: output(1), fish: output(2), herd: output(3), farm: output(4) },
     polity: view,
+  };
+}
+
+/** The polity's last decision step for the inspector: each option's strongest factors (by size), best option first. */
+function lastDecision(polity: Polity): NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision'] {
+  const step = polity.decisions.at(-1);
+  if (!step) return null;
+  return {
+    tick: step.tick, chosen: step.chosen, outcome: step.outcome.slice(0, 80),
+    options: step.options.slice(0, 3).map(option => ({
+      action: option.action, score: option.score, target: option.target,
+      factors: option.factors.filter(entry => entry.weight !== 0).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).slice(0, 8),
+    })),
   };
 }

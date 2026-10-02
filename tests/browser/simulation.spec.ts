@@ -135,7 +135,7 @@ test('bands appear as markers and territories, the world chart grows and a band 
   // Peoples' territories: every living polity's region is filled — by default by polity, with a legend of the largest
   // tribes and civilizations; by descent with a legend of the largest peoples; by era with an era legend; or hidden.
   await expect(canvas).toHaveAttribute('data-territory-regions', String(frame.markers.ids.length));
-  await expect(page.getByLabel('By polity')).toBeChecked();
+  await expect(page.getByLabel('Political')).toBeChecked();
   const legend = page.getByRole('region', { name: 'Peoples legend' });
   await expect(legend).toContainText('Largest polities');
   const largest = frame.largest[0];
@@ -151,7 +151,7 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await page.getByLabel('Hidden').check();
   await expect(canvas).toHaveAttribute('data-territory-regions', '0');
   await expect(page.getByRole('region', { name: 'Peoples legend' })).toHaveCount(0);
-  await page.getByLabel('By polity').check();
+  await page.getByLabel('Political').check();
   await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/band of [\d,]+ people/);
   await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/stays with its tribe, now [\d,]+ bands/);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
@@ -183,6 +183,22 @@ test('farming bands settle into civilizations with villages, specialists and res
   await expect(page.locator('#polity-specialists')).toHaveText(/^[\d,]+$/);
   await expect(page.locator('#polity-known')).toContainText('Agriculture');
   await expect(details.getByRole('region', { name: 'Knowledge' })).toContainText('points a year');
+  // M3: a civilization weighs expanding, exploring or doing nothing every six months; the inspector shows the last
+  // step with its options and their reasons, and its governance reach.
+  await expect(details.getByRole('region', { name: 'Decisions' })).toContainText('reach');
+  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing/);
+  // Do nothing is always weighed; Expand only when it knows land next to its own that nobody holds.
+  const weighed = details.getByRole('list', { name: 'Options weighed' });
+  await expect(weighed).toContainText('Do nothing');
+  expect(await weighed.getByRole('listitem').count()).toBeGreaterThanOrEqual(2);
+  // The political map marks capitals with stars, and the civilization list takes the observer to one.
+  await expect.poll(async () => Number(await canvas.getAttribute('data-capital-marks'))).toBeGreaterThan(0);
+  const civilizations = history(page).getByRole('list', { name: 'Civilizations' });
+  await expect(civilizations.getByRole('listitem')).toHaveCount(Math.min(frame.civs, 100));
+  const first = frame.civList[0];
+  await civilizations.getByRole('button').first().click();
+  await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(first.capitalCell));
+  await expect(page.locator('#polity-capital')).toHaveText(first.capital);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

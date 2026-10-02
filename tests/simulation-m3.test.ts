@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
+import { generateWorld } from '../src/world/generation/generate.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
-import { emptyMap, hasMet, inheritContacts, KNOWN, knownRegions, lookAgain, observe, regionView, seeRegion, shareSurroundings, UNKNOWN } from '../src/simulation/perception.ts';
+import { decodeGeography } from '../src/simulation/geography.ts';
+import { arrive, decisionView, emptyMap, hasMet, inheritContacts, KNOWN, knownRegions, lookAgain, observe, regionView, shareSurroundings, UNKNOWN, type Candidate, type PolityView } from '../src/simulation/perception.ts';
+import { choose, expansionScore, explorationScore, options } from '../src/simulation/decisions/choose.ts';
+import { createRng } from '../src/simulation/rng.ts';
+import { DECISION_TUNING } from '../src/simulation/tunables.ts';
+import { partitionRegions } from '../src/simulation/regions.ts';
+import { soleCivilization } from '../src/simulation/scenarios.ts';
+import { stepSimulation } from '../src/simulation/simulation.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
 
 /**
@@ -32,7 +41,7 @@ function strip() {
     if (!group) { group = { id: state.groups.length, region }; state.groups.push(group as never); entry.groups.push(group.id); }
     else { state.occupant[group.region] = -1; lookAgain(entry); }
     group.region = region; state.occupant[region] = entry.id; if (entry.kind === 'civ') state.owner[region] = entry.id;
-    seeRegion(entry, region);
+    arrive(state, entry, region, state.tick);
   };
   return { state, polity, place };
 }
@@ -46,7 +55,7 @@ test('a polity sees its regions and their neighbours; a civilization remembers w
   assert.deepEqual(tribe.map.observed, [3, 4, 5]);
   assert.equal(regionView(state, civ, 4), null, 'beyond sight and never seen: unknown');
   assert.equal(state.metrics.firstContacts, 0, 'they have not seen each other');
-  // The tribe moves next to the civilization: they meet, once and both ways, where the tribe saw the civilization's land.
+  // The tribe moves next to the civilization: they meet on arrival, once and both ways.
   state.tick = 12;
   place(tribe, 2);
   observe(state, tribe, 12); observe(state, civ, 12);
@@ -56,6 +65,7 @@ test('a polity sees its regions and their neighbours; a civilization remembers w
   const contact = state.chronicle.events.find(event => event.type === 'firstContact')!;
   assert.deepEqual(contact.actors.map(actor => actor.id).sort(), [civ.id, tribe.id].sort());
   assert.equal(contact.data.sea, false);
+  assert.equal(contact.tick, 12, 'the month it arrived');
   // The tribe forgets the land it left; the civilization moves away and remembers region 2 as it last saw it.
   assert.equal(tribe.map.status[5], UNKNOWN, 'a tribe keeps only what is in sight');
   state.tick = 24;
@@ -94,7 +104,99 @@ test('neighbours tell a civilization what they see; a breakaway knows whom its p
   (sailors.knowledge as { sea: number }).sea = 1;
   observe(state, sailors, 24);
   assert.ok(hasMet(sailors, islanders.id) && hasMet(islanders, sailors.id));
+  // A seafarer that already sees an empty island meets newcomers there the month they land, though they cannot see back.
+  state.occupant[6] = -1; islanders.groups.length = 0;
+  const late = polity('band', 'Oru', 6);
+  assert.equal(late.knowledge.sea, 0, 'the newcomers cannot see back across the sea');
+  assert.ok(hasMet(sailors, late.id) && hasMet(late, sailors.id), 'met across the sea on arrival');
   state.chronicle.flush(24);
   const overSea = state.chronicle.events.find(event => event.type === 'firstContact' && event.data.sea === true);
   assert.ok(overSea && overSea.importance > 0.3, 'meeting across the sea is a notable first');
+});
+
+async function chronicleWorld() {
+  const bundle = encodeGeneratedWorld(await generateWorld({ seed: 'Chronicle', size: 'large' }));
+  const geography = decodeGeography(bundle.manifest, bundle.tiles);
+  return { geography, partition: partitionRegions(geography) };
+}
+
+test('M3 acceptance: a civilization alone on Chronicle\'s largest landmass keeps expanding while it has governable land', async () => {
+  const { geography, partition } = await chronicleWorld();
+  // Labelled test fixture: the real rules, with every other starting band removed (src/simulation/scenarios.ts).
+  const state = soleCivilization(geography, partition, 'Chronicle');
+  assert.equal(state.living.length, 1);
+  const civ = state.polities[state.living[0]];
+  assert.equal(civ.kind, 'civ');
+  let longest = 0, pressed = 0;
+  while (state.tick < 12 * 900) {
+    stepSimulation(state);
+    if (state.tick % 6) continue;
+    // Whenever land pressure is above 0.5 and land within its governance reach remains, the gap since its last
+    // expansion stays under 50 years (VISION.md M3).
+    const view = decisionView(state, civ);
+    if (view.landPressure > 0.5 && view.candidates.some(candidate => candidate.capitalKm <= view.reachKm)) {
+      pressed++;
+      longest = Math.max(longest, state.tick - civ.lastExpansion!);
+    }
+  }
+  assert.ok(pressed > 0, 'the civilization felt land pressure with land to take');
+  assert.ok(longest < 50 * 12, `longest gap under pressure: ${(longest / 12).toFixed(1)} years`);
+  assert.ok(civ.groups.length >= 20, `it expanded into ${civ.groups.length - 1} regions`);
+  // Every expansion is an event citing why, and the civilization holds land only within reach of its capital.
+  const expansions = state.chronicle.events.filter(event => event.type === 'expansion');
+  assert.equal(expansions.length, state.metrics.expansions);
+  assert.ok(expansions.every(event => event.causes.length > 0 && event.causes.some(cause => cause.factor === 'landPressure' || cause.factor === 'opportunity' || cause.factor === 'landValue')));
+  const view = decisionView(state, civ);
+  assert.ok(civ.decisions.length > 0 && civ.decisions.every(step => step.options.some(option => option.action === 'nothing')), 'Do nothing is always weighed');
+  assert.ok(view.reachKm > 0);
+});
+
+test('a tribe that settles starts to remember; a newer view is kept when neighbours tell older news', () => {
+  const { state, polity, place } = strip();
+  const settler = polity('band', 'Kesh', 1), neighbour = polity('civ', 'Ora', 3);
+  observe(state, settler, 0); observe(state, neighbour, 0);
+  settler.kind = 'civ';
+  state.tick = 12;
+  place(settler, 0);
+  observe(state, settler, 12);
+  assert.equal(settler.map.status[2], KNOWN, 'once settled, land that leaves its sight is remembered');
+  // Its own view of region 2 is from month 12; a report in month 12 does not replace it, a later one does.
+  shareSurroundings(state, settler, 12);
+  assert.equal(regionView(state, settler, 2)!.seen, 12);
+});
+
+/** A view for scoring tests: a civilization of 10,000 with neighbouring land as given. */
+function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] = []): PolityView {
+  return {
+    id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
+    reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0,
+    candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, ...entry })),
+    ...overrides,
+  };
+}
+
+test('decision scores: crowding, good land and Expansionism draw a civilization outward; distance from the capital holds it back', () => {
+  const base = view({});
+  const near = expansionScore(base, view({}, [{}]).candidates[0]);
+  assert.ok(near.score > DECISION_TUNING.doNothing, `crowded, with good land near the capital, expanding outweighs doing nothing (${near.score.toFixed(3)})`);
+  const score = (candidate: Partial<Candidate>, values: Partial<PolityView['values']> = {}) =>
+    expansionScore(view({ values: { ...base.values, ...values } }), view({}, [candidate]).candidates[0]).score;
+  assert.ok(score({ pressure: 0 }) <= 0.02, 'without crowding there is little reason to leave');
+  assert.ok(score({ value: 30_000 }) < near.score && score({ value: 30_000 }) > 0, 'poor land is worth less, but still something');
+  assert.ok(score({ tribe: true }) < near.score, 'land where a tribe lives is worth less');
+  assert.ok(score({}, { expansionism: 0.9 }) > score({}, { expansionism: 0.1 }), 'Expansionism raises it');
+  assert.ok(score({ capitalKm: 1500 }) > 0 && score({ capitalKm: 1500 }) < near.score, 'at the edge of its reach, mildly less');
+  assert.ok(score({ capitalKm: 3000 }) < 0, 'far beyond its reach, not worth it');
+  assert.ok(score({ capitalKm: Number.POSITIVE_INFINITY }) === Number.NEGATIVE_INFINITY, 'cut off from its capital, never');
+  // Exploring needs unknown land next to it; Openness and a new sea reach make it likelier.
+  assert.equal(explorationScore(view({})).score, 0);
+  const curious = (overrides: Partial<PolityView>) => explorationScore(view({ unknownFrontier: 8, ...overrides })).score;
+  assert.ok(curious({ values: { ...base.values, openness: 0.9 } }) > curious({ values: { ...base.values, openness: 0.1 } }));
+  assert.ok(curious({ sea: 1, seaTick: 1100 }) > curious({}) + 0.2, 'a fresh sea reach makes exploring attractive');
+  // Do nothing is always weighed; the choice is weighted random among the best options above the minimum.
+  const all = options(view({ unknownFrontier: 8 }, [{}]));
+  assert.deepEqual(all.map(option => option.action).sort(), ['expand', 'explore', 'nothing']);
+  const picks = { expand: 0, explore: 0, nothing: 0 };
+  for (let draw = 0; draw < 2000; draw++) picks[choose(view({ unknownFrontier: 8 }, [{}]), createRng(5, draw)).chosen.action]++;
+  assert.ok(picks.expand > picks.explore && picks.explore > 0 && picks.nothing > 0, JSON.stringify(picks));
 });

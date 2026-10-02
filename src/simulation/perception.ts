@@ -1,5 +1,6 @@
-import type { MapKnowledge, Polity, SimulationState } from './state.ts';
-import { MOBILITY_TUNING } from './tunables.ts';
+import { landPressure } from './pressure.ts';
+import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
+import { MOBILITY_TUNING, REACH_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
@@ -53,6 +54,27 @@ export function seeRegion(polity: Polity, region: number) {
   map.observed.splice(at, 0, region);
 }
 
+/**
+ * A group of the polity arrives in a region (moving, splitting, expanding, joining): the region is in its sight at
+ * once, and it meets whoever lives next to it or sees it across the sea — the same month, whichever side's sight is
+ * rebuilt later (a seafarer that already sees an island meets the newcomers there).
+ */
+export function arrive(state: SimulationState, polity: Polity, region: number, tick: number) {
+  seeRegion(polity, region);
+  const here = state.partition.regions[region];
+  const visit = (other: number) => {
+    const them = state.occupant[other];
+    if (them >= 0 && them !== polity.id && !polity.met.has(them)) meet(state, polity, state.polities[them], other, tick);
+  };
+  for (const edge of here.neighbors) visit(edge.region);
+  for (const link of here.sea) {
+    const them = state.occupant[link.region];
+    if (them < 0) continue;
+    const reaches = (sea: number) => sea >= 2 || (sea >= 1 && link.km <= MOBILITY_TUNING.coastalSailingKm);
+    if (reaches(polity.knowledge.sea) || reaches(state.polities[them].knowledge.sea)) visit(link.region);
+  }
+}
+
 /** A group of the polity left a region or died out: its sight is rebuilt at the next refresh. */
 export function lookAgain(polity: Polity) { polity.map.dirty = true; }
 
@@ -89,15 +111,15 @@ export function observe(state: SimulationState, polity: Polity, tick: number) {
   }
 }
 
-/** First contact: mutual, recorded once per pair, at the region where it happened. */
-function meet(state: SimulationState, polity: Polity, other: Polity, region: number, tick: number) {
+/** First contact: mutual, recorded once per pair, at the region where it happened (seen from home, or by an expedition). */
+export function meet(state: SimulationState, polity: Polity, other: Polity, region: number, tick: number, expedition = false) {
   polity.met.set(other.id, tick); other.met.set(polity.id, tick);
   state.metrics.firstContacts++;
   const landmass = state.partition.regions[region].landmass;
   const overSea = !polity.groups.some(id => state.partition.regions[state.groups[id].region].landmass === landmass);
   state.chronicle.emit({
     type: 'firstContact', actors: [{ id: polity.id, role: 'a' }, { id: other.id, role: 'b' }], region,
-    causes: [{ factor: overSea ? 'seaReach' : 'sharedBorder', weight: 1 }],
+    causes: [{ factor: expedition ? 'expedition' : overSea ? 'seaReach' : 'sharedBorder', weight: 1 }],
     // Meeting a people across the sea is rare and a "first" for both (VISION.md "Importance score").
     importance: overSea ? 0.5 : 0.05, data: { name: polity.name, other: other.name, sea: overSea },
   });
@@ -132,6 +154,174 @@ export function shareSurroundings(state: SimulationState, polity: Polity, tick: 
       map.snapshots.set(seen, { occupant: state.occupant[seen], owner: state.owner[seen], tick });
     }
   }
+}
+
+/**
+ * What a civilization weighs at its decision step (VISION.md "Decision step": only its own knowledge and beliefs).
+ * Built here from its own state and its map; decision code receives nothing else.
+ */
+export interface PolityView {
+  id: number; tick: number; values: CultureValues;
+  /** Sea reach (0 none, 1 coastal crossings, 2 any coast) and the tick it last grew (−1 never). */
+  sea: number; seaTick: number;
+  /** Governance reach in travel-km from its capital. */
+  reachKm: number;
+  /** Its people, and their land pressure and hunger (people-weighted, 0–1). */
+  people: number; landPressure: number; hunger: number;
+  /** Mean land value of its own regions (see `SimulationState.landValue`). */
+  ownValue: number;
+  /** Land it knows next to its own, held by no civilization as far as it knows. */
+  candidates: Candidate[];
+  /** Unknown regions next to what it sees: land still to discover. */
+  unknownFrontier: number;
+}
+
+export interface Candidate {
+  region: number;
+  /** Its own region next to it with the most people (where settlers would come from), that region's land pressure,
+   *  and the crossing's travel cost. */
+  from: number; pressure: number; crossingKm: number;
+  /** Travel cost from its capital, through its own land. */
+  capitalKm: number;
+  /** The land's value (static farming capacity) and whether a tribe's band lives there, as it knows. */
+  value: number; tribe: boolean;
+}
+
+/** Travel cost of a land edge (river crossings cost extra) or a sea crossing. */
+export const edgeKm = (travelKm: number, riverTier: number) => travelKm * (1 + REACH_TUNING.riverCrossing[riverTier]);
+export const seaKm = (km: number) => km * REACH_TUNING.seaFactor;
+
+// Reused across views: travel cost per region (by stamp), and a binary heap of [cost, region].
+let costStamp = new Int32Array(0), costMark = 0, cost = new Float64Array(0);
+const heap: number[] = [];
+
+/**
+ * Travel cost from the polity's capital (its heartland for a tribe) to its own regions and the known land next to
+ * them: its own land relays, land beyond is reached but not crossed. Results stay valid until the next call
+ * (`travelled`); returns its own regions.
+ */
+function travelFromCapital(state: SimulationState, polity: Polity) {
+  const regions = state.partition.regions, map = polity.map, sea = polity.knowledge.sea;
+  if (costStamp.length !== regions.length) { costStamp = new Int32Array(regions.length); cost = new Float64Array(regions.length); costMark = 0; }
+  costMark++;
+  const own = new Set<number>();
+  for (const id of polity.groups) own.add(state.groups[id].region);
+  const capital = polity.capital !== null ? state.settlements[polity.capital].region : state.groups[polity.core].region;
+  const reach = (region: number, through: number) => {
+    if (costStamp[region] === costMark && cost[region] <= through) return;
+    costStamp[region] = costMark; cost[region] = through;
+    if (own.has(region)) push(through, region);
+  };
+  heap.length = 0;
+  reach(capital, 0);
+  while (heap.length) {
+    const [at, region] = pop();
+    if (at > cost[region]) continue;
+    for (const edge of regions[region].neighbors) if (map.status[edge.region] !== UNKNOWN) reach(edge.region, at + edgeKm(edge.travelKm, edge.riverTier));
+    if (sea > 0) for (const link of regions[region].sea) if ((sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) && map.status[link.region] !== UNKNOWN) reach(link.region, at + seaKm(link.km));
+  }
+  return own;
+}
+
+const travelled = (region: number) => costStamp[region] === costMark ? cost[region] : Number.POSITIVE_INFINITY;
+
+/** Travel-km from the polity's capital to one of its regions or the land next to them (null when cut off). */
+export function capitalKm(state: SimulationState, polity: Polity, region: number) {
+  travelFromCapital(state, polity);
+  const km = travelled(region);
+  return Number.isFinite(km) ? km : null;
+}
+
+export function decisionView(state: SimulationState, polity: Polity): PolityView {
+  const regions = state.partition.regions, map = polity.map, sea = polity.knowledge.sea;
+  const own = new Set<number>();
+  let people = 0, pressure = 0, hunger = 0, value = 0;
+  for (const id of polity.groups) {
+    const group = state.groups[id];
+    own.add(group.region);
+    people += group.size; value += state.landValue[group.region];
+    pressure += group.size * landPressure(group.size, state.capacity[group.region]);
+    hunger += group.size * Math.max(0, 1 - Math.min(1, group.foodSecurity));
+  }
+  // Candidates: known land next to its own that no civilization holds as far as it knows, and that can feed farmers.
+  const found = new Map<number, Candidate>();
+  const consider = (from: number, region: number, crossing: number) => {
+    if (own.has(region) || map.status[region] === UNKNOWN || !(state.landValue[region] > 0)) return;
+    const view = regionView(state, polity, region)!;
+    if (view.owner >= 0) return;
+    const size = state.groups[state.groupAt[from]].size, current = found.get(region);
+    if (current && state.groups[state.groupAt[current.from]].size >= size) return;
+    found.set(region, {
+      region, from, pressure: landPressure(size, state.capacity[from]), crossingKm: crossing, capitalKm: Number.POSITIVE_INFINITY,
+      value: state.landValue[region], tribe: view.occupant >= 0,
+    });
+  };
+  for (const region of own) {
+    for (const edge of regions[region].neighbors) consider(region, edge.region, edgeKm(edge.travelKm, edge.riverTier));
+    if (sea > 0) for (const link of regions[region].sea) if (sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) consider(region, link.region, seaKm(link.km));
+  }
+  // Travel from the capital only matters when there is land to weigh (most steps in a full world have none).
+  if (found.size) {
+    travelFromCapital(state, polity);
+    for (const candidate of found.values()) candidate.capitalKm = travelled(candidate.region);
+  }
+  // Unknown land next to what it sees, each counted once.
+  let unknownFrontier = 0;
+  if (frontierStamp.length !== regions.length) { frontierStamp = new Int32Array(regions.length); frontierMark = 0; }
+  frontierMark++;
+  for (const region of map.observed) for (const edge of regions[region].neighbors) if (map.status[edge.region] === UNKNOWN && frontierStamp[edge.region] !== frontierMark) { frontierStamp[edge.region] = frontierMark; unknownFrontier++; }
+  return {
+    id: polity.id, tick: state.tick, values: { ...state.cultures[polity.culture].values }, sea, seaTick: polity.seaTick,
+    reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
+    people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,
+    ownValue: own.size ? value / own.size : 0,
+    candidates: [...found.values()].sort((a, b) => a.region - b.region), unknownFrontier,
+  };
+}
+
+let frontierStamp = new Int32Array(0), frontierMark = 0;
+
+function push(at: number, region: number) {
+  heap.push(at, region);
+  let child = heap.length / 2 - 1;
+  while (child > 0) {
+    const parent = (child - 1) >> 1;
+    if (heap[parent * 2] <= heap[child * 2]) break;
+    [heap[parent * 2], heap[child * 2]] = [heap[child * 2], heap[parent * 2]];
+    [heap[parent * 2 + 1], heap[child * 2 + 1]] = [heap[child * 2 + 1], heap[parent * 2 + 1]];
+    child = parent;
+  }
+}
+
+function pop(): [number, number] {
+  const top: [number, number] = [heap[0], heap[1]];
+  const lastRegion = heap.pop()!, lastCost = heap.pop()!;
+  if (heap.length) {
+    heap[0] = lastCost; heap[1] = lastRegion;
+    let parent = 0;
+    const size = heap.length / 2;
+    for (;;) {
+      const left = parent * 2 + 1, right = left + 1;
+      let smallest = parent;
+      if (left < size && heap[left * 2] < heap[smallest * 2]) smallest = left;
+      if (right < size && heap[right * 2] < heap[smallest * 2]) smallest = right;
+      if (smallest === parent) break;
+      [heap[parent * 2], heap[smallest * 2]] = [heap[smallest * 2], heap[parent * 2]];
+      [heap[parent * 2 + 1], heap[smallest * 2 + 1]] = [heap[smallest * 2 + 1], heap[parent * 2 + 1]];
+      parent = smallest;
+    }
+  }
+  return top;
+}
+
+/** A region an expedition passes: remembered as it is now (unless in sight). */
+export function reveal(state: SimulationState, polity: Polity, region: number, tick: number) {
+  const map = polity.map;
+  if (map.status[region] === OBSERVED) return false;
+  const fresh = map.status[region] === UNKNOWN;
+  map.status[region] = KNOWN;
+  map.snapshots.set(region, { occupant: state.occupant[region], owner: state.owner[region], tick });
+  return fresh;
 }
 
 /** A dead polity's map is released; who it met stays as history. */

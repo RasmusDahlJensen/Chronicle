@@ -8,7 +8,7 @@ import { validateTechData } from '../../src/simulation/deposits.ts';
 import { decodeGeography } from '../../src/simulation/geography.ts';
 import { checkPartition } from '../../src/simulation/invariants.ts';
 import { partitionRegions, partitionStats, REGION_PARTITION_VERSION } from '../../src/simulation/regions.ts';
-import { createSimulation, frameCounters, knowledgeReport, SIMULATION_RULES_VERSION, stateHash, stepSimulation } from '../../src/simulation/simulation.ts';
+import { createSimulation, frameCounters, knowledgeReport, politicsReport, SIMULATION_RULES_VERSION, stateHash, stepSimulation } from '../../src/simulation/simulation.ts';
 import { observerView } from '../../src/simulation/observer.ts';
 import { SYSTEMS } from '../../src/simulation/state.ts';
 import { CLOCK_TUNING, validateTunables } from '../../src/simulation/tunables.ts';
@@ -115,7 +115,7 @@ function regions(): RegionMap {
 function report(events: boolean) {
   return {
     instance, tick: state.tick, stats: state.stats, metrics: state.metrics, eventLogHash: state.chronicle.hash, stateHash: stateHash(state),
-    series: state.series, knowledge: knowledgeReport(state),
+    series: state.series, knowledge: knowledgeReport(state), politics: politicsReport(state),
     eventCount: state.chronicle.events.length, events: events ? state.chronicle.events : undefined,
     timing: SYSTEMS.map(system => ({ system: system.key, ms: state.timing.ms[system.id], calls: state.timing.calls[system.id] })),
     partition: partitionStats(geography, partition),

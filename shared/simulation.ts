@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 6;
+export const SIMULATION_PROTOCOL_VERSION = 7;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -83,6 +83,11 @@ export const ObserverFrameSchema = Type.Object({
     id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]),
     regions: Type.Integer({ minimum: 1 }), population: Type.Integer({ minimum: 0 }),
   }, { additionalProperties: false }), { maxItems: 10 }),
+  /** Living civilizations by population, at most 100 (the civilization list): regions, people, era and capital. */
+  civList: Type.Array(Type.Object({
+    id: id(), name: Type.String({ maxLength: 40 }), regions: Type.Integer({ minimum: 1 }), population: Type.Integer({ minimum: 0 }),
+    era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), capital: Type.String({ maxLength: 40 }), capitalCell: id(),
+  }, { additionalProperties: false }), { maxItems: 100 }),
   /** Living bands (one per region) as parallel arrays: their polity's id, region, population, the polity's kind (0 tribe / 1 civilization), era index and lineage; for map markers and territories. */
   markers: Type.Object({
     ids: Type.Array(id(), { maxItems: 20_000 }), regions: Type.Array(id(), { maxItems: 20_000 }),
@@ -124,6 +129,18 @@ export const ObserverFrameSchema = Type.Object({
       known: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 200 }), researchPerYear: Type.Number({ minimum: 0 }), contacts: Type.Integer({ minimum: 0 }),
       /** Its map: regions it knows (in sight or remembered), regions in sight, and polities it has met. */
       regionsKnown: Type.Integer({ minimum: 1 }), regionsInSight: Type.Integer({ minimum: 1 }), met: Type.Integer({ minimum: 0 }),
+      /** Governance reach in travel-km, and this region's travel-km from the capital (null when cut off from it). */
+      reachKm: Type.Number({ minimum: 0 }), capitalKm: Type.Union([Type.Null(), Type.Number({ minimum: 0 })]),
+      /** Its last decision step: every option with its score and factors, what it chose and what came of it. */
+      lastDecision: Type.Union([Type.Null(), Type.Object({
+        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing')]),
+        outcome: Type.String({ maxLength: 80 }),
+        options: Type.Array(Type.Object({
+          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing')]), score: Type.Number(),
+          target: Type.Union([Type.Null(), id()]),
+          factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
+        }, { additionalProperties: false }), { maxItems: 3 }),
+      }, { additionalProperties: false })]),
       /** The active research target, its progress and cost at the current exposure, why it was chosen, and the strongest options at the last choice. */
       research: Type.Union([Type.Null(), Type.Object({
         tech: Type.String({ maxLength: 40 }), progress: Type.Number({ minimum: 0 }), cost: Type.Number({ minimum: 0 }), exposure: Type.Number({ minimum: 0, maximum: 1 }),
@@ -175,6 +192,13 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
     if (kinds[index] === 1) civs.add(polity);
   });
   if (polities.size !== frame.polities || frame.civs > frame.polities || civs.size !== frame.civs) throw invalid();
+  // The civilization list holds the largest living civilizations, by people, with the regions and people they report.
+  if (frame.civList.length !== Math.min(frame.civs, 100)) throw invalid();
+  for (const [at, entry] of frame.civList.entries()) {
+    let held = 0, people = 0;
+    ids.forEach((polity, index) => { if (polity === entry.id) { held++; people += populations[index]; } });
+    if (!civs.has(entry.id) || held !== entry.regions || people !== entry.population || (at > 0 && entry.population > frame.civList[at - 1].population)) throw invalid();
+  }
   // The legend's polities are living, with exactly the regions and people their bands report.
   for (const entry of frame.largest) {
     let held = 0, people = 0;
@@ -217,6 +241,12 @@ export interface KnowledgeReport {
   eras: { era: string; year: number }[];
   agriculture: null | { year: number; region: number; topQuartile: boolean; riverTier: number; openLake: boolean };
   agricultureQuarterYear: number;
+}
+
+/** M3 facts for the study (VISION.md M3 acceptance): each living civilization's longest gap between expansions. */
+export interface PoliticsReport {
+  /** Years, one per living civilization, in id order. */
+  longestExpansionGaps: number[];
 }
 
 /** Messages between the host and its simulation worker (structured clone, same process). */

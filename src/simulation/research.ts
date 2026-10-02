@@ -162,7 +162,9 @@ export function research(state: SimulationState, context: TickContext) {
   for (const { id, tech, exposure } of learned) {
     const polity = state.polities[id];
     const reasons = polity.knowledge.reasons, own = Math.min(1, polity.knowledge.progress[tech] / Math.max(TECHS[tech].cost, 1));
+    const sea = polity.knowledge.sea;
     polity.knowledge = learn(polity.knowledge, tech);
+    if (polity.knowledge.sea > sea) polity.seaTick = context.tick;
     state.learnedCount[tech]++;
     const first = !state.firsts.some(entry => entry.tech === tech);
     // A tribe's discoveries are placed in its heartland, for the record of firsts and the event alike.

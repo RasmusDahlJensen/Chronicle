@@ -15,7 +15,7 @@ export type WorldLayer = 'biomes' | 'temperature' | 'moisture' | 'fertility';
 export interface WorldCoordinate { x: number; y: number }
 /** A polity marker: bands are circles, settled civilizations squares, coloured by era. */
 export interface BandMarker { x: number; y: number; population: number; color: string; settled?: boolean }
-/** A settlement (village) mark at its cell; capitals are drawn larger. */
+/** A settlement (village) mark at its cell; capitals are drawn as stars at every zoom. */
 export interface SettlementMark { x: number; y: number; capital: boolean }
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
@@ -268,18 +268,29 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
       target.restore();
     }
-    // Villages on their own cells, above the markers once a region is a few pixels across.
-    if (villages.length && m.scale >= 1.5) {
+    // Villages on their own cells, above the markers once a region is a few pixels across; capitals as stars at
+    // every zoom, so the political map shows where each civilization is governed from.
+    let capitalMarks = 0;
+    if (villages.length) {
       target.save(); target.fillStyle = villageStyle.fill; target.strokeStyle = villageStyle.stroke; target.lineWidth = 1;
-      const size = Math.max(2.5, Math.min(7, m.scale * 0.6));
+      const size = Math.max(2.5, Math.min(7, m.scale * 0.6)), star = Math.max(3.5, Math.min(8, m.scale * 0.9));
       for (let copy = startCopy; copy <= endCopy; copy++) for (const village of villages) {
-        const x = left + (copy * world.width + village.x + 0.5) * m.scale, y = top + (village.y + 0.5) * m.scale, half = (village.capital ? size : size * 0.7) / 2;
+        if (!village.capital && m.scale < 1.5) continue;
+        const x = left + (copy * world.width + village.x + 0.5) * m.scale, y = top + (village.y + 0.5) * m.scale, half = (village.capital ? star : size * 0.7) / 2;
         if (x < -half || x > m.width + half || y < -half || y > m.height + half) continue;
-        target.beginPath(); target.moveTo(x, y - half * 1.3); target.lineTo(x + half, y); target.lineTo(x, y + half * 1.3); target.lineTo(x - half, y); target.closePath();
-        target.fill(); target.stroke();
+        target.beginPath();
+        if (village.capital) {
+          for (let point = 0; point < 10; point++) {
+            const angle = -Math.PI / 2 + point * Math.PI / 5, radius = point % 2 ? half * 0.45 : half * 1.2;
+            if (point) target.lineTo(x + radius * Math.cos(angle), y + radius * Math.sin(angle)); else target.moveTo(x + radius * Math.cos(angle), y + radius * Math.sin(angle));
+          }
+          capitalMarks++;
+        } else { target.moveTo(x, y - half * 1.3); target.lineTo(x + half, y); target.lineTo(x, y + half * 1.3); target.lineTo(x - half, y); }
+        target.closePath(); target.fill(); target.stroke();
       }
       target.restore();
     }
+    canvas.dataset.capitalMarks = String(capitalMarks);
     // Keep the selected cell's outline above the marks.
     if (overlay && selection && (markers.length || villages.length || showRegions)) {
       const offsetX = wrap(selection.x + 0.5 - centerX + world.width / 2, world.width) - world.width / 2;
@@ -431,6 +442,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       safe(draw);
     },
     clearSelection() { select(null); },
+    /** Centre the view on a cell and select it (for example a civilization's capital picked from a list). */
+    focusCell(cell: WorldCoordinate) { centerX = cell.x + 0.5; centerY = cell.y + 0.5; changed(); select(cell); },
     /** Band markers in world cell coordinates; replaces the previous set. */
     setBands(next: BandMarker[]) { markers = next; safe(() => overlay ? drawOverlay() : draw()); },
     /**
