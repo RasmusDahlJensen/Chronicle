@@ -19,6 +19,18 @@ async function ready(page: Page) {
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 }
 
+/** Click a world cell on the map at its current camera. */
+async function clickCell(page: Page, cell: { x: number; y: number }) {
+  const canvas = page.locator('#generated-world-canvas');
+  await canvas.scrollIntoViewIfNeeded();
+  const point = await canvas.evaluate((element: HTMLCanvasElement, coordinate) => {
+    const rect = element.getBoundingClientRect(), scale = Number(element.dataset.scale);
+    return { x: rect.x + rect.width / 2 + (coordinate.x + 0.5 - Number(element.dataset.centerX)) * scale,
+      y: rect.y + rect.height / 2 + (coordinate.y + 0.5 - Number(element.dataset.centerY)) * scale };
+  }, cell);
+  await page.mouse.click(point.x, point.y);
+}
+
 test('time controls: reset shows year 0, step advances exactly one month, play advances until pause', async ({ page }) => {
   await ready(page);
   await expect(page.locator('#simulation-date')).toHaveText('Year 0 · January');
@@ -100,18 +112,12 @@ test('bands appear as markers, the world chart grows and a band region shows its
   const frame = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
   const regions = await (await page.request.get(`/api/simulation/regions?${query}`)).json();
   // The most populous band away from the poles, so its centre cell is on screen at fit.
-  const candidates = frame.bands.regions.map((region: number, index: number) => ({ region, population: frame.bands.populations[index], centroid: regions.regions[region].centroid }))
+  const candidates = frame.markers.regions.map((region: number, index: number) => ({ region, population: frame.markers.populations[index], centroid: regions.regions[region].centroid }))
     .filter((band: { centroid: number }) => Math.abs(Math.floor(band.centroid / WIDTH) - regions.height / 2) < regions.height / 4)
     .sort((a: { population: number }, b: { population: number }) => b.population - a.population);
   const band = candidates[0];
   const cell = { x: band.centroid % WIDTH, y: Math.floor(band.centroid / WIDTH) };
-  await canvas.scrollIntoViewIfNeeded();
-  const point = await canvas.evaluate((element: HTMLCanvasElement, coordinate) => {
-    const rect = element.getBoundingClientRect(), scale = Number(element.dataset.scale);
-    return { x: rect.x + rect.width / 2 + (coordinate.x + 0.5 - Number(element.dataset.centerX)) * scale,
-      y: rect.y + rect.height / 2 + (coordinate.y + 0.5 - Number(element.dataset.centerY)) * scale };
-  }, cell);
-  await page.mouse.click(point.x, point.y);
+  await clickCell(page, cell);
   const details = page.getByRole('group', { name: 'Band in this region' });
   await expect(details).toBeVisible();
   await expect(page.locator('#band-population')).toHaveText(band.population.toLocaleString('en'));
@@ -119,6 +125,35 @@ test('bands appear as markers, the world chart grows and a band region shows its
   await expect(details).toContainText('Food security');
   await expect(page.locator('#region-capacity')).toContainText('people');
   await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/band of [\d,]+ people/);
+  await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
+  await expect(history(page)).toHaveAttribute('data-tick', '0');
+});
+
+test('farming bands settle into civilizations with villages, specialists and research the inspector explains', async ({ page }) => {
+  await ready(page);
+  const canvas = page.locator('#generated-world-canvas');
+  await history(page).getByLabel('Run to year').fill('650');
+  await history(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(history(page)).toHaveAttribute('data-tick', String(650 * 12), { timeout: 120_000 });
+  await expect(page.locator('#world-population')).toContainText(/[1-9][\d,]* civilizations/);
+  await expect.poll(async () => Number(await canvas.getAttribute('data-settlement-marks'))).toBeGreaterThan(0);
+  const query = `seed=${encodeURIComponent(SEED)}&size=${SIZE}`;
+  const frame = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  const regions = await (await page.request.get(`/api/simulation/regions?${query}`)).json();
+  expect(frame.civs).toBeGreaterThan(0);
+  expect(frame.leadingEra).toBeGreaterThanOrEqual(1);
+  // The most populous civilization away from the poles.
+  const civ = frame.markers.regions.map((region: number, index: number) => ({ region, kind: frame.markers.kinds[index], population: frame.markers.populations[index], centroid: regions.regions[region].centroid }))
+    .filter((entry: { kind: number; centroid: number }) => entry.kind === 1 && Math.abs(Math.floor(entry.centroid / WIDTH) - regions.height / 2) < regions.height / 4)
+    .sort((a: { population: number }, b: { population: number }) => b.population - a.population)[0];
+  await clickCell(page, { x: civ.centroid % WIDTH, y: Math.floor(civ.centroid / WIDTH) });
+  const details = page.getByRole('group', { name: 'Civilization in this region' });
+  await expect(details).toBeVisible();
+  await expect(details).toContainText(/Neolithic era|Bronze era/);
+  await expect(page.locator('#polity-capital')).not.toBeEmpty();
+  await expect(page.locator('#polity-specialists')).toHaveText(/^[\d,]+$/);
+  await expect(page.locator('#polity-known')).toContainText('Agriculture');
+  await expect(details.getByRole('region', { name: 'Knowledge' })).toContainText('points a year');
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

@@ -6,13 +6,16 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 2;
+export const SIMULATION_PROTOCOL_VERSION = 3;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
 export const SPEED_MONTHS_PER_SECOND: Record<SimulationSpeed, number> = { month: 1, year: 12, decade: 120, max: Number.POSITIVE_INFINITY };
 export const MAX_SIMULATION_YEAR = 5000;
 export const MAX_FRAME_EVENTS = 200;
+
+/** Era labels (VISION.md "Eras"), indexed by the era numbers in frames; the simulation's tech data uses this list as its eras. */
+export const ERA_NAMES = ['Stone', 'Neolithic', 'Bronze', 'Iron', 'Classical', 'Medieval', 'Early modern', 'Industrial', 'Modern', 'Atomic'] as const;
 
 /** The chronicle's event types (VISION.md "The Chronicle"). Append only: ids are stored in event logs. */
 export const EVENT_TYPES = [
@@ -70,23 +73,49 @@ export const ObserverFrameSchema = Type.Object({
   events: Type.Array(ChronicleEventSchema, { maxItems: MAX_FRAME_EVENTS }),
   counters: Type.Object({ regions: Type.Integer({ minimum: 0 }), landmasses: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
   population: Type.Integer({ minimum: 0 }), polities: Type.Integer({ minimum: 0 }),
-  /** Living bands as parallel arrays (id, region, population), for map markers. */
-  bands: Type.Object({
+  /** Living civilizations, living settlements, specialists and the most advanced era any polity has reached. */
+  civs: Type.Integer({ minimum: 0 }), settlementCount: Type.Integer({ minimum: 0 }), specialists: Type.Integer({ minimum: 0 }),
+  leadingEra: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
+  /** Living polities as parallel arrays (id, region, population, kind 0 band / 1 civilization, era index), for map markers. */
+  markers: Type.Object({
     ids: Type.Array(id(), { maxItems: 20_000 }), regions: Type.Array(id(), { maxItems: 20_000 }),
     populations: Type.Array(Type.Integer({ minimum: 1 }), { maxItems: 20_000 }),
+    kinds: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 20_000 }),
+    eras: Type.Array(Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), { maxItems: 20_000 }),
+  }, { additionalProperties: false }),
+  /** Living settlements as parallel arrays (id, cell, owner, capital 0/1), for village marks. */
+  settlements: Type.Object({
+    ids: Type.Array(id(), { maxItems: 50_000 }), cells: Type.Array(id(), { maxItems: 50_000 }),
+    owners: Type.Array(id(), { maxItems: 50_000 }), capitals: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 50_000 }),
   }, { additionalProperties: false }),
   /** [year, world population, living polities] every SERIES_YEARS, for the world chart. */
   series: Type.Array(Type.Tuple([Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 })]), { maxItems: 1_000 }),
   /** Details of the region the observer asked about, or null. */
   inspect: Type.Union([Type.Null(), Type.Object({
     region: id(), capacity: Type.Number({ minimum: 0 }), gameStock: Type.Number({ minimum: 0, maximum: 1 }),
-    food: Type.Object({ forage: Type.Number({ minimum: 0 }), hunt: Type.Number({ minimum: 0 }), fish: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
-    band: Type.Union([Type.Null(), Type.Object({
-      id: id(), name: Type.String({ maxLength: 40 }), culture: Type.String({ maxLength: 40 }), population: Type.Integer({ minimum: 0 }),
+    food: Type.Object({
+      forage: Type.Number({ minimum: 0 }), hunt: Type.Number({ minimum: 0 }), fish: Type.Number({ minimum: 0 }),
+      herd: Type.Number({ minimum: 0 }), farm: Type.Number({ minimum: 0 }),
+    }, { additionalProperties: false }),
+    polity: Type.Union([Type.Null(), Type.Object({
+      id: id(), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]), name: Type.String({ maxLength: 40 }), culture: Type.String({ maxLength: 40 }),
+      population: Type.Integer({ minimum: 0 }),
       birthsThisYear: Type.Integer({ minimum: 0 }), deathsThisYear: Type.Integer({ minimum: 0 }),
       birthsLastYear: Type.Integer({ minimum: 0 }), deathsLastYear: Type.Integer({ minimum: 0 }),
-      foodSecurity: Type.Number({ minimum: 0 }), foodStoreMonths: Type.Number({ minimum: 0 }), founded: Type.Integer({ minimum: 0 }),
-      arrived: Type.Integer({ minimum: 0 }),
+      foodSecurity: Type.Number({ minimum: 0 }), foodStoreMonths: Type.Number({ minimum: 0 }), cropsMonths: Type.Number({ minimum: 0 }),
+      founded: Type.Integer({ minimum: 0 }), arrived: Type.Integer({ minimum: 0 }),
+      /** Share of food from farming and herding, people freed as specialists, and the capital village of a civilization. */
+      farmShare: Type.Number({ minimum: 0, maximum: 1 }), specialists: Type.Integer({ minimum: 0 }),
+      capital: Type.Union([Type.Null(), Type.Object({ name: Type.String({ maxLength: 40 }), cell: id(), settled: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })]),
+      era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
+      /** Known techs in graph order; research points a year; contacts within two regions. */
+      known: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 200 }), researchPerYear: Type.Number({ minimum: 0 }), contacts: Type.Integer({ minimum: 0 }),
+      /** The active research target, its progress and cost at the current exposure, why it was chosen, and the strongest options at the last choice. */
+      research: Type.Union([Type.Null(), Type.Object({
+        tech: Type.String({ maxLength: 40 }), progress: Type.Number({ minimum: 0 }), cost: Type.Number({ minimum: 0 }), exposure: Type.Number({ minimum: 0, maximum: 1 }),
+        reasons: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
+        candidates: Type.Array(Type.Object({ tech: Type.String({ maxLength: 40 }), weight: Type.Number({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 8 }),
+      }, { additionalProperties: false })]),
     }, { additionalProperties: false })]),
   }, { additionalProperties: false })]),
 }, { additionalProperties: false });
@@ -118,8 +147,13 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   const frame = value as ObserverFrame;
   for (let at = 1; at < frame.events.length; at++) if (frame.events[at].id <= frame.events[at - 1].id) throw invalid();
   if (frame.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
-  const { ids, regions, populations } = frame.bands;
-  if (ids.length !== regions.length || ids.length !== populations.length) throw invalid();
+  const { ids, regions, populations, kinds, eras } = frame.markers;
+  if ([regions, populations, kinds, eras].some(array => array.length !== ids.length)) throw invalid();
+  const settlements = frame.settlements;
+  if ([settlements.cells, settlements.owners, settlements.capitals].some(array => array.length !== settlements.ids.length)) throw invalid();
+  if (ids.length !== frame.polities || frame.civs > frame.polities || kinds.filter(kind => kind === 1).length !== frame.civs) throw invalid();
+  if (settlements.ids.length !== frame.settlementCount || eras.some(era => era > frame.leadingEra)) throw invalid();
+  if (frame.inspect && frame.inspect.region >= frame.counters.regions) throw invalid();
   if (frame.series.some(([year], at) => year * 12 > frame.tick || (at > 0 && year <= frame.series[at - 1][0]))) throw invalid();
   return frame;
 }
@@ -145,6 +179,15 @@ export function parseRegionMap(value: unknown): { map: RegionMap; cells: Uint16A
     if (region.neighbors.some(other => other >= map.regions.length || other === index)) throw invalid();
   }
   return { map, cells };
+}
+
+/** M2 facts in the worker's study report (VISION.md M2 acceptance): firsts, where Agriculture began, when a quarter of living polities knew it. */
+export interface KnowledgeReport {
+  firsts: { tech: string; era: string; year: number; region: number }[];
+  /** First year any polity reached each era. */
+  eras: { era: string; year: number }[];
+  agriculture: null | { year: number; region: number; topQuartile: boolean; riverTier: number; openLake: boolean };
+  agricultureQuarterYear: number;
 }
 
 /** Messages between the host and its simulation worker (structured clone, same process). */

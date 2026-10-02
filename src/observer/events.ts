@@ -3,7 +3,8 @@ import type { ChronicleEvent, EventType } from '../../shared/simulation.ts';
 /**
  * Observer presentation data for chronicle events (VISION.md "Text rendering"): one template per event type,
  * filled from the event's data and actors. `{key}` reads `event.data[key]`, `{@role}` the actor with that role,
- * `{region}` the event's region. The simulation never writes prose.
+ * `{region}` the event's region, and `{?key|text}` adds the text when `event.data[key]` is true. The simulation never
+ * writes prose.
  */
 export const EVENT_TEMPLATES: Record<EventType, string> = {
   bandSpawned: 'The {name} band of {population} people ({culture} culture) appears in region {region}.',
@@ -11,9 +12,9 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   bandSplit: 'The {name} band of {population} people splits from the {parentName} band and settles region {region}.',
   bandAbsorbed: '{@band} is absorbed by {@civ} in region {region}.',
   bandJoined: '{@band} joins {@civ} in region {region}.',
-  settled: '{@polity} settles in region {region} and becomes a civilization.',
+  settled: 'The {name} band settles in region {region} and becomes a civilization, with its capital at {capital}.',
   expansion: '{@civ} expands into region {region}.',
-  settlementFounded: '{name} is founded in region {region}.',
+  settlementFounded: 'The village of {name} is founded in region {region} by the {civ}.',
   settlementTierChanged: '{name} becomes a {tier}.',
   capitalMoved: '{@civ} moves its capital to {name}.',
   buildingCompleted: '{@civ} completes a {building} at {name}.',
@@ -27,7 +28,7 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   settlementRazed: '{@attacker} razes {name}, leaving ruins.',
   ruinsResettled: 'The ruins of {name} are resettled by {@civ}.',
   infrastructureDestroyed: 'A {kind} in region {region} is destroyed.',
-  techDiscovered: '{@polity} discovers {tech}.',
+  techDiscovered: 'The {name} learn {tech} ({era} era){?first|, the first people in the world to do so}.',
   expedition: '{@civ} sends an expedition from region {region}.',
   voyageLost: 'A voyage from {@civ} is lost at sea.',
   newLandsDiscovered: '{@civ} discovers new lands at region {region}.',
@@ -50,7 +51,7 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   revolt: 'Region {region} revolts against {@civ}.',
   secession: '{@rebels} secedes from {@civ}.',
   civilWar: 'Civil war breaks out in {@civ}.',
-  civDestroyed: '{@civ} is destroyed.',
+  civDestroyed: 'The {name} civilization comes to an end, and {capital} is left in ruins.',
   cultureSplit: 'The {culture} culture splits from {parent}.',
   hybridCulture: 'A new {culture} culture forms from {parents}.',
   religionFounded: '{religion} is founded in region {region}.',
@@ -70,7 +71,8 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
 
 /** Fill an event's template; missing values show as "?" so gaps stay visible instead of silently vanishing. */
 export function describeEvent(event: ChronicleEvent, names: (id: number) => string = id => `#${id}`) {
-  return EVENT_TEMPLATES[event.type].replace(/\{(@?)(\w+)\}/g, (_match, actor: string, key: string) => {
+  const optional = EVENT_TEMPLATES[event.type].replace(/\{\?(\w+)\|([^}]*)\}/g, (_match, key: string, text: string) => event.data[key] === true ? text : '');
+  return optional.replace(/\{(@?)(\w+)\}/g, (_match, actor: string, key: string) => {
     if (actor) { const found = event.actors.find(entry => entry.role === key); return found ? names(found.id) : '?'; }
     if (key === 'region') return event.region === null ? '?' : String(event.region);
     const value = event.data[key];

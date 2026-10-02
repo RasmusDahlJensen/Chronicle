@@ -1,28 +1,48 @@
 import type { ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
+import { remaining } from './knowledge.ts';
+import { exposureOf, researchRate } from './research.ts';
 import type { SimulationState } from './state.ts';
+import { TECHS } from './techs.ts';
 import { FOOD_TUNING } from './tunables.ts';
+
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'markers' | 'settlements' | 'series' | 'inspect'>;
 
 /**
  * What an observer may see of the true world (VISION.md "Observer views": the god view). Built on request from the
  * state; it never changes the simulation.
  */
-export function observerView(state: SimulationState, inspect: number | null): Pick<ObserverFrame, 'population' | 'polities' | 'bands' | 'series' | 'inspect'> {
-  const ids: number[] = [], regions: number[] = [], populations: number[] = [];
-  let population = 0;
-  for (const id of state.bands) {
-    const band = state.polities[id], size = state.groups[band.group].size;
-    ids.push(id); regions.push(band.region); populations.push(size); population += size;
+export function observerView(state: SimulationState, inspect: number | null): View {
+  const ids: number[] = [], regions: number[] = [], populations: number[] = [], kinds: number[] = [], eras: number[] = [];
+  let population = 0, civs = 0, specialists = 0, leadingEra = 0;
+  for (const id of state.living) {
+    const polity = state.polities[id], group = state.groups[polity.group];
+    ids.push(id); regions.push(polity.region); populations.push(group.size); kinds.push(polity.kind === 'civ' ? 1 : 0); eras.push(polity.knowledge.era);
+    population += group.size; specialists += group.specialists; leadingEra = Math.max(leadingEra, polity.knowledge.era);
+    if (polity.kind === 'civ') civs++;
+  }
+  const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[] };
+  for (const settlement of state.settlements) {
+    if (settlement.status !== 'alive') continue;
+    settlements.ids.push(settlement.id); settlements.cells.push(settlement.cell); settlements.owners.push(settlement.owner); settlements.capitals.push(settlement.capital ? 1 : 0);
   }
   // At most 500 chart points: thin evenly once a long history exceeds that.
   const step = Math.max(1, Math.ceil(state.series.length / 500));
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
-  return { population, polities: state.bands.length, bands: { ids, regions, populations }, series, inspect: inspect === null ? null : inspectRegion(state, inspect) };
+  return {
+    population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra,
+    markers: { ids, regions, populations, kinds, eras }, settlements, series, inspect: inspect === null ? null : inspectRegion(state, inspect),
+  };
 }
+
+const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 10 ** digits;
 
 function inspectRegion(state: SimulationState, region: number): ObserverFrame['inspect'] {
   if (!Number.isInteger(region) || region < 0 || region >= state.partition.regions.length) return null;
-  const yields = regionYields(state.food, state.gameStock[region], new Float64Array(METHOD_COUNT));
+  const occupant = state.occupant[region];
+  const polity = occupant >= 0 ? state.polities[occupant] : null, group = polity ? state.groups[polity.group] : null;
+  // The land as its occupant would work it (unclaimed land: the starting methods only).
+  const yields = regionYields(state.food, state.gameStock[region], new Float64Array(METHOD_COUNT), region, polity?.knowledge);
   const at = region * METHOD_COUNT, labor = state.food.labor;
   // A fresh solve at the current game stock: the simulation's cached value is only kept up to date where people live,
   // and the observer must never write simulation state.
@@ -31,17 +51,29 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   const workers = new Float64Array(METHOD_COUNT);
   harvest(labor, at, yields, people, workers);
   const output = (method: number) => Math.round(Math.max(0, yields[method] * labor[at + method] * (1 - Math.exp(-workers[method] / Math.max(labor[at + method], 1e-9)))));
-  const occupant = state.occupant[region];
-  const band = occupant >= 0 ? state.polities[occupant] : null, group = band ? state.groups[band.group] : null;
-  return {
-    region, capacity: Math.round(people), gameStock: Math.round(state.gameStock[region] * 1000) / 1000,
-    food: { forage: output(0), hunt: output(1), fish: output(2) },
-    band: band && group ? {
-      id: band.id, name: band.name, culture: state.cultures[band.culture].name, population: group.size,
+  let view: NonNullable<ObserverFrame['inspect']>['polity'] = null;
+  if (polity && group) {
+    const knowledge = polity.knowledge, target = knowledge.target, exposure = target < 0 ? 0 : exposureOf(state, polity, target);
+    const capital = polity.capital === null ? null : state.settlements[polity.capital];
+    view = {
+      id: polity.id, kind: polity.kind, name: polity.name, culture: state.cultures[polity.culture].name, population: group.size,
       birthsThisYear: group.birthsYear, deathsThisYear: group.deathsYear, birthsLastYear: group.lastBirths, deathsLastYear: group.lastDeaths,
-      foodSecurity: Math.round(group.foodSecurity * 1000) / 1000,
-      foodStoreMonths: group.size > 0 ? Math.round(group.store / (group.size * FOOD_TUNING.unitsPerPersonMonth) * 100) / 100 : 0,
-      founded: band.foundedTick, arrived: band.arrivedTick,
-    } : null,
+      foodSecurity: round(group.foodSecurity), foodStoreMonths: group.size > 0 ? round(group.store / (group.size * FOOD_TUNING.unitsPerPersonMonth), 2) : 0,
+      cropsMonths: group.size > 0 ? round(group.planted / (group.size * FOOD_TUNING.unitsPerPersonMonth), 2) : 0,
+      founded: polity.foundedTick, arrived: polity.arrivedTick, farmShare: round(Math.min(1, Math.max(0, group.farmShare))), specialists: group.specialists,
+      capital: capital ? { name: capital.name, cell: capital.cell, settled: polity.settledTick ?? capital.foundedTick } : null,
+      era: knowledge.era, known: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => definition.name),
+      researchPerYear: round(researchRate(polity, group), 2), contacts: polity.contacts.length,
+      research: target < 0 ? null : {
+        tech: TECHS[target].name, progress: round(knowledge.progress[target], 1), exposure: round(exposure),
+        cost: round(knowledge.progress[target] + Math.max(0, remaining(knowledge, exposure)), 1),
+        reasons: knowledge.reasons.slice(0, 8), candidates: knowledge.candidates.slice(0, 8).map(entry => ({ tech: TECHS[entry.tech].name, weight: Math.max(0, entry.weight) })),
+      },
+    };
+  }
+  return {
+    region, capacity: Math.round(people), gameStock: round(state.gameStock[region]),
+    food: { forage: output(0), hunt: output(1), fish: output(2), herd: output(3), farm: output(4) },
+    polity: view,
   };
 }

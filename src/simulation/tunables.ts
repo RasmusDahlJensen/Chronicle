@@ -39,6 +39,11 @@ export const CLOCK_TUNING = {
   statsYears: 100,
   /** Live play runs ticks in slices of at most this long before yielding to messages. */
   sliceMs: 40,
+  /** A polity's capacity is solved yearly (staggered by id), on arrival, and monthly while its people exceed
+   *  `capacityRefresh` × the last solve or its region's game stock has moved more than `capacityGameDrift` since then.
+   *  Knowledge only raises capacity, so between solves the cached value is within a few percent of a fresh one and the
+   *  1.1× over-capacity check reads the same. */
+  capacityRefresh: 1.04, capacityGameDrift: 0.01,
 } as const;
 
 type LandBiome = Exclude<WorldBiome, 'ocean' | 'coast' | 'seaIce' | 'lake' | 'lakeIce'>;
@@ -50,16 +55,16 @@ type LandBiome = Exclude<WorldBiome, 'ocean' | 'coast' | 'seaIce' | 'lake' | 'la
  * at full game (hunting); fishing capacity is per shore cell, scaled by the cell's edge length.
  */
 export const FOOD_TUNING = {
-  forageDensity: { grassland: 0.09, savanna: 0.1, steppe: 0.05, forest: 0.08, boreal: 0.05, rainforest: 0.09, wetland: 0.1, tundra: 0.02, desert: 0.01, mountain: 0.02, snow: 0 } satisfies Record<LandBiome, number>,
+  forageDensity: { grassland: 0.04, savanna: 0.045, steppe: 0.0225, forest: 0.036, boreal: 0.0225, rainforest: 0.04, wetland: 0.045, tundra: 0.009, desert: 0.0045, mountain: 0.009, snow: 0 } satisfies Record<LandBiome, number>,
   /** Foraging labour scales with fertility between this floor and 1. */
   forageFertilityFloor: 0.3,
-  huntDensity: { grassland: 0.05, savanna: 0.06, steppe: 0.05, forest: 0.05, boreal: 0.04, rainforest: 0.03, wetland: 0.04, tundra: 0.03, desert: 0.005, mountain: 0.02, snow: 0 } satisfies Record<LandBiome, number>,
+  huntDensity: { grassland: 0.0225, savanna: 0.027, steppe: 0.0225, forest: 0.0225, boreal: 0.018, rainforest: 0.0135, wetland: 0.018, tundra: 0.0135, desert: 0.00225, mountain: 0.009, snow: 0 } satisfies Record<LandBiome, number>,
   /** Labour added by each usable game or fish site. */
-  gameSiteLabor: 250, fishSiteLabor: 400,
+  gameSiteLabor: 112, fishSiteLabor: 180,
   /** Fishing labour per shore cell of a 973 km² cell (scaled by edge length), and per river cell by tier (stream, river, great river). */
-  fishCoastLabor: 80, fishLakeLabor: 60, fishRiverLabor: [0, 15, 30, 60] as readonly number[],
+  fishCoastLabor: 36, fishLakeLabor: 27, fishRiverLabor: [0, 6.75, 13.5, 27] as readonly number[],
   /** Fishing grounds reach beyond the shore cells: base labour for a region with a coast, open-lake access or a river (by tier). */
-  fishRegionCoast: 500, fishRegionLake: 400, fishRegionRiver: [0, 0, 300, 600] as readonly number[],
+  fishRegionCoast: 225, fishRegionLake: 180, fishRegionRiver: [0, 0, 135, 270] as readonly number[],
   yield: { forage: 1.45, hunt: 1.75, fish: 2, herd: 0, farm: 0 },
   /** Game multiplies hunting fully and foraging down to this floor. */
   forageGameFloor: 0.6,
@@ -73,7 +78,7 @@ export const FOOD_TUNING = {
 
 /** Births and deaths per year as functions of food security (stored + expected food ÷ annual need). */
 export const POPULATION_TUNING = {
-  birthRate: 0.035, birthSlope: 0.015, deathRate: 0.035,
+  birthRate: 0.035, birthSlope: 0.03, deathRate: 0.035,
   /** Food security above 1 raises births and below 1 lowers them, saturating this far from 1. */
   securitySpan: 0.8,
   /** Extra famine deaths per year: famineDeaths × √(1 − food security) below full security. Small shortfalls already
@@ -116,6 +121,63 @@ export const SPAWN_TUNING = {
   minSpacingKm: 700,
 } as const;
 
+/** Research (VISION.md "Research"): base points per person a year scaled by contact, plus specialists; weights for the next target. */
+export const RESEARCH_TUNING = {
+  basePerPerson: 0.006, contactBonus: 0.08, contactCap: 12,
+  /** Base research (experience and tinkering) grows with people up to a community of this size; beyond it, research needs specialists. */
+  basePeople: 1_500,
+  specialistResearch: 0.3,
+  /** Weight multipliers: food need (hunger or land pressure) raises food techs; exposure raises a tech's weight by
+   *  1 + exposureWeight × exposure × (opennessBase + Openness) and lowers its cost; a deposit on the polity's land it knows
+   *  but cannot work multiplies its extraction tech's weight by blockedWeight. */
+  needWeight: 6, exposureWeight: 12, exposureDiscount: 0.998, opennessBase: 0.5, blockedWeight: 2,
+  /** Discovery causes keep the choice factors at least this strong, at most this many. */
+  reasonMin: 0.05, reasonCount: 3,
+  /** Tradition lowers the weight of techs that change the economy. */
+  traditionBrake: 0.6,
+  /** Polities within this many regions of each other are in contact (VISION.md M2 simplification), refreshed this often (sea reach as for moves, `MOBILITY_TUNING`). */
+  contactRadius: 2, contactMonths: 12,
+  /** Contact intensity of a polity two regions away (neighbours count 1); exposure sums the intensities of contacts that know a tech, up to 1. */
+  farContact: 1,
+  /** Years of research at which a tech's weight halves (effort). */
+  effortYears: 100,
+  /** Once a year a polity reconsiders its target if another tech now weighs this many times as much. */
+  switchRatio: 1.5,
+  /** Region environment flags: a biome group covering this share of cells; rough ground by mountain share or defensibility; cold below this mean °C.
+   *  Fertile river land is VISION.md's M2 class: farming potential at or above this quantile of land regions, with a river of at least this tier or open-lake access. */
+  affinityShare: 0.35, roughShare: 0.25, roughDefensibility: 0.55, coldCelsius: 2, fertileQuantile: 0.75, fertileRiverTier: 2,
+} as const;
+
+/** Farming and herding (M2). Densities are people per km² of labour capacity at fertility 100 (farming) or per km² (herding). */
+export const FARM_TUNING = {
+  farmDensity: { grassland: 10, savanna: 8, steppe: 3, forest: 6, boreal: 2, rainforest: 4, wetland: 5, tundra: 0.2, desert: 0.4, mountain: 1, snow: 0 } satisfies Record<LandBiome, number>,
+  fertilityExponent: 1.2,
+  herdDensity: { grassland: 1, savanna: 1, steppe: 1.2, forest: 0.2, boreal: 0.2, rainforest: 0.1, wetland: 0.3, tundra: 0.4, desert: 0.2, mountain: 0.3, snow: 0 } satisfies Record<LandBiome, number>,
+  grainSiteLabor: 3000,
+  /** Farming yield multipliers for river tiers (none, stream, river, great river) and open-lake access. */
+  riverFarm: [1, 1.05, 1.15, 1.35], lakeFarm: 1.15,
+  yield: { herd: 2.2, farm: 2.6 },
+  /** With an empty store, people value crops they must wait for at this share of their yield (graded with the store). */
+  sowingPatience: 0.3,
+  /** Harvest calendar by latitude band: the months (1–12) when crops sown since the last harvest come in, evenly spaced. */
+  harvestNorth: [9], harvestSouth: [3], harvestTropics: [4, 10], tropicsLatitude: 20,
+} as const;
+
+export const SPECIALIST_TUNING = {
+  /** Specialist share = cap × clamp(floor + slope × (food security − 1), 0, 1), where cap = baseCap × the techs'
+   *  specialistCap multipliers: a people living at what its land feeds keeps `floor` of its cap; surplus frees the rest. */
+  baseCap: 0.02, floor: 0.3, slope: 3.5,
+  /** No people can free more than this share of themselves from food production, whatever their techs. */
+  maxShare: 0.9,
+} as const;
+
+export const SETTLE_TUNING = {
+  /** Yearly settling chance rises from `from` to `from + span` years in a region, times (0.3 + 0.7 × farmed/herded share of food). */
+  fromYears: 10, spanYears: 20, baseShare: 0.3,
+} as const;
+
+export const MOBILITY_TUNING = { coastalSailingKm: 300 } as const;
+
 /** Culture values of new cultures (0–1 sliders) and how far a daughter culture's values drift from its parent's. */
 export const CULTURE_TUNING = { valueMin: 0.15, valueSpan: 0.7, mutation: 0.1 } as const;
 
@@ -123,7 +185,7 @@ export const CULTURE_TUNING = { valueMin: 0.15, valueSpan: 0.7, mutation: 0.1 } 
 export const NAME_TUNING = { thirdSyllable: 0.3, initialCluster: 0.25, initialConsonant: 0.85, coda: 0.55, minLength: 3, maxLength: 11 } as const;
 
 /** Statistics sampled for the lab's world chart. */
-export const SERIES_YEARS = 10;
+export const SERIES_YEARS = 1;
 
 export function validateTunables() {
   const r = REGION_TUNING;
@@ -136,6 +198,7 @@ export function validateTunables() {
   if (!(r.defensibility.reliefScaleM > 0 && r.siteScore.reliefScaleM > 0)) problems.push('relief scales must be positive');
   for (const [key, value] of [...Object.entries(r.defensibility), ...Object.entries(r.siteScore)]) if (!(value >= 0 && Number.isFinite(value))) problems.push(`region weight ${key} must be finite and non-negative`);
   if (!(CLOCK_TUNING.sliceMs > 0 && Number.isInteger(CLOCK_TUNING.cultureMonths) && CLOCK_TUNING.cultureMonths >= 1)) problems.push('clock slices and culture cadence must be positive');
+  if (!(CLOCK_TUNING.capacityRefresh >= 1 && CLOCK_TUNING.capacityRefresh < 1.1 && CLOCK_TUNING.capacityGameDrift > 0 && CLOCK_TUNING.capacityGameDrift < 0.1)) problems.push('the capacity refresh margins are invalid');
   for (const [biome, cost] of Object.entries(r.terrainCost)) if (!(cost >= 0 && Number.isFinite(cost))) problems.push(`terrain cost for ${biome} must be finite and non-negative`);
   const tiers = r.riverTierRunoff;
   if (!(tiers.stream > 0 && tiers.stream < tiers.river && tiers.river < tiers.greatRiver)) problems.push('river tiers must increase');
@@ -169,5 +232,26 @@ export function validateTunables() {
   const sp = SPAWN_TUNING;
   if (!(Number.isInteger(sp.bands) && sp.bands >= 1 && sp.minPopulation >= 1 && sp.maxPopulation >= sp.minPopulation && sp.minSpacingKm >= 0)) problems.push('spawn settings are invalid');
   if (!(sp.temperatureWidth > 0 && sp.waterBonus >= 0)) problems.push('spawn weights are invalid');
+  const re = RESEARCH_TUNING;
+  if (!(re.basePeople >= 1 && [re.basePerPerson, re.contactBonus, re.specialistResearch, re.needWeight, re.exposureWeight].every(value => value >= 0) && re.exposureDiscount >= 0 && re.exposureDiscount < 1
+    && re.traditionBrake >= 0 && re.traditionBrake < 1 && Number.isInteger(re.contactCap) && re.contactCap >= 0)) problems.push('research weights are invalid');
+  if (!(Number.isInteger(re.contactRadius) && re.contactRadius >= 1 && Number.isInteger(re.contactMonths) && re.contactMonths >= 1)) problems.push('contact settings are invalid');
+  if (!(re.opennessBase >= 0 && re.blockedWeight >= 1 && re.reasonMin >= 0 && Number.isInteger(re.reasonCount) && re.reasonCount >= 1)) problems.push('research weight settings are invalid');
+  if (!(re.fertileQuantile > 0 && re.fertileQuantile < 1 && Number.isInteger(re.fertileRiverTier) && re.fertileRiverTier >= 0 && re.fertileRiverTier <= 3)) problems.push('the fertile river land class is invalid');
+  if (!(re.farContact >= 0 && re.farContact <= 1 && re.effortYears > 0 && re.switchRatio >= 1)) problems.push('contact intensity and effort settings are invalid');
+  if (!(re.affinityShare > 0 && re.affinityShare <= 1 && re.roughShare > 0 && re.roughShare <= 1 && re.roughDefensibility > 0)) problems.push('environment flag thresholds are invalid');
+  const fa = FARM_TUNING;
+  for (const table of [fa.farmDensity, fa.herdDensity]) for (const [biome, value] of Object.entries(table)) if (!(value >= 0)) problems.push(`farm density for ${biome} must be non-negative`);
+  if (!(fa.fertilityExponent > 0 && fa.grainSiteLabor >= 0 && fa.yield.herd > 0 && fa.yield.farm > 0 && fa.lakeFarm >= 1 && fa.riverFarm.length === 4 && fa.riverFarm.every(value => value >= 1))) problems.push('farming settings are invalid');
+  for (const calendar of [fa.harvestNorth, fa.harvestSouth, fa.harvestTropics] as readonly (readonly number[])[]) {
+    const evenly = calendar.length > 0 && 12 % calendar.length === 0 && calendar.every((month, at) => Number.isInteger(month) && month >= 1 && month <= 12 && (at === 0 || month - calendar[at - 1] === 12 / calendar.length));
+    if (!evenly) problems.push('each harvest calendar must list whole months 1–12, rising and evenly spaced');
+  }
+  if (!(fa.tropicsLatitude > 0 && fa.tropicsLatitude < 90)) problems.push('the tropics latitude must be between 0 and 90°');
+  if (!(fa.sowingPatience > 0 && fa.sowingPatience <= 1)) problems.push('sowing patience must be in (0, 1]');
+  if (!(SPECIALIST_TUNING.slope >= 0 && SPECIALIST_TUNING.floor >= 0 && SPECIALIST_TUNING.floor <= 1 && SPECIALIST_TUNING.baseCap >= 0 && SPECIALIST_TUNING.baseCap < 1 && SPECIALIST_TUNING.maxShare > 0 && SPECIALIST_TUNING.maxShare < 1)) problems.push('specialist settings are invalid');
+  const st = SETTLE_TUNING;
+  if (!(st.fromYears >= 0 && st.spanYears > 0 && st.baseShare >= 0 && st.baseShare <= 1)) problems.push('settling settings are invalid');
+  if (!(MOBILITY_TUNING.coastalSailingKm > 0)) problems.push('the coastal sailing reach must be positive');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);
 }

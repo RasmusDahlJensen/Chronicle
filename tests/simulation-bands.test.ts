@@ -51,15 +51,15 @@ test('M1 acceptance on Chronicle over 500 years: births and deaths, growth, spre
   const { geography, partition } = await chronicleWorld();
   const state = createSimulation(geography, partition, 'Chronicle');
   // Starting state: 30 spaced bands of 50–200 people, each with its own culture.
-  assert.equal(state.bands.length, SPAWN_TUNING.bands);
-  for (const id of state.bands) {
+  assert.equal(state.living.length, SPAWN_TUNING.bands);
+  for (const id of state.living) {
     const band = state.polities[id], size = state.groups[band.group].size;
     assert.ok(size >= 50 && size <= 200);
-    for (const other of state.bands) if (other !== id) {
+    for (const other of state.living) if (other !== id) {
       assert.ok(greatCircleKm(geography, partition.regions[band.region].centroid, partition.regions[state.polities[other].region].centroid) >= SPAWN_TUNING.minSpacingKm);
     }
   }
-  assert.equal(new Set(state.bands.map(id => state.polities[id].culture)).size, SPAWN_TUNING.bands);
+  assert.equal(new Set(state.living.map(id => state.polities[id].culture)).size, SPAWN_TUNING.bands);
   const start = collectStats(state, 0);
   for (let month = 0; month < 500 * 12; month++) stepSimulation(state);
   const end = collectStats(state, 500), m = state.metrics;
@@ -74,8 +74,8 @@ test('M1 acceptance on Chronicle over 500 years: births and deaths, growth, spre
   const citing = moves.filter(event => event.causes.some(cause => (cause.factor === 'gameDepletion' || cause.factor === 'landPressure') && cause.weight >= 0.1));
   assert.ok(citing.length * 2 >= moves.length, `${citing.length} of ${moves.length} moves cite game depletion or land pressure`);
   assert.ok(end.waterPopulationShare >= 1.25 * end.waterRegionShare, `water share ${end.waterPopulationShare} vs ${end.waterRegionShare}`);
-  const water = state.bands.filter(id => isWaterRegion(state, state.polities[id].region)).length;
-  assert.ok(water > 0 && water < state.bands.length, 'bands live both near water and inland');
+  const water = state.living.filter(id => isWaterRegion(state, state.polities[id].region)).length;
+  assert.ok(water > 0 && water < state.living.length, 'bands live both near water and inland');
 });
 
 test('exact accounting catches any population or food change without a recorded cause', async () => {
@@ -86,20 +86,20 @@ test('exact accounting catches any population or food change without a recorded 
     change(state);
     assert.throws(() => checkInvariants(state), (error: Error) => error instanceof InvariantError && pattern.test(error.message));
   };
-  tamper(state => { state.groups[state.polities[state.bands[0]].group].size += 1; }, /population .* differs from its accounted/);
-  tamper(state => { state.groups[state.polities[state.bands[1]].group].store += 1; }, /food store .* is not explained/);
+  tamper(state => { state.groups[state.polities[state.living[0]].group].size += 1; }, /population .* differs from its accounted/);
+  tamper(state => { state.groups[state.polities[state.living[1]].group].store += 1; }, /food store .* is not explained/);
   tamper(state => {
-    const [a, b] = state.bands.map(id => state.polities[id]);
+    const [a, b] = state.living.map(id => state.polities[id]);
     b.region = a.region; state.groups[b.group].region = a.region;
   }, /holds bands|does not record/);
   // Transfers must close across regions and bands: a split that forgot to take people and food from its parent
   // would balance each region and band on its own books, but create people and food from nothing.
   tamper(state => {
-    const band = state.polities[state.bands[2]], group = state.groups[band.group];
+    const band = state.polities[state.living[2]], group = state.groups[band.group];
     group.size += 40; state.ledger.migrantsIn[band.region] += 40;
   }, /left regions but .* arrived/);
   tamper(state => {
-    const group = state.groups[state.polities[state.bands[3]].group];
+    const group = state.groups[state.polities[state.living[3]].group];
     group.store += 500; state.ledger.food.get(group.id)!.carriedIn += 500;
   }, /carried out but .* carried in/);
 });
@@ -108,13 +108,13 @@ test('a band that dies out frees its region and its stored food is recorded as s
   const { geography, partition } = await chronicleWorld();
   const state = createSimulation(geography, partition, 'Dissolution');
   for (let month = 0; month < 12; month++) stepSimulation(state);
-  const band = state.polities[state.bands[0]], group = state.groups[band.group], region = band.region;
+  const band = state.polities[state.living[0]], group = state.groups[band.group], region = band.region;
   // One person on the brink of a famine death, holding some food.
   group.size = 1; group.famineCarry = 0.999; group.naturalCarry = 0.999; group.birthCarry = 0; group.foodSecurity = 0;
   stepSimulation(state);
   assert.notEqual(band.deathTick, null, 'the band died out');
   assert.equal(state.occupant[region], -1);
-  assert.ok(!state.bands.includes(band.id));
+  assert.ok(!state.living.includes(band.id));
   assert.equal(group.store, 0);
   const flows = state.ledger.food.get(group.id)!;
   assert.equal(flows.before + flows.production - flows.consumption - flows.spoilage + flows.carriedIn - flows.carriedOut, 0, 'its last food is accounted for');

@@ -1,9 +1,11 @@
 import type { Chronicle } from './chronicle.ts';
 import type { FoodModel } from './food.ts';
+import type { Knowledge } from './knowledge.ts';
 import type { SimulationGeography } from './geography.ts';
 import type { LanguageSeed } from './names.ts';
 import type { RegionPartition } from './regions.ts';
 import type { systemStream } from './rng.ts';
+import type { Affinity } from './techs.ts';
 
 /**
  * The fixed system order of one monthly tick (VISION.md "System order per monthly tick"). Systems with longer
@@ -43,8 +45,24 @@ export interface Polity {
   /** Tick it entered its current region (settling needs a long stay). */
   arrivedTick: number;
   foundedTick: number; deathTick: number | null; parent: number | null;
-  /** Its population group (one per band). */
+  /** Its population group (one per polity until migration exists). */
   group: number;
+  knowledge: Knowledge;
+  /** The landmass it began on; without Sailing it can never be anywhere else (VISION.md M2). */
+  homeLandmass: number;
+  /** Polities it is in contact with (within two regions; refreshed by the knowledge system), and each contact's intensity (0–1). */
+  contacts: number[]; contactWeights: number[];
+  /** Exposure to its research target, valid while the target, contacts, that tech's discovery count and the world's
+   *  death count are unchanged (the only things exposure depends on); derived, recomputed when any changes. */
+  exposure: { tech: number; learned: number; deaths: number; value: number };
+  /** A civilization's capital settlement, and when it settled. */
+  capital: number | null; settledTick: number | null;
+}
+
+/** A named place (VISION.md "Settlements"); until M3b only a village with a cell, region, owner and capital flag. */
+export interface Settlement {
+  id: number; name: string; cell: number; region: number; owner: number; capital: boolean; foundedTick: number;
+  status: 'alive' | 'ruined' | 'razed';
 }
 
 /** People of one polity, culture and region; integer size with fractional birth and death carries. */
@@ -52,13 +70,20 @@ export interface PopulationGroup {
   id: number; polity: number; culture: number; region: number; size: number; deathTick: number | null;
   /** Food store in integer units of 1/100 person-month. */
   store: number;
+  /** Crops in the field: what farm workers have sown since the last harvest, in the same units; the harvest moves it
+   *  into the store, and people who leave their land or die out lose it. */
+  planted: number;
   birthCarry: number; naturalCarry: number; famineCarry: number;
-  /** Food security of the last month: (store + expected annual food) ÷ annual need. */
+  /** Food security of the last month (see `produce`): expected food over need, or this month's share of need eaten when people went short. */
   foodSecurity: number;
   /** Births and deaths so far this year, and in the last complete year. */
   birthsYear: number; deathsYear: number; lastBirths: number; lastDeaths: number;
   /** Size at the start of the current year (the acceptance rule reads bands of at least 50 people). */
   sizeAtYearStart: number;
+  /** People freed from food production by surplus (VISION.md "Specialists"); they research. */
+  specialists: number;
+  /** Share of last month's food from farming and herding. */
+  farmShare: number;
 }
 
 export interface CenturyStats {
@@ -67,6 +92,9 @@ export interface CenturyStats {
   /** Share of band population in regions with a coast, open-lake access or river tier ≥ river, and the share of land regions with them. */
   waterPopulationShare: number; waterRegionShare: number;
   bandMoves: number; bandSplits: number; births: number; deaths: number; famineDeaths: number;
+  settlements: number; specialists: number;
+  /** Share of living polities that know Agriculture, and the leading polity's era index. */
+  agricultureShare: number; leadingEra: number;
   /** Lowest share of habitable regions occupied, over the landmasses that started with bands (story health: ≥ 50% by year 700). */
   occupiedHabitableShare: number;
 }
@@ -76,8 +104,13 @@ export interface Ledger {
   births: Int32Array; naturalDeaths: Int32Array; famineDeaths: Int32Array; migrantsIn: Int32Array; migrantsOut: Int32Array;
   /** Region population before this tick. */
   before: Int32Array;
-  /** Food flows per group id this tick. */
-  food: Map<number, { before: number; production: number; consumption: number; spoilage: number; carriedIn: number; carriedOut: number }>;
+  /** Food flows per group id this tick: the store's (production includes the harvest) and the crops' in the field. */
+  food: Map<number, FoodFlows>;
+}
+
+export interface FoodFlows {
+  before: number; production: number; consumption: number; spoilage: number; carriedIn: number; carriedOut: number;
+  plantedBefore: number; sown: number; harvested: number; cropsLost: number;
 }
 
 export interface Metrics {
@@ -87,7 +120,11 @@ export interface Metrics {
   maxOverCapacityMonths: number;
   moves: number; movesCitingPressure: number; movesLedByPressure: number; splits: number;
   births: number; deaths: number; famineDeaths: number;
+  settled: number; discoveries: number;
 }
+
+/** The first discovery of each tech in the world (VISION.md "firsts"). */
+export interface FirstDiscovery { tech: number; tick: number; polity: number; region: number }
 
 export interface SimulationState {
   seedText: string; seed: number; tick: number;
@@ -96,15 +133,27 @@ export interface SimulationState {
   cultures: Culture[]; polities: Polity[]; groups: PopulationGroup[];
   /** Per region: game stock (0–1), the occupying band (−1 for none), capacity at the current game stock, months above 1.1× capacity. */
   gameStock: Float64Array; occupant: Int32Array; capacity: Float64Array; overCapacity: Int32Array;
-  /** Live band ids in creation order (dead bands are dropped from this list but kept in `polities`). */
-  bands: number[];
+  /** Per region: the game stock at the last capacity solve (the solve is redone when it has drifted). */
+  capacityGame: Float64Array;
+  /** Live polity ids in creation order, bands and civilizations (dead ones leave this list but stay in `polities`). */
+  living: number[];
+  settlements: Settlement[];
+  /** Per region: the civilization that owns it (−1 for none). */
+  owner: Int32Array;
+  firsts: FirstDiscovery[];
+  /** Discoveries of each tech so far and polities that have died out so far (exposure caches read them). */
+  learnedCount: Int32Array; deathCount: number;
+  /** Year when a quarter of living polities first knew Agriculture (−1 until then). */
+  agricultureQuarterYear: number;
+  /** Per region: environment conditions that raise research weights (static). */
+  affinity: Set<Affinity>[];
   /** Regions with food for some method at full game, and the landmasses that started with bands. */
   habitable: Uint8Array; settledLandmasses: number[];
   ledger: Ledger;
   metrics: Metrics;
   timing: { ms: Float64Array; calls: Float64Array };
   stats: CenturyStats[];
-  /** Every SERIES_YEARS: [year, world population, living polities]. */
+  /** Every SERIES_YEARS (yearly): [year, world population, living polities]. */
   series: [number, number, number][];
   /** Highest event id already checked by the invariants. */
   checkedEvents: number;

@@ -64,6 +64,10 @@ test('every event type has a text template that fills its data, actors and regio
   assert.equal(describeEvent({ id: 1, tick: 0, type: 'raid', actors: [{ id: 4, role: 'attacker' }], region: 2, settlement: null, causes: [], parents: [], importance: 0, data: {} },
     id => `Band ${id}`), 'Band 4 raids ? in region 2.', 'actor names come from the observer, missing ones show as ?');
   assert.match(describeEvent({ id: 0, tick: 0, type: 'famine', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0, data: {} }), /\?/);
+  // `{?key|text}` adds its text only when the value is true.
+  const discovery = (first: boolean) => describeEvent({ id: 2, tick: 0, type: 'techDiscovered', actors: [], region: 3, settlement: null, causes: [], parents: [], importance: 0, data: { name: 'Kavo', tech: 'Agriculture', era: 'Neolithic', first } });
+  assert.equal(discovery(true), 'The Kavo learn Agriculture (Neolithic era), the first people in the world to do so.');
+  assert.equal(discovery(false), 'The Kavo learn Agriculture (Neolithic era).');
 });
 
 test('tunables are validated before a simulation starts', () => {
@@ -104,7 +108,9 @@ test('observer frames reject events newer than the frame or out of order', () =>
   const frame = {
     protocolVersion: SIMULATION_PROTOCOL_VERSION, instance: { key: 'k', worldKey: 'w', partitionVersion: 1, rulesVersion: 1, seed: 's', runId: 'r' },
     tick: 5, playing: false, speed: 'year', epoch: 0, runTo: null, eventCount: 2, counters: { regions: 1, landmasses: 1 },
-    population: 30, polities: 1, bands: { ids: [0], regions: [0], populations: [30] }, series: [[0, 30, 1]], inspect: null,
+    population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0,
+    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0] }, settlements: { ids: [], cells: [], owners: [], capitals: [] },
+    series: [[0, 30, 1]], inspect: null,
     events: [
       { id: 0, tick: 1, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
       { id: 1, tick: 2, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
@@ -114,6 +120,11 @@ test('observer frames reject events newer than the frame or out of order', () =>
   assert.throws(() => parseObserverFrame({ ...frame, events: [...frame.events].reverse() }));
   assert.throws(() => parseObserverFrame({ ...frame, tick: 1 }));
   assert.throws(() => parseObserverFrame({ ...frame, speed: 'warp' }));
-  assert.throws(() => parseObserverFrame({ ...frame, bands: { ids: [0], regions: [], populations: [30] } }), 'band arrays must line up');
+  assert.throws(() => parseObserverFrame({ ...frame, markers: { ...frame.markers, regions: [] } }), 'marker arrays must line up');
+  assert.throws(() => parseObserverFrame({ ...frame, markers: { ...frame.markers, eras: [10] } }), 'eras are known');
+  assert.throws(() => parseObserverFrame({ ...frame, settlements: { ids: [0], cells: [5], owners: [], capitals: [1] } }), 'settlement arrays must line up');
+  assert.throws(() => parseObserverFrame({ ...frame, civs: 1 }), 'civilization count matches the markers');
+  assert.throws(() => parseObserverFrame({ ...frame, polities: 2 }), 'one marker per living polity');
+  assert.throws(() => parseObserverFrame({ ...frame, settlementCount: 1 }), 'settlement count matches the settlements');
   assert.throws(() => parseObserverFrame({ ...frame, series: [[10, 30, 1]] }), 'the series cannot run ahead of the clock');
 });

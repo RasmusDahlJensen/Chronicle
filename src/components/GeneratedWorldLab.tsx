@@ -13,13 +13,45 @@ import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
 import { fetchRegionMap } from '../api/simulation.ts';
-import { RIVER_TIERS, simulationDate, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
+import { ERA_NAMES, RIVER_TIERS, simulationDate, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
+import { ERA_COLORS, SETTLEMENT_COLOR, SETTLEMENT_STROKE } from '../observer/palettes.ts';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
 const layerLabels: Record<WorldLayer, string> = { biomes: 'Biomes', temperature: 'Temperature', moisture: 'Moisture', fertility: 'Fertility' };
 const soilLabels: Record<FertilityFacts['soil'], string> = { none: 'None', rocky: 'Rocky', shallow: 'Shallow', sandy: 'Sandy', alluvial: 'Alluvial', waterlogged: 'Waterlogged', cold: 'Cold', loamy: 'Loamy' };
+/** A band or civilization in the inspected region: people, food, specialists and knowledge (VISION.md M2 inspection). */
+function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFrame['inspect']>['polity']> }) {
+  const civ = polity.kind === 'civ', research = polity.research;
+  const percent = research && research.cost > 0 ? Math.min(100, research.progress / research.cost * 100) : 0;
+  return <div className="world-cell-band" aria-label={civ ? 'Civilization in this region' : 'Band in this region'} role="group" data-polity-kind={polity.kind}>
+    <p className="atlas-detail-label">{civ ? 'Civilization' : 'Band'} · {ERA_NAMES[polity.era]} era</p><h3>{polity.name} <span>· {polity.culture} culture</span></h3>
+    <dl className="world-water-facts">
+      <div><dt>Population</dt><dd id="band-population">{number.format(polity.population)}</dd></div>
+      <div><dt>Births this year</dt><dd>{polity.birthsThisYear} <span>(last year {polity.birthsLastYear})</span></dd></div>
+      <div><dt>Deaths this year</dt><dd>{polity.deathsThisYear} <span>(last year {polity.deathsLastYear})</span></dd></div>
+      <div><dt>Food security</dt><dd id="band-food-security">{polity.foodSecurity.toFixed(2)}</dd></div>
+      <div><dt>Food store</dt><dd>{polity.foodStoreMonths.toFixed(2)} months</dd></div>
+      {polity.cropsMonths > 0 && <div><dt>Crops in the field</dt><dd id="polity-crops">{polity.cropsMonths.toFixed(2)} months</dd></div>}
+      <div><dt>Farmed or herded</dt><dd>{Math.round(polity.farmShare * 100)}% of food</dd></div>
+      <div><dt>Specialists</dt><dd id="polity-specialists">{number.format(polity.specialists)}</dd></div>
+      <div><dt>{civ ? 'Settled' : 'Here since'}</dt><dd>year {simulationDate(civ && polity.capital ? polity.capital.settled : polity.arrived).year}</dd></div>
+      {polity.capital && <div><dt>Capital</dt><dd id="polity-capital">{polity.capital.name}</dd></div>}
+    </dl>
+    <p className="atlas-panel-note">Food security is expected food over need — for farmers, the coming harvest and other food over the harvest cycle; below 1, or when the store runs out before the harvest, people go hungry and famine deaths rise. Crops sown since the last harvest come in at the next one. Surplus frees specialists, who live in settlements and research; bands have none.</p>
+    <section className="world-polity-knowledge" aria-label="Knowledge">
+      <p className="atlas-detail-label">Research · {polity.researchPerYear.toLocaleString('en', { maximumFractionDigits: 1 })} points a year · {polity.contacts} contacts</p>
+      {research ? <>
+        <h4 id="polity-research">{research.tech} <span>{Math.round(percent)}%</span></h4>
+        <p className="atlas-panel-note">{number.format(Math.round(research.progress))} of {number.format(Math.round(research.cost))} points{research.exposure > 0 ? ` · known nearby (exposure ${research.exposure.toFixed(2)})` : ''}.{research.reasons.length ? ` Chosen for ${research.reasons.map(reason => `${reason.factor} ${reason.weight >= 0 ? '+' : ''}${reason.weight.toFixed(2)}`).join(', ')}.` : ''}</p>
+        {research.candidates.length > 0 && <ol className="world-research-candidates" aria-label="Research options by weight">{research.candidates.map(option => <li key={option.tech}><span>{option.tech}</span> <span>{option.weight.toPrecision(2)}</span></li>)}</ol>}
+      </> : <p className="atlas-panel-note">Nothing left to research.</p>}
+      <p className="world-known-techs" id="polity-known">Knows {polity.known.join(', ')}.</p>
+    </section>
+  </div>;
+}
+
 const fertilityFactors = [
   { key: 'warmth', label: 'Warmth', description: 'Annual temperature suitability.' },
   { key: 'moisture', label: 'Moisture', description: 'Moisture available without irrigation.' },
@@ -157,15 +189,17 @@ export function GeneratedWorldLab() {
   const cellRegion = cell && regions ? regions.map.regions[regions.cells[cell.id] - 1] ?? null : null;
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
   useEffect(() => { setFrame(null); }, [world]);
-  // Band markers sit at their region's centre cell.
+  // Polity markers sit at their region's centre cell, coloured by era; villages on their own cells.
   useEffect(() => {
     if (!renderer.current) return;
-    if (!frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setBands([]); return; }
-    const { regions: at, populations } = frame.bands;
+    if (!frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setBands([]); renderer.current.setSettlements([], { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE }); return; }
+    const { regions: at, populations, kinds, eras } = frame.markers;
     renderer.current.setBands(at.map((region, index) => {
       const centroid = regions.map.regions[region]?.centroid ?? 0;
-      return { x: centroid % world.width, y: Math.floor(centroid / world.width), population: populations[index], color: '#c8743a' };
+      return { x: centroid % world.width, y: Math.floor(centroid / world.width), population: populations[index], color: ERA_COLORS[eras[index]] ?? ERA_COLORS[0], settled: kinds[index] === 1 };
     }));
+    renderer.current.setSettlements(frame.settlements.cells.map((cell, index) => ({ x: cell % world.width, y: Math.floor(cell / world.width), capital: frame.settlements.capitals[index] === 1 })),
+      { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE });
   }, [frame, regions, world, canvasRevision]);
   const inspected = frame?.inspect && cellRegion && frame.inspect.region === cellRegion.id ? frame.inspect : null;
 
@@ -273,19 +307,8 @@ export function GeneratedWorldLab() {
                 {inspected && <div><dt>Capacity</dt><dd id="region-capacity">{number.format(inspected.capacity)} people</dd></div>}
                 {inspected && <div><dt>Game stock</dt><dd>{Math.round(inspected.gameStock * 100)}%</dd></div>}
               </dl>
-              {inspected && <p className="atlas-panel-note">At capacity this land yields about {number.format(inspected.food.forage)} from foraging, {number.format(inspected.food.hunt)} from hunting and {number.format(inspected.food.fish)} from fishing (people fed per year). Capacity is the population whose food equals its need at the current game stock.</p>}
-              {inspected?.band ? <div className="world-cell-band" aria-label="Band in this region" role="group">
-                <p className="atlas-detail-label">Band</p><h3>{inspected.band.name} <span>· {inspected.band.culture} culture</span></h3>
-                <dl className="world-water-facts">
-                  <div><dt>Population</dt><dd id="band-population">{number.format(inspected.band.population)}</dd></div>
-                  <div><dt>Births this year</dt><dd>{inspected.band.birthsThisYear} <span>(last year {inspected.band.birthsLastYear})</span></dd></div>
-                  <div><dt>Deaths this year</dt><dd>{inspected.band.deathsThisYear} <span>(last year {inspected.band.deathsLastYear})</span></dd></div>
-                  <div><dt>Food security</dt><dd id="band-food-security">{inspected.band.foodSecurity.toFixed(2)}</dd></div>
-                  <div><dt>Food store</dt><dd>{inspected.band.foodStoreMonths.toFixed(2)} months</dd></div>
-                  <div><dt>Here since</dt><dd>year {simulationDate(inspected.band.arrived).year}</dd></div>
-                </dl>
-                <p className="atlas-panel-note">Food security is stored plus expected food over the year's need; below 1 the band goes hungry and famine deaths rise.</p>
-              </div> : inspected && <p className="atlas-panel-note">No band lives here.</p>}
+              {inspected && <p className="atlas-panel-note">At capacity this land yields about {number.format(inspected.food.forage)} from foraging, {number.format(inspected.food.hunt)} from hunting, {number.format(inspected.food.fish)} from fishing{inspected.food.herd || inspected.food.farm ? `, ${number.format(inspected.food.herd)} from herding and ${number.format(inspected.food.farm)} from farming` : ''} (people fed per year), for the people who live here or, on empty land, for foragers. Capacity is the population whose food equals its need at the current game stock.</p>}
+              {inspected?.polity ? <PolityDetail polity={inspected.polity} /> : inspected && <p className="atlas-panel-note">No one lives here.</p>}
             </section>}
             <FertilityDetail facts={cell.fertility} expanded={layer === 'fertility'} />
             <section className="world-cell-water" aria-label="Selected cell water">

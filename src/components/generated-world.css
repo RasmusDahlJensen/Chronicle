@@ -121,5 +121,11 @@
 .world-cell-band { margin-top: .8rem; padding-top: .6rem; border-top: 1px solid #e3dcc8; }
 .world-cell-band h3 span { font-weight: 400; font-size: .75em; color: #687064; }
 .world-cell-band dd span { color: #687064; }
+.world-polity-knowledge { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid #e3dcc8; }
+.world-polity-knowledge h4 { margin: 0 0 .35rem; font-size: .8rem; }
+.world-polity-knowledge h4 span { font-weight: 400; color: #687064; }
+.world-research-candidates { margin: 0 0 .7rem; padding-left: 1.1rem; font-size: .64rem; line-height: 1.6; color: #4c574d; }
+.world-research-candidates li span + span { color: #687064; }
+.world-known-techs { margin: 0; font-size: .64rem; line-height: 1.6; color: #5e6d5f; }
 
 .world-map-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import { worldKey, type WorldBundle, type WorldSettings } from '../shared/generated-world.ts';
 import type {
-  ObserverFrame, RegionMap, SimulationControl, SimulationInit, SimulationInstance, SimulationReply, SimulationRequest,
+  KnowledgeReport, ObserverFrame, RegionMap, SimulationControl, SimulationInit, SimulationInstance, SimulationReply, SimulationRequest,
 } from '../shared/simulation.ts';
 
 export class SimulationUnavailableError extends Error {
@@ -25,6 +25,9 @@ interface HostOptions {
 export interface SimulationReport {
   instance: SimulationInstance; tick: number; eventLogHash: string; stateHash: string; eventCount: number;
   stats: unknown[]; events?: unknown[]; metrics: Record<string, number>;
+  /** [year, world population, living polities] every simulated year. */
+  series: [number, number, number][];
+  knowledge: KnowledgeReport;
   timing: { system: string; ms: number; calls: number }[];
   partition: Record<string, number>;
 }

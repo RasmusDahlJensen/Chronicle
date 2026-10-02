@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { parseWorldSettings, type WorldBundle, type WorldSettings } from '../shared/generated-world.ts';
 import { createSimulationHost, type SimulationReport } from '../server/simulation-host.ts';
+import { ERA_NAMES, RIVER_TIERS } from '../shared/simulation.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 
@@ -69,23 +70,39 @@ for (const result of results) {
   const directory = join(values.out, result.seed);
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, 'stats.json'), `${JSON.stringify(result.report.stats, null, 1)}\n`);
+  await writeFile(join(directory, 'knowledge.json'), `${JSON.stringify(result.report.knowledge, null, 1)}\n`);
+  await writeFile(join(directory, 'series.json'), `${JSON.stringify(result.report.series)}\n`);
   await writeFile(join(directory, 'timing.json'), `${JSON.stringify({ wallMs: result.wallMs, setupMs: result.setupMs, years, systems: result.report.timing }, null, 1)}\n`);
   if (result.report.events) await writeFile(join(directory, 'events.jsonl'), result.report.events.map(event => JSON.stringify(event)).join('\n') + (result.report.events.length ? '\n' : ''));
 }
 const summary = storyHealth(results);
 await writeFile(join(values.out, 'story-health.md'), summary);
-for (const [metric, label] of [['population', 'World population'], ['polities', 'Polities (bands and civs)'], ['largestShare', 'Largest polity share']] as const) {
-  await writeFile(join(values.out, `${metric}.svg`), chart(label, results.map(result => ({ name: result.seed, points: (result.report.stats as Stats[]).map(row => [row.year, row[metric]] as const) }))));
+for (const [metric, label, column] of [['population', 'World population', 1], ['polities', 'Polities (bands and civs)', 2]] as const) {
+  await writeFile(join(values.out, `${metric}.svg`), chart(label, results.map(result => ({ name: result.seed, points: result.report.series.filter(point => point[0] % 10 === 0).map(point => [point[0], point[column]] as const) }))));
 }
+await writeFile(join(values.out, 'largestShare.svg'), chart('Largest polity share', results.map(result => ({ name: result.seed, points: (result.report.stats as Stats[]).map(row => [row.year, row.largestShare] as const) }))));
 console.log(`\n${summary}\nWrote ${values.out}`);
 
 /** The brief's story-health table: per seed and century, plus per-system timing per simulated year. */
 function storyHealth(rows: SeedResult[]) {
-  const lines = ['| Seed | Year | Polities | Bands | Civs | Population | Occupied regions | Largest share | Water-region population share (land share) | Moves | Splits | Famine deaths | Events |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |'];
+  const lines = ['| Seed | Year | Polities | Bands | Civs | Villages | Population | Specialists | Know Agriculture | Leading era | Occupied regions | Largest share | Water-region population share (land share) | Moves | Splits | Famine deaths | Events |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |'];
   for (const result of rows) for (const stats of result.report.stats as Stats[]) {
     if (stats.year > 1000 && stats.year % 500 !== 0) continue;
-    lines.push(`| ${result.seed} | ${stats.year} | ${stats.polities} | ${stats.bands} | ${stats.civs} | ${stats.population.toLocaleString('en')} | ${stats.occupiedRegions} | ${(stats.largestShare * 100).toFixed(1)}% | ${(stats.waterPopulationShare * 100).toFixed(0)}% (${(stats.waterRegionShare * 100).toFixed(0)}%) | ${stats.bandMoves} | ${stats.bandSplits} | ${stats.famineDeaths.toLocaleString('en')} | ${stats.events} |`);
+    lines.push(`| ${result.seed} | ${stats.year} | ${stats.polities} | ${stats.bands} | ${stats.civs} | ${stats.settlements} | ${stats.population.toLocaleString('en')} | ${stats.specialists.toLocaleString('en')} | ${Math.round(stats.agricultureShare * 100)}% | ${ERA_NAMES[stats.leadingEra]} | ${stats.occupiedRegions} | ${(stats.largestShare * 100).toFixed(1)}% | ${(stats.waterPopulationShare * 100).toFixed(0)}% (${(stats.waterRegionShare * 100).toFixed(0)}%) | ${stats.bandMoves} | ${stats.bandSplits} | ${stats.famineDeaths.toLocaleString('en')} | ${stats.events} |`);
+  }
+  // M2 acceptance (VISION.md): where and when Agriculture began, and world growth around the year a quarter knew it.
+  lines.push('', '| Seed | First Agriculture (year) | Region: top-quartile farming, river tier, open lake | A quarter know it (year) | Growth 300 years before → after | After ÷ before | Plateau windows (first 1,000 years) | Eras first reached |',
+    '| --- | ---: | --- | ---: | --- | ---: | --- | --- |');
+  for (const result of rows) {
+    const { knowledge, series } = result.report, agriculture = knowledge.agriculture;
+    const population = (year: number) => series.find(point => point[0] === year)?.[1];
+    const rate = (from: number, to: number) => { const a = population(from), b = population(to); return a && b ? (b / a) ** (1 / (to - from)) - 1 : null; };
+    const quarter = Math.floor(knowledge.agricultureQuarterYear);
+    const before = quarter > 0 ? rate(Math.max(0, quarter - 300), quarter) : null, after = quarter > 0 ? rate(quarter, quarter + 300) : null;
+    const growth = before === null || after === null ? '—' : `${(before * 100).toFixed(2)} → ${(after * 100).toFixed(2)} %/yr`;
+    const factor = before === null || after === null ? '—' : before <= 0 ? (after >= 0.001 ? 'earlier ≤ 0, later ≥ 0.1%' : 'fails') : (after / before).toFixed(1);
+    lines.push(`| ${result.seed} | ${agriculture ? agriculture.year.toFixed(0) : 'not yet'} | ${agriculture ? `${agriculture.topQuartile ? 'yes' : 'no'}, ${RIVER_TIERS[agriculture.riverTier]}, ${agriculture.openLake ? 'yes' : 'no'}` : '—'} | ${quarter > 0 ? quarter : '—'} | ${growth} | ${factor} | ${plateaus(series).join(', ') || 'none'} | ${knowledge.eras.map(entry => `${entry.era} ${Math.round(entry.year)}`).join(', ')} |`);
   }
   // M1 acceptance (VISION.md), read from the same run.
   lines.push('', '| Seed | Occupied habitable land, least-settled starting landmass (years 300 / 500 / 700 / 1000) |', '| --- | --- |');
@@ -113,6 +130,18 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${Math.round(result.setupMs)} | ${(result.wallMs / years).toFixed(2)} | ${slowest} | \`${result.report.stateHash}\` |`);
   }
   return `${lines.join('\n')}\n`;
+}
+
+/** 300-year windows in the first 1,000 years where polity count and world population both stay within ±5% (VISION.md "Plateau"). */
+function plateaus(series: [number, number, number][]) {
+  const at = new Map(series.map(point => [point[0], point]));
+  const found: string[] = [];
+  for (let end = 300; end <= 1000; end += 10) {
+    const a = at.get(end - 300), b = at.get(end);
+    if (!a || !b || !a[1] || !a[2]) continue;
+    if (Math.abs(b[1] / a[1] - 1) <= 0.05 && Math.abs(b[2] / a[2] - 1) <= 0.05) found.push(`${end - 300}–${end}`);
+  }
+  return found;
 }
 
 /** A small dependency-free SVG line chart with one line per seed. */

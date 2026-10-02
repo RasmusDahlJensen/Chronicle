@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { worldKey, type WorldSettings } from '../../shared/generated-world.ts';
-import { MAX_SIMULATION_YEAR, SIMULATION_SPEEDS, simulationDate, type ChronicleEvent, type ObserverFrame, type SimulationControl, type SimulationSpeed } from '../../shared/simulation.ts';
+import { ERA_NAMES, MAX_SIMULATION_YEAR, SIMULATION_SPEEDS, simulationDate, type ChronicleEvent, type ObserverFrame, type SimulationControl, type SimulationSpeed } from '../../shared/simulation.ts';
 import { fetchObserverFrame, sendSimulationControl } from '../api/simulation.ts';
 import { describeEvent, MONTH_NAMES } from '../observer/events.ts';
 
@@ -160,7 +160,7 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
       <button type="button" className="world-history-reset" disabled={!frame} onClick={() => void send({ action: 'reset' })}>Reset to year 0</button>
     </div>
     {error && <p className="atlas-error" role="alert">{error}</p>}
-    {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {frame.polities.toLocaleString('en')} {frame.polities === 1 ? 'band' : 'bands'}</p>}
+    {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {(frame.polities - frame.civs).toLocaleString('en')} {frame.polities - frame.civs === 1 ? 'band' : 'bands'} and {frame.civs.toLocaleString('en')} {frame.civs === 1 ? 'civilization' : 'civilizations'} · {frame.settlementCount.toLocaleString('en')} {frame.settlementCount === 1 ? 'village' : 'villages'} · {frame.specialists.toLocaleString('en')} specialists · most advanced: {ERA_NAMES[frame.leadingEra]} era</p>}
     {frame && <WorldChart series={frame.series} />}
     <p className="atlas-panel-note">{restarted ? 'This world’s simulation started again at year 0: Chronicle restarted or the simulation was stopped. ' : ''}Until saving exists, restarting Chronicle or choosing another seed starts the simulation again at year 0.</p>
     <div className="world-history-events">

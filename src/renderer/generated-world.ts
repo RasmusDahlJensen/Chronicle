@@ -13,7 +13,10 @@ export const WORLD_BIOME_STYLE: Record<WorldBiome, { label: string; color: strin
 };
 export type WorldLayer = 'biomes' | 'temperature' | 'moisture' | 'fertility';
 export interface WorldCoordinate { x: number; y: number }
-export interface BandMarker { x: number; y: number; population: number; color: string }
+/** A polity marker: bands are circles, settled civilizations squares, coloured by era. */
+export interface BandMarker { x: number; y: number; population: number; color: string; settled?: boolean }
+/** A settlement (village) mark at its cell; capitals are drawn larger. */
+export interface SettlementMark { x: number; y: number; capital: boolean }
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
   onSelect: (cell: WorldCoordinate | null) => void;
@@ -64,7 +67,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let resources = true;
   let rivers = true;
   let regionCells: Uint16Array | null = null, regionBorders: Path2D | null = null, regionBorderCount = 0, showRegions = false;
-  let markers: BandMarker[] = [];
+  let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' };
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
@@ -236,23 +239,37 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
       target.restore();
     }
-    // Band markers at their region's centre, area proportional to population.
+    // Polity markers at their region's centre. Populations run from a few dozen foragers to a million farmers, so size
+    // follows the logarithm of population, and no marker grows wider than about half a region.
     if (markers.length) {
       target.save(); target.lineWidth = m.scale < 3 ? 0.6 : 1.2; target.strokeStyle = '#2b1d12';
       // Small at world scale (a region is a few pixels wide), larger when zoomed in.
-      const grow = Math.sqrt(m.scale);
+      const grow = Math.sqrt(m.scale), largest = Math.max(1.4, 2.6 * m.scale);
       // Every visible copy of the wrapped world, like the region borders.
       for (let copy = startCopy; copy <= endCopy; copy++) for (const marker of markers) {
         const x = left + (copy * world.width + marker.x + 0.5) * m.scale, y = top + (marker.y + 0.5) * m.scale;
-        const radius = Math.max(1.4, Math.min(14, (0.6 + Math.sqrt(marker.population) * 0.035) * grow));
+        const radius = Math.max(1.4, Math.min(largest, (0.8 + 0.5 * Math.log10(1 + marker.population / 100)) * grow));
         if (x < -radius || x > m.width + radius || y < -radius || y > m.height + radius) continue;
-        target.beginPath(); target.arc(x, y, radius, 0, Math.PI * 2);
+        target.beginPath();
+        if (marker.settled) target.rect(x - radius * 0.9, y - radius * 0.9, radius * 1.8, radius * 1.8); else target.arc(x, y, radius, 0, Math.PI * 2);
         target.fillStyle = marker.color; target.globalAlpha = 0.85; target.fill(); target.globalAlpha = 1; target.stroke();
       }
       target.restore();
     }
+    // Villages on their own cells, above the markers once a region is a few pixels across.
+    if (villages.length && m.scale >= 1.5) {
+      target.save(); target.fillStyle = villageStyle.fill; target.strokeStyle = villageStyle.stroke; target.lineWidth = 1;
+      const size = Math.max(2.5, Math.min(7, m.scale * 0.6));
+      for (let copy = startCopy; copy <= endCopy; copy++) for (const village of villages) {
+        const x = left + (copy * world.width + village.x + 0.5) * m.scale, y = top + (village.y + 0.5) * m.scale, half = (village.capital ? size : size * 0.7) / 2;
+        if (x < -half || x > m.width + half || y < -half || y > m.height + half) continue;
+        target.beginPath(); target.moveTo(x, y - half * 1.3); target.lineTo(x + half, y); target.lineTo(x, y + half * 1.3); target.lineTo(x - half, y); target.closePath();
+        target.fill(); target.stroke();
+      }
+      target.restore();
+    }
     // Keep the selected cell's outline above the marks.
-    if (overlay && selection && (markers.length || showRegions)) {
+    if (overlay && selection && (markers.length || villages.length || showRegions)) {
       const offsetX = wrap(selection.x + 0.5 - centerX + world.width / 2, world.width) - world.width / 2;
       const x = m.width / 2 + offsetX * m.scale, y = top + (selection.y + 0.5) * m.scale, edge = Math.max(8, m.scale);
       target.strokeStyle = '#172c26'; target.lineWidth = 3; target.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
@@ -260,6 +277,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     canvas.dataset.regionBorders = String(showRegions ? regionBorderCount : 0);
     canvas.dataset.bandMarkers = String(markers.length);
+    canvas.dataset.settlementMarks = String(villages.length);
   }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
   function changed() {
@@ -370,6 +388,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     clearSelection() { select(null); },
     /** Band markers in world cell coordinates; replaces the previous set. */
     setBands(next: BandMarker[]) { markers = next; safe(() => overlay ? drawOverlay() : draw()); },
+    /** Settlement marks in world cell coordinates, in the observer's palette; replaces the previous set. */
+    setSettlements(next: SettlementMark[], style: { fill: string; stroke: string }) { villages = next; villageStyle = style; safe(() => overlay ? drawOverlay() : draw()); },
     /** Region index from the simulation (region id + 1, 0 for water); null clears it. */
     setRegions(cells: Uint16Array | null, visible: boolean) {
       if (cells !== regionCells) {
@@ -388,7 +408,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; markers = []; canvas.style.touchAction = '';
+      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; markers = []; villages = []; canvas.style.touchAction = '';
       if (overlay) overlay.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
     },
   };
