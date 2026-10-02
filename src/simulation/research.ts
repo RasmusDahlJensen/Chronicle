@@ -1,4 +1,4 @@
-import { landPressure } from './bands.ts';
+import { coreRegion, landPressure } from './bands.ts';
 import { blockedExtraction } from './deposits.ts';
 import { farmingPotential } from './food.ts';
 import { chooseTarget, knows, learn, remaining, type ResearchContext } from './knowledge.ts';
@@ -53,14 +53,17 @@ export function regionAffinities(state: Pick<SimulationState, 'geography' | 'par
 // Reused across calls: a visit stamp per region, the search frontier and the contacts found (no allocation per search).
 let stamp = new Int32Array(0), mark = 0, frontier: number[] = [], next: number[] = [];
 
-/** Polities within the contact radius over land, and over sea where the polity's mobility reaches; nearer is more intense. */
+/**
+ * Polities within the contact radius of any of the polity's regions, over land and over sea where its knowledge
+ * reaches; nearer is more intense. Each contact is counted once.
+ */
 export function refreshContacts(state: SimulationState, polity: Polity) {
   const regions = state.partition.regions, tuning = RESEARCH_TUNING;
   if (stamp.length !== regions.length) { stamp = new Int32Array(regions.length); mark = 0; }
   mark++;
-  stamp[polity.region] = mark;
-  frontier.length = 0; frontier.push(polity.region);
-  const contacts: number[] = [], weights: number[] = [];
+  frontier.length = 0;
+  for (const id of polity.groups) { const region = state.groups[id].region; stamp[region] = mark; frontier.push(region); }
+  const contacts: number[] = [], weights: number[] = [], counted = new Set<number>();
   for (let step = 1; step <= tuning.contactRadius && frontier.length; step++) {
     next.length = 0;
     const weight = step <= 1 ? 1 : tuning.farContact;
@@ -68,7 +71,7 @@ export function refreshContacts(state: SimulationState, polity: Polity) {
       if (stamp[region] === mark) return;
       stamp[region] = mark; next.push(region);
       const other = state.occupant[region];
-      if (other >= 0 && other !== polity.id) { contacts.push(other); weights.push(weight); }
+      if (other >= 0 && other !== polity.id && !counted.has(other)) { counted.add(other); contacts.push(other); weights.push(weight); }
     };
     for (const region of frontier) {
       for (const edge of regions[region].neighbors) visit(edge.region);
@@ -98,22 +101,35 @@ export function exposureOf(state: SimulationState, polity: Polity, tech: number)
   return Math.min(1, exposure);
 }
 
-/** Research points a year: base per person scaled by contact, plus specialists, times the techs' multiplier. */
-export function researchRate(polity: Polity, group: { size: number; specialists: number }) {
+/**
+ * Research points a year: base research (experience and tinkering) from the polity's people, up to a community's size
+ * and scaled by contact, plus its specialists, times the techs' multiplier. A tribe shares its ideas, so all its bands
+ * together are one community: spreading over more regions does not by itself make a people inventive.
+ */
+export function researchRate(state: SimulationState, polity: Polity) {
   const tuning = RESEARCH_TUNING, contacts = Math.min(polity.contacts.length, tuning.contactCap);
-  return (tuning.basePerPerson * Math.min(group.size, tuning.basePeople) * (1 + tuning.contactBonus * contacts) + tuning.specialistResearch * group.specialists) * polity.knowledge.multipliers.research;
+  let people = 0, specialists = 0;
+  for (const id of polity.groups) { const group = state.groups[id]; people += group.size; specialists += group.specialists; }
+  return (tuning.basePerPerson * Math.min(people, tuning.basePeople) * (1 + tuning.contactBonus * contacts) + tuning.specialistResearch * specialists) * polity.knowledge.multipliers.research;
 }
 
+/** What the polity's choice of research sees: the conditions of all its land, its need for food (people-weighted), its culture. */
 function contextFor(state: SimulationState, polity: Polity): ResearchContext {
-  const culture = state.cultures[polity.culture], group = state.groups[polity.group];
-  const blocked = new Set<number>();
-  for (const [, code] of state.partition.regions[polity.region].sites) {
-    const tech = blockedExtraction(polity.knowledge, code);
-    if (tech !== null) blocked.add(tech);
+  const culture = state.cultures[polity.culture];
+  const blocked = new Set<number>(), affinity = new Map<Affinity, number>();
+  let people = 0, need = 0;
+  for (const id of polity.groups) {
+    const group = state.groups[id], region = group.region;
+    for (const flag of state.affinity[region]) affinity.set(flag, (affinity.get(flag) ?? 0) + group.size);
+    for (const [, code] of state.partition.regions[region].sites) {
+      const tech = blockedExtraction(polity.knowledge, code);
+      if (tech !== null) blocked.add(tech);
+    }
+    people += group.size; need += group.size * Math.max(1 - group.foodSecurity, landPressure(group.size, state.capacity[region]));
   }
+  for (const [flag, living] of affinity) affinity.set(flag, people > 0 ? living / people : 0);
   return {
-    affinity: state.affinity[polity.region], blocked, rate: researchRate(polity, group),
-    foodNeed: Math.max(1 - group.foodSecurity, landPressure(group.size, state.capacity[polity.region])),
+    affinity, blocked, rate: researchRate(state, polity), foodNeed: people > 0 ? need / people : 0,
     tradition: culture.values.tradition, openness: culture.values.openness, exposure: tech => exposureOf(state, polity, tech),
   };
 }
@@ -124,7 +140,7 @@ export function research(state: SimulationState, context: TickContext) {
   // a month (a neighbour's discovery this month counts from next month).
   const learned: { id: number; tech: number; exposure: number }[] = [];
   for (const id of state.living) {
-    const polity = state.polities[id], group = state.groups[polity.group], knowledge = polity.knowledge;
+    const polity = state.polities[id], knowledge = polity.knowledge;
     // Yearly (staggered): refresh contacts and reconsider the target; otherwise choose only when there is none.
     if (((context.tick - id) % cadence + cadence) % cadence === 0) {
       refreshContacts(state, polity);
@@ -132,7 +148,7 @@ export function research(state: SimulationState, context: TickContext) {
     } else if (knowledge.target < 0) chooseTarget(knowledge, contextFor(state, polity), context.stream(id));
     if (knowledge.target < 0) continue;
     const tech = knowledge.target, exposure = targetExposure(state, polity, tech);
-    knowledge.progress[tech] += researchRate(polity, group) / 12;
+    knowledge.progress[tech] += researchRate(state, polity) / 12;
     if (remaining(knowledge, exposure) <= 0) learned.push({ id, tech, exposure });
   }
   for (const { id, tech, exposure } of learned) {
@@ -141,7 +157,8 @@ export function research(state: SimulationState, context: TickContext) {
     polity.knowledge = learn(polity.knowledge, tech);
     state.learnedCount[tech]++;
     const first = !state.firsts.some(entry => entry.tech === tech);
-    if (first) state.firsts.push({ tech, tick: context.tick, polity: id, region: polity.region });
+    // A tribe's discoveries are placed in its heartland, for the record of firsts and the event alike.
+    if (first) state.firsts.push({ tech, tick: context.tick, polity: id, region: coreRegion(state, polity) });
     state.metrics.discoveries++;
     // Why it was chosen (its positive weight factors), then how it was reached: the polity's own research as a share of
     // the full cost, and exposure to contacts who knew it.
@@ -149,7 +166,7 @@ export function research(state: SimulationState, context: TickContext) {
     causes.push({ factor: 'ownResearch', weight: Math.max(0.001, Math.round(own * 1000) / 1000) });
     if (exposure > 0) causes.push({ factor: 'exposure', weight: Math.round(exposure * 1000) / 1000 });
     state.chronicle.emit({
-      type: 'techDiscovered', actors: [{ id, role: 'polity' }], region: polity.region, causes,
+      type: 'techDiscovered', actors: [{ id, role: 'polity' }], region: coreRegion(state, polity), causes,
       importance: first ? 0.7 : 0.03, data: { tech: TECHS[tech].name, era: TECHS[tech].era, name: polity.name, first },
     });
     // The next target right away (a stream of its own), so no month of research is lost.

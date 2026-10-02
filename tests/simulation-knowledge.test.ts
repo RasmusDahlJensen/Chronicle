@@ -4,10 +4,10 @@ import { RESOURCE_IDS } from '../shared/atlas.ts';
 import { RESOURCE_RULES } from '../src/world/resources.ts';
 import { depositState, validateTechData } from '../src/simulation/deposits.ts';
 import { ERA_NAMES } from '../shared/simulation.ts';
-import { ERA_COLORS, lineageColor, packColor } from '../src/observer/palettes.ts';
+import { ERA_COLORS, lineageColor, packColor, polityColor } from '../src/observer/palettes.ts';
 import { availableTechs, chooseTarget, inheritKnowledge, knows, learn, researchCost, researchWeight, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { createRng } from '../src/simulation/rng.ts';
-import { ERAS, TECH_INDEX, TECHS, validateTechs } from '../src/simulation/techs.ts';
+import { type Affinity, ERAS, TECH_INDEX, TECHS, validateTechs } from '../src/simulation/techs.ts';
 
 test('every RESOURCE_RULES extraction technology exists in the tech data under exactly that name', () => {
   for (const [resource, rule] of Object.entries(RESOURCE_RULES)) {
@@ -50,9 +50,12 @@ test('knowledge starts with the Stone techs, inherits without progress and deriv
 test('research weights follow need, environment, exposure and culture, and contact makes techs cheaper', () => {
   const knowledge = learn(startingKnowledge(), TECH_INDEX.get('Pottery')!);
   const agriculture = TECH_INDEX.get('Agriculture')!;
-  const base = { affinity: new Set<never>(), foodNeed: 0, tradition: 0.2, openness: 0.5, exposure: () => 0, blocked: new Set<number>(), rate: 3 };
+  const base = { affinity: new Map<Affinity, number>(), foodNeed: 0, tradition: 0.2, openness: 0.5, exposure: () => 0, blocked: new Set<number>(), rate: 3 };
   const plain = researchWeight(agriculture, base);
-  assert.ok(researchWeight(agriculture, { ...base, affinity: new Set(['fertileRiver'] as const) as Set<never> }) > plain * 2, 'fertile river land');
+  const fertile = (share: number) => researchWeight(agriculture, { ...base, affinity: new Map<Affinity, number>([['fertileRiver', share]]) });
+  assert.ok(fertile(1) > plain * 2, 'fertile river land');
+  // A tribe weighs its land by where its people live: one fertile valley among many regions draws it to farming less.
+  assert.ok(fertile(0.1) > plain && fertile(0.1) < fertile(0.5) && fertile(0.5) < fertile(1), 'graded by the share of people on such land');
   assert.ok(researchWeight(agriculture, { ...base, foodNeed: 0.7 }) > plain * 3, 'hunger or land pressure raises food techs');
   assert.ok(researchWeight(agriculture, { ...base, exposure: () => 1 }) > plain * 2, 'neighbours who farm');
   assert.ok(researchWeight(agriculture, { ...base, tradition: 0.9 }) < plain, 'tradition resists economic change');
@@ -63,7 +66,7 @@ test('research weights follow need, environment, exposure and culture, and conta
   // always turns to Agriculture, and weighs it far above a band on poor land does (which mostly learns it from neighbours).
   let settledIn = knowledge;
   for (const name of ['Boatbuilding', 'Masonry']) settledIn = learn(settledIn, TECH_INDEX.get(name)!);
-  const fertileLand = new Set(['fertileRiver', 'riverOrLake'] as const) as Set<never>;
+  const fertileLand = new Map<Affinity, number>([['fertileRiver', 1], ['riverOrLake', 1]]);
   let picks = 0;
   for (let draw = 0; draw < 400; draw++) {
     const copy = inheritKnowledge(settledIn);
@@ -96,4 +99,18 @@ test('every founding people gets its own colour, none of them sea blue', () => {
     assert.ok(hue <= 180 || hue >= 240, `rgb(${red}, ${green}, ${blue}) (hue ${hue.toFixed(0)}°) reads as water`);
   }
   assert.equal(packColor([1, 2, 3], 1), (1 | 2 << 8 | 3 << 16 | 255 << 24) >>> 0, 'little-endian RGBA for image data');
+});
+
+test('polities founded one after another get clearly different colours, none of them sea blue', () => {
+  const hueOf = ([red, green, blue]: [number, number, number]) => {
+    const max = Math.max(red, green, blue), min = Math.min(red, green, blue), span = max - min || 1;
+    return (max === red ? ((green - blue) / span + 6) % 6 : max === green ? (blue - red) / span + 2 : (red - green) / span + 4) * 60;
+  };
+  const colors = Array.from({ length: 3000 }, (_, id) => polityColor(id));
+  assert.ok(new Set(colors.slice(0, 1000).map(color => color.join(','))).size > 950, 'a thousand polities, almost all distinct');
+  for (const [id, color] of colors.entries()) {
+    // Rounding to whole RGB values can move a hue by a fraction of a degree.
+    assert.ok(hueOf(color) <= 181 || hueOf(color) >= 239, `polity ${id}: rgb(${color.join(', ')}) reads as water`);
+    if (id > 0) assert.ok(color.reduce((sum, value, channel) => sum + Math.abs(value - colors[id - 1][channel]), 0) > 60, `polities ${id - 1} and ${id} look alike`);
+  }
 });

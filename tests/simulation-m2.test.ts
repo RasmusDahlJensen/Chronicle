@@ -79,8 +79,32 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   const farmingSettlers = settled.filter(event => event.causes.some(cause => cause.factor === 'farming' && cause.weight >= 0.05)).length;
   assert.ok(farmingSettlers * 2 > settled.length, `most settlers already live mostly by farming or herding (${farmingSettlers} of ${settled.length})`);
   // Specialists work in settlements only.
-  assert.ok(state.living.every(id => state.polities[id].kind === 'civ' || state.groups[state.polities[id].group].specialists === 0));
-  assert.ok(civs.some(id => state.groups[state.polities[id].group].specialists > 0), 'surplus frees specialists');
+  assert.ok(state.living.every(id => state.polities[id].kind === 'civ' || state.polities[id].groups.every(group => state.groups[group].specialists === 0)));
+  assert.ok(civs.some(id => state.polities[id].groups.some(group => state.groups[group].specialists > 0)), 'surplus frees specialists');
+  // Whole tribes settled: civilizations of many regions, a village in each (the invariants check one living village per
+  // region they hold and the capital in the heartland every month).
+  assert.ok(settled.some(event => (event.data.regions as number) >= 10), 'tribes of ten or more regions settled as one');
+  assert.ok(civs.some(id => state.polities[id].groups.length >= 10));
+  // A civilization that loses its capital village moves the capital to its new heartland; one that loses every village
+  // in the same month ends at once, without moving its capital on the way.
+  const civ = state.polities[civs.find(id => state.polities[id].groups.length >= 5)!];
+  const dying = (groupId: number) => Object.assign(state.groups[groupId], { size: 1, famineCarry: 0.999, naturalCarry: 0.999, birthCarry: 0, foodSecurity: 0 });
+  const oldCapital = state.settlements[civ.capital!], oldCore = civ.core;
+  dying(oldCore);
+  let from = state.chronicle.events.length;
+  stepSimulation(state);
+  const moved = state.chronicle.events.slice(from).filter(event => event.type === 'capitalMoved' && event.actors[0].id === civ.id);
+  assert.equal(moved.length, 1, 'the capital moved once');
+  assert.equal(oldCapital.status, 'ruined');
+  assert.ok(civ.core !== oldCore && state.settlements[civ.capital!].region === state.groups[civ.core].region, 'the new capital is in the new heartland');
+  const villages = civ.groups.length;
+  for (const groupId of civ.groups) dying(groupId);
+  from = state.chronicle.events.length;
+  stepSimulation(state);
+  const ending = state.chronicle.events.slice(from).filter(event => event.actors[0]?.id === civ.id);
+  assert.notEqual(civ.deathTick, null);
+  assert.deepEqual(ending.map(event => event.type), ['civDestroyed'], `all ${villages} villages died in one month: one event`);
+  assert.ok(state.settlements.every(settlement => settlement.owner !== civ.id || settlement.status === 'ruined'));
 });
 
 test('a polity on another landmass without Sailing (rail is not Sailing), a civilization without its village, or unexplained crops break the invariants', async () => {
@@ -91,26 +115,24 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
     change(state);
     assert.throws(() => checkInvariants(state), (error: Error) => error instanceof InvariantError && pattern.test(error.message));
   };
-  tamper(state => {
-    // Carry a band to a free region of another landmass, with the ledger balanced, as a sea crossing would.
-    const band = state.polities[state.living[0]], group = state.groups[band.group];
+  // Carry a tribe's heartland band to a free region of another landmass, with the ledger balanced, as a sea crossing would.
+  const carry = (state: ReturnType<typeof createSimulation>, band: ReturnType<typeof createSimulation>['polities'][number]) => {
+    const group = state.groups[band.core], from = group.region;
     const target = partition.regions.find(region => region.landmass !== band.homeLandmass && state.occupant[region.id] < 0)!;
-    state.ledger.migrantsOut[band.region] += group.size; state.ledger.migrantsIn[target.id] += group.size;
-    state.occupant[band.region] = -1; state.occupant[target.id] = band.id;
-    band.region = target.id; group.region = target.id;
-  }, /without Sailing/);
+    state.ledger.migrantsOut[from] += group.size; state.ledger.migrantsIn[target.id] += group.size;
+    state.occupant[from] = -1; state.groupAt[from] = -1; state.occupant[target.id] = band.id; state.groupAt[target.id] = group.id;
+    group.region = target.id;
+  };
+  tamper(state => carry(state, state.polities[state.living[0]]), /without Sailing/);
   tamper(state => {
     // Rail or flight is not Sailing: a polity that knows Railways but not Sailing is still bound to its landmass.
-    const band = state.polities[state.living[2]], group = state.groups[band.group];
+    const band = state.polities[state.living[2]];
     band.knowledge = learn(band.knowledge, TECH_INDEX.get('Railways')!);
-    const target = partition.regions.find(region => region.landmass !== band.homeLandmass && state.occupant[region.id] < 0)!;
-    state.ledger.migrantsOut[band.region] += group.size; state.ledger.migrantsIn[target.id] += group.size;
-    state.occupant[band.region] = -1; state.occupant[target.id] = band.id;
-    band.region = target.id; group.region = target.id;
+    carry(state, band);
   }, /without Sailing/);
   tamper(state => {
     const band = state.polities[state.living[1]];
-    band.kind = 'civ'; state.owner[band.region] = band.id;
-  }, /no living capital/);
-  tamper(state => { state.groups[state.polities[state.living[3]].group].planted += 100; }, /crops in the field/);
+    band.kind = 'civ'; for (const group of band.groups) state.owner[state.groups[group].region] = band.id;
+  }, /has no village there/);
+  tamper(state => { state.groups[state.polities[state.living[3]].core].planted += 100; }, /crops in the field/);
 });

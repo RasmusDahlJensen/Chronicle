@@ -10,7 +10,7 @@ import { partitionRegions } from '../src/simulation/regions.ts';
 import { createRng } from '../src/simulation/rng.ts';
 import { createSimulation, stepSimulation } from '../src/simulation/simulation.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
-import { FARM_TUNING } from '../src/simulation/tunables.ts';
+import { FARM_TUNING, FOOD_TUNING, POPULATION_TUNING } from '../src/simulation/tunables.ts';
 
 const total = (workers: Float64Array) => workers.reduce((sum, value) => sum + value, 0);
 
@@ -79,34 +79,45 @@ test('the harvest calendar follows latitude, and a harvest brings in exactly the
     assert.equal(monthsToHarvest(state.food, region.id, months[0]), 0);
     assert.equal(monthsToHarvest(state.food, region.id, months[0] % 12 + 1), 12 / months.length - 1);
   }
-  // Follow farming civilizations through two harvest cycles: each harvest equals what was sown since the previous one
+  // Follow farming villages through two harvest cycles: each harvest equals what was sown since the previous one
   // (crops are only ever added by sowing and removed by the harvest; the invariants check the ledger every tick).
+  // Farmers can always store a harvest (VISION.md "Time"): after a harvest of at least the store limit, nobody goes
+  // short before the next one, though part of the store perishes every month.
   while (state.tick < 12 * 620) stepSimulation(state);
-  const farmers = state.living.filter(id => state.polities[id].kind === 'civ').slice(0, 40);
-  const sownSince = new Map(farmers.map(id => [id, state.groups[state.polities[id].group].planted]));
-  let harvests = 0;
+  const farmers = state.living.filter(id => state.polities[id].kind === 'civ').flatMap(id => state.polities[id].groups).slice(0, 40);
+  const sownSince = new Map(farmers.map(id => [id, state.groups[id].planted]));
+  const storeLimit = POPULATION_TUNING.storeMonths * state.polities[state.groups[farmers[0]].polity].knowledge.multipliers.storeMonths;
+  const ample = new Set<number>();
+  let harvests = 0, bridged = 0;
   for (let month = 0; month < 30; month++) {
+    const need = new Map(farmers.map(id => [id, state.groups[id].size * FOOD_TUNING.unitsPerPersonMonth]));
     stepSimulation(state);
     for (const id of farmers) {
-      const polity = state.polities[id];
-      if (polity.deathTick !== null) continue;
-      const flows = state.ledger.food.get(state.groups[polity.group].id)!;
+      if (state.groups[id].deathTick !== null) continue;
+      const flows = state.ledger.food.get(id)!;
       const sown = sownSince.get(id)! + flows.sown;
-      if (flows.harvested > 0) { assert.equal(flows.harvested, sown, `civilization ${id} harvests what it sowed`); harvests++; sownSince.set(id, 0); }
-      else sownSince.set(id, sown);
+      if (flows.harvested > 0) {
+        assert.equal(flows.harvested, sown, `village group ${id} harvests what it sowed`); harvests++; sownSince.set(id, 0);
+        if (flows.harvested >= storeLimit * need.get(id)!) ample.add(id); else ample.delete(id);
+      } else {
+        sownSince.set(id, sown);
+        if (ample.has(id)) { assert.equal(flows.consumption, need.get(id)!, `village group ${id} lives on its stored harvest`); bridged++; }
+      }
     }
   }
+  assert.ok(bridged > 0, `${bridged} months bridged by a stored harvest`);
   assert.ok(harvests >= farmers.length, `${harvests} harvests followed`);
 });
 
 test('sea crossings need Sailing (coastal) or Navigation (any); later mobility gives no sea reach', async () => {
   const { geography, partition } = await chronicle();
   const state = createSimulation(geography, partition, 'Sailing');
-  const band = state.polities[state.living.find(id => partition.regions[state.polities[id].region].sea.length > 0) ?? state.living[0]];
-  const region = partition.regions[band.region];
+  const home = (id: number) => state.groups[state.polities[id].core].region;
+  const band = state.polities[state.living.find(id => partition.regions[home(id)].sea.length > 0) ?? state.living[0]];
+  const region = partition.regions[home(band.id)];
   assert.ok(region.sea.length > 0, 'a band on a coast with sea crossings');
   const seaRegions = new Set(region.sea.map(link => link.region));
-  const crossings = () => reachableFree(state, band).filter(option => seaRegions.has(option.region) && !region.neighbors.some(edge => edge.region === option.region));
+  const crossings = () => reachableFree(state, band, region.id).filter(option => seaRegions.has(option.region) && !region.neighbors.some(edge => edge.region === option.region));
   assert.equal(crossings().length, 0, 'foot only: no sea crossings');
   let knowledge = startingKnowledge();
   for (const name of ['Masonry', 'Pottery', 'Fishing', 'Boatbuilding']) if (!knowledge.known[TECH_INDEX.get(name)!]) knowledge = learn(knowledge, TECH_INDEX.get(name)!);

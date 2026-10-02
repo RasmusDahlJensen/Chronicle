@@ -109,6 +109,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
     protocolVersion: SIMULATION_PROTOCOL_VERSION, instance: { key: 'k', worldKey: 'w', partitionVersion: 1, rulesVersion: 1, seed: 's', runId: 'r' },
     tick: 5, playing: false, speed: 'year', epoch: 0, runTo: null, eventCount: 2, counters: { regions: 1, landmasses: 1 },
     population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
+    largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }],
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0] }, settlements: { ids: [], cells: [], owners: [], capitals: [] },
     series: [[0, 30, 1]], inspect: null,
     events: [
@@ -123,6 +124,11 @@ test('observer frames reject events newer than the frame or out of order', () =>
   assert.throws(() => parseObserverFrame({ ...frame, markers: { ...frame.markers, regions: [] } }), 'marker arrays must line up');
   assert.throws(() => parseObserverFrame({ ...frame, markers: { ...frame.markers, eras: [10] } }), 'eras are known');
   assert.throws(() => parseObserverFrame({ ...frame, markers: { ...frame.markers, lineages: [1] } }), 'lineages are named');
+  assert.throws(() => parseObserverFrame({ ...frame, largest: [{ ...frame.largest[0], regions: 2 }] }), 'the legend counts the polity\'s regions');
+  assert.throws(() => parseObserverFrame({ ...frame, largest: [{ ...frame.largest[0], id: 1 }] }), 'the legend names living polities');
+  const two = { ids: [0, 0], populations: [30, 30], eras: [0, 0], lineages: [0, 0] };
+  assert.throws(() => parseObserverFrame({ ...frame, largest: [], markers: { ...two, regions: [0, 0], kinds: [0, 0] } }), 'one band per region');
+  assert.throws(() => parseObserverFrame({ ...frame, civs: 1, largest: [], markers: { ...two, regions: [0, 1], kinds: [0, 1] } }), 'a polity is a tribe or a civilization in all its regions');
   assert.throws(() => parseObserverFrame({ ...frame, settlements: { ids: [0], cells: [5], owners: [], capitals: [1] } }), 'settlement arrays must line up');
   assert.throws(() => parseObserverFrame({ ...frame, civs: 1 }), 'civilization count matches the markers');
   assert.throws(() => parseObserverFrame({ ...frame, polities: 2 }), 'one marker per living polity');

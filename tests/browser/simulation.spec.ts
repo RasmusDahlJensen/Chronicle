@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { ERA_NAMES } from '../../shared/simulation.ts';
 
 // One shared simulation per host and world: these scenarios change its clock, so they run in order.
 test.describe.configure({ mode: 'serial' });
@@ -112,30 +113,44 @@ test('bands appear as markers and territories, the world chart grows and a band 
   const frame = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
   const regions = await (await page.request.get(`/api/simulation/regions?${query}`)).json();
   // The most populous band away from the poles, so its centre cell is on screen at fit.
-  const candidates = frame.markers.regions.map((region: number, index: number) => ({ region, population: frame.markers.populations[index], centroid: regions.regions[region].centroid }))
+  const candidates = frame.markers.regions.map((region: number, index: number) => ({ region, id: frame.markers.ids[index], population: frame.markers.populations[index], centroid: regions.regions[region].centroid }))
     .filter((band: { centroid: number }) => Math.abs(Math.floor(band.centroid / WIDTH) - regions.height / 2) < regions.height / 4)
     .sort((a: { population: number }, b: { population: number }) => b.population - a.population);
   const band = candidates[0];
   const cell = { x: band.centroid % WIDTH, y: Math.floor(band.centroid / WIDTH) };
   await clickCell(page, cell);
-  const details = page.getByRole('group', { name: 'Band in this region' });
+  const details = page.getByRole('group', { name: 'Tribe in this region' });
   await expect(details).toBeVisible();
   await expect(page.locator('#band-population')).toHaveText(band.population.toLocaleString('en'));
+  // A tribe roams several regions, one band in each: the inspector shows the whole tribe and its band here.
+  const held = frame.markers.ids.map((id: number, index: number) => id === band.id ? frame.markers.populations[index] : 0).filter((people: number) => people > 0);
+  await expect(page.locator('#polity-regions')).toHaveText(held.length.toLocaleString('en'));
+  await expect(page.locator('#polity-total')).toHaveText(held.reduce((sum: number, people: number) => sum + people, 0).toLocaleString('en'));
   await expect(details).toContainText('Births this year');
   await expect(details).toContainText('Food security');
   await expect(page.locator('#region-capacity')).toContainText('people');
-  // Peoples' territories: every living polity's region is filled, by descent with a legend of the largest peoples,
-  // by era with an era legend, or hidden.
+  // Peoples' territories: every living polity's region is filled — by default by polity, with a legend of the largest
+  // tribes and civilizations; by descent with a legend of the largest peoples; by era with an era legend; or hidden.
   await expect(canvas).toHaveAttribute('data-territory-regions', String(frame.markers.ids.length));
-  await expect(page.getByRole('region', { name: 'Peoples legend' })).toContainText('regions · people');
+  await expect(page.getByLabel('By polity')).toBeChecked();
+  const legend = page.getByRole('region', { name: 'Peoples legend' });
+  await expect(legend).toContainText('Largest polities');
+  const largest = frame.largest[0];
+  expect(largest.regions).toBeGreaterThan(1);
+  await expect(legend.getByRole('listitem').first()).toContainText(`${largest.name} tribe`);
+  await expect(legend.getByRole('listitem').first()).toContainText(`${largest.regions.toLocaleString('en')} · `);
+  await expect(page.locator('#world-population')).toContainText(/[\d,]+ tribes \([\d,]+ bands\)/);
+  await page.getByLabel('By descent').check();
+  await expect(legend).toContainText('regions · people');
   await expect(page.locator('#polity-lineage')).toContainText('Descended from the');
   await page.getByLabel('By era').check();
-  await expect(page.getByRole('region', { name: 'Peoples legend' })).toContainText('Stone');
+  await expect(legend.getByRole('listitem').filter({ hasText: ERA_NAMES[frame.leadingEra] })).toContainText(/[1-9][\d,]*$/);
   await page.getByLabel('Hidden').check();
   await expect(canvas).toHaveAttribute('data-territory-regions', '0');
   await expect(page.getByRole('region', { name: 'Peoples legend' })).toHaveCount(0);
-  await page.getByLabel('By descent').check();
+  await page.getByLabel('By polity').check();
   await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/band of [\d,]+ people/);
+  await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/stays with its tribe, now [\d,]+ bands/);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

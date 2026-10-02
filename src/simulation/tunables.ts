@@ -111,6 +111,13 @@ export const BAND_TUNING = {
   moveRate: 1.5,
   /** Causes weaker than this are not recorded on an event. */
   minCause: 0.05,
+  /**
+   * Breaking away (VISION.md, changed at the M2 review): a band that splits off stays in its tribe unless it breaks
+   * away, with chance 1 − e^(−s × c), s = (distance from the core band ÷ reachKm)^distancePower + (tribe's bands ÷
+   * tribeBands)^sizePower and c = 1 + cultureWeight × (Expansionism − Tradition). Near the heartland of a small tribe
+   * splits almost always stay; far out, or in a large tribe, they mostly go their own way.
+   */
+  reachKm: 1_200, distancePower: 3, tribeBands: 30, sizePower: 2, cultureWeight: 0.8,
 } as const;
 
 export const SPAWN_TUNING = {
@@ -124,7 +131,7 @@ export const SPAWN_TUNING = {
 /** Research (VISION.md "Research"): base points per person a year scaled by contact, plus specialists; weights for the next target. */
 export const RESEARCH_TUNING = {
   basePerPerson: 0.006, contactBonus: 0.08, contactCap: 12,
-  /** Base research (experience and tinkering) grows with people up to a community of this size; beyond it, research needs specialists. */
+  /** Base research (experience and tinkering) grows with a polity's people up to a community of this size; beyond it, research needs specialists. */
   basePeople: 1_500,
   specialistResearch: 0.3,
   /** Weight multipliers: food need (hunger or land pressure) raises food techs; exposure raises a tech's weight by
@@ -223,6 +230,7 @@ export function validateTunables() {
   if (![...f.fishRiverLabor, ...f.fishRegionRiver, f.fishCoastLabor, f.fishLakeLabor, f.fishRegionCoast, f.fishRegionLake, f.gameSiteLabor, f.fishSiteLabor].every(value => value >= 0)) problems.push('fishing and site labour must be non-negative');
   if (!(f.referenceCellKm2 > 0)) problems.push('the reference cell area must be positive');
   if (!(b.minCause >= 0 && b.minCause < 1 && Number.isInteger(b.decisionMonths) && b.decisionMonths >= 1 && Number.isInteger(b.splitCandidates) && b.splitCandidates >= 1)) problems.push('band decision settings are invalid');
+  if (!(b.reachKm > 0 && b.distancePower > 0 && b.tribeBands > 0 && b.sizePower > 0 && b.cultureWeight >= 0 && b.cultureWeight < 1)) problems.push('breakaway settings are invalid');
   if (!(b.splitSpan > 0 && b.splitSizeWeight >= 0 && b.splitPressureWeight >= 0 && b.choiceSharpness > 0 && b.maxChance > 0 && b.maxChance <= 1 && b.minFoodPerPerson > 0 && b.pushBase >= 0 && b.pushBase <= 1)) problems.push('band choice weights are invalid');
   const c = CULTURE_TUNING;
   if (!(c.valueMin >= 0 && c.valueSpan > 0 && c.valueMin + c.valueSpan <= 1 && c.mutation >= 0)) problems.push('culture value ranges are invalid');

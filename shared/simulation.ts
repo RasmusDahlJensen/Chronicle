@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 4;
+export const SIMULATION_PROTOCOL_VERSION = 5;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -27,7 +27,7 @@ export const EVENT_TYPES = [
   'warDeclared', 'battleYear', 'regionConquered', 'peaceSigned', 'rulerSuccession', 'successionCrisis',
   'governmentChange', 'unrest', 'revolt', 'secession', 'civilWar', 'civDestroyed', 'cultureSplit', 'hybridCulture',
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
-  'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone',
+  'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -78,7 +78,12 @@ export const ObserverFrameSchema = Type.Object({
   leadingEra: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
   /** Peoples by descent: the culture name of each starting band, indexed by lineage. */
   lineages: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 1_000 }),
-  /** Living polities as parallel arrays (id, region, population, kind 0 band / 1 civilization, era index, lineage), for map markers and territories. */
+  /** The largest living polities by population (at most 10), for the map legend. */
+  largest: Type.Array(Type.Object({
+    id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]),
+    regions: Type.Integer({ minimum: 1 }), population: Type.Integer({ minimum: 0 }),
+  }, { additionalProperties: false }), { maxItems: 10 }),
+  /** Living bands (one per region) as parallel arrays: their polity's id, region, population, the polity's kind (0 tribe / 1 civilization), era index and lineage; for map markers and territories. */
   markers: Type.Object({
     ids: Type.Array(id(), { maxItems: 20_000 }), regions: Type.Array(id(), { maxItems: 20_000 }),
     populations: Type.Array(Type.Integer({ minimum: 1 }), { maxItems: 20_000 }),
@@ -102,6 +107,8 @@ export const ObserverFrameSchema = Type.Object({
     }, { additionalProperties: false }),
     polity: Type.Union([Type.Null(), Type.Object({
       id: id(), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]), name: Type.String({ maxLength: 40 }), culture: Type.String({ maxLength: 40 }),
+      /** Regions the polity holds (its bands) and its people in all of them; the other numbers below are this region's band. */
+      regions: Type.Integer({ minimum: 1 }), totalPopulation: Type.Integer({ minimum: 0 }),
       /** The founding people it descends from (the culture name of its starting band). */
       lineage: Type.String({ maxLength: 40 }),
       population: Type.Integer({ minimum: 0 }),
@@ -157,7 +164,21 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   if (lineages.some(lineage => lineage >= frame.lineages.length)) throw invalid();
   const settlements = frame.settlements;
   if ([settlements.cells, settlements.owners, settlements.capitals].some(array => array.length !== settlements.ids.length)) throw invalid();
-  if (ids.length !== frame.polities || frame.civs > frame.polities || kinds.filter(kind => kind === 1).length !== frame.civs) throw invalid();
+  // One marker per region; all of a polity's markers agree on its kind.
+  const civs = new Set<number>(), polities = new Set(ids), kindOf = new Map<number, number>();
+  if (new Set(regions).size !== regions.length) throw invalid();
+  ids.forEach((polity, index) => {
+    if ((kindOf.get(polity) ?? kinds[index]) !== kinds[index]) throw invalid();
+    kindOf.set(polity, kinds[index]);
+    if (kinds[index] === 1) civs.add(polity);
+  });
+  if (polities.size !== frame.polities || frame.civs > frame.polities || civs.size !== frame.civs) throw invalid();
+  // The legend's polities are living, with exactly the regions and people their bands report.
+  for (const entry of frame.largest) {
+    let held = 0, people = 0;
+    ids.forEach((polity, index) => { if (polity === entry.id) { held++; people += populations[index]; } });
+    if (held !== entry.regions || people !== entry.population || (entry.kind === 'civ') !== civs.has(entry.id)) throw invalid();
+  }
   if (settlements.ids.length !== frame.settlementCount || eras.some(era => era > frame.leadingEra)) throw invalid();
   if (frame.inspect && frame.inspect.region >= frame.counters.regions) throw invalid();
   if (frame.series.some(([year], at) => year * 12 > frame.tick || (at > 0 && year <= frame.series[at - 1][0]))) throw invalid();

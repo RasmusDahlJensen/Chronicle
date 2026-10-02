@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
-import { isWaterRegion } from '../src/simulation/bands.ts';
+import { breakawayChance, isWaterRegion } from '../src/simulation/bands.ts';
 import { capacity, harvest, METHOD_COUNT } from '../src/simulation/food.ts';
 import { decodeGeography, greatCircleKm } from '../src/simulation/geography.ts';
 import { checkInvariants, InvariantError } from '../src/simulation/invariants.ts';
@@ -10,7 +10,7 @@ import { createName, createLanguage } from '../src/simulation/names.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { createRng } from '../src/simulation/rng.ts';
 import { collectStats, createSimulation, stepSimulation } from '../src/simulation/simulation.ts';
-import { SPAWN_TUNING } from '../src/simulation/tunables.ts';
+import { BAND_TUNING, SPAWN_TUNING } from '../src/simulation/tunables.ts';
 
 test('workers flow to equal marginal yields and capacity is where output equals need', () => {
   // Three methods: forage, hunt, fish (herding and farming unknown).
@@ -52,11 +52,13 @@ test('M1 acceptance on Chronicle over 500 years: births and deaths, growth, spre
   const state = createSimulation(geography, partition, 'Chronicle');
   // Starting state: 30 spaced bands of 50–200 people, each with its own culture.
   assert.equal(state.living.length, SPAWN_TUNING.bands);
+  const home = (id: number) => state.groups[state.polities[id].core];
   for (const id of state.living) {
-    const band = state.polities[id], size = state.groups[band.group].size;
-    assert.ok(size >= 50 && size <= 200);
+    const group = home(id);
+    assert.equal(state.polities[id].groups.length, 1, 'each starting tribe is one band');
+    assert.ok(group.size >= 50 && group.size <= 200);
     for (const other of state.living) if (other !== id) {
-      assert.ok(greatCircleKm(geography, partition.regions[band.region].centroid, partition.regions[state.polities[other].region].centroid) >= SPAWN_TUNING.minSpacingKm);
+      assert.ok(greatCircleKm(geography, partition.regions[group.region].centroid, partition.regions[home(other).region].centroid) >= SPAWN_TUNING.minSpacingKm);
     }
   }
   assert.equal(new Set(state.living.map(id => state.polities[id].culture)).size, SPAWN_TUNING.bands);
@@ -70,17 +72,23 @@ test('M1 acceptance on Chronicle over 500 years: births and deaths, growth, spre
   assert.ok(end.population > start.population * 20, `population grows: ${start.population} → ${end.population}`);
   assert.ok(m.maxOverCapacityMonths <= 24, `no region stays above 1.1× capacity for more than 24 months (${m.maxOverCapacityMonths})`);
   assert.ok(end.bands >= 3 * start.bands && end.occupiedRegions >= 3 * start.occupiedRegions, `bands ${start.bands} → ${end.bands}`);
-  const moves = state.chronicle.events.filter(event => event.type === 'bandMoved'), splits = state.chronicle.events.filter(event => event.type === 'bandSplit');
+  // A split either stays in its tribe (band spread) or breaks away as a new tribe (band split); both are events.
+  const moves = state.chronicle.events.filter(event => event.type === 'bandMoved'), splits = state.chronicle.events.filter(event => event.type === 'bandSplit' || event.type === 'bandSpread');
   assert.equal(moves.length, m.moves); assert.equal(splits.length, m.splits);
   assert.ok(moves.length > 20 && splits.length > 100);
+  const breakaways = splits.filter(event => event.type === 'bandSplit').length;
+  assert.equal(breakaways, m.breakaways);
+  assert.ok(breakaways > 0 && breakaways * 2 < splits.length, `splits mostly stay in their tribe (${breakaways} of ${splits.length} broke away)`);
+  assert.ok(end.tribes < end.bands, `tribes hold several bands (${end.tribes} tribes, ${end.bands} bands)`);
   for (const event of [...moves, ...splits]) assert.ok(event.causes.length > 0 && event.region !== null, `${event.type} ${event.id} records causes and a place`);
   const citing = moves.filter(event => event.causes.some(cause => (cause.factor === 'gameDepletion' || cause.factor === 'landPressure') && cause.weight >= 0.1));
   assert.ok(citing.length * 2 >= moves.length, `${citing.length} of ${moves.length} moves cite game depletion or land pressure`);
   assert.ok(end.waterPopulationShare >= 1.25 * end.waterRegionShare, `water share ${end.waterPopulationShare} vs ${end.waterRegionShare}`);
   // Every daughter keeps its parent's lineage, so a people's spread can be followed from its founder.
   for (const polity of state.polities) if (polity.parent !== null) assert.equal(polity.lineage, state.polities[polity.parent].lineage);
-  const water = state.living.filter(id => isWaterRegion(state, state.polities[id].region)).length;
-  assert.ok(water > 0 && water < state.living.length, 'bands live both near water and inland');
+  const bands = state.living.flatMap(id => state.polities[id].groups.map(groupId => state.groups[groupId].region));
+  const water = bands.filter(region => isWaterRegion(state, region)).length;
+  assert.ok(water > 0 && water < bands.length, 'bands live both near water and inland');
 });
 
 test('exact accounting catches any population or food change without a recorded cause', async () => {
@@ -91,29 +99,64 @@ test('exact accounting catches any population or food change without a recorded 
     change(state);
     assert.throws(() => checkInvariants(state), (error: Error) => error instanceof InvariantError && pattern.test(error.message));
   };
-  tamper(state => { state.groups[state.polities[state.living[0]].group].size += 1; }, /population .* differs from its accounted/);
-  tamper(state => { state.groups[state.polities[state.living[1]].group].store += 1; }, /food store .* is not explained/);
-  tamper(state => {
-    const [a, b] = state.living.map(id => state.polities[id]);
-    b.region = a.region; state.groups[b.group].region = a.region;
-  }, /holds bands|does not record/);
+  const core = (state: ReturnType<typeof createSimulation>, at: number) => state.groups[state.polities[state.living[at]].core];
+  tamper(state => { core(state, 0).size += 1; }, /population .* differs from its accounted/);
+  tamper(state => { core(state, 1).store += 1; }, /food store .* is not explained/);
+  tamper(state => { core(state, 1).region = core(state, 0).region; }, /holds bands|does not record/);
   // Transfers must close across regions and bands: a split that forgot to take people and food from its parent
   // would balance each region and band on its own books, but create people and food from nothing.
   tamper(state => {
-    const band = state.polities[state.living[2]], group = state.groups[band.group];
-    group.size += 40; state.ledger.migrantsIn[band.region] += 40;
+    const group = core(state, 2);
+    group.size += 40; state.ledger.migrantsIn[group.region] += 40;
   }, /left regions but .* arrived/);
   tamper(state => {
-    const group = state.groups[state.polities[state.living[3]].group];
+    const group = core(state, 3);
     group.store += 500; state.ledger.food.get(group.id)!.carriedIn += 500;
   }, /carried out but .* carried in/);
+  // An empty region that still names a band.
+  tamper(state => { state.groupAt[state.partition.regions.find(region => state.occupant[region.id] < 0)!.id] = 0; }, /records a band that is not there/);
+});
+
+test('breaking away is graded by distance from the heartland, the tribe\'s size and its culture, and never certain', async () => {
+  const { geography, partition } = await chronicleWorld();
+  const state = createSimulation(geography, partition, 'Breakaway');
+  const tribe = state.polities[state.living[0]], culture = state.cultures[tribe.culture], home = partition.regions[state.groups[tribe.core].region];
+  const byDistance = partition.regions.map(region => ({ id: region.id, km: greatCircleKm(geography, home.centroid, region.centroid) })).sort((a, b) => a.km - b.km);
+  const near = byDistance[1], middle = byDistance.find(entry => entry.km >= BAND_TUNING.reachKm)!, far = byDistance.find(entry => entry.km >= 2 * BAND_TUNING.reachKm)!;
+  const chance = (to: number, bands: number, expansionism = 0.5, tradition = 0.5) => {
+    const saved = culture.values;
+    culture.values = { ...saved, expansionism, tradition };
+    // The same tribe with more bands (its size is all that is read).
+    const result = breakawayChance(state, { ...tribe, groups: Array.from({ length: bands }, () => tribe.core) }, to).chance;
+    culture.values = saved;
+    return result;
+  };
+  assert.ok(near.km < 300 && chance(near.id, 1) < 0.02, `a small tribe's split next to its heartland almost always stays (${chance(near.id, 1)})`);
+  assert.ok(chance(near.id, 1) < chance(middle.id, 1) && chance(middle.id, 1) < chance(far.id, 1), 'likelier further from the heartland');
+  assert.ok(chance(far.id, 1) > 0.9 && chance(far.id, 1) < 1, 'far away it is likely, never certain');
+  assert.ok(chance(near.id, 5) < chance(near.id, 15) && chance(near.id, 15) < chance(near.id, BAND_TUNING.tribeBands), 'likelier the larger the tribe');
+  assert.ok(chance(near.id, BAND_TUNING.tribeBands) > 0.5 && chance(near.id, BAND_TUNING.tribeBands) < 0.75, 'a tribe of tribeBands bands loses most splits even near home');
+  assert.ok(chance(middle.id, 10, 0.9, 0.1) > chance(middle.id, 10) && chance(middle.id, 10) > chance(middle.id, 10, 0.1, 0.9), 'Expansionism raises it, Tradition lowers it');
+});
+
+test('a tribe that loses its heartland band passes the heartland to another of its bands', async () => {
+  const { geography, partition } = await chronicleWorld();
+  const state = createSimulation(geography, partition, 'Heartland');
+  while (!state.living.some(id => state.polities[id].groups.length >= 3)) stepSimulation(state);
+  const tribe = state.polities[state.living.find(id => state.polities[id].groups.length >= 3)!], heartland = state.groups[tribe.core], region = heartland.region;
+  heartland.size = 1; heartland.famineCarry = 0.999; heartland.naturalCarry = 0.999; heartland.birthCarry = 0; heartland.foodSecurity = 0;
+  stepSimulation(state);
+  assert.notEqual(heartland.deathTick, null, 'the heartland band died out');
+  assert.equal(tribe.deathTick, null, 'the tribe lives on');
+  assert.ok(tribe.core !== heartland.id && tribe.groups.includes(tribe.core), 'one of its other bands is the heartland now');
+  assert.equal(state.occupant[region], -1); assert.equal(state.groupAt[region], -1);
 });
 
 test('a band that dies out frees its region and its stored food is recorded as spoilage', async () => {
   const { geography, partition } = await chronicleWorld();
   const state = createSimulation(geography, partition, 'Dissolution');
   for (let month = 0; month < 12; month++) stepSimulation(state);
-  const band = state.polities[state.living[0]], group = state.groups[band.group], region = band.region;
+  const band = state.polities[state.living.find(id => state.polities[id].groups.length === 1)!], group = state.groups[band.core], region = group.region;
   // One person on the brink of a famine death, holding some food.
   group.size = 1; group.famineCarry = 0.999; group.naturalCarry = 0.999; group.birthCarry = 0; group.foodSecurity = 0;
   stepSimulation(state);

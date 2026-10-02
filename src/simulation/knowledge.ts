@@ -73,8 +73,8 @@ export function learn(knowledge: Knowledge, tech: number): Knowledge {
 export function availableTechs(knowledge: Knowledge) { return knowledge.available; }
 
 export interface ResearchContext {
-  /** Environment conditions true for the polity's land. */
-  affinity: Set<Affinity>;
+  /** Environment conditions of the polity's land: the share (0–1) of its people living where each holds. */
+  affinity: Map<Affinity, number>;
   /** Need for food (0–1): hunger, or land pressure when the land is filling up, whichever is larger. */
   foodNeed: number;
   tradition: number; openness: number;
@@ -96,7 +96,10 @@ export function researchWeight(tech: number, context: ResearchContext, factors?:
   const need = Math.max(0, Math.min(1, context.foodNeed));
   if (need > 0 && FOOD[tech]) { const value = 1 + tuning.needWeight * need; weight *= value; factors?.push({ factor: 'foodNeed', weight: value - 1 }); }
   for (const [condition, value] of AFFINITIES[tech]) {
-    if (context.affinity.has(condition)) { weight *= value; factors?.push({ factor: condition, weight: value - 1 }); }
+    // Graded by the share of its people on such land: a tribe with one fertile river valley among ten regions is
+    // drawn to farming far less than a people that lives on them.
+    const share = context.affinity.get(condition) ?? 0;
+    if (share > 0) { const factor = 1 + share * (value - 1); weight *= factor; factors?.push({ factor: condition, weight: factor - 1 }); }
   }
   if (context.blocked.has(tech)) { weight *= tuning.blockedWeight; factors?.push({ factor: 'knownUnusable', weight: tuning.blockedWeight - 1 }); }
   const exposure = context.exposure(tech);

@@ -137,3 +137,4 @@
 .world-peoples-legend li { display: flex; justify-content: space-between; gap: .6rem; font-size: .66rem; }
 .world-peoples-legend li > span:first-child { display: inline-flex; align-items: center; gap: .45rem; }
 .world-peoples-legend li > span:last-child { color: var(--atlas-muted); white-space: nowrap; }
+.world-peoples-legend .world-polity-kind { color: var(--atlas-muted); }

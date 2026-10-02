@@ -9,10 +9,10 @@ import type { ChronicleEvent, EventType } from '../../shared/simulation.ts';
 export const EVENT_TEMPLATES: Record<EventType, string> = {
   bandSpawned: 'The {name} band of {population} people ({culture} culture) appears in region {region}.',
   bandMoved: 'The {name} band of {population} people moves from region {from} to region {region}.',
-  bandSplit: 'The {name} band of {population} people splits from the {parentName} band and settles region {region}.',
+  bandSplit: 'A group of {population} breaks away from the {parentName} and becomes the {name} tribe in region {region}.',
   bandAbsorbed: '{@band} is absorbed by {@civ} in region {region}.',
   bandJoined: '{@band} joins {@civ} in region {region}.',
-  settled: 'The {name} band settles in region {region} and becomes a civilization, with its capital at {capital}.',
+  settled: 'The {name} tribe settles and becomes a civilization of {regions} regions, with its capital at {capital} in region {region}.',
   expansion: '{@civ} expands into region {region}.',
   settlementFounded: 'The village of {name} is founded in region {region} by the {civ}.',
   settlementTierChanged: '{name} becomes a {tier}.',
@@ -67,6 +67,7 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   industrialization: '{@civ} industrializes.',
   nuclearUse: '{@attacker} uses nuclear weapons on region {region}.',
   spaceMilestone: '{@civ} achieves {milestone}.',
+  bandSpread: 'A group of {population} of the {name} moves on to region {region} and stays with its tribe, now {bands} bands.',
 };
 
 /** Fill an event's template; missing values show as "?" so gaps stay visible instead of silently vanishing. */

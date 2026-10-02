@@ -42,7 +42,7 @@ function WorldChart({ series }: { series: ObserverFrame['series'] }) {
       <polyline className="world-chart-population" points={line(point => point[1], maxPopulation)} />
       <polyline className="world-chart-polities" points={line(point => point[2], maxPolities)} />
     </svg>
-    <figcaption><span className="world-chart-key-population">World population</span> {last[1].toLocaleString('en')} (max {maxPopulation.toLocaleString('en')}) · <span className="world-chart-key-polities">Bands and civilizations</span> {last[2].toLocaleString('en')} · years 0–{maxYear.toLocaleString('en')}</figcaption>
+    <figcaption><span className="world-chart-key-population">World population</span> {last[1].toLocaleString('en')} (max {maxPopulation.toLocaleString('en')}) · <span className="world-chart-key-polities">Tribes and civilizations</span> {last[2].toLocaleString('en')} · years 0–{maxYear.toLocaleString('en')}</figcaption>
   </figure>;
 }
 
@@ -143,6 +143,8 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
 
   const date = frame ? simulationDate(frame.tick) : null;
   const ended = frame ? frame.tick >= MAX_SIMULATION_YEAR * 12 : false;
+  // Tribes roam with one band in each of their regions.
+  const bands = frame ? frame.markers.kinds.filter(kind => kind === 0).length : 0;
   const status = !frame ? 'Starting the simulation…' : frame.runTo !== null ? `Running to year ${frame.runTo}…` : frame.playing ? `Playing · ${SPEED_LABELS[frame.speed]}` : ended ? 'The run has reached its end' : 'Paused';
   return <section className="world-history" aria-label="History" data-tick={frame?.tick ?? ''} data-playing={frame ? String(frame.playing) : ''} data-run-id={frame?.instance.runId ?? ''} data-epoch={frame?.epoch ?? ''}>
     <div className="world-history-heading">
@@ -160,7 +162,7 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
       <button type="button" className="world-history-reset" disabled={!frame} onClick={() => void send({ action: 'reset' })}>Reset to year 0</button>
     </div>
     {error && <p className="atlas-error" role="alert">{error}</p>}
-    {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {(frame.polities - frame.civs).toLocaleString('en')} {frame.polities - frame.civs === 1 ? 'band' : 'bands'} and {frame.civs.toLocaleString('en')} {frame.civs === 1 ? 'civilization' : 'civilizations'} · {frame.settlementCount.toLocaleString('en')} {frame.settlementCount === 1 ? 'village' : 'villages'} · {frame.specialists.toLocaleString('en')} specialists · most advanced: {ERA_NAMES[frame.leadingEra]} era</p>}
+    {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {(frame.polities - frame.civs).toLocaleString('en')} {frame.polities - frame.civs === 1 ? 'tribe' : 'tribes'} ({bands.toLocaleString('en')} {bands === 1 ? 'band' : 'bands'}) and {frame.civs.toLocaleString('en')} {frame.civs === 1 ? 'civilization' : 'civilizations'} · {frame.settlementCount.toLocaleString('en')} {frame.settlementCount === 1 ? 'village' : 'villages'} · {frame.specialists.toLocaleString('en')} specialists · most advanced: {ERA_NAMES[frame.leadingEra]} era</p>}
     {frame && <WorldChart series={frame.series} />}
     <p className="atlas-panel-note">{restarted ? 'This world’s simulation started again at year 0: Chronicle restarted or the simulation was stopped. ' : ''}Until saving exists, restarting Chronicle or choosing another seed starts the simulation again at year 0.</p>
     <div className="world-history-events">

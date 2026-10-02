@@ -77,7 +77,7 @@ for (const result of results) {
 }
 const summary = storyHealth(results);
 await writeFile(join(values.out, 'story-health.md'), summary);
-for (const [metric, label, column] of [['population', 'World population', 1], ['polities', 'Polities (bands and civs)', 2]] as const) {
+for (const [metric, label, column] of [['population', 'World population', 1], ['polities', 'Polities (tribes and civilizations)', 2]] as const) {
   await writeFile(join(values.out, `${metric}.svg`), chart(label, results.map(result => ({ name: result.seed, points: result.report.series.filter(point => point[0] % 10 === 0).map(point => [point[0], point[column]] as const) }))));
 }
 await writeFile(join(values.out, 'largestShare.svg'), chart('Largest polity share', results.map(result => ({ name: result.seed, points: (result.report.stats as Stats[]).map(row => [row.year, row.largestShare] as const) }))));
@@ -85,11 +85,11 @@ console.log(`\n${summary}\nWrote ${values.out}`);
 
 /** The brief's story-health table: per seed and century, plus per-system timing per simulated year. */
 function storyHealth(rows: SeedResult[]) {
-  const lines = ['| Seed | Year | Polities | Bands | Civs | Villages | Population | Specialists | Know Agriculture | Leading era | Occupied regions | Largest share | Water-region population share (land share) | Moves | Splits | Famine deaths | Events |',
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: |'];
+  const lines = ['| Seed | Year | Polities | Tribes | Bands | Civs | Villages | Population | Specialists | Know Agriculture | Leading era | Occupied regions | Most regions in one polity | Largest share | Water-region population share (land share) | Moves | Splits (broke away) | Famine deaths | Events |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: |'];
   for (const result of rows) for (const stats of result.report.stats as Stats[]) {
     if (stats.year > 1000 && stats.year % 500 !== 0) continue;
-    lines.push(`| ${result.seed} | ${stats.year} | ${stats.polities} | ${stats.bands} | ${stats.civs} | ${stats.settlements} | ${stats.population.toLocaleString('en')} | ${stats.specialists.toLocaleString('en')} | ${Math.round(stats.agricultureShare * 100)}% | ${ERA_NAMES[stats.leadingEra]} | ${stats.occupiedRegions} | ${(stats.largestShare * 100).toFixed(1)}% | ${(stats.waterPopulationShare * 100).toFixed(0)}% (${(stats.waterRegionShare * 100).toFixed(0)}%) | ${stats.bandMoves} | ${stats.bandSplits} | ${stats.famineDeaths.toLocaleString('en')} | ${stats.events} |`);
+    lines.push(`| ${result.seed} | ${stats.year} | ${stats.polities} | ${stats.tribes} | ${stats.bands} | ${stats.civs} | ${stats.settlements} | ${stats.population.toLocaleString('en')} | ${stats.specialists.toLocaleString('en')} | ${Math.round(stats.agricultureShare * 100)}% | ${ERA_NAMES[stats.leadingEra]} | ${stats.occupiedRegions} | ${stats.largestRegions} | ${(stats.largestShare * 100).toFixed(1)}% | ${(stats.waterPopulationShare * 100).toFixed(0)}% (${(stats.waterRegionShare * 100).toFixed(0)}%) | ${stats.bandMoves} | ${stats.bandSplits} (${stats.bandBreakaways}) | ${stats.famineDeaths.toLocaleString('en')} | ${stats.events} |`);
   }
   // M2 acceptance (VISION.md): where and when Agriculture began, and world growth around the year a quarter knew it.
   lines.push('', '| Seed | First Agriculture (year) | Region: top-quartile farming, river tier, open lake | A quarter know it (year) | Growth 300 years before → after | After ÷ before | Plateau windows (first 1,000 years) | Eras first reached |',

@@ -34,43 +34,56 @@ export function checkInvariants(state: SimulationState) {
   const { ledger } = state;
   const now = new Int32Array(regions);
   const seen = new Int32Array(regions).fill(-1);
+  // Living villages: each stands in a region its owner holds, one per region.
+  const villages = new Int32Array(regions);
+  for (const settlement of state.settlements) {
+    if (settlement.status !== 'alive') continue;
+    if (state.owner[settlement.region] !== settlement.owner) fail(`settlement ${settlement.id} stands in region ${settlement.region}, which its owner ${settlement.owner} does not hold`);
+    if (++villages[settlement.region] > 1) fail(`region ${settlement.region} has more than one living village`);
+    if (settlement.capital && state.polities[settlement.owner]?.capital !== settlement.id) fail(`settlement ${settlement.id} is a capital its owner does not name`);
+  }
   for (const id of state.living) {
-    const band = state.polities[id];
-    if (!band || band.deathTick !== null) fail(`live polity list names ${id}`);
-    const group = state.groups[band.group];
-    if (!group || group.polity !== id || group.region !== band.region || group.deathTick !== null) fail(`band ${id} has an inconsistent group`);
-    if (!Number.isInteger(group.size) || group.size <= 0) fail(`band ${id} has size ${group.size}`);
-    if (!Number.isInteger(group.store) || group.store < 0) fail(`band ${id} has food store ${group.store}`);
-    if (!Number.isFinite(group.foodSecurity) || group.foodSecurity < 0) fail(`band ${id} has food security ${group.foodSecurity}`);
-    if (band.region < 0 || band.region >= regions) fail(`band ${id} is in missing region ${band.region}`);
-    if (seen[band.region] >= 0) fail(`region ${band.region} holds bands ${seen[band.region]} and ${id}`);
-    if (state.occupant[band.region] !== id) fail(`region ${band.region} does not record its band ${id}`);
-    seen[band.region] = id;
-    now[band.region] += group.size;
-    // VISION.md M2: no polity holds or enters a region on another landmass before it knows Sailing. A lineage's home
-    // is where its first band began, so daughters carried across the sea count too.
-    if (state.partition.regions[band.region].landmass !== band.homeLandmass && !band.knowledge.known[SAILING]) {
-      fail(`polity ${id} is on landmass ${state.partition.regions[band.region].landmass} without Sailing (home ${band.homeLandmass})`);
-    }
-    const knowledge = band.knowledge;
+    const polity = state.polities[id];
+    if (!polity || polity.deathTick !== null) fail(`live polity list names ${id}`);
+    if (!polity.groups.length || !polity.groups.includes(polity.core)) fail(`polity ${id} has no bands or its core band ${polity.core} is not one of them`);
+    const knowledge = polity.knowledge;
     if (knowledge.known.length !== TECHS.length || knowledge.progress.length !== TECHS.length || knowledge.target >= TECHS.length
       || (knowledge.target >= 0 && (knowledge.known[knowledge.target] || !(knowledge.progress[knowledge.target] >= 0)))) {
       fail(`polity ${id} has inconsistent knowledge (target ${knowledge.target})`);
     }
-    if (!Number.isInteger(group.specialists) || group.specialists < 0 || group.specialists > group.size) fail(`polity ${id} has ${group.specialists} specialists of ${group.size}`);
-    if (band.kind === 'civ') {
-      const capital = band.capital === null ? undefined : state.settlements[band.capital];
-      if (!capital || capital.owner !== id || !capital.capital || capital.status !== 'alive' || capital.region !== band.region) fail(`civilization ${id} has no living capital in its region`);
-      else if (state.partition.regionOf[capital.cell] !== capital.region) fail(`settlement ${capital.id} is not on a land cell of its region`);
-      if (state.owner[band.region] !== id) fail(`civilization ${id} does not own its region ${band.region}`);
-    } else if (band.capital !== null) fail(`band ${id} has a capital`);
-    const flows = ledger.food.get(group.id);
-    if (!flows) fail(`band ${id} has no food flows this tick`);
-    else if (group.store !== flows.before + flows.production - flows.consumption - flows.spoilage + flows.carriedIn - flows.carriedOut) {
-      fail(`band ${id}'s food store ${group.store} is not explained by its flows ${JSON.stringify(flows)}`);
-    } else if (!Number.isInteger(group.planted) || group.planted < 0 || group.planted !== flows.plantedBefore + flows.sown - flows.harvested - flows.cropsLost) {
-      fail(`polity ${id}'s crops in the field ${group.planted} are not explained by its flows ${JSON.stringify(flows)}`);
+    for (const groupId of polity.groups) {
+      const group = state.groups[groupId], region = group?.region;
+      if (!group || group.polity !== id || group.deathTick !== null) fail(`polity ${id} has an inconsistent group ${groupId}`);
+      if (!Number.isInteger(group.size) || group.size <= 0) fail(`group ${groupId} of polity ${id} has size ${group.size}`);
+      if (!Number.isInteger(group.store) || group.store < 0) fail(`group ${groupId} has food store ${group.store}`);
+      if (!Number.isFinite(group.foodSecurity) || group.foodSecurity < 0) fail(`group ${groupId} has food security ${group.foodSecurity}`);
+      if (region < 0 || region >= regions) fail(`group ${groupId} is in missing region ${region}`);
+      if (seen[region] >= 0) fail(`region ${region} holds bands of polities ${seen[region]} and ${id}`);
+      if (state.occupant[region] !== id || state.groupAt[region] !== groupId) fail(`region ${region} does not record its band ${groupId} of polity ${id}`);
+      seen[region] = id;
+      now[region] += group.size;
+      // VISION.md M2: no polity holds or enters a region on another landmass before it knows Sailing. A lineage's home
+      // is where its first band began, so daughters carried across the sea count too.
+      if (state.partition.regions[region].landmass !== polity.homeLandmass && !knowledge.known[SAILING]) {
+        fail(`polity ${id} is on landmass ${state.partition.regions[region].landmass} without Sailing (home ${polity.homeLandmass})`);
+      }
+      if (!Number.isInteger(group.specialists) || group.specialists < 0 || group.specialists > group.size) fail(`group ${groupId} has ${group.specialists} specialists of ${group.size}`);
+      if (polity.kind === 'band' && group.specialists > 0) fail(`band ${groupId} has specialists`);
+      if (polity.kind === 'civ' && (state.owner[region] !== id || villages[region] !== 1)) fail(`civilization ${id} does not own region ${region}, where its people live, or has no village there`);
+      const flows = ledger.food.get(group.id);
+      if (!flows) fail(`group ${groupId} has no food flows this tick`);
+      else if (group.store !== flows.before + flows.production - flows.consumption - flows.spoilage + flows.carriedIn - flows.carriedOut) {
+        fail(`group ${groupId}'s food store ${group.store} is not explained by its flows ${JSON.stringify(flows)}`);
+      } else if (!Number.isInteger(group.planted) || group.planted < 0 || group.planted !== flows.plantedBefore + flows.sown - flows.harvested - flows.cropsLost) {
+        fail(`group ${groupId}'s crops in the field ${group.planted} are not explained by its flows ${JSON.stringify(flows)}`);
+      }
     }
+    if (polity.kind === 'civ') {
+      const capital = polity.capital === null ? undefined : state.settlements[polity.capital];
+      if (!capital || capital.owner !== id || !capital.capital || capital.status !== 'alive' || state.occupant[capital.region] !== id) fail(`civilization ${id} has no living capital in its land`);
+      else if (capital.region !== state.groups[polity.core].region) fail(`civilization ${id}'s capital is not in its heartland region ${state.groups[polity.core].region}`);
+      else if (state.partition.regionOf[capital.cell] !== capital.region) fail(`settlement ${capital.id} is not on a land cell of its region`);
+    } else if (polity.capital !== null) fail(`band ${id} has a capital`);
   }
   // Transfers close: everyone who left a region arrived in another, and food carried out was carried in somewhere.
   let migratedIn = 0, migratedOut = 0, carriedIn = 0, carriedOut = 0;
@@ -79,12 +92,12 @@ export function checkInvariants(state: SimulationState) {
   if (migratedIn !== migratedOut) fail(`${migratedOut} people left regions but ${migratedIn} arrived`);
   if (carriedIn !== carriedOut) fail(`${carriedOut} food units were carried out but ${carriedIn} carried in`);
   for (let region = 0; region < regions; region++) {
-    if (state.occupant[region] >= 0 && seen[region] !== state.occupant[region]) fail(`region ${region} records a band that is not there`);
+    if (seen[region] !== state.occupant[region] || (seen[region] < 0) !== (state.groupAt[region] < 0)) fail(`region ${region} records a band that is not there`);
     const expected = ledger.before[region] + ledger.births[region] - ledger.naturalDeaths[region] - ledger.famineDeaths[region]
       + ledger.migrantsIn[region] - ledger.migrantsOut[region];
     if (now[region] !== expected) fail(`region ${region} population ${now[region]} differs from its accounted ${expected}`);
     const owner = state.owner[region];
-    if (owner >= 0 && (state.polities[owner]?.kind !== 'civ' || state.polities[owner].deathTick !== null || state.polities[owner].region !== region)) fail(`region ${region} is owned by ${owner}, which is not a living civilization there`);
+    if (owner >= 0 && (state.polities[owner]?.kind !== 'civ' || state.polities[owner].deathTick !== null || state.occupant[region] !== owner)) fail(`region ${region} is owned by ${owner}, which is not a living civilization there`);
     const game = state.gameStock[region];
     if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);
   }

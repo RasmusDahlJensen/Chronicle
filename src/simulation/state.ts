@@ -37,16 +37,17 @@ export interface Culture {
   parents: { id: number; weight: number }[]; foundedTick: number;
 }
 
-/** A band or a civilization (VISION.md "Polities"). Never deleted: dead polities keep their death tick. */
+/**
+ * A tribe of bands or a civilization (VISION.md "Polities"), with one population group (a band of people) in each
+ * region it holds. Never deleted: dead polities keep their death tick.
+ */
 export interface Polity {
   id: number; kind: 'band' | 'civ'; name: string; culture: number;
-  /** A band's current region. */
-  region: number;
-  /** Tick it entered its current region (settling needs a long stay). */
-  arrivedTick: number;
   foundedTick: number; deathTick: number | null; parent: number | null;
-  /** Its population group (one per polity until migration exists). */
-  group: number;
+  /** Its living population groups, one per region, in the order they were founded. */
+  groups: number[];
+  /** Its core group: the heartland band, where a breakaway's distance is measured from and the capital is founded. */
+  core: number;
   /** The starting band it descends from (0–29 by default): a people's lineage, kept by every daughter. */
   lineage: number;
   knowledge: Knowledge;
@@ -70,6 +71,8 @@ export interface Settlement {
 /** People of one polity, culture and region; integer size with fractional birth and death carries. */
 export interface PopulationGroup {
   id: number; polity: number; culture: number; region: number; size: number; deathTick: number | null;
+  /** Tick it was founded and tick it entered its current region (settling needs a long stay). */
+  foundedTick: number; arrivedTick: number;
   /** Food store in integer units of 1/100 person-month. */
   store: number;
   /** Crops in the field: what farm workers have sown since the last harvest, in the same units; the harvest moves it
@@ -89,11 +92,14 @@ export interface PopulationGroup {
 }
 
 export interface CenturyStats {
-  year: number; regions: number; polities: number; bands: number; civs: number; population: number;
+  /** Living polities: tribes (of bands) and civilizations; bands are the tribes' groups, one per region. */
+  year: number; regions: number; polities: number; tribes: number; bands: number; civs: number; population: number;
   largestShare: number; events: number; occupiedRegions: number;
+  /** Most regions held by one polity (a tribe's bands or a civilization's villages). */
+  largestRegions: number;
   /** Share of band population in regions with a coast, open-lake access or river tier ≥ river, and the share of land regions with them. */
   waterPopulationShare: number; waterRegionShare: number;
-  bandMoves: number; bandSplits: number; births: number; deaths: number; famineDeaths: number;
+  bandMoves: number; bandSplits: number; bandBreakaways: number; births: number; deaths: number; famineDeaths: number;
   settlements: number; specialists: number;
   /** Share of living polities that know Agriculture, and the leading polity's era index. */
   agricultureShare: number; leadingEra: number;
@@ -120,7 +126,9 @@ export interface Metrics {
   silentBandYears: number;
   /** Longest run of consecutive months any region spent above 1.1× its capacity. */
   maxOverCapacityMonths: number;
-  moves: number; movesCitingPressure: number; movesLedByPressure: number; splits: number;
+  moves: number; movesCitingPressure: number; movesLedByPressure: number;
+  /** Band splits, and those that broke away from their tribe as a tribe of their own. */
+  splits: number; breakaways: number;
   births: number; deaths: number; famineDeaths: number;
   settled: number; discoveries: number;
 }
@@ -133,8 +141,8 @@ export interface SimulationState {
   geography: SimulationGeography; partition: RegionPartition; food: FoodModel;
   chronicle: Chronicle;
   cultures: Culture[]; polities: Polity[]; groups: PopulationGroup[];
-  /** Per region: game stock (0–1), the occupying band (−1 for none), capacity at the current game stock, months above 1.1× capacity. */
-  gameStock: Float64Array; occupant: Int32Array; capacity: Float64Array; overCapacity: Int32Array;
+  /** Per region: game stock (0–1), the occupying polity and its group there (−1 for none), capacity at the current game stock, months above 1.1× capacity. */
+  gameStock: Float64Array; occupant: Int32Array; groupAt: Int32Array; capacity: Float64Array; overCapacity: Int32Array;
   /** Per region: the game stock at the last capacity solve (the solve is redone when it has drifted). */
   capacityGame: Float64Array;
   /** Live polity ids in creation order, bands and civilizations (dead ones leave this list but stay in `polities`). */

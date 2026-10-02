@@ -4,23 +4,38 @@ import { greatCircleKm } from './geography.ts';
 import { inheritKnowledge, startingKnowledge, type Knowledge } from './knowledge.ts';
 import { createLanguage, createName } from './names.ts';
 import { createRng, type Rng } from './rng.ts';
-import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TickContext } from './state.ts';
+import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
 import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING } from './tunables.ts';
 
 /**
- * Bands and settled polities (VISION.md "Food, population and borders"). At most one polity lives in a region.
- * Bands forage, hunt and fish, move and split; with Agriculture or Animal husbandry they also farm or herd and,
- * after staying long enough, settle into a civilization with a village capital. Every movement and every change in
+ * Tribes and settled polities (VISION.md "Food, population and borders"). A polity holds one or more regions with
+ * one population group in each, and at most one group lives in a region. A tribe's bands forage, hunt and fish, move
+ * and split: a band that splits off usually stays in its tribe and sometimes breaks away as a new tribe. With
+ * Agriculture or Animal husbandry they also farm or herd and, once the heartland band has stayed long enough, the
+ * whole tribe settles into one civilization with a village in each of its regions. Every movement and every change in
  * size is an event or a ledger flow (births, deaths by cause, migration), so region populations balance each tick.
  */
 const yields = new Float64Array(METHOD_COUNT), workers = new Float64Array(METHOD_COUNT);
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 const UNITS = FOOD_TUNING.unitsPerPersonMonth;
+// RNG salts within the population system: polity streams use no salt (settling) or SETTLING_NAMES; group streams
+// use DECISION or SPLITTING, so a polity and a group with the same id never share numbers.
+const DECISION = 1, SETTLING_NAMES = 2, SPLITTING = 3;
 
 /** A region is near water when it has a coast, open-lake access or a river of tier ≥ river. */
 export function isWaterRegion(state: SimulationState, region: number) {
   const entry = state.partition.regions[region];
   return entry.coastal || entry.openLake || entry.riverTier >= 2;
+}
+
+/** The region of a polity's core group (its heartland). */
+export function coreRegion(state: SimulationState, polity: Polity) { return state.groups[polity.core].region; }
+
+/** The polity's people in all its regions. */
+export function polityPopulation(state: SimulationState, polity: Polity) {
+  let total = 0;
+  for (const id of polity.groups) total += state.groups[id].size;
+  return total;
 }
 
 /** Annual food per person if `people` with this knowledge lived in `region` now. */
@@ -47,9 +62,9 @@ export function landPressure(size: number, people: number) {
   return people > 0 ? clamp((size / people - tuning.pressureFrom) / (tuning.pressureFull - tuning.pressureFrom), 0, 1) : 1;
 }
 
-/** Free regions a polity could move or split into: land neighbours, and sea crossings its mobility allows. */
-export function reachableFree(state: SimulationState, polity: Polity) {
-  const here = state.partition.regions[polity.region], sea = polity.knowledge.sea;
+/** Free regions a band of this polity could move or split into from `region`: land neighbours, and sea crossings its knowledge allows. */
+export function reachableFree(state: SimulationState, polity: Polity, region: number) {
+  const here = state.partition.regions[region], sea = polity.knowledge.sea;
   const options = here.neighbors.filter(edge => state.occupant[edge.region] < 0).map(edge => ({ region: edge.region, riverTier: edge.riverTier }));
   if (sea > 0) {
     for (const link of here.sea) {
@@ -78,22 +93,31 @@ function newCulture(state: SimulationState, rng: Rng, parent: Culture | null): C
   return culture;
 }
 
-function newBand(state: SimulationState, rng: Rng, region: number, size: number, culture: Culture, parent: Polity | null): Polity {
+/** A new population group of `polity` in a free region. */
+function newGroup(state: SimulationState, polity: Polity, region: number, size: number): PopulationGroup {
+  const group: PopulationGroup = {
+    id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, foundedTick: state.tick, arrivedTick: state.tick,
+    store: 0, planted: 0, birthCarry: 0, naturalCarry: 0, famineCarry: 0, foodSecurity: 1, birthsYear: 0, deathsYear: 0, lastBirths: 0, lastDeaths: 0,
+    sizeAtYearStart: size, specialists: 0, farmShare: 0,
+  };
+  state.groups.push(group); polity.groups.push(group.id);
+  state.occupant[region] = polity.id; state.groupAt[region] = group.id;
+  return group;
+}
+
+/** A new tribe of one band: a starting band, or a band that broke away from `parent`. */
+function newTribe(state: SimulationState, rng: Rng, region: number, size: number, culture: Culture, parent: Polity | null): Polity {
   const polity: Polity = {
-    id: state.polities.length, kind: 'band', name: createName(rng, culture.language), culture: culture.id, region,
-    arrivedTick: state.tick, foundedTick: state.tick, deathTick: null, parent: parent?.id ?? null, group: state.groups.length,
+    id: state.polities.length, kind: 'band', name: createName(rng, culture.language), culture: culture.id,
+    foundedTick: state.tick, deathTick: null, parent: parent?.id ?? null, groups: [], core: state.groups.length,
     lineage: parent ? parent.lineage : state.lineages.length,
     knowledge: parent ? inheritKnowledge(parent.knowledge) : startingKnowledge(),
     // A lineage's home is where its first band began: a daughter on another landmass is still away from home.
-    homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], contactWeights: [], exposure: { tech: -1, learned: 0, deaths: 0, value: 0 }, capital: null, settledTick: null,
+    homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], contactWeights: [],
+    exposure: { tech: -1, learned: 0, deaths: 0, value: 0 }, capital: null, settledTick: null,
   };
-  const group: PopulationGroup = {
-    id: state.groups.length, polity: polity.id, culture: culture.id, region, size, deathTick: null, store: 0, planted: 0,
-    birthCarry: 0, naturalCarry: 0, famineCarry: 0, foodSecurity: 1, birthsYear: 0, deathsYear: 0, lastBirths: 0, lastDeaths: 0,
-    sizeAtYearStart: size, specialists: 0, farmShare: 0,
-  };
-  state.polities.push(polity); state.groups.push(group); state.living.push(polity.id);
-  state.occupant[region] = polity.id;
+  state.polities.push(polity); state.living.push(polity.id);
+  newGroup(state, polity, region, size);
   return polity;
 }
 
@@ -130,20 +154,19 @@ export function spawnBands(state: SimulationState) {
   for (const [index, region] of chosen.entries()) {
     // Cultures and names draw from their own stream, so naming rules never shift where or how large bands start.
     const naming = createRng(state.seed, 0, 0x5ba6, index);
-    const band = newBand(state, naming, region, sizes[index], newCulture(state, naming, null), null);
-    state.lineages.push(state.cultures[band.culture].name);
+    const tribe = newTribe(state, naming, region, sizes[index], newCulture(state, naming, null), null);
+    state.lineages.push(state.cultures[tribe.culture].name);
     const size = sizes[index];
-    const group = state.groups[band.group];
-    group.store = size * UNITS;
+    state.groups[tribe.core].store = size * UNITS;
     state.chronicle.emit({
-      type: 'bandSpawned', actors: [{ id: band.id, role: 'band' }], region, importance: 0.3,
-      data: { population: size, name: band.name, culture: state.cultures[band.culture].name },
+      type: 'bandSpawned', actors: [{ id: tribe.id, role: 'band' }], region, importance: 0.3,
+      data: { population: size, name: tribe.name, culture: state.cultures[tribe.culture].name },
     });
   }
 }
 
 /**
- * Production system: each polity's monthly food. Specialists (freed by last month's surplus) do not produce food.
+ * Production system: each group's monthly food. Specialists (freed by last month's surplus) do not produce food.
  * Foraging, hunting, fishing and herding feed people every month; farming arrives in harvest months and must be
  * stored. Game depletes where people hunt and regrows everywhere.
  */
@@ -151,37 +174,39 @@ export function produce(state: SimulationState, context: TickContext) {
   const { food, ledger } = state;
   const harvested = new Uint8Array(state.partition.regions.length);
   for (const id of state.living) {
-    const polity = state.polities[id], group = state.groups[polity.group], region = polity.region, knowledge = polity.knowledge;
-    const m = knowledge.multipliers;
-    regionYields(food, state.gameStock[region], yields, region, knowledge);
-    // Surplus frees specialists (VISION.md "Specialists and townspeople"); they live in settlements, so only settled
-    // polities have them. The cap grows with storage and farming knowledge.
-    const cap = Math.min(SPECIALIST_TUNING.baseCap * m.specialistCap, SPECIALIST_TUNING.maxShare);
-    group.specialists = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (group.foodSecurity - 1), 0, 1));
-    const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;
-    const farming = knowledge.methods.farm;
-    // The store that will still be there to eat before the harvest: part of it perishes on the way.
-    const toHarvest = monthsToHarvest(food, region, context.month), perishing = Math.min(1, POPULATION_TUNING.storeSpoilage * m.spoilage);
-    const output = farming
-      ? sow(food.labor, at, yields, group.size - group.specialists, group.size, before / UNITS * Math.max(0, 1 - perishing * toHarvest / 2), toHarvest, workers)
-      : harvest(food.labor, at, yields, group.size - group.specialists, workers).output;
-    const methodOutput = (method: number) => workers[method] > 0 ? yields[method] * food.labor[at + method] * (1 - Math.exp(-workers[method] / food.labor[at + method])) : 0;
-    const farmed = methodOutput(FARM_METHOD), herded = methodOutput(HERD_METHOD), other = output - farmed;
-    // Output is a monthly rate. Crops sown this month join those in the field; a harvest month brings them all in.
-    const sown = Math.round(farmed * UNITS), harvestMonth = food.harvest[region * 12 + context.month - 1] > 0;
-    const harvestedUnits = harvestMonth ? plantedBefore + sown : 0;
-    group.planted = plantedBefore + sown - harvestedUnits;
-    const production = Math.round(other * UNITS) + harvestedUnits;
-    const consumption = Math.min(need, before + production);
-    // The store: part of what is left perishes each month, and nothing beyond the limit keeps.
-    const left = before + production - consumption, limit = Math.round(group.size * POPULATION_TUNING.storeMonths * m.storeMonths * UNITS);
-    const spoilage = Math.max(left - limit, Math.round(left * perishing));
-    group.store = before + production - consumption - spoilage;
-    group.foodSecurity = foodSecurity(group, farming, other * UNITS, farmed * UNITS, need, food.cycle[region], monthsToHarvest(food, region, context.month % 12 + 1), consumption);
-    group.farmShare = output > 0 ? (farmed + herded) / output : 0;
-    ledger.food.set(group.id, { before, production, consumption, spoilage, carriedIn: 0, carriedOut: 0, plantedBefore, sown, harvested: harvestedUnits, cropsLost: 0 });
-    state.gameStock[region] = clamp(state.gameStock[region] + gameChange(food, region, state.gameStock[region], workers) / 12, FOOD_TUNING.gameFloor, 1);
-    harvested[region] = 1;
+    const polity = state.polities[id], knowledge = polity.knowledge, m = knowledge.multipliers;
+    for (const groupId of polity.groups) {
+      const group = state.groups[groupId], region = group.region;
+      regionYields(food, state.gameStock[region], yields, region, knowledge);
+      // Surplus frees specialists (VISION.md "Specialists and townspeople"); they live in settlements, so only settled
+      // polities have them. The cap grows with storage and farming knowledge.
+      const cap = Math.min(SPECIALIST_TUNING.baseCap * m.specialistCap, SPECIALIST_TUNING.maxShare);
+      group.specialists = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (group.foodSecurity - 1), 0, 1));
+      const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;
+      const farming = knowledge.methods.farm;
+      // The store that will still be there to eat before the harvest: part of it perishes on the way.
+      const toHarvest = monthsToHarvest(food, region, context.month), perishing = Math.min(1, POPULATION_TUNING.storeSpoilage * m.spoilage);
+      const output = farming
+        ? sow(food.labor, at, yields, group.size - group.specialists, group.size, before / UNITS * Math.max(0, 1 - perishing * toHarvest / 2), toHarvest, workers)
+        : harvest(food.labor, at, yields, group.size - group.specialists, workers).output;
+      const methodOutput = (method: number) => workers[method] > 0 ? yields[method] * food.labor[at + method] * (1 - Math.exp(-workers[method] / food.labor[at + method])) : 0;
+      const farmed = methodOutput(FARM_METHOD), herded = methodOutput(HERD_METHOD), other = output - farmed;
+      // Output is a monthly rate. Crops sown this month join those in the field; a harvest month brings them all in.
+      const sown = Math.round(farmed * UNITS), harvestMonth = food.harvest[region * 12 + context.month - 1] > 0;
+      const harvestedUnits = harvestMonth ? plantedBefore + sown : 0;
+      group.planted = plantedBefore + sown - harvestedUnits;
+      const production = Math.round(other * UNITS) + harvestedUnits;
+      const consumption = Math.min(need, before + production);
+      // The store: part of what is left perishes each month, and nothing beyond the limit keeps.
+      const left = before + production - consumption, limit = Math.round(group.size * POPULATION_TUNING.storeMonths * m.storeMonths * UNITS);
+      const spoilage = Math.max(left - limit, Math.round(left * perishing));
+      group.store = before + production - consumption - spoilage;
+      group.foodSecurity = foodSecurity(group, farming, other * UNITS, farmed * UNITS, need, food.cycle[region], monthsToHarvest(food, region, context.month % 12 + 1), consumption);
+      group.farmShare = output > 0 ? (farmed + herded) / output : 0;
+      ledger.food.set(group.id, { before, production, consumption, spoilage, carriedIn: 0, carriedOut: 0, plantedBefore, sown, harvested: harvestedUnits, cropsLost: 0 });
+      state.gameStock[region] = clamp(state.gameStock[region] + gameChange(food, region, state.gameStock[region], workers) / 12, FOOD_TUNING.gameFloor, 1);
+      harvested[region] = 1;
+    }
   }
   workers.fill(0);
   for (let region = 0; region < harvested.length; region++) {
@@ -205,100 +230,148 @@ function foodSecurity(group: PopulationGroup, farming: boolean, otherRate: numbe
   return consumption < need ? Math.min(security, consumption / need) : security;
 }
 
-/** Population system: births and deaths from food security every month; bands decide once a year. */
+/**
+ * Population system: births and deaths from food security every month. Once a year (staggered by id) a tribe that
+ * farms or herds may settle, and each of its bands may split or move.
+ */
 export function populate(state: SimulationState, context: TickContext) {
   const { ledger, metrics } = state, tuning = POPULATION_TUNING;
   const yearEnd = context.month === 12, cadence = BAND_TUNING.decisionMonths;
+  const due = (id: number) => ((context.tick - id) % cadence + cadence) % cadence === 0;
   for (const id of state.living.slice()) {
-    const polity = state.polities[id], group = state.groups[polity.group], region = polity.region, m = polity.knowledge.multipliers;
-    const security = group.foodSecurity;
-    const birthRate = (tuning.birthRate + tuning.birthSlope * clamp((security - 1) / tuning.securitySpan, -1, 1)) * m.birthRate;
-    const famineRate = tuning.famineDeaths * Math.sqrt(Math.max(0, 1 - security));
-    group.birthCarry += group.size * birthRate / 12;
-    group.naturalCarry += group.size * tuning.deathRate * m.mortality / 12;
-    group.famineCarry += group.size * famineRate / 12;
-    const births = Math.floor(group.birthCarry);
-    let natural = Math.floor(group.naturalCarry), famine = Math.floor(group.famineCarry);
-    group.birthCarry -= births; group.naturalCarry -= natural; group.famineCarry -= famine;
-    natural = Math.min(natural, group.size + births);
-    famine = Math.min(famine, group.size + births - natural);
-    group.size += births - natural - famine;
-    group.birthsYear += births; group.deathsYear += natural + famine;
-    ledger.births[region] += births; ledger.naturalDeaths[region] += natural; ledger.famineDeaths[region] += famine;
-    metrics.births += births; metrics.deaths += natural + famine; metrics.famineDeaths += famine;
-    if (yearEnd) {
-      // The acceptance rule: a band of at least 50 people, alive all year, has births and deaths every year.
-      if (polity.kind === 'band' && group.sizeAtYearStart >= 50 && polity.foundedTick <= context.tick - 11 && (group.birthsYear === 0 || group.deathsYear === 0)) metrics.silentBandYears++;
-      group.lastBirths = group.birthsYear; group.lastDeaths = group.deathsYear;
-      group.birthsYear = 0; group.deathsYear = 0; group.sizeAtYearStart = group.size;
+    const polity = state.polities[id], m = polity.knowledge.multipliers;
+    for (const groupId of polity.groups.slice()) {
+      const group = state.groups[groupId], region = group.region;
+      const security = group.foodSecurity;
+      const birthRate = (tuning.birthRate + tuning.birthSlope * clamp((security - 1) / tuning.securitySpan, -1, 1)) * m.birthRate;
+      const famineRate = tuning.famineDeaths * Math.sqrt(Math.max(0, 1 - security));
+      group.birthCarry += group.size * birthRate / 12;
+      group.naturalCarry += group.size * tuning.deathRate * m.mortality / 12;
+      group.famineCarry += group.size * famineRate / 12;
+      const births = Math.floor(group.birthCarry);
+      let natural = Math.floor(group.naturalCarry), famine = Math.floor(group.famineCarry);
+      group.birthCarry -= births; group.naturalCarry -= natural; group.famineCarry -= famine;
+      natural = Math.min(natural, group.size + births);
+      famine = Math.min(famine, group.size + births - natural);
+      group.size += births - natural - famine;
+      group.birthsYear += births; group.deathsYear += natural + famine;
+      ledger.births[region] += births; ledger.naturalDeaths[region] += natural; ledger.famineDeaths[region] += famine;
+      metrics.births += births; metrics.deaths += natural + famine; metrics.famineDeaths += famine;
+      if (yearEnd) {
+        // The acceptance rule: a band of at least 50 people, alive all year, has births and deaths every year.
+        if (polity.kind === 'band' && group.sizeAtYearStart >= 50 && group.foundedTick <= context.tick - 11 && (group.birthsYear === 0 || group.deathsYear === 0)) metrics.silentBandYears++;
+        group.lastBirths = group.birthsYear; group.lastDeaths = group.deathsYear;
+        group.birthsYear = 0; group.deathsYear = 0; group.sizeAtYearStart = group.size;
+      }
+      if (group.size <= 0) { removeGroup(state, polity, group, context.tick); continue; }
+      const stale = due(groupId) || group.size > CLOCK_TUNING.capacityRefresh * state.capacity[region] || Math.abs(state.gameStock[region] - state.capacityGame[region]) > CLOCK_TUNING.capacityGameDrift;
+      const people = stale ? regionCapacity(state, region) : state.capacity[region];
+      if (group.size > 1.1 * people) {
+        state.overCapacity[region]++;
+        metrics.maxOverCapacityMonths = Math.max(metrics.maxOverCapacityMonths, state.overCapacity[region]);
+      } else state.overCapacity[region] = 0;
     }
-    if (group.size <= 0) { dissolve(state, polity, context.tick); continue; }
-    const yearly = ((context.tick - id) % cadence + cadence) % cadence === 0;
-    const stale = yearly || group.size > CLOCK_TUNING.capacityRefresh * state.capacity[region] || Math.abs(state.gameStock[region] - state.capacityGame[region]) > CLOCK_TUNING.capacityGameDrift;
-    const people = stale ? regionCapacity(state, region) : state.capacity[region];
-    if (group.size > 1.1 * people) {
-      state.overCapacity[region]++;
-      metrics.maxOverCapacityMonths = Math.max(metrics.maxOverCapacityMonths, state.overCapacity[region]);
-    } else state.overCapacity[region] = 0;
-    if (polity.kind === 'band' && yearly) decide(state, context, polity, group, people);
+    if (polity.deathTick !== null) continue;
+    // Once every group has had its month, so a collapse within one month moves the capital at most once.
+    rehome(state, polity);
+    if (polity.kind !== 'band') continue;
+    // The tribe settles before its bands move on.
+    if (due(id) && considerSettling(state, context, polity)) continue;
+    for (const groupId of polity.groups.slice()) if (due(groupId)) decide(state, context, polity, state.groups[groupId]);
   }
 }
 
-function dissolve(state: SimulationState, polity: Polity, tick: number) {
-  const group = state.groups[polity.group];
-  // A polity that dies out leaves its stored food to rot: recorded as spoilage so the store balances.
+/** A group that dies out frees its region; its last stored food and crops are recorded as lost, and a civilization's
+ *  village there falls to ruin. The polity ends with its last group. */
+function removeGroup(state: SimulationState, polity: Polity, group: PopulationGroup, tick: number) {
   const flows = state.ledger.food.get(group.id);
   if (flows) { flows.spoilage += group.store; flows.cropsLost += group.planted; }
-  group.store = 0; group.planted = 0;
-  polity.deathTick = tick; group.deathTick = tick; group.size = 0; state.deathCount++;
-  state.occupant[polity.region] = -1; state.overCapacity[polity.region] = 0;
-  if (state.owner[polity.region] === polity.id) state.owner[polity.region] = -1;
-  if (polity.capital !== null) {
-    const capital = state.settlements[polity.capital];
-    capital.status = 'ruined';
+  group.store = 0; group.planted = 0; group.size = 0; group.deathTick = tick;
+  const region = group.region;
+  state.occupant[region] = -1; state.groupAt[region] = -1; state.overCapacity[region] = 0;
+  polity.groups.splice(polity.groups.indexOf(group.id), 1);
+  if (state.owner[region] === polity.id) {
+    state.owner[region] = -1;
+    for (const settlement of state.settlements) if (settlement.region === region && settlement.owner === polity.id && settlement.status === 'alive') {
+      settlement.status = 'ruined'; settlement.capital = false;
+    }
+  }
+  if (polity.groups.length) return;
+  polity.deathTick = tick; state.deathCount++;
+  state.living.splice(state.living.indexOf(polity.id), 1);
+  if (polity.kind === 'civ') {
+    const capital = polity.capital !== null ? state.settlements[polity.capital] : null;
     state.chronicle.emit({
-      type: 'civDestroyed', actors: [{ id: polity.id, role: 'civ' }], region: polity.region, settlement: capital.id,
+      type: 'civDestroyed', actors: [{ id: polity.id, role: 'civ' }], region, settlement: capital?.id ?? null,
       causes: causes({ hunger: Math.max(0, 1 - group.foodSecurity), dwindled: 0.001 }), importance: 0.5,
-      data: { name: polity.name, capital: capital.name },
+      data: { name: polity.name, capital: capital?.name ?? '?' },
     });
   }
-  state.living.splice(state.living.indexOf(polity.id), 1);
 }
 
-/** Yearly choice (staggered by band id): settle when farming or herding has held it in place, otherwise split or move. */
-function decide(state: SimulationState, context: TickContext, band: Polity, group: PopulationGroup, people: number) {
-  const tuning = BAND_TUNING, rng = context.stream(band.id);
-  if (band.knowledge.methods.farm || band.knowledge.methods.herd) {
-    // Graded: the chance rises with years spent here and with how much of the band's food is farmed or herded.
-    const years = (context.tick - band.arrivedTick) / 12;
-    const stay = clamp((years - SETTLE_TUNING.fromYears) / SETTLE_TUNING.spanYears, 0, 1);
-    const share = SETTLE_TUNING.baseShare + (1 - SETTLE_TUNING.baseShare) * group.farmShare;
-    if (stay > 0 && rng.chance(stay * share)) { settle(state, context, band, group, { yearsHere: stay, farming: group.farmShare }); return; }
+/** After a group died out: the heartland passes to the largest remaining band, and a civilization that lost its
+ *  capital moves it to the village there. */
+function rehome(state: SimulationState, polity: Polity) {
+  if (state.groups[polity.core].deathTick !== null) {
+    polity.core = polity.groups.reduce((best, id) => state.groups[id].size > state.groups[best].size ? id : best, polity.groups[0]);
   }
-  const region = band.region;
+  if (polity.kind !== 'civ' || polity.capital === null || state.settlements[polity.capital].status === 'alive') return;
+  const next = state.settlements.find(settlement => settlement.owner === polity.id && settlement.status === 'alive' && settlement.region === coreRegion(state, polity));
+  if (!next) return;
+  next.capital = true; polity.capital = next.id;
+  state.chronicle.emit({
+    type: 'capitalMoved', actors: [{ id: polity.id, role: 'civ' }], region: next.region, settlement: next.id,
+    causes: causes({ capitalLost: 1 }), importance: 0.3, data: { name: next.name, civ: polity.name },
+  });
+}
+
+/** Yearly (staggered by tribe id): a tribe that farms or herds settles once its heartland band has stayed long enough. */
+function considerSettling(state: SimulationState, context: TickContext, tribe: Polity) {
+  if (!tribe.knowledge.methods.farm && !tribe.knowledge.methods.herd) return false;
+  const core = state.groups[tribe.core];
+  // Graded: the chance rises with the years the heartland band has stayed and with how much of the tribe's food is
+  // farmed or herded.
+  const years = (context.tick - core.arrivedTick) / 12;
+  const stay = clamp((years - SETTLE_TUNING.fromYears) / SETTLE_TUNING.spanYears, 0, 1);
+  let people = 0, farmed = 0;
+  for (const id of tribe.groups) { const group = state.groups[id]; people += group.size; farmed += group.size * group.farmShare; }
+  const farming = people > 0 ? farmed / people : 0;
+  const share = SETTLE_TUNING.baseShare + (1 - SETTLE_TUNING.baseShare) * farming;
+  if (!(stay > 0 && context.stream(tribe.id).chance(stay * share))) return false;
+  settle(state, context, tribe, { yearsHere: stay, farming });
+  return true;
+}
+
+/**
+ * Yearly choice of one band (staggered by group id): split when large or crowded, otherwise move when a free
+ * neighbour feeds it clearly better. A band that splits off usually stays in its tribe and sometimes breaks away.
+ */
+function decide(state: SimulationState, context: TickContext, tribe: Polity, group: PopulationGroup) {
+  const tuning = BAND_TUNING, rng = context.stream(group.id, DECISION), region = group.region;
+  const people = state.capacity[region];
   const pressure = landPressure(group.size, people);
   const depletion = 1 - state.gameStock[region];
-  const free = reachableFree(state, band);
+  const free = reachableFree(state, tribe, region);
   if (!free.length) return;
   const size = clamp((group.size - tuning.splitFrom * tuning.splitSize) / (tuning.splitSpan * tuning.splitSize), 0, 1);
   const splitDesire = tuning.splitSizeWeight * size + tuning.splitPressureWeight * pressure;
   if (rng.chance(clamp(splitDesire * tuning.splitRate, 0, tuning.maxChance))) {
     const leaving = Math.floor(group.size * tuning.splitShare);
-    // The best free neighbour is the one whose land feeds the most people with this band's knowledge (its capacity),
+    // The best free neighbour is the one whose land feeds the most people with this tribe's knowledge (its capacity),
     // less the cost of crossing a river; it must also feed the newcomers now.
-    const scored = free.filter(edge => foodPerPerson(state, edge.region, leaving, band.knowledge) >= 1)
-      .map(edge => ({ edge, score: regionCapacity(state, edge.region, band.knowledge) * (1 - tuning.riverCrossingCost[edge.riverTier]) }))
+    const scored = free.filter(edge => foodPerPerson(state, edge.region, leaving, tribe.knowledge) >= 1)
+      .map(edge => ({ edge, score: regionCapacity(state, edge.region, tribe.knowledge) * (1 - tuning.riverCrossingCost[edge.riverTier]) }))
       .sort((a, b) => b.score - a.score || a.edge.region - b.edge.region).slice(0, tuning.splitCandidates).filter(entry => entry.score > 0);
     const pick = rng.weighted(scored.map(entry => entry.score ** tuning.choiceSharpness));
     // Causes: the two drivers of the split desire as they contributed, with game depletion as context.
     if (pick >= 0 && leaving > 0) {
-      split(state, context, band, group, scored[pick].edge.region, leaving, { size: tuning.splitSizeWeight * size, landPressure: tuning.splitPressureWeight * pressure, gameDepletion: depletion });
+      split(state, context, tribe, group, scored[pick].edge.region, leaving, { size: tuning.splitSizeWeight * size, landPressure: tuning.splitPressureWeight * pressure, gameDepletion: depletion });
       return;
     }
   }
-  const current = foodPerPerson(state, region, group.size, band.knowledge);
+  const current = foodPerPerson(state, region, group.size, tribe.knowledge);
   const options = free.map(edge => {
-    const there = foodPerPerson(state, edge.region, group.size, band.knowledge);
+    const there = foodPerPerson(state, edge.region, group.size, tribe.knowledge);
     const gain = (there - current) / Math.max(current, tuning.minFoodPerPerson);
     // A destination must also feed the whole band.
     return { edge, gain, desire: there >= 1 ? clamp(gain - tuning.moveCost - tuning.riverCrossingCost[edge.riverTier], 0, 1) : 0 };
@@ -310,21 +383,22 @@ function decide(state: SimulationState, context: TickContext, band: Polity, grou
   const pick = rng.weighted(options.map(option => option.desire ** tuning.choiceSharpness));
   // Causes as they contributed: the food gain pulls; pressure and depletion push, by their share of the move chance.
   const pushShare = factor > 0 ? (1 - tuning.pushBase) * push / factor : 0, total = pressure + depletion;
-  move(state, context, band, group, options[pick].edge.region, {
+  move(state, context, tribe, group, options[pick].edge.region, {
     opportunity: clamp(options[pick].gain, 0, 1),
     landPressure: total > 0 ? pushShare * pressure / total : 0, gameDepletion: total > 0 ? pushShare * depletion / total : 0,
   });
 }
 
-function move(state: SimulationState, context: TickContext, band: Polity, group: PopulationGroup, to: number, factors: Record<string, number>) {
-  const from = band.region;
+function move(state: SimulationState, context: TickContext, tribe: Polity, group: PopulationGroup, to: number, factors: Record<string, number>) {
+  const from = group.region;
   state.ledger.migrantsOut[from] += group.size; state.ledger.migrantsIn[to] += group.size;
   // Crops in the field stay behind.
   const flows = state.ledger.food.get(group.id);
   if (flows) flows.cropsLost += group.planted;
   group.planted = 0;
-  state.occupant[from] = -1; state.overCapacity[from] = 0; state.occupant[to] = band.id;
-  band.region = to; group.region = to; band.arrivedTick = context.tick;
+  state.occupant[from] = -1; state.groupAt[from] = -1; state.overCapacity[from] = 0;
+  state.occupant[to] = tribe.id; state.groupAt[to] = group.id;
+  group.region = to; group.arrivedTick = context.tick;
   // The cached capacity may be a former occupant's; the over-capacity check needs this band's.
   regionCapacity(state, to);
   state.metrics.moves++;
@@ -332,53 +406,93 @@ function move(state: SimulationState, context: TickContext, band: Polity, group:
   if (cited.some(cause => (cause.factor === 'landPressure' || cause.factor === 'gameDepletion') && cause.weight >= 0.1)) state.metrics.movesCitingPressure++;
   if (cited[0] && cited[0].factor !== 'opportunity') state.metrics.movesLedByPressure++;
   state.chronicle.emit({
-    type: 'bandMoved', actors: [{ id: band.id, role: 'band' }], region: to, causes: cited, importance: 0.05,
-    data: { from, population: group.size, name: band.name },
+    type: 'bandMoved', actors: [{ id: tribe.id, role: 'band' }], region: to, causes: cited, importance: 0.05,
+    data: { from, population: group.size, name: tribe.name },
   });
 }
 
-function split(state: SimulationState, context: TickContext, parent: Polity, group: PopulationGroup, to: number, leaving: number, factors: Record<string, number>) {
-  // A stream of its own (salt 1), apart from the parent's yearly decision stream.
-  const rng = context.stream(parent.id, 1);
-  const culture = newCulture(state, rng, state.cultures[parent.culture]);
-  const child = newBand(state, rng, to, leaving, culture, parent);
-  const childGroup = state.groups[child.group];
+/** The chance that a band splitting off into `to` breaks away from its tribe, and that chance's parts (for causes). */
+export function breakawayChance(state: SimulationState, tribe: Polity, to: number) {
+  const tuning = BAND_TUNING, values = state.cultures[tribe.culture].values;
+  const km = greatCircleKm(state.geography, state.partition.regions[coreRegion(state, tribe)].centroid, state.partition.regions[to].centroid);
+  const distance = (km / tuning.reachKm) ** tuning.distancePower, size = (tribe.groups.length / tuning.tribeBands) ** tuning.sizePower;
+  const culture = 1 + tuning.cultureWeight * (values.expansionism - values.tradition);
+  return { chance: 1 - Math.exp(-(distance + size) * culture), distance, size, culture };
+}
+
+function split(state: SimulationState, context: TickContext, tribe: Polity, group: PopulationGroup, to: number, leaving: number, factors: Record<string, number>) {
+  // A stream of its own, apart from the band's yearly decision stream.
+  const rng = context.stream(group.id, SPLITTING);
+  const away = breakawayChance(state, tribe, to);
+  const breaksAway = rng.chance(away.chance);
+  const from = group.region;
+  let child: PopulationGroup, polity: Polity, culture: Culture | null = null;
+  if (breaksAway) {
+    culture = newCulture(state, rng, state.cultures[tribe.culture]);
+    polity = newTribe(state, rng, to, leaving, culture, tribe);
+    child = state.groups[polity.core];
+  } else {
+    polity = tribe;
+    child = newGroup(state, tribe, to, leaving);
+  }
   const carried = Math.floor(group.store * leaving / group.size);
   const parentFlows = state.ledger.food.get(group.id);
   if (parentFlows) parentFlows.carriedOut += carried;
-  state.ledger.food.set(childGroup.id, { before: 0, production: 0, consumption: 0, spoilage: 0, carriedIn: carried, carriedOut: 0, plantedBefore: 0, sown: 0, harvested: 0, cropsLost: 0 });
-  group.store -= carried; childGroup.store = carried;
+  state.ledger.food.set(child.id, { before: 0, production: 0, consumption: 0, spoilage: 0, carriedIn: carried, carriedOut: 0, plantedBefore: 0, sown: 0, harvested: 0, cropsLost: 0 });
+  group.store -= carried; child.store = carried;
   group.size -= leaving;
-  childGroup.foodSecurity = group.foodSecurity; childGroup.sizeAtYearStart = leaving;
+  child.foodSecurity = group.foodSecurity; child.sizeAtYearStart = leaving;
   regionCapacity(state, to);
-  state.ledger.migrantsOut[parent.region] += leaving; state.ledger.migrantsIn[to] += leaving;
+  state.ledger.migrantsOut[from] += leaving; state.ledger.migrantsIn[to] += leaving;
   state.metrics.splits++;
-  state.chronicle.emit({
-    type: 'bandSplit', actors: [{ id: child.id, role: 'child' }, { id: parent.id, role: 'parent' }], region: to, causes: causes(factors),
-    importance: 0.08, data: { from: parent.region, population: leaving, name: child.name, parentName: parent.name, culture: culture.name },
-  });
+  if (breaksAway && culture) {
+    state.metrics.breakaways++;
+    // Why they left at all, and why they did not stay: distance from the heartland, the tribe's size, its culture.
+    const parts = away.distance + away.size;
+    state.chronicle.emit({
+      type: 'bandSplit', actors: [{ id: polity.id, role: 'child' }, { id: tribe.id, role: 'parent' }], region: to,
+      causes: causes({ ...factors, distanceFromHeartland: parts > 0 ? away.chance * away.distance / parts : 0, tribeSize: parts > 0 ? away.chance * away.size / parts : 0 }),
+      importance: 0.1, data: { from, population: leaving, name: polity.name, parentName: tribe.name, culture: culture.name },
+    });
+  } else {
+    state.chronicle.emit({
+      type: 'bandSpread', actors: [{ id: tribe.id, role: 'band' }], region: to, causes: causes(factors),
+      importance: 0.06, data: { from, population: leaving, name: tribe.name, bands: tribe.groups.length },
+    });
+  }
 }
 
-/** A band settles (VISION.md "Settling"): it becomes a civilization owning its region, with a named village as capital. */
-function settle(state: SimulationState, context: TickContext, band: Polity, group: PopulationGroup, factors: Record<string, number>) {
-  const region = state.partition.regions[band.region];
-  const rng = context.stream(band.id, 2);
-  const culture = state.cultures[band.culture];
-  const settlement = {
-    id: state.settlements.length, name: createName(rng, culture.language), cell: region.settlementSites[0] ?? region.centroid,
-    region: region.id, owner: band.id, capital: true, foundedTick: context.tick, status: 'alive' as const,
-  };
-  state.settlements.push(settlement);
-  band.kind = 'civ'; band.capital = settlement.id; band.settledTick = context.tick;
-  state.owner[region.id] = band.id;
+/**
+ * A tribe settles (VISION.md "Settling", changed at the M2 review): the whole tribe becomes one civilization that owns
+ * every region its bands live in, with a named village in each; the heartland's village is its capital.
+ */
+function settle(state: SimulationState, context: TickContext, tribe: Polity, factors: Record<string, number>) {
+  const rng = context.stream(tribe.id, SETTLING_NAMES);
+  const culture = state.cultures[tribe.culture], heartland = coreRegion(state, tribe);
+  tribe.kind = 'civ'; tribe.settledTick = context.tick;
   state.metrics.settled++;
   const cited = causes({ farming: factors.farming, yearsHere: factors.yearsHere });
+  // The heartland first, so the capital is the tribe's first village.
+  const regions = [heartland, ...tribe.groups.map(id => state.groups[id].region).filter(region => region !== heartland)];
+  let capital: Settlement | null = null;
+  for (const regionId of regions) {
+    const region = state.partition.regions[regionId];
+    const settlement: Settlement = {
+      id: state.settlements.length, name: createName(rng, culture.language), cell: region.settlementSites[0] ?? region.centroid,
+      region: region.id, owner: tribe.id, capital: regionId === heartland, foundedTick: context.tick, status: 'alive',
+    };
+    state.settlements.push(settlement);
+    state.owner[regionId] = tribe.id;
+    if (settlement.capital) { capital = settlement; tribe.capital = settlement.id; }
+  }
   state.chronicle.emit({
-    type: 'settled', actors: [{ id: band.id, role: 'polity' }], region: region.id, causes: cited, importance: 0.35,
-    data: { name: band.name, population: group.size, capital: settlement.name, culture: culture.name },
+    type: 'settled', actors: [{ id: tribe.id, role: 'polity' }], region: heartland, causes: cited, importance: 0.35,
+    data: { name: tribe.name, population: polityPopulation(state, tribe), capital: capital?.name ?? '?', culture: culture.name, regions: regions.length },
   });
-  state.chronicle.emit({
-    type: 'settlementFounded', actors: [{ id: band.id, role: 'civ' }], region: region.id, settlement: settlement.id, causes: cited,
-    importance: 0.2, data: { name: settlement.name, civ: band.name, capital: true },
-  });
+  for (const settlement of state.settlements.slice(-regions.length)) {
+    state.chronicle.emit({
+      type: 'settlementFounded', actors: [{ id: tribe.id, role: 'civ' }], region: settlement.region, settlement: settlement.id, causes: cited,
+      importance: settlement.capital ? 0.2 : 0.04, data: { name: settlement.name, civ: tribe.name, capital: settlement.capital },
+    });
+  }
 }

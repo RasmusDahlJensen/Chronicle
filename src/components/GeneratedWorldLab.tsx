@@ -14,7 +14,7 @@ import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { ERA_NAMES, RIVER_TIERS, simulationDate, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
-import { cssColor, ERA_COLORS, eraColor, lineageColor, packColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
+import { cssColor, ERA_COLORS, eraColor, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -25,9 +25,14 @@ const soilLabels: Record<FertilityFacts['soil'], string> = { none: 'None', rocky
 function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFrame['inspect']>['polity']> }) {
   const civ = polity.kind === 'civ', research = polity.research;
   const percent = research && research.cost > 0 ? Math.min(100, research.progress / research.cost * 100) : 0;
-  return <div className="world-cell-band" aria-label={civ ? 'Civilization in this region' : 'Band in this region'} role="group" data-polity-kind={polity.kind}>
-    <p className="atlas-detail-label">{civ ? 'Civilization' : 'Band'} · {ERA_NAMES[polity.era]} era</p><h3>{polity.name} <span>· {polity.culture} culture</span></h3>
+  return <div className="world-cell-band" aria-label={civ ? 'Civilization in this region' : 'Tribe in this region'} role="group" data-polity-kind={polity.kind}>
+    <p className="atlas-detail-label">{civ ? 'Civilization' : 'Tribe'} · {ERA_NAMES[polity.era]} era</p><h3>{polity.name} <span>· {polity.culture} culture</span></h3>
     <p className="atlas-panel-note" id="polity-lineage">Descended from the {polity.lineage} people, one of the starting bands.</p>
+    <dl className="world-water-facts">
+      <div><dt>Regions</dt><dd id="polity-regions">{number.format(polity.regions)}</dd></div>
+      <div><dt>People in all its regions</dt><dd id="polity-total">{number.format(polity.totalPopulation)}</dd></div>
+    </dl>
+    <p className="atlas-detail-label">{civ ? 'Its village here' : 'Its band here'}</p>
     <dl className="world-water-facts">
       <div><dt>Population</dt><dd id="band-population">{number.format(polity.population)}</dd></div>
       <div><dt>Births this year</dt><dd>{polity.birthsThisYear} <span>(last year {polity.birthsLastYear})</span></dd></div>
@@ -101,8 +106,9 @@ export function GeneratedWorldLab() {
   const [resources, setResources] = useState(true);
   const [rivers, setRivers] = useState(true);
   const [showRegions, setShowRegions] = useState(false);
-  // Territories of the peoples living on the land, coloured by descent (which starting band) or by era.
-  const [peoples, setPeoples] = useState<'descent' | 'era' | 'off'>('descent');
+  // Territories of the peoples living on the land, coloured by polity (each tribe or civilization), by descent (which
+  // starting band) or by era.
+  const [peoples, setPeoples] = useState<'polity' | 'descent' | 'era' | 'off'>('polity');
   const [regions, setRegions] = useState<{ map: RegionMap; cells: Uint16Array } | null>(null);
   const [regionError, setRegionError] = useState<string | null>(null);
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
@@ -211,9 +217,9 @@ export function GeneratedWorldLab() {
     if (!renderer.current) return;
     if (peoples === 'off' || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
     const fill = new Uint32Array(regions.map.regions.length);
-    const { regions: at, kinds, eras, lineages } = frame.markers;
+    const { ids, regions: at, kinds, eras, lineages } = frame.markers;
     for (let index = 0; index < at.length; index++) {
-      const color = peoples === 'era' ? eraColor(eras[index]) : lineageColor(lineages[index]);
+      const color = peoples === 'era' ? eraColor(eras[index]) : peoples === 'descent' ? lineageColor(lineages[index]) : polityColor(ids[index]);
       if (at[index] < fill.length) fill[at[index]] = packColor(color, kinds[index] === 1 ? TERRITORY_ALPHA.civ : TERRITORY_ALPHA.band);
     }
     renderer.current.setTerritories(fill);
@@ -222,10 +228,12 @@ export function GeneratedWorldLab() {
   const peopleSummary = useMemo(() => {
     if (!frame) return { lineages: [], eras: [] as number[] };
     const byLineage = new Map<number, { regions: number; population: number }>(), eras = new Array<number>(ERA_NAMES.length).fill(0);
+    const counted = new Set<number>();
     frame.markers.lineages.forEach((lineage, index) => {
       const entry = byLineage.get(lineage) ?? { regions: 0, population: 0 };
       entry.regions++; entry.population += frame.markers.populations[index]; byLineage.set(lineage, entry);
-      eras[frame.markers.eras[index]]++;
+      // One count per polity, not per band or village.
+      if (!counted.has(frame.markers.ids[index])) { counted.add(frame.markers.ids[index]); eras[frame.markers.eras[index]]++; }
     });
     const lineages = [...byLineage].map(([lineage, entry]) => ({ lineage, name: frame.lineages[lineage] ?? '?', ...entry })).sort((a, b) => b.population - a.population || a.lineage - b.lineage);
     return { lineages, eras };
@@ -288,12 +296,15 @@ export function GeneratedWorldLab() {
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
             <ul className="world-resource-legend" aria-label="Resource site legend">{RESOURCE_IDS.map(resource => <li key={resource} title={`Extraction: ${RESOURCE_RULES[resource].extractionTechnology}`}><ResourceIcon resource={resource} />{RESOURCES[resource].label}</li>)}</ul>
             <fieldset className="world-peoples-options"><legend>Peoples</legend>
-              {([['descent', 'By descent'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
+              {([['polity', 'By polity'], ['descent', 'By descent'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
             </fieldset>
-            <p className="atlas-panel-note">Every region a band or civilization lives in is filled: lighter for roaming bands, stronger for settled civilizations. By descent, each of the starting peoples and all who split from it share a colour.</p>
+            <p className="atlas-panel-note">Every region a tribe's band or a civilization's village lives in is filled: lighter for roaming tribes, stronger for settled civilizations. By polity, each tribe or civilization has its own colour; by descent, each of the starting peoples and all who broke away from it share one.</p>
           </section>
           {peoples !== 'off' && frame && <section className="atlas-panel-section world-peoples-legend" aria-label="Peoples legend">
-            {peoples === 'descent' ? <><div className="atlas-section-heading"><h2>Peoples</h2><span>regions · people</span></div>
+            {peoples === 'polity' ? <><div className="atlas-section-heading"><h2>Largest polities</h2><span>regions · people</span></div>
+              <ul>{frame.largest.map(entry => <li key={entry.id}><span><span className="atlas-biome-swatch" style={{ backgroundColor: cssColor(polityColor(entry.id)) }} aria-hidden="true" />{entry.name} <span className="world-polity-kind">{entry.kind === 'civ' ? 'civilization' : 'tribe'}</span></span><span>{number.format(entry.regions)} · {formatPeople(entry.population)}</span></li>)}</ul>
+              <p className="atlas-panel-note">{number.format(frame.polities - frame.civs)} {frame.polities - frame.civs === 1 ? 'tribe' : 'tribes'} and {number.format(frame.civs)} {frame.civs === 1 ? 'civilization' : 'civilizations'} in all.</p></>
+              : peoples === 'descent' ? <><div className="atlas-section-heading"><h2>Peoples</h2><span>regions · people</span></div>
               <ul>{peopleSummary.lineages.slice(0, 10).map(entry => <li key={entry.lineage}><span><span className="atlas-biome-swatch" style={{ backgroundColor: cssColor(lineageColor(entry.lineage)) }} aria-hidden="true" />{entry.name}</span><span>{number.format(entry.regions)} · {formatPeople(entry.population)}</span></li>)}</ul>
               {peopleSummary.lineages.length > 10 && <p className="atlas-panel-note">and {peopleSummary.lineages.length - 10} more {peopleSummary.lineages.length - 10 === 1 ? 'people' : 'peoples'}.</p>}
               <p className="atlas-panel-note">Each is named after the culture of its starting band; daughters keep their founders' colour.</p></>

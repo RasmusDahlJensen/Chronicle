@@ -31,6 +31,17 @@ export function lineageColor(lineage: number): [number, number, number] {
   return hslToRgb(hue, 0.62, lineage % 2 ? 0.42 : 0.55);
 }
 
+/**
+ * A distinct colour for each polity (tribe or civilization), as [r, g, b]: hues a golden angle apart from a different
+ * start than the lineages, skipping the blues of seas and lakes, in three lightness and two saturation steps so that
+ * polities founded one after another differ even when their hues are close.
+ */
+export function polityColor(id: number): [number, number, number] {
+  let hue = (id * 137.508 + 55) % 360;
+  if (hue > 180 && hue < 240) hue = (hue + 75) % 360;
+  return hslToRgb(hue, id % 2 ? 0.5 : 0.68, [0.4, 0.52, 0.62][id % 3]);
+}
+
 /** An era's map colour as [r, g, b]. */
 export function eraColor(era: number): [number, number, number] {
   const hex = ERA_COLORS[era] ?? ERA_COLORS[0];
