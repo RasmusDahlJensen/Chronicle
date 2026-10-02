@@ -1,12 +1,12 @@
 import { causes } from './bands.ts';
 import { choose, drivers } from './decisions/choose.ts';
-import { expand, explore } from './expansion.ts';
+import { expand, explore, unite } from './expansion.ts';
 import { decisionView } from './perception.ts';
 import type { SimulationState, TickContext } from './state.ts';
 import { DECISION_TUNING } from './tunables.ts';
 
 // RNG salts within the decisions system: the choice (no salt), carrying out an expansion, an expedition's path.
-const EXPANDING = 1, EXPLORING = 2;
+const EXPANDING = 1, EXPLORING = 2, UNITING = 3;
 
 /**
  * Decisions system (VISION.md "Decision step"): every DECISION_TUNING.months per civilization, staggered by id. The
@@ -27,11 +27,15 @@ export function decide(state: SimulationState, context: TickContext) {
       const candidate = view.candidates.find(entry => entry.region === chosen.target)!;
       outcome = expand(state, context, context.stream(id, EXPANDING), polity, candidate.region, candidate.from, cited);
     } else if (chosen.action === 'explore') outcome = explore(state, context.tick, context.stream(id, EXPLORING), polity, cited);
+    else if (chosen.action === 'unite') {
+      const neighbour = view.neighbours.find(entry => entry.civ === chosen.target)!;
+      outcome = unite(state, context.tick, context.stream(id, UNITING), polity, state.polities[neighbour.civ], neighbour.border, cited);
+    }
     state.metrics.chosen[chosen.action]++;
     polity.decisions.push({
       tick: context.tick, chosen: chosen.action, outcome,
       // Land beyond all reach scores −∞; the log keeps a finite floor.
-      options: options.map(option => ({ action: option.action, score: Math.max(-1, Math.round(option.score * 1000) / 1000), target: option.target, factors: option.factors })),
+      options: options.map(option => ({ action: option.action, score: Math.max(-1, Math.round(option.score * 1000) / 1000), target: option.target, label: option.label, factors: option.factors })),
     });
     if (polity.decisions.length > DECISION_TUNING.logSize) polity.decisions.shift();
   }

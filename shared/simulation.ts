@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 8;
+export const SIMULATION_PROTOCOL_VERSION = 9;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -28,6 +28,7 @@ export const EVENT_TYPES = [
   'governmentChange', 'unrest', 'revolt', 'secession', 'civilWar', 'civDestroyed', 'cultureSplit', 'hybridCulture',
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
+  'unification', 'independenceMovement', 'referendum', 'dissolution',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -138,13 +139,14 @@ export const ObserverFrameSchema = Type.Object({
       }, { additionalProperties: false })]),
       /** Its last decision step: every option with its score and factors, what it chose and what came of it. */
       lastDecision: Type.Union([Type.Null(), Type.Object({
-        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing')]),
+        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite')]),
         outcome: Type.String({ maxLength: 80 }),
         options: Type.Array(Type.Object({
-          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing')]), score: Type.Number(),
-          target: Type.Union([Type.Null(), id()]),
+          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite')]), score: Type.Number(),
+          /** The region to expand into, or the civilization to unite with; and that civilization's name. */
+          target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
           factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
-        }, { additionalProperties: false }), { maxItems: 3 }),
+        }, { additionalProperties: false }), { maxItems: 4 }),
       }, { additionalProperties: false })]),
       /** The active research target, its progress and cost at the current exposure, why it was chosen, and the strongest options at the last choice. */
       research: Type.Union([Type.Null(), Type.Object({

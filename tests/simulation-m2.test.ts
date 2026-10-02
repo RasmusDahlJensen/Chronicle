@@ -94,6 +94,11 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   const joins = state.chronicle.events.filter(event => event.type === 'bandJoined');
   assert.ok(joins.length > 0 && joins.length === state.metrics.joined, `${joins.length} tribes joined`);
   assert.ok(joins.every(event => event.causes.length > 0 && state.polities[event.actors[0].id].deathTick !== null));
+  // Civilizations unite with larger neighbours (M3.4): each union is an event with its causes, always into a larger one.
+  const unions = state.chronicle.events.filter(event => event.type === 'unification');
+  assert.ok(unions.length > 0 && unions.length === state.metrics.unions, `${unions.length} unions`);
+  assert.ok(unions.every(event => event.causes.length > 0 && (event.data.into as number) > (event.data.regions as number)), 'every union cites causes and goes into a larger civilization');
+  assert.ok(unions.every(event => state.polities[event.actors[0].id].deathTick !== null));
   const unrest = state.chronicle.events.filter(event => event.type === 'unrest');
   assert.equal(unrest.length, state.metrics.unrestOutbreaks);
   // Civilizations decide every six months (M3): each step is logged; expanding takes in tribes' bands or sends settlers,

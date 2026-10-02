@@ -85,6 +85,21 @@ export function refreshContacts(state: SimulationState, polity: Polity) {
   polity.contacts = contacts; polity.contactWeights = weights; polity.exposure.tech = -1;
 }
 
+/**
+ * Where a polity's discovery happens, for the record of firsts and the event alike: where its people live in the
+ * conditions that drew it to the tech (the most populous of its regions with one of the tech's environment
+ * affinities), else its heartland. Fixed in advance for every tech, not chosen after the fact.
+ */
+function discoveryRegion(state: SimulationState, polity: Polity, tech: number) {
+  const conditions = Object.entries(TECHS[tech].affinity ?? {}).filter(([, value]) => value > 1).map(([condition]) => condition as Affinity);
+  let best = coreRegion(state, polity), most = -1;
+  for (const id of polity.groups) {
+    const group = state.groups[id];
+    if (group.size > most && conditions.some(condition => state.affinity[group.region].has(condition))) { best = group.region; most = group.size; }
+  }
+  return best;
+}
+
 /** Exposure to the polity's research target, from its cache when nothing it depends on has changed. */
 function targetExposure(state: SimulationState, polity: Polity, tech: number) {
   const cache = polity.exposure;
@@ -170,7 +185,8 @@ export function research(state: SimulationState, context: TickContext) {
     state.learnedCount[tech]++;
     const first = !state.firsts.some(entry => entry.tech === tech);
     // A tribe's discoveries are placed in its heartland, for the record of firsts and the event alike.
-    if (first) state.firsts.push({ tech, tick: context.tick, polity: id, region: coreRegion(state, polity) });
+    const place = discoveryRegion(state, polity, tech);
+    if (first) state.firsts.push({ tech, tick: context.tick, polity: id, region: place });
     state.metrics.discoveries++;
     // Why it was chosen (its positive weight factors), then how it was reached: the polity's own research as a share of
     // the full cost, and exposure to contacts who knew it.
@@ -178,7 +194,7 @@ export function research(state: SimulationState, context: TickContext) {
     causes.push({ factor: 'ownResearch', weight: Math.max(0.001, Math.round(own * 1000) / 1000) });
     if (exposure > 0) causes.push({ factor: 'exposure', weight: Math.round(exposure * 1000) / 1000 });
     state.chronicle.emit({
-      type: 'techDiscovered', actors: [{ id, role: 'polity' }], region: coreRegion(state, polity), causes,
+      type: 'techDiscovered', actors: [{ id, role: 'polity' }], region: place, causes,
       importance: first ? 0.7 : 0.03, data: { tech: TECHS[tech].name, era: TECHS[tech].era, name: polity.name, first },
     });
     // The next target right away (a stream of its own), so no month of research is lost.

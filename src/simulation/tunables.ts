@@ -117,7 +117,9 @@ export const BAND_TUNING = {
    * tribeBands)^sizePower and c = 1 + cultureWeight × (Expansionism − Tradition). Near the heartland of a small tribe
    * splits almost always stay; far out, or in a large tribe, they mostly go their own way.
    */
-  reachKm: 2_000, distancePower: 3, tribeBands: 80, sizePower: 2, cultureWeight: 0.8,
+  reachKm: 4_000, distancePower: 3, tribeBands: 80, sizePower: 2, cultureWeight: 0.8, travelDistance: true,
+  /** Splits and moves prefer easy crossings: their appeal × min(1, (easyKm ÷ the crossing's travel-km)^terrainPower). */
+  easyKm: 500, terrainPower: 2,
 } as const;
 
 export const SPAWN_TUNING = {
@@ -231,8 +233,22 @@ export const EXPAND_TUNING = {
  * takes the tribe in with chance 1 ÷ (1 + (travel-km from its capital to the tribe's land ÷ its reach)^admitPower).
  */
 export const JOIN_TUNING = {
-  kin: 0.6, similarity: 0.3, prestige: 0.6, prestigeScale: 2, fed: 0.1, stability: 0.1, crossing: 0.15,
+  kin: 0.6, similarity: 0.3, prestige: 0.6, prestigeScale: 2, fed: 0.1, stability: 0.1, crossing: 0.4,
   tradition: 0.3, expansionism: 0.3, foundScore: 0.1, admitPower: 4,
+} as const;
+
+/**
+ * Unification (VISION.md "Unification", added at the M3 review): at its decision step a civilization weighs uniting
+ * with each larger civilization it knows whose land touches its own. Pull = kin + similarity × culture similarity +
+ * size × min(1, log10(the regions it knows the other holds ÷ its own regions) ÷ sizeScale) + fed × how well fed the
+ * other's people in sight are + stability × how stable their regions are + trouble × (its own hunger + its share of
+ * regions in unrest); resistance = tradition × Tradition + expansionism × Expansionism + contentment × its own mean
+ * stability + crossing × the cheapest crossing's travel-km ÷ 1,000. Score = pull − resistance. The larger
+ * civilization admits it with chance 1 ÷ (1 + (travel-km from its capital to where they meet ÷ its reach)^admitPower).
+ */
+export const UNITE_TUNING = {
+  kin: 0.16, similarity: 0.08, size: 0.22, sizeScale: 1.5, fed: 0.03, stability: 0.03, trouble: 0.25,
+  tradition: 0.06, expansionism: 0.06, contentment: 0.1, crossing: 0.25, admitPower: 4,
 } as const;
 
 /**
@@ -353,6 +369,8 @@ export function validateTunables() {
   if (!(MIGRATION_TUNING.rate > 0 && MIGRATION_TUNING.rate < 0.5)) problems.push('the migration rate must be in (0, 0.5)');
   const j = JOIN_TUNING;
   if (!(Object.values(j).every(value => value >= 0) && j.prestigeScale > 0 && j.foundScore > 0 && j.admitPower > 0)) problems.push('joining settings are invalid');
+  const u = UNITE_TUNING;
+  if (!(Object.values(u).every(value => value >= 0) && u.sizeScale > 0 && u.admitPower > 0)) problems.push('unification settings are invalid');
   const st2 = STABILITY_TUNING;
   if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   const x = EXPLORE_TUNING;

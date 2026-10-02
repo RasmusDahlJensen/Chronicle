@@ -147,6 +147,7 @@
                     "allowImportNames": [
                       "PolityView",
                       "Candidate",
+                      "Neighbour",
                       "JoinView",
                       "JoinOption"
                     ]

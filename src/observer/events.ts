@@ -68,6 +68,10 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   nuclearUse: '{@attacker} uses nuclear weapons on region {region}.',
   spaceMilestone: '{@civ} achieves {milestone}.',
   bandSpread: 'A group of {population} of the {name} moves on to region {region} and stays with its tribe, now {bands} bands.',
+  unification: 'The {name} join the {civ}{?kin|, their kin}: {regions} regions and {population} people unite under one rule.',
+  independenceMovement: 'A movement for independence rises in region {region} of the {civ}.',
+  referendum: 'Region {region} votes on independence from the {civ}.',
+  dissolution: 'The {civ} dissolves, and its parts go their own ways.',
 };
 
 /** Fill an event's template; missing values show as "?" so gaps stay visible instead of silently vanishing. */

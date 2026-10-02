@@ -190,6 +190,20 @@ Starting reference values (data; tune with evidence): foraging supports about 0.
 
 **Joining.** A band that would settle in or next to a civilization's land, within that civ's governance reach, weighs joining it against founding its own civ: joining scores higher with culture similarity, the civ's prestige, food security and stability, and lower with the band's Tradition and Expansionism. The choice and its causes are recorded (event: band joined). Bands beyond every civ's reach found their own civilization. Before war exists, joining and absorption are how early civs grow beyond their first valley instead of the map filling with hundreds of one-region civs.
 
+**Unification.** Civilizations can also become one country peacefully (the Unite action of the decision model). At its decision step, a civilization next to a larger civilization it knows weighs joining it. These make it likelier:
+- kinship (the same founding people);
+- culture similarity;
+- how much larger, better fed and more stable the neighbour looks;
+- its own hunger and unrest;
+- an easy crossing between them.
+
+These make it less likely:
+- its own Tradition and Expansionism;
+- its own stability and prosperity;
+- mountains, deserts or great rivers between them.
+
+A civilization never unites into a smaller one. The larger civilization accepts only land it can govern (governance reach). On union, the smaller civilization's regions and settlements pass to the larger one, and its capital becomes an ordinary settlement. Its people keep their culture, so distance and rule over another people can make the new regions less stable. The chronicle records the union and its causes (event: unification). Unions are never certain, and they can come apart again (see Independence). (Added at the M3 review, 2 October 2026, at the user's request: countries form peacefully as well as by war.)
+
 **Migration.** Between populated regions, within a civ or across borders, people move in proportion to the difference in pressure between regions, keeping their culture and religion. This is the main source of cultural mixing. Empty land is entered only by band movement and fission or by a civ's Expand action. When a civ expands into a band's region, part of the band may join the civ as a minority group (event: band absorbed); otherwise the band moves on.
 
 **Specialists and townspeople.** The share of population freed from food production is a function of food surplus, storage and tech. Specialists live in settlements and produce research, wealth, military strength, building labor and religious and administrative capacity. A polity without surplus cannot advance; this is the central bottleneck of the early game.
@@ -269,7 +283,7 @@ A polity's behavior comes from three layers of sliders combined into one set of 
 
 **Decision step.** Every 6 months (data; staggered by polity id) each polity:
 
-1. Enumerates candidate actions: Explore, Expand, Raid (bands and chiefdoms), Build (a building, wonder or infrastructure item), Declare war, Seek peace, Propose trade, Propose alliance, non-aggression or road agreement, Send missionaries, Reform government, Focus investment (research, military or economy for the next period), Do nothing.
+1. Enumerates candidate actions: Explore, Expand, Unite (join a larger neighbour), Raid (bands and chiefdoms), Build (a building, wonder or infrastructure item), Declare war, Seek peace, Propose trade, Propose alliance, non-aggression or road agreement, Send missionaries, Reform government, Focus investment (research, military or economy for the next period), Do nothing.
 2. Scores each candidate using only the polity's own knowledge and beliefs (see Knowledge of the world). Score = Σ over needs of (need × how much the action addresses it × value weight), all terms normalized to 0–1, then × feasibility (strength ratio, reachability, cost) − risk. Store the decomposition.
 3. Picks by weighted random among the top 3 scores above a minimum threshold, using the seeded RNG. Do nothing is always a candidate.
 4. Records the step in the decision log (see The Chronicle) and stores the top two or three contributing factors on the resulting event.
@@ -428,8 +442,23 @@ Stability is computed per region and decides whether a civ holds together; when 
 
 1. **Unrest:** lower output and research in the region; a chronicle event when it starts.
 2. **Revolt:** below a threshold for several years, the region rebels. Neighboring unstable regions that share its majority culture or religion join it (connected-component search), forming a rebel faction.
-3. **Secession:** a small faction facing a weak or distant center becomes a new civ immediately, or peacefully if the parent is a high-Openness democracy.
+3. **Secession:** a faction breaks away by one of the routes under Independence: by force against a weak or distant center, by a vote its government allows, or as the center dissolves. (Changed at the M3 review, 2 October 2026, at the user's request: breaking away is hard.)
 4. **Civil war:** a faction holding a large share of population (configurable, about 25%) becomes a new civ at war with the old one, using the normal war system. A succession crisis can produce a civil war between two claimants.
+
+**Independence.** Breaking away is possible but hard. Think of the breakups of Yugoslavia and the Soviet Union, against Catalonia and Scotland, which remain part of larger states. (Added at the M3 review, 2 October 2026, at the user's request; built in M7.)
+
+Regions that want out share a culture or religion different from the ruler's, the memory of a former state (claims left by a union or a conquest), or a grievance. They have three routes:
+- **War:** revolt and civil war (above). These usually fail against a strong, cohesive center.
+- **Vote:** a referendum. It is possible only where the government allows votes (democracies and constitutional monarchies, sometimes republics), and only when the separatist majority is large and lasting. Most referendums are refused, never called, or lost.
+- **Dissolution:** when the center collapses (a lost war, unrest everywhere, a succession crisis, an empire that comes apart), its parts fall away along cultural and religious fault lines, often several at once.
+
+Most separatist regions stay where they are. Several things hold them in:
+- economic dependence on the larger state: trade, markets, roads and wealth per person;
+- governments that allow no vote and repress dissent;
+- weakness against a strong army;
+- mixed populations.
+
+Every movement, attempt, success and failure records its causes (events: independence movement, referendum, secession, civil war, dissolution). Successful breakaways are rare, and more frequent after collapses than in quiet times.
 
 **New civs from fracture** inherit the faction's majority culture and religion, the parent's known techs (subject to knowledge loss), its regions' settlements and infrastructure, a name derived from the culture's language, and a government chosen by the reason for the split (a revolution may pick a new form).
 
@@ -461,7 +490,7 @@ The simulation never writes prose; it emits structured events with causes, and a
 
 **Event schema:** id, date (year and month), type, actors (entity ids with roles, such as attacker or founder), location (region id, and settlement id where relevant), causes (list of factor name and weight, taken from the decision step or the triggering condition), parent event ids (what led to this), importance score, and type-specific data.
 
-**Event types (minimum set):** band spawned, band moved, band split, band absorbed, band joined, settled, expansion, settlement founded, settlement grew or shrank a tier, capital moved, building completed, wonder begun, wonder completed, wonder destroyed, road or bridge built, road agreement, settlement looted, settlement burned, settlement razed, ruins resettled, infrastructure destroyed, tech discovered, expedition, voyage lost at sea, discovery of new lands, first contact, trade agreement, non-aggression pact, alliance, vassalage or tribute, treaty cancelled, treaty broken, raid, war declared, battle-year summary (only when notable), region conquered, peace signed, ruler succession, succession crisis, government change, unrest, revolt, secession, civil war, civ destroyed, culture split, hybrid culture formed, religion founded, schism, conversion of state religion, drought, climate shock, famine, plague, migration wave, refugees, knowledge lost, industrialization, nuclear use, space milestone.
+**Event types (minimum set):** band spawned, band moved, band split, band absorbed, band joined, settled, expansion, settlement founded, settlement grew or shrank a tier, capital moved, building completed, wonder begun, wonder completed, wonder destroyed, road or bridge built, road agreement, settlement looted, settlement burned, settlement razed, ruins resettled, infrastructure destroyed, tech discovered, expedition, voyage lost at sea, discovery of new lands, first contact, trade agreement, non-aggression pact, alliance, vassalage or tribute, treaty cancelled, treaty broken, raid, war declared, battle-year summary (only when notable), region conquered, peace signed, ruler succession, succession crisis, government change, unrest, revolt, secession, civil war, civ destroyed, unification, independence movement, referendum, dissolution, culture split, hybrid culture formed, religion founded, schism, conversion of state religion, drought, climate shock, famine, plague, migration wave, refugees, knowledge lost, industrialization, nuclear use, space milestone.
 
 **Decision log.** Every decision step also records its candidates, their score decompositions, the effective values used and the chosen action in a separate decision log (queryable and inspectable, not shown on the timeline). Actions that change the world also emit their own events, which carry the decision's top factors as causes.
 
@@ -575,12 +604,13 @@ Acceptance:
 - A test fails if any `RESOURCE_RULES` technology name is missing from the tech data.
 - **Then stop for user review** (rule 2).
 
-**M3 — Civilizations and borders.** Region ownership and the Expand action (decision step skeleton and decision log), band joining, governance reach, basic stability, per-polity region knowledge (observed, known, unknown) behind the query layer, land exploration, knowledge sharing between neighbors, first contact, migration between populated regions.
+**M3 — Civilizations and borders.** Region ownership and the Expand action (decision step skeleton and decision log), band joining, peaceful unification of civilizations (the Unite action; added at the M3 review, 2 October 2026), governance reach, basic stability, per-polity region knowledge (observed, known, unknown) behind the query layer, land exploration, knowledge sharing between neighbors, first contact, migration between populated regions.
 
 - Lab: political lens (required), capitals, a civ list with population.
 - By year 1,000, every seed has 10–60 settled civs (fixed for acceptance: tune the simulation, not the range).
 - The median land travel cost of edges between regions of different civs is at least 1.5× the median of all land region edges.
 - Every seed has at least one first-contact event.
+- Every unification is an event with its causes, and no civilization unites into a smaller one.
 - In a labelled test scenario with one settled civ alone on the largest landmass of seed `Chronicle`, the civ keeps expanding while reachable habitable land remains within its governance reach: its longest gap between expansions is under 50 years whenever its land pressure is above 0.5. The study reports every civ's longest gap between expansions.
 - A test or Biome rule fails if decision, diplomacy, trade, building-placement or exploration code imports a true-state accessor for other polities or for regions the polity does not know.
 
@@ -623,11 +653,15 @@ Acceptance:
 - In most seeds, at least one settlement is razed and later resettled, and at least one bridge or road is destroyed in war.
 - The largest civ's land share over time is reported (the hegemony limit becomes acceptance in M7).
 
-**M7 — Government, rulers and fracture.** Government forms and transitions, rulers, dynasties, succession crises, elections, cohesion, revolts, secession, civil war, plague, knowledge loss.
+**M7 — Government, rulers and fracture.** Government forms and transitions, rulers, dynasties, succession crises, elections, cohesion, revolts, secession, civil war, independence (movements, referendums where the government allows them, and dissolution of a collapsing center, held back by economic ties and repression), plague, knowledge loss.
 
 - Lab: government and ruler on inspection; revolts, secessions and civil wars highlighted on the political lens and in the event list.
 - No civ's land or population share exceeds 60% for 300 or more consecutive years in any seed.
 - In most seeds, some civ (any government form) reaches a land share of at least 20%, then loses at least half of its peak regions through revolt, secession or civil war within 400 years of that peak.
+- Independence is hard and varied. Across the five seeds:
+  - more independence movements fail or never break away than succeed;
+  - successful breakaways happen by more than one route (war, vote, dissolution);
+  - every referendum happens under a government that allows votes.
 
 **M8 — Late game.** Industrial break, factories, railways and highways, power plants, demographic transition, airports, nuclear power and weapons with deterrence, rockets, rocket sites and space milestones, end condition.
 
@@ -676,7 +710,7 @@ Report per seed and per century in the active brief, as a table and charts; tune
 | Number of starting bands | 30 |
 | How people spread before farming | band fission |
 | Starting techs | Foraging, Fire, Hunting and Fishing; Agriculture requires Pottery |
-| Early consolidation | bands settling within a civ's reach weigh joining it; war-driven consolidation from M6 |
+| Early consolidation | bands settling within a civ's reach weigh joining it; civilizations weigh uniting with larger neighbours (M3, added at the M3 review); war-driven consolidation from M6 |
 | Research before surplus | small base research per person for every polity |
 | Carrying capacity | emerges from saturating production and food security |
 | Expansion and migration | graded pressure and opportunity, no hard thresholds |

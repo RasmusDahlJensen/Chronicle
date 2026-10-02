@@ -175,6 +175,21 @@ export interface PolityView {
   candidates: Candidate[];
   /** Unknown regions next to what it sees: land still to discover. */
   unknownFrontier: number;
+  /** Its own regions, the share of them in unrest and their mean stability. */
+  regions: number; unrestShare: number; stability: number;
+  /** Civilizations it has met whose land touches its own, as far as it knows them (VISION.md "Unification"). */
+  neighbours: Neighbour[];
+}
+
+export interface Neighbour {
+  civ: number; name: string; kin: boolean; similarity: number;
+  /** Regions it knows that civilization holds (in sight or remembered): its size as far as it knows. */
+  knownRegions: number;
+  /** That civilization's people in its sight: how well fed (0–1) and how stable their regions are. */
+  fed: number; stability: number;
+  /** The typical crossing between their lands (the median travel-km of the edges they share: a mountain range with one
+   *  pass still divides them), and its own region on the cheapest crossing (where they meet). */
+  crossingKm: number; border: number;
 }
 
 export interface Candidate {
@@ -187,6 +202,8 @@ export interface Candidate {
   /** The land's value (static farming capacity) and whether a tribe's band lives there, as it knows. */
   value: number; tribe: boolean;
 }
+
+const medianOf = (values: number[]) => { values.sort((a, b) => a - b); return values[Math.floor(values.length / 2)]; };
 
 /** Travel cost of a land edge (river crossings cost extra) or a sea crossing. */
 export const edgeKm = (travelKm: number, riverTier: number) => travelKm * (1 + REACH_TUNING.riverCrossing[riverTier]);
@@ -272,6 +289,33 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     travelFromCapital(state, polity);
     for (const candidate of found.values()) candidate.capitalKm = travelled(candidate.region);
   }
+  // Civilizations whose land touches its own, sized by the regions it knows they hold.
+  const neighbours = new Map<number, Neighbour>(), culture = state.cultures[polity.culture].values, shared = new Map<number, number[]>();
+  for (const region of own) for (const edge of regions[region].neighbors) {
+    const civ = state.owner[edge.region];
+    if (civ < 0 || civ === polity.id || !polity.met.has(civ)) continue;
+    const km = edgeKm(edge.travelKm, edge.riverTier), entry = neighbours.get(civ);
+    shared.get(civ)?.push(km) ?? shared.set(civ, [km]);
+    if (entry) { if (km < entry.crossingKm) { entry.crossingKm = km; entry.border = region; } continue; }
+    const them = state.polities[civ];
+    neighbours.set(civ, { civ, name: them.name, kin: them.lineage === polity.lineage, similarity: cultureSimilarity(culture, state.cultures[them.culture].values), knownRegions: 0, fed: 0, stability: 0, crossingKm: km, border: region });
+  }
+  for (const entry of neighbours.values()) entry.crossingKm = medianOf(shared.get(entry.civ)!);
+  if (neighbours.size) {
+    const seen = new Map<number, number>();
+    for (const region of map.observed) {
+      const entry = neighbours.get(state.owner[region]);
+      if (!entry) continue;
+      entry.knownRegions++;
+      const group = state.groups[state.groupAt[region]];
+      entry.fed += group.size * Math.min(1, group.foodSecurity); entry.stability += group.size * state.stability[region];
+      seen.set(entry.civ, (seen.get(entry.civ) ?? 0) + group.size);
+    }
+    map.snapshots.forEach(snapshot => { const entry = neighbours.get(snapshot.owner); if (entry) entry.knownRegions++; });
+    for (const entry of neighbours.values()) { const people = seen.get(entry.civ) ?? 0; if (people > 0) { entry.fed /= people; entry.stability /= people; } }
+  }
+  let unrest = 0, stable = 0;
+  for (const region of own) { unrest += state.unrest[region]; stable += state.stability[region]; }
   // Unknown land next to what it sees, each counted once.
   let unknownFrontier = 0;
   if (frontierStamp.length !== regions.length) { frontierStamp = new Int32Array(regions.length); frontierMark = 0; }
@@ -283,6 +327,8 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,
     ownValue: own.size ? value / own.size : 0,
     candidates: [...found.values()].sort((a, b) => a.region - b.region), unknownFrontier,
+    regions: own.size, unrestShare: own.size ? unrest / own.size : 0, stability: own.size ? stable / own.size : 1,
+    neighbours: [...neighbours.values()].sort((a, b) => a.civ - b.civ),
   };
 }
 
@@ -298,13 +344,14 @@ export interface JoinOption {
   civ: number; kin: boolean; similarity: number;
   /** Its people in the tribe's sight, their food security (0–1, people-weighted) and their regions' stability. */
   seenPeople: number; fed: number; stability: number;
-  /** The cheapest crossing from the tribe's land into its land, and the tribe's region on that crossing. */
+  /** The typical crossing from the tribe's land into its land (the median travel-km of the edges they share), and the
+   *  tribe's region on the cheapest crossing. */
   crossingKm: number; border: number;
 }
 
 export function joinView(state: SimulationState, tribe: Polity): JoinView {
   const regions = state.partition.regions, culture = state.cultures[tribe.culture];
-  const found = new Map<number, JoinOption>();
+  const found = new Map<number, JoinOption>(), shared = new Map<number, number[]>();
   let people = 0;
   for (const id of tribe.groups) {
     const region = state.groups[id].region;
@@ -313,6 +360,7 @@ export function joinView(state: SimulationState, tribe: Polity): JoinView {
       const civ = state.owner[edge.region];
       if (civ < 0 || !tribe.met.has(civ)) continue;
       const km = edgeKm(edge.travelKm, edge.riverTier), option = found.get(civ);
+      shared.get(civ)?.push(km) ?? shared.set(civ, [km]);
       if (option && option.crossingKm <= km) continue;
       if (option) { option.crossingKm = km; option.border = region; continue; }
       const them = state.polities[civ];
@@ -328,7 +376,10 @@ export function joinView(state: SimulationState, tribe: Polity): JoinView {
     const group = state.groups[state.groupAt[region]];
     option.seenPeople += group.size; option.fed += group.size * Math.min(1, group.foodSecurity); option.stability += group.size * state.stability[region];
   }
-  for (const option of found.values()) if (option.seenPeople > 0) { option.fed /= option.seenPeople; option.stability /= option.seenPeople; }
+  for (const option of found.values()) {
+    if (option.seenPeople > 0) { option.fed /= option.seenPeople; option.stability /= option.seenPeople; }
+    option.crossingKm = medianOf(shared.get(option.civ)!);
+  }
   return { tribe: tribe.id, people, values: { ...culture.values }, options: [...found.values()].sort((a, b) => a.civ - b.civ) };
 }
 

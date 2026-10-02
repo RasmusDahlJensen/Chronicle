@@ -1,6 +1,6 @@
-import type { Candidate, PolityView } from '../perception.ts';
+import type { Candidate, Neighbour, PolityView } from '../perception.ts';
 import type { Rng } from '../rng.ts';
-import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING } from '../tunables.ts';
+import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, UNITE_TUNING } from '../tunables.ts';
 
 /** Factors named with a leading × are multipliers (logged, never cited as causes); the rest are contributions to the score. */
 export const MULTIPLIER = '×';
@@ -11,9 +11,9 @@ export const MULTIPLIER = '×';
  * view `perception.ts` builds from the civilization's own state and what it knows (VISION.md "Implementation rule";
  * a Biome rule keeps this folder from importing anything else).
  */
-export type Action = 'expand' | 'explore' | 'nothing';
+export type Action = 'expand' | 'explore' | 'nothing' | 'unite';
 export interface Factor { factor: string; weight: number }
-export interface Option { action: Action; score: number; target: number | null; factors: Factor[] }
+export interface Option { action: Action; score: number; target: number | null; label: string | null; factors: Factor[] }
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const round = (value: number) => Math.round(value * 1000) / 1000;
@@ -35,7 +35,7 @@ export function expansionScore(view: PolityView, candidate: Candidate): Option {
   // Each need's share of the score (what the event cites), the multipliers, and the costs.
   const scale = value * culture;
   return {
-    action: 'expand', score: feasible && Number.isFinite(score) ? score : Number.NEGATIVE_INFINITY, target: candidate.region,
+    action: 'expand', score: feasible && Number.isFinite(score) ? score : Number.NEGATIVE_INFINITY, target: candidate.region, label: null,
     factors: [
       { factor: 'landPressure', weight: round(candidate.pressure * scale) }, { factor: 'hunger', weight: round(tuning.hungerWeight * view.hunger * scale) },
       { factor: 'opportunity', weight: round(tuning.opportunityWeight * opportunity * scale) },
@@ -62,7 +62,7 @@ export function explorationScore(view: PolityView): Option {
   const fresh = view.seaTick >= 0 && view.tick - view.seaTick < tuning.freshYears * 12 ? tuning.freshMobility : 0;
   const push = tuning.base + view.landPressure, score = curiosity * culture * push + (curiosity > 0 ? fresh : 0);
   return {
-    action: 'explore', score, target: null,
+    action: 'explore', score, target: null, label: null,
     factors: [
       { factor: 'openness', weight: round(curiosity * tuning.opennessWeight * view.values.openness * push) },
       { factor: 'expansionism', weight: round(curiosity * tuning.expansionismWeight * view.values.expansionism * push) },
@@ -72,13 +72,46 @@ export function explorationScore(view: PolityView): Option {
   };
 }
 
+/**
+ * Uniting with one neighbour (VISION.md "Unification"): kinship, a much larger, well-fed and stable neighbour and its
+ * own troubles draw it in; its pride (Tradition, Expansionism), its own contentment and a hard crossing hold it back.
+ * Only a larger civilization, as far as it knows, can be joined.
+ */
+export function unionScore(view: PolityView, neighbour: Neighbour): Option {
+  const tuning = UNITE_TUNING;
+  const larger = neighbour.knownRegions > view.regions;
+  const size = larger ? Math.min(1, Math.log10(neighbour.knownRegions / Math.max(1, view.regions)) / tuning.sizeScale) : 0;
+  const parts = {
+    kinship: neighbour.kin ? tuning.kin : 0, similarity: tuning.similarity * neighbour.similarity, size: tuning.size * size,
+    fed: tuning.fed * neighbour.fed, stability: tuning.stability * neighbour.stability, trouble: tuning.trouble * Math.min(1, view.hunger + view.unrestShare),
+    tradition: -tuning.tradition * view.values.tradition, expansionism: -tuning.expansionism * view.values.expansionism,
+    contentment: -tuning.contentment * view.stability, crossing: -tuning.crossing * neighbour.crossingKm / 1000,
+  };
+  const score = Object.values(parts).reduce((sum, value) => sum + value, 0);
+  return {
+    action: 'unite', score: larger ? score : Number.NEGATIVE_INFINITY, target: neighbour.civ, label: neighbour.name,
+    factors: Object.entries(parts).map(([factor, weight]) => ({ factor, weight: round(weight) })),
+  };
+}
+
+export function bestUnion(view: PolityView): Option | null {
+  let best: Option | null = null;
+  for (const neighbour of view.neighbours) {
+    const option = unionScore(view, neighbour);
+    if (!best || option.score > best.score) best = option;
+  }
+  return best;
+}
+
 /** Every option of this step, best first (Do nothing is always one). */
 export function options(view: PolityView): Option[] {
-  const all: Option[] = [{ action: 'nothing', score: DECISION_TUNING.doNothing, target: null, factors: [{ factor: 'contentment', weight: DECISION_TUNING.doNothing }] }];
+  const all: Option[] = [{ action: 'nothing', score: DECISION_TUNING.doNothing, target: null, label: null, factors: [{ factor: 'contentment', weight: DECISION_TUNING.doNothing }] }];
   const expand = bestExpansion(view);
   if (expand) all.push(expand);
   all.push(explorationScore(view));
-  const order: Action[] = ['expand', 'explore', 'nothing'];
+  const unite = bestUnion(view);
+  if (unite) all.push(unite);
+  const order: Action[] = ['expand', 'explore', 'unite', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }
 

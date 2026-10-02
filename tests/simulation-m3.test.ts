@@ -5,11 +5,11 @@ import { generateWorld } from '../src/world/generation/generate.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { decodeGeography } from '../src/simulation/geography.ts';
 import { arrive, decisionView, emptyMap, hasMet, inheritContacts, KNOWN, knownRegions, lookAgain, observe, regionView, shareSurroundings, UNKNOWN, type Candidate, type PolityView } from '../src/simulation/perception.ts';
-import { choose, drivers, expansionScore, explorationScore, options } from '../src/simulation/decisions/choose.ts';
+import { choose, drivers, expansionScore, explorationScore, options, unionScore } from '../src/simulation/decisions/choose.ts';
 import { chooseJoin, joinOptions, joinScore } from '../src/simulation/decisions/join.ts';
 import { stabilityOf } from '../src/simulation/stability.ts';
 import { unrestDepth } from '../src/simulation/pressure.ts';
-import type { JoinOption, JoinView } from '../src/simulation/perception.ts';
+import type { JoinOption, JoinView, Neighbour } from '../src/simulation/perception.ts';
 import { createRng } from '../src/simulation/rng.ts';
 import { DECISION_TUNING, REACH_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
@@ -173,7 +173,7 @@ test('a tribe that settles starts to remember; a newer view is kept when neighbo
 function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] = []): PolityView {
   return {
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
-    reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0,
+    reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [],
     candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, ...entry })),
     ...overrides,
   };
@@ -200,7 +200,7 @@ test('decision scores: crowding, good land and Expansionism draw a civilization 
   // Do nothing is always weighed; the choice is weighted random among the best options above the minimum.
   const all = options(view({ unknownFrontier: 8 }, [{}]));
   assert.deepEqual(all.map(option => option.action).sort(), ['expand', 'explore', 'nothing']);
-  const picks = { expand: 0, explore: 0, nothing: 0 };
+  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0 };
   for (let draw = 0; draw < 2000; draw++) picks[choose(view({ unknownFrontier: 8 }, [{}]), createRng(5, draw)).chosen.action]++;
   assert.ok(picks.expand > picks.explore && picks.explore > 0 && picks.nothing > 0, JSON.stringify(picks));
 });
@@ -253,4 +253,19 @@ test('stability: hunger, distance beyond the capital\'s reach and foreign rule l
   assert.equal(unrestDepth(state, 0), 0);
   assert.ok(unrestDepth(state, 1) > 0 && unrestDepth(state, 1) < unrestDepth(state, 2));
   assert.equal(unrestDepth(state, 2), 1);
+});
+
+test('uniting: kin, a much larger and better-kept neighbour and its own troubles draw a civilization in; never into a smaller one', () => {
+  const neighbour = (entry: Partial<Neighbour> = {}): Neighbour => ({ civ: 7, name: 'Ora', kin: false, similarity: 0.7, knownRegions: 60, fed: 1, stability: 0.9, crossingKm: 400, border: 3, ...entry });
+  const score = (entry: Partial<Neighbour>, own: Partial<PolityView> = {}) => unionScore(view({ regions: 4, ...own }), neighbour(entry)).score;
+  assert.ok(score({ kin: true }) > score({}), 'kin');
+  assert.ok(score({ knownRegions: 200 }) > score({ knownRegions: 8 }), 'a much larger neighbour');
+  assert.ok(score({}, { hunger: 0.6, unrestShare: 0.5 }) > score({}), 'its own hunger and unrest');
+  assert.ok(score({}, { stability: 0.95 }) < score({}, { stability: 0.4 }), 'its own contentment holds it back');
+  assert.ok(score({ crossingKm: 1800 }) < score({ crossingKm: 300 }), 'mountains or great rivers between them');
+  assert.equal(score({ knownRegions: 3 }), Number.NEGATIVE_INFINITY, 'never into a smaller civilization');
+  const option = unionScore(view({ regions: 4 }), neighbour({ kin: true }));
+  assert.equal(option.label, 'Ora'); assert.equal(option.target, 7);
+  // Uniting competes with the other actions at the same step.
+  assert.ok(options(view({ regions: 4, neighbours: [neighbour({ kin: true, knownRegions: 200 })] }, [{}])).some(entry => entry.action === 'unite'));
 });

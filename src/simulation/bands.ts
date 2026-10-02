@@ -76,6 +76,9 @@ export function landValues(state: SimulationState) {
 
 export { landPressure } from './pressure.ts';
 
+/** How readily people cross into a region over this travel-km: 1 up to `easyKm`, falling with rougher crossings. */
+const terrainEase = (travelKm: number) => Math.min(1, (BAND_TUNING.easyKm / Math.max(1, travelKm)) ** BAND_TUNING.terrainPower);
+
 /** Where a band forced to leave `region` would go: the free land within reach that feeds it best, if any feeds all of it. */
 export function refuge(state: SimulationState, tribe: Polity, group: PopulationGroup, region: number) {
   let best = -1, most = 1;
@@ -89,11 +92,11 @@ export function refuge(state: SimulationState, tribe: Polity, group: PopulationG
 /** Free regions a band of this polity could move or split into from `region`: land neighbours, and sea crossings its knowledge allows. */
 export function reachableFree(state: SimulationState, polity: Polity, region: number) {
   const here = state.partition.regions[region], sea = polity.knowledge.sea;
-  const options = here.neighbors.filter(edge => state.occupant[edge.region] < 0).map(edge => ({ region: edge.region, riverTier: edge.riverTier }));
+  const options = here.neighbors.filter(edge => state.occupant[edge.region] < 0).map(edge => ({ region: edge.region, riverTier: edge.riverTier, travelKm: edge.travelKm }));
   if (sea > 0) {
     for (const link of here.sea) {
       if (state.occupant[link.region] >= 0 || (sea < 2 && link.km > MOBILITY_TUNING.coastalSailingKm)) continue;
-      options.push({ region: link.region, riverTier: 0 });
+      options.push({ region: link.region, riverTier: 0, travelKm: link.km });
     }
   }
   return options;
@@ -380,7 +383,7 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
 }
 
 /** A polity whose last group died out or left ends; it stays in history. */
-function endPolity(state: SimulationState, polity: Polity, tick: number) {
+export function endPolity(state: SimulationState, polity: Polity, tick: number) {
   polity.deathTick = tick; state.deathCount++;
   state.living.splice(state.living.indexOf(polity.id), 1);
   forgetMap(polity);
@@ -488,7 +491,7 @@ function decide(state: SimulationState, context: TickContext, tribe: Polity, gro
     // The best free neighbour is the one whose land feeds the most people with this tribe's knowledge (its capacity),
     // less the cost of crossing a river; it must also feed the newcomers now.
     const scored = free.filter(edge => foodPerPerson(state, edge.region, leaving, tribe.knowledge) >= 1)
-      .map(edge => ({ edge, score: regionCapacity(state, edge.region, tribe.knowledge) * (1 - tuning.riverCrossingCost[edge.riverTier]) }))
+      .map(edge => ({ edge, score: regionCapacity(state, edge.region, tribe.knowledge) * (1 - tuning.riverCrossingCost[edge.riverTier]) * terrainEase(edge.travelKm) }))
       .sort((a, b) => b.score - a.score || a.edge.region - b.edge.region).slice(0, tuning.splitCandidates).filter(entry => entry.score > 0);
     const pick = rng.weighted(scored.map(entry => entry.score ** tuning.choiceSharpness));
     // Causes: the two drivers of the split desire as they contributed, with game depletion as context.
@@ -502,7 +505,7 @@ function decide(state: SimulationState, context: TickContext, tribe: Polity, gro
     const there = foodPerPerson(state, edge.region, group.size, tribe.knowledge);
     const gain = (there - current) / Math.max(current, tuning.minFoodPerPerson);
     // A destination must also feed the whole band.
-    return { edge, gain, desire: there >= 1 ? clamp(gain - tuning.moveCost - tuning.riverCrossingCost[edge.riverTier], 0, 1) : 0 };
+    return { edge, gain, desire: there >= 1 ? clamp((gain - tuning.moveCost - tuning.riverCrossingCost[edge.riverTier]) * terrainEase(edge.travelKm), 0, 1) : 0 };
   }).filter(option => option.desire > 0);
   if (!options.length) return;
   const best = options.reduce((top, option) => option.desire > top.desire ? option : top);
@@ -542,9 +545,18 @@ export function move(state: SimulationState, context: Pick<TickContext, 'tick'>,
 
 /** The chance that a band splitting off into `to` breaks away from its tribe, and that chance's parts (for causes). */
 export function breakawayChance(state: SimulationState, tribe: Polity, to: number) {
-  const tuning = BAND_TUNING, values = state.cultures[tribe.culture].values;
-  const km = greatCircleKm(state.geography, state.partition.regions[coreRegion(state, tribe)].centroid, state.partition.regions[to].centroid);
-  const distance = (km / tuning.reachKm) ** tuning.distancePower, size = (tribe.groups.length / tuning.tribeBands) ** tuning.sizePower;
+  const values = state.cultures[tribe.culture].values;
+  // How far in travel: from the heartland through the tribe's own land, so a group that crosses mountains or a great
+  // river is likelier to go its own way (and peoples part along barriers).
+  const km = BAND_TUNING.travelDistance ? capitalKm(state, tribe, to) ?? Number.POSITIVE_INFINITY
+    : greatCircleKm(state.geography, state.partition.regions[coreRegion(state, tribe)].centroid, state.partition.regions[to].centroid);
+  return breakawayOdds(km, tribe.groups.length, values);
+}
+
+/** The breakaway chance for a split `km` from the heartland, from a tribe of `bands` bands, with these values. */
+export function breakawayOdds(km: number, bands: number, values: CultureValues) {
+  const tuning = BAND_TUNING;
+  const distance = (km / tuning.reachKm) ** tuning.distancePower, size = (bands / tuning.tribeBands) ** tuning.sizePower;
   const culture = 1 + tuning.cultureWeight * (values.expansionism - values.tradition);
   return { chance: 1 - Math.exp(-(distance + size) * culture), distance, size, culture };
 }

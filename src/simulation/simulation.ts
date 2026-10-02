@@ -44,7 +44,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
     ledger: emptyLedger(regions), habitable: new Uint8Array(regions), settledLandmasses: [],
     metrics: { silentBandYears: 0, maxOverCapacityMonths: 0, moves: 0, movesCitingPressure: 0, movesLedByPressure: 0, splits: 0, breakaways: 0, births: 0, deaths: 0, famineDeaths: 0, settled: 0, discoveries: 0, firstContacts: 0,
-      chosen: { expand: 0, explore: 0, nothing: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0 },
+      chosen: { expand: 0, explore: 0, nothing: 0, unite: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0, unions: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -134,7 +134,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     agricultureShare: Math.round(shareKnowing(state, 'Agriculture') * 1000) / 1000, leadingEra,
     occupiedHabitableShare: Math.round(occupiedHabitableShare * 1000) / 1000,
     firstContacts: m.firstContacts, civKnownRegions: state.living.length > tribes ? Math.round(civKnown / (state.living.length - tribes)) : 0,
-    chosenExpand: m.chosen.expand, chosenExplore: m.chosen.explore, chosenNothing: m.chosen.nothing,
+    chosenExpand: m.chosen.expand, chosenExplore: m.chosen.explore, chosenNothing: m.chosen.nothing, chosenUnite: m.chosen.unite, unions: m.unions,
     expansions: m.expansions, absorbed: m.absorbed, displaced: m.displaced, expeditions: m.expeditions, migrants: m.migrants, borderRatio,
     joined: m.joined, unrestRegions, unrestOutbreaks: m.unrestOutbreaks, meanStability: ruled ? Math.round(stable / ruled * 1000) / 1000 : 0,
   };

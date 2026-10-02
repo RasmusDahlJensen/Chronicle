@@ -50,7 +50,7 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
       <p className="atlas-detail-label">Governance · reach {number.format(polity.reachKm)} km of travel{polity.capitalKm !== null ? ` · this region ${number.format(polity.capitalKm)} km from the capital` : ''}</p>
       {polity.stability && <p className="atlas-panel-note" id="polity-stability">Stability here {polity.stability.value.toFixed(2)}{polity.stability.unrest ? ' · in unrest (lower output and research)' : ''}{[['hunger', polity.stability.hunger], ['overextension', polity.stability.overextension], ['foreign rule', polity.stability.foreignRule]].filter(([, weight]) => (weight as number) > 0.005).map(([factor, weight]) => ` · ${factor} −${(weight as number).toFixed(2)}`).join('')}.</p>}
       {polity.lastDecision ? <>
-        <h4 id="polity-decision">{DECISION_LABELS[polity.lastDecision.chosen]}{polity.lastDecision.options.find(option => option.action === polity.lastDecision!.chosen)?.target != null ? ` region ${polity.lastDecision.options.find(option => option.action === polity.lastDecision!.chosen)!.target}` : ''} <span>year {simulationDate(polity.lastDecision.tick).year} · {polity.lastDecision.outcome}</span></h4>
+        <h4 id="polity-decision">{DECISION_LABELS[polity.lastDecision.chosen]}{decisionTarget(polity.lastDecision)} <span>year {simulationDate(polity.lastDecision.tick).year} · {polity.lastDecision.outcome}</span></h4>
         <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map(option => <li key={option.action}>
           <span>{ACTION_NAMES[option.action]} {option.score.toFixed(2)}</span>
           <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
@@ -70,8 +70,15 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
   </div>;
 }
 
-const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing' } as const;
-const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing' } as const;
+const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with' } as const;
+const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite' } as const;
+
+/** What a decision was aimed at: the region to expand into, or the civilization to unite with. */
+function decisionTarget(step: NonNullable<NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision']>) {
+  const option = step.options.find(entry => entry.action === step.chosen);
+  if (!option || option.target === null) return '';
+  return option.action === 'unite' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
+}
 
 const formatPeople = (people: number) => people >= 1e6 ? `${(people / 1e6).toFixed(1)} M` : people >= 1e4 ? `${Math.round(people / 1e3)} k` : number.format(people);
 

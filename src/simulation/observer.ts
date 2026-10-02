@@ -110,8 +110,8 @@ function lastDecision(polity: Polity): NonNullable<NonNullable<ObserverFrame['in
   if (!step) return null;
   return {
     tick: step.tick, chosen: step.chosen, outcome: step.outcome.slice(0, 80),
-    options: step.options.slice(0, 3).map(option => ({
-      action: option.action, score: option.score, target: option.target,
+    options: step.options.slice(0, 4).map(option => ({
+      action: option.action, score: option.score, target: option.target, label: option.label,
       factors: option.factors.filter(entry => entry.weight !== 0).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).slice(0, 8),
     })),
   };

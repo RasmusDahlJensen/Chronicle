@@ -1,9 +1,9 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
-import { foundVillage, move, newGroup, polityPopulation, refuge, regionCapacity, transferGroup } from './bands.ts';
-import { meet, reveal, UNKNOWN } from './perception.ts';
+import { endPolity, foundVillage, move, newGroup, polityPopulation, refuge, regionCapacity, transferGroup } from './bands.ts';
+import { absorbMap, arrive, capitalKm, lookAgain, meet, reveal, UNKNOWN } from './perception.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
-import { EXPAND_TUNING, EXPLORE_TUNING, MOBILITY_TUNING } from './tunables.ts';
+import { EXPAND_TUNING, EXPLORE_TUNING, MOBILITY_TUNING, REACH_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * Carrying out what a civilization decided (VISION.md "Expansion", "Migration", "Exploration"). This is physical: it
@@ -116,4 +116,37 @@ export function explore(state: SimulationState, tick: number, rng: Rng, civ: Pol
     data: { name: civ.name, regions: revealed, met, metPeoples: met > 0, end: at },
   });
   return revealed ? `mapped ${revealed} regions` : 'found nothing new';
+}
+
+/**
+ * Unification (VISION.md "Unification"): `small` asks to join `large`, which admits it if it can govern the land from
+ * its capital (a graded chance by travel-km to where they meet). On union every region, its people and village pass
+ * to `large`; the small civilization's capital becomes an ordinary village; its people keep their culture; `large`
+ * learns what it knew; `small` ends. Returns what happened, for the decision log.
+ */
+export function unite(state: SimulationState, tick: number, rng: Rng, small: Polity, large: Polity, border: number, cited: ChronicleEvent['causes']): string {
+  if (large.deathTick !== null || large.kind !== 'civ') return 'the other civilization is gone';
+  if (large.groups.length <= small.groups.length) return 'the other civilization is not larger';
+  const km = capitalKm(state, large, border) ?? Number.POSITIVE_INFINITY;
+  const admit = 1 / (1 + (km / (REACH_TUNING.baseKm * large.knowledge.multipliers.reach)) ** UNITE_TUNING.admitPower);
+  if (!rng.chance(admit)) return `the ${large.name} would not take them in`;
+  const people = polityPopulation(state, small), regions = small.groups.length;
+  const capital = small.capital !== null ? state.settlements[small.capital] : null;
+  state.chronicle.emit({
+    type: 'unification', actors: [{ id: small.id, role: 'civ' }, { id: large.id, role: 'union' }], region: capital?.region ?? border, causes: cited,
+    importance: 0.4, data: { name: small.name, civ: large.name, regions, population: people, kin: small.lineage === large.lineage, into: large.groups.length },
+  });
+  absorbMap(state, large, small, tick);
+  for (const id of small.groups.slice()) {
+    const group = state.groups[id], region = group.region;
+    small.groups.splice(small.groups.indexOf(id), 1);
+    large.groups.push(id); group.polity = large.id;
+    state.occupant[region] = large.id; state.owner[region] = large.id;
+    for (const settlement of state.settlements) if (settlement.region === region && settlement.owner === small.id && settlement.status === 'alive') { settlement.owner = large.id; settlement.capital = false; }
+    arrive(state, large, region, tick);
+  }
+  lookAgain(small);
+  endPolity(state, small, tick);
+  state.metrics.unions++;
+  return `united with the ${large.name}`;
 }

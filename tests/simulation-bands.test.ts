@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
-import { breakawayChance, isWaterRegion } from '../src/simulation/bands.ts';
+import { breakawayOdds, isWaterRegion } from '../src/simulation/bands.ts';
 import { capacity, harvest, METHOD_COUNT } from '../src/simulation/food.ts';
 import { decodeGeography, greatCircleKm } from '../src/simulation/geography.ts';
 import { checkInvariants, InvariantError } from '../src/simulation/invariants.ts';
@@ -128,26 +128,17 @@ test('exact accounting catches any population or food change without a recorded 
   tamper(state => { state.groupAt[state.partition.regions.find(region => state.occupant[region.id] < 0)!.id] = 0; }, /records a band that is not there/);
 });
 
-test('breaking away is graded by distance from the heartland, the tribe\'s size and its culture, and never certain', async () => {
-  const { geography, partition } = await chronicleWorld();
-  const state = createSimulation(geography, partition, 'Breakaway');
-  const tribe = state.polities[state.living[0]], culture = state.cultures[tribe.culture], home = partition.regions[state.groups[tribe.core].region];
-  const byDistance = partition.regions.map(region => ({ id: region.id, km: greatCircleKm(geography, home.centroid, region.centroid) })).sort((a, b) => a.km - b.km);
-  const near = byDistance[1], middle = byDistance.find(entry => entry.km >= BAND_TUNING.reachKm)!, far = byDistance.find(entry => entry.km >= 2 * BAND_TUNING.reachKm)!;
-  const chance = (to: number, bands: number, expansionism = 0.5, tradition = 0.5) => {
-    const saved = culture.values;
-    culture.values = { ...saved, expansionism, tradition };
-    // The same tribe with more bands (its size is all that is read).
-    const result = breakawayChance(state, { ...tribe, groups: Array.from({ length: bands }, () => tribe.core) }, to).chance;
-    culture.values = saved;
-    return result;
-  };
-  assert.ok(near.km < 300 && chance(near.id, 1) < 0.02, `a small tribe's split next to its heartland almost always stays (${chance(near.id, 1)})`);
-  assert.ok(chance(near.id, 1) < chance(middle.id, 1) && chance(middle.id, 1) < chance(far.id, 1), 'likelier further from the heartland');
-  assert.ok(chance(far.id, 1) > 0.9 && chance(far.id, 1) < 1, 'far away it is likely, never certain');
-  assert.ok(chance(near.id, 5) < chance(near.id, 15) && chance(near.id, 15) < chance(near.id, BAND_TUNING.tribeBands), 'likelier the larger the tribe');
-  assert.ok(chance(near.id, BAND_TUNING.tribeBands) > 0.5 && chance(near.id, BAND_TUNING.tribeBands) < 0.75, 'a tribe of tribeBands bands loses most splits even near home');
-  assert.ok(chance(middle.id, 10, 0.9, 0.1) > chance(middle.id, 10) && chance(middle.id, 10) > chance(middle.id, 10, 0.1, 0.9), 'Expansionism raises it, Tradition lowers it');
+test('breaking away is graded by travel from the heartland, the tribe\'s size and its culture, and never certain', () => {
+  const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
+  const chance = (km: number, bands: number, culture: Partial<typeof values> = {}) => breakawayOdds(km, bands, { ...values, ...culture }).chance;
+  const reach = BAND_TUNING.reachKm;
+  assert.ok(chance(300, 1) < 0.02, `a small tribe's split next to its heartland almost always stays (${chance(300, 1)})`);
+  assert.ok(chance(300, 1) < chance(reach, 1) && chance(reach, 1) < chance(2 * reach, 1), 'likelier the further from the heartland in travel');
+  assert.ok(chance(2 * reach, 1) > 0.9 && chance(2 * reach, 1) < 1, 'far away it is likely, never certain');
+  assert.ok(chance(300, 5) < chance(300, 40) && chance(300, 40) < chance(300, BAND_TUNING.tribeBands), 'likelier the larger the tribe');
+  assert.ok(chance(300, BAND_TUNING.tribeBands) > 0.5 && chance(300, BAND_TUNING.tribeBands) < 0.75, 'a tribe of tribeBands bands loses most splits even near home');
+  assert.ok(chance(reach, 10, { expansionism: 0.9, tradition: 0.1 }) > chance(reach, 10) && chance(reach, 10) > chance(reach, 10, { expansionism: 0.1, tradition: 0.9 }), 'Expansionism raises it, Tradition lowers it');
+  assert.equal(chance(Number.POSITIVE_INFINITY, 1), 1, 'land cut off from the heartland always goes its own way');
 });
 
 test('a tribe that loses its heartland band passes the heartland to another of its bands', async () => {

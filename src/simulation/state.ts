@@ -72,13 +72,13 @@ export interface Polity {
   seaTick: number;
 }
 
-export const ACTIONS = ['expand', 'explore', 'nothing'] as const;
+export const ACTIONS = ['expand', 'explore', 'nothing', 'unite'] as const;
 export type Action = typeof ACTIONS[number];
 
 /** One decision step: every option with its score and the factors behind it, and the one chosen. */
 export interface DecisionRecord {
   tick: number; chosen: Action;
-  options: { action: Action; score: number; target: number | null; factors: { factor: string; weight: number }[] }[];
+  options: { action: Action; score: number; target: number | null; label: string | null; factors: { factor: string; weight: number }[] }[];
   /** What came of it: done, or why not (for example a target taken by someone else first). */
   outcome: string;
 }
@@ -145,7 +145,9 @@ export interface CenturyStats {
   /** First contacts so far, and the mean number of regions a civilization knows (in sight or remembered). */
   firstContacts: number; civKnownRegions: number;
   /** Decision steps so far by chosen action, expansions, bands absorbed or displaced by them, and expeditions. */
-  chosenExpand: number; chosenExplore: number; chosenNothing: number;
+  chosenExpand: number; chosenExplore: number; chosenNothing: number; chosenUnite: number;
+  /** Civilizations that united with a larger one so far. */
+  unions: number;
   expansions: number; absorbed: number; displaced: number; expeditions: number;
   /** People who migrated between populated regions. */
   migrants: number;
@@ -186,8 +188,8 @@ export interface Metrics {
   /** Decision steps by chosen action (VISION.md story health: the decision mix), and what expansion did. */
   chosen: Record<Action, number>;
   expansions: number; absorbed: number; displaced: number; expeditions: number; migrants: number;
-  /** Tribes that joined a civilization, and outbreaks of unrest. */
-  joined: number; unrestOutbreaks: number;
+  /** Tribes that joined a civilization, outbreaks of unrest, and civilizations that united with a larger one. */
+  joined: number; unrestOutbreaks: number; unions: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
