@@ -99,7 +99,7 @@ test('the region overlay draws region borders and the inspector names the select
   await expect(canvas).toHaveAttribute('data-region-borders', '0');
 });
 
-test('bands appear as markers, the world chart grows and a band region shows its people, births, deaths and food', async ({ page }) => {
+test('bands appear as markers and territories, the world chart grows and a band region shows its people, births, deaths and food', async ({ page }) => {
   await ready(page);
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-band-markers', '30');
@@ -124,6 +124,17 @@ test('bands appear as markers, the world chart grows and a band region shows its
   await expect(details).toContainText('Births this year');
   await expect(details).toContainText('Food security');
   await expect(page.locator('#region-capacity')).toContainText('people');
+  // Peoples' territories: every living polity's region is filled, by descent with a legend of the largest peoples,
+  // by era with an era legend, or hidden.
+  await expect(canvas).toHaveAttribute('data-territory-regions', String(frame.markers.ids.length));
+  await expect(page.getByRole('region', { name: 'Peoples legend' })).toContainText('regions · people');
+  await expect(page.locator('#polity-lineage')).toContainText('Descended from the');
+  await page.getByLabel('By era').check();
+  await expect(page.getByRole('region', { name: 'Peoples legend' })).toContainText('Stone');
+  await page.getByLabel('Hidden').check();
+  await expect(canvas).toHaveAttribute('data-territory-regions', '0');
+  await expect(page.getByRole('region', { name: 'Peoples legend' })).toHaveCount(0);
+  await page.getByLabel('By descent').check();
   await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/band of [\d,]+ people/);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');

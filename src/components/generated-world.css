@@ -129,3 +129,11 @@
 .world-known-techs { margin: 0; font-size: .64rem; line-height: 1.6; color: #5e6d5f; }
 
 .world-map-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+.world-peoples-options { border: 0; margin: .9rem 0 .3rem; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .7rem; }
+.world-peoples-options legend { padding: 0; margin-bottom: .35rem; font-size: .7rem; font-weight: 600; }
+.world-peoples-options label { display: inline-flex; align-items: center; gap: .3rem; }
+.world-peoples-legend ul { list-style: none; margin: 0 0 .6rem; padding: 0; display: grid; gap: .35rem; }
+.world-peoples-legend li { display: flex; justify-content: space-between; gap: .6rem; font-size: .66rem; }
+.world-peoples-legend li > span:first-child { display: inline-flex; align-items: center; gap: .45rem; }
+.world-peoples-legend li > span:last-child { color: var(--atlas-muted); white-space: nowrap; }

@@ -36,7 +36,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     seedText, seed: seedFromText(seedText), tick: 0, geography, partition, food: buildFoodModel(geography, partition),
     chronicle: new Chronicle(), cultures: [], polities: [], groups: [], living: [],
     settlements: [], owner: new Int32Array(regions).fill(-1), firsts: [], agricultureQuarterYear: -1, affinity: [],
-    learnedCount: new Int32Array(TECHS.length), deathCount: 0,
+    learnedCount: new Int32Array(TECHS.length), deathCount: 0, lineages: [],
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
     ledger: emptyLedger(regions), habitable: new Uint8Array(regions), settledLandmasses: [],

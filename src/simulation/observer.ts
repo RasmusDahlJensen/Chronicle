@@ -6,18 +6,18 @@ import type { SimulationState } from './state.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'markers' | 'settlements' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'markers' | 'settlements' | 'series' | 'inspect'>;
 
 /**
  * What an observer may see of the true world (VISION.md "Observer views": the god view). Built on request from the
  * state; it never changes the simulation.
  */
 export function observerView(state: SimulationState, inspect: number | null): View {
-  const ids: number[] = [], regions: number[] = [], populations: number[] = [], kinds: number[] = [], eras: number[] = [];
+  const ids: number[] = [], regions: number[] = [], populations: number[] = [], kinds: number[] = [], eras: number[] = [], lineages: number[] = [];
   let population = 0, civs = 0, specialists = 0, leadingEra = 0;
   for (const id of state.living) {
     const polity = state.polities[id], group = state.groups[polity.group];
-    ids.push(id); regions.push(polity.region); populations.push(group.size); kinds.push(polity.kind === 'civ' ? 1 : 0); eras.push(polity.knowledge.era);
+    ids.push(id); regions.push(polity.region); populations.push(group.size); kinds.push(polity.kind === 'civ' ? 1 : 0); eras.push(polity.knowledge.era); lineages.push(polity.lineage);
     population += group.size; specialists += group.specialists; leadingEra = Math.max(leadingEra, polity.knowledge.era);
     if (polity.kind === 'civ') civs++;
   }
@@ -30,8 +30,8 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
   const step = Math.max(1, Math.ceil(state.series.length / 500));
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
   return {
-    population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra,
-    markers: { ids, regions, populations, kinds, eras }, settlements, series, inspect: inspect === null ? null : inspectRegion(state, inspect),
+    population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages,
+    markers: { ids, regions, populations, kinds, eras, lineages }, settlements, series, inspect: inspect === null ? null : inspectRegion(state, inspect),
   };
 }
 
@@ -56,7 +56,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
     const knowledge = polity.knowledge, target = knowledge.target, exposure = target < 0 ? 0 : exposureOf(state, polity, target);
     const capital = polity.capital === null ? null : state.settlements[polity.capital];
     view = {
-      id: polity.id, kind: polity.kind, name: polity.name, culture: state.cultures[polity.culture].name, population: group.size,
+      id: polity.id, kind: polity.kind, name: polity.name, culture: state.cultures[polity.culture].name, lineage: state.lineages[polity.lineage] ?? '', population: group.size,
       birthsThisYear: group.birthsYear, deathsThisYear: group.deathsYear, birthsLastYear: group.lastBirths, deathsLastYear: group.lastDeaths,
       foodSecurity: round(group.foodSecurity), foodStoreMonths: group.size > 0 ? round(group.store / (group.size * FOOD_TUNING.unitsPerPersonMonth), 2) : 0,
       cropsMonths: group.size > 0 ? round(group.planted / (group.size * FOOD_TUNING.unitsPerPersonMonth), 2) : 0,

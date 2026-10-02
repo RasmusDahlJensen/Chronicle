@@ -4,7 +4,7 @@ import { RESOURCE_IDS } from '../shared/atlas.ts';
 import { RESOURCE_RULES } from '../src/world/resources.ts';
 import { depositState, validateTechData } from '../src/simulation/deposits.ts';
 import { ERA_NAMES } from '../shared/simulation.ts';
-import { ERA_COLORS } from '../src/observer/palettes.ts';
+import { ERA_COLORS, lineageColor, packColor } from '../src/observer/palettes.ts';
 import { availableTechs, chooseTarget, inheritKnowledge, knows, learn, researchCost, researchWeight, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { createRng } from '../src/simulation/rng.ts';
 import { ERAS, TECH_INDEX, TECHS, validateTechs } from '../src/simulation/techs.ts';
@@ -85,4 +85,15 @@ test('deposits are unknown, known or usable as knowledge grows', () => {
   knowledge = learn(knowledge, TECH_INDEX.get('Copper working')!);
   assert.equal(depositState(knowledge, 'copper'), 'usable');
   assert.equal(RESOURCE_IDS.length, 13);
+});
+
+test('every founding people gets its own colour, none of them sea blue', () => {
+  const colors = Array.from({ length: 30 }, (_, lineage) => lineageColor(lineage));
+  assert.equal(new Set(colors.map(color => color.join(','))).size, 30);
+  for (const [red, green, blue] of colors) {
+    const max = Math.max(red, green, blue), min = Math.min(red, green, blue), span = max - min || 1;
+    const hue = (max === red ? ((green - blue) / span + 6) % 6 : max === green ? (blue - red) / span + 2 : (red - green) / span + 4) * 60;
+    assert.ok(hue <= 180 || hue >= 240, `rgb(${red}, ${green}, ${blue}) (hue ${hue.toFixed(0)}°) reads as water`);
+  }
+  assert.equal(packColor([1, 2, 3], 1), (1 | 2 << 8 | 3 << 16 | 255 << 24) >>> 0, 'little-endian RGBA for image data');
 });

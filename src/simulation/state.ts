@@ -47,6 +47,8 @@ export interface Polity {
   foundedTick: number; deathTick: number | null; parent: number | null;
   /** Its population group (one per polity until migration exists). */
   group: number;
+  /** The starting band it descends from (0–29 by default): a people's lineage, kept by every daughter. */
+  lineage: number;
   knowledge: Knowledge;
   /** The landmass it began on; without Sailing it can never be anywhere else (VISION.md M2). */
   homeLandmass: number;
@@ -141,6 +143,8 @@ export interface SimulationState {
   /** Per region: the civilization that owns it (−1 for none). */
   owner: Int32Array;
   firsts: FirstDiscovery[];
+  /** Per lineage, the culture name of its starting band (the observer names peoples by it). */
+  lineages: string[];
   /** Discoveries of each tech so far and polities that have died out so far (exposure caches read them). */
   learnedCount: Int32Array; deathCount: number;
   /** Year when a quarter of living polities first knew Agriculture (−1 until then). */

@@ -14,7 +14,7 @@ import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { ERA_NAMES, RIVER_TIERS, simulationDate, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
-import { ERA_COLORS, SETTLEMENT_COLOR, SETTLEMENT_STROKE } from '../observer/palettes.ts';
+import { cssColor, ERA_COLORS, eraColor, lineageColor, packColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -27,6 +27,7 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
   const percent = research && research.cost > 0 ? Math.min(100, research.progress / research.cost * 100) : 0;
   return <div className="world-cell-band" aria-label={civ ? 'Civilization in this region' : 'Band in this region'} role="group" data-polity-kind={polity.kind}>
     <p className="atlas-detail-label">{civ ? 'Civilization' : 'Band'} · {ERA_NAMES[polity.era]} era</p><h3>{polity.name} <span>· {polity.culture} culture</span></h3>
+    <p className="atlas-panel-note" id="polity-lineage">Descended from the {polity.lineage} people, one of the starting bands.</p>
     <dl className="world-water-facts">
       <div><dt>Population</dt><dd id="band-population">{number.format(polity.population)}</dd></div>
       <div><dt>Births this year</dt><dd>{polity.birthsThisYear} <span>(last year {polity.birthsLastYear})</span></dd></div>
@@ -51,6 +52,8 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
     </section>
   </div>;
 }
+
+const formatPeople = (people: number) => people >= 1e6 ? `${(people / 1e6).toFixed(1)} M` : people >= 1e4 ? `${Math.round(people / 1e3)} k` : number.format(people);
 
 const fertilityFactors = [
   { key: 'warmth', label: 'Warmth', description: 'Annual temperature suitability.' },
@@ -98,6 +101,8 @@ export function GeneratedWorldLab() {
   const [resources, setResources] = useState(true);
   const [rivers, setRivers] = useState(true);
   const [showRegions, setShowRegions] = useState(false);
+  // Territories of the peoples living on the land, coloured by descent (which starting band) or by era.
+  const [peoples, setPeoples] = useState<'descent' | 'era' | 'off'>('descent');
   const [regions, setRegions] = useState<{ map: RegionMap; cells: Uint16Array } | null>(null);
   const [regionError, setRegionError] = useState<string | null>(null);
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
@@ -201,6 +206,30 @@ export function GeneratedWorldLab() {
     renderer.current.setSettlements(frame.settlements.cells.map((cell, index) => ({ x: cell % world.width, y: Math.floor(cell / world.width), capital: frame.settlements.capitals[index] === 1 })),
       { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE });
   }, [frame, regions, world, canvasRevision]);
+  // Each occupied region filled with its people's colour; bands lighter than settled civilizations.
+  useEffect(() => {
+    if (!renderer.current) return;
+    if (peoples === 'off' || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
+    const fill = new Uint32Array(regions.map.regions.length);
+    const { regions: at, kinds, eras, lineages } = frame.markers;
+    for (let index = 0; index < at.length; index++) {
+      const color = peoples === 'era' ? eraColor(eras[index]) : lineageColor(lineages[index]);
+      if (at[index] < fill.length) fill[at[index]] = packColor(color, kinds[index] === 1 ? TERRITORY_ALPHA.civ : TERRITORY_ALPHA.band);
+    }
+    renderer.current.setTerritories(fill);
+  }, [frame, regions, world, peoples, canvasRevision]);
+  // The largest peoples by descent for the legend: regions held and people.
+  const peopleSummary = useMemo(() => {
+    if (!frame) return { lineages: [], eras: [] as number[] };
+    const byLineage = new Map<number, { regions: number; population: number }>(), eras = new Array<number>(ERA_NAMES.length).fill(0);
+    frame.markers.lineages.forEach((lineage, index) => {
+      const entry = byLineage.get(lineage) ?? { regions: 0, population: 0 };
+      entry.regions++; entry.population += frame.markers.populations[index]; byLineage.set(lineage, entry);
+      eras[frame.markers.eras[index]]++;
+    });
+    const lineages = [...byLineage].map(([lineage, entry]) => ({ lineage, name: frame.lineages[lineage] ?? '?', ...entry })).sort((a, b) => b.population - a.population || a.lineage - b.lineage);
+    return { lineages, eras };
+  }, [frame]);
   const inspected = frame?.inspect && cellRegion && frame.inspect.region === cellRegion.id ? frame.inspect : null;
 
   function generate(event?: FormEvent) {
@@ -258,7 +287,19 @@ export function GeneratedWorldLab() {
             <label className="world-resource-toggle"><input type="checkbox" checked={resources} onChange={event => setResources(event.target.checked)} /> Resource sites</label>
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
             <ul className="world-resource-legend" aria-label="Resource site legend">{RESOURCE_IDS.map(resource => <li key={resource} title={`Extraction: ${RESOURCE_RULES[resource].extractionTechnology}`}><ResourceIcon resource={resource} />{RESOURCES[resource].label}</li>)}</ul>
+            <fieldset className="world-peoples-options"><legend>Peoples</legend>
+              {([['descent', 'By descent'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
+            </fieldset>
+            <p className="atlas-panel-note">Every region a band or civilization lives in is filled: lighter for roaming bands, stronger for settled civilizations. By descent, each of the starting peoples and all who split from it share a colour.</p>
           </section>
+          {peoples !== 'off' && frame && <section className="atlas-panel-section world-peoples-legend" aria-label="Peoples legend">
+            {peoples === 'descent' ? <><div className="atlas-section-heading"><h2>Peoples</h2><span>regions · people</span></div>
+              <ul>{peopleSummary.lineages.slice(0, 10).map(entry => <li key={entry.lineage}><span><span className="atlas-biome-swatch" style={{ backgroundColor: cssColor(lineageColor(entry.lineage)) }} aria-hidden="true" />{entry.name}</span><span>{number.format(entry.regions)} · {formatPeople(entry.population)}</span></li>)}</ul>
+              {peopleSummary.lineages.length > 10 && <p className="atlas-panel-note">and {peopleSummary.lineages.length - 10} more {peopleSummary.lineages.length - 10 === 1 ? 'people' : 'peoples'}.</p>}
+              <p className="atlas-panel-note">Each is named after the culture of its starting band; daughters keep their founders' colour.</p></>
+              : <><div className="atlas-section-heading"><h2>Eras</h2><span>polities</span></div>
+              <ul>{ERA_NAMES.map((era, index) => peopleSummary.eras[index] ? <li key={era}><span><span className="atlas-biome-swatch" style={{ backgroundColor: ERA_COLORS[index] }} aria-hidden="true" />{era}</span><span>{number.format(peopleSummary.eras[index])}</span></li> : null)}</ul></>}
+          </section>}
           <section className="atlas-panel-section world-legend" aria-label="Map legend">
             {layer === 'biomes' ? <><div className="atlas-section-heading"><h2>Biomes</h2><span>% of planet</span></div><ul className="atlas-biome-legend">{WORLD_BIOMES.map((biome, index) => <li key={biome}><span className="atlas-biome-name"><span className="atlas-biome-swatch" style={{ backgroundColor: WORLD_BIOME_STYLE[biome].color }} aria-hidden="true" />{WORLD_BIOME_STYLE[biome].label}</span><span>{world ? (world.biomeCounts[index] / (world.width * world.height) * 100).toFixed(1) : '—'}</span></li>)}</ul></>
               : layer === 'fertility' ? <><h2>Natural growing potential</h2><div className="world-climate-gradient" style={{ background: FERTILITY_GRADIENT }} /><div className="world-climate-scale"><span>0 · Low</span><span>50</span><span>100 · High</span></div><p className="world-water-key"><span style={{ backgroundColor: FERTILITY_WATER_COLOR }} aria-hidden="true" />Water · not growing land</p><p className="atlas-panel-note">An estimated 0–100 index combining warmth, moisture, soil, slope, and drainage. It describes natural conditions, not crop yield.</p></>

@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 3;
+export const SIMULATION_PROTOCOL_VERSION = 4;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -76,12 +76,15 @@ export const ObserverFrameSchema = Type.Object({
   /** Living civilizations, living settlements, specialists and the most advanced era any polity has reached. */
   civs: Type.Integer({ minimum: 0 }), settlementCount: Type.Integer({ minimum: 0 }), specialists: Type.Integer({ minimum: 0 }),
   leadingEra: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
-  /** Living polities as parallel arrays (id, region, population, kind 0 band / 1 civilization, era index), for map markers. */
+  /** Peoples by descent: the culture name of each starting band, indexed by lineage. */
+  lineages: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 1_000 }),
+  /** Living polities as parallel arrays (id, region, population, kind 0 band / 1 civilization, era index, lineage), for map markers and territories. */
   markers: Type.Object({
     ids: Type.Array(id(), { maxItems: 20_000 }), regions: Type.Array(id(), { maxItems: 20_000 }),
     populations: Type.Array(Type.Integer({ minimum: 1 }), { maxItems: 20_000 }),
     kinds: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 20_000 }),
     eras: Type.Array(Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), { maxItems: 20_000 }),
+    lineages: Type.Array(Type.Integer({ minimum: 0, maximum: 999 }), { maxItems: 20_000 }),
   }, { additionalProperties: false }),
   /** Living settlements as parallel arrays (id, cell, owner, capital 0/1), for village marks. */
   settlements: Type.Object({
@@ -99,6 +102,8 @@ export const ObserverFrameSchema = Type.Object({
     }, { additionalProperties: false }),
     polity: Type.Union([Type.Null(), Type.Object({
       id: id(), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]), name: Type.String({ maxLength: 40 }), culture: Type.String({ maxLength: 40 }),
+      /** The founding people it descends from (the culture name of its starting band). */
+      lineage: Type.String({ maxLength: 40 }),
       population: Type.Integer({ minimum: 0 }),
       birthsThisYear: Type.Integer({ minimum: 0 }), deathsThisYear: Type.Integer({ minimum: 0 }),
       birthsLastYear: Type.Integer({ minimum: 0 }), deathsLastYear: Type.Integer({ minimum: 0 }),
@@ -147,8 +152,9 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   const frame = value as ObserverFrame;
   for (let at = 1; at < frame.events.length; at++) if (frame.events[at].id <= frame.events[at - 1].id) throw invalid();
   if (frame.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
-  const { ids, regions, populations, kinds, eras } = frame.markers;
-  if ([regions, populations, kinds, eras].some(array => array.length !== ids.length)) throw invalid();
+  const { ids, regions, populations, kinds, eras, lineages } = frame.markers;
+  if ([regions, populations, kinds, eras, lineages].some(array => array.length !== ids.length)) throw invalid();
+  if (lineages.some(lineage => lineage >= frame.lineages.length)) throw invalid();
   const settlements = frame.settlements;
   if ([settlements.cells, settlements.owners, settlements.capitals].some(array => array.length !== settlements.ids.length)) throw invalid();
   if (ids.length !== frame.polities || frame.civs > frame.polities || kinds.filter(kind => kind === 1).length !== frame.civs) throw invalid();

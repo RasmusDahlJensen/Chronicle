@@ -60,6 +60,9 @@ test('M1 acceptance on Chronicle over 500 years: births and deaths, growth, spre
     }
   }
   assert.equal(new Set(state.living.map(id => state.polities[id].culture)).size, SPAWN_TUNING.bands);
+  // Each starting band founds a lineage named after its culture.
+  assert.deepEqual(state.living.map(id => state.polities[id].lineage), state.living.map((_, index) => index));
+  assert.deepEqual(state.lineages, state.living.map(id => state.cultures[state.polities[id].culture].name));
   const start = collectStats(state, 0);
   for (let month = 0; month < 500 * 12; month++) stepSimulation(state);
   const end = collectStats(state, 500), m = state.metrics;
@@ -74,6 +77,8 @@ test('M1 acceptance on Chronicle over 500 years: births and deaths, growth, spre
   const citing = moves.filter(event => event.causes.some(cause => (cause.factor === 'gameDepletion' || cause.factor === 'landPressure') && cause.weight >= 0.1));
   assert.ok(citing.length * 2 >= moves.length, `${citing.length} of ${moves.length} moves cite game depletion or land pressure`);
   assert.ok(end.waterPopulationShare >= 1.25 * end.waterRegionShare, `water share ${end.waterPopulationShare} vs ${end.waterRegionShare}`);
+  // Every daughter keeps its parent's lineage, so a people's spread can be followed from its founder.
+  for (const polity of state.polities) if (polity.parent !== null) assert.equal(polity.lineage, state.polities[polity.parent].lineage);
   const water = state.living.filter(id => isWaterRegion(state, state.polities[id].region)).length;
   assert.ok(water > 0 && water < state.living.length, 'bands live both near water and inland');
 });

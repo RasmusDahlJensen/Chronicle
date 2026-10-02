@@ -82,6 +82,7 @@ function newBand(state: SimulationState, rng: Rng, region: number, size: number,
   const polity: Polity = {
     id: state.polities.length, kind: 'band', name: createName(rng, culture.language), culture: culture.id, region,
     arrivedTick: state.tick, foundedTick: state.tick, deathTick: null, parent: parent?.id ?? null, group: state.groups.length,
+    lineage: parent ? parent.lineage : state.lineages.length,
     knowledge: parent ? inheritKnowledge(parent.knowledge) : startingKnowledge(),
     // A lineage's home is where its first band began: a daughter on another landmass is still away from home.
     homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], contactWeights: [], exposure: { tech: -1, learned: 0, deaths: 0, value: 0 }, capital: null, settledTick: null,
@@ -130,6 +131,7 @@ export function spawnBands(state: SimulationState) {
     // Cultures and names draw from their own stream, so naming rules never shift where or how large bands start.
     const naming = createRng(state.seed, 0, 0x5ba6, index);
     const band = newBand(state, naming, region, sizes[index], newCulture(state, naming, null), null);
+    state.lineages.push(state.cultures[band.culture].name);
     const size = sizes[index];
     const group = state.groups[band.group];
     group.store = size * UNITS;

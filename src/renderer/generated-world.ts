@@ -68,6 +68,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let rivers = true;
   let regionCells: Uint16Array | null = null, regionBorders: Path2D | null = null, regionBorderCount = 0, showRegions = false;
   let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' };
+  // Territories: one pixel per world cell, coloured by the people living in its region (drawn scaled on the overlay).
+  let territoryFill: Uint32Array | null = null, territoryImage: HTMLCanvasElement | null = null, territoryCount = 0;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
@@ -231,6 +233,15 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       target.setTransform(1, 0, 0, 1, 0, 0); target.clearRect(0, 0, overlay.width, overlay.height);
       target.setTransform(m.ratio, 0, 0, m.ratio, 0, 0);
     }
+    if (territoryFill && regionCells) {
+      territoryImage ??= paintTerritories(territoryFill, regionCells);
+      if (territoryImage) {
+        // Strong at world scale, where a region is a few pixels; fainter zoomed in, so the terrain shows through.
+        target.save(); target.imageSmoothingEnabled = false; target.globalAlpha = clamp(1.1 - m.scale * 0.05, 0.45, 1);
+        for (let copy = startCopy; copy <= endCopy; copy++) target.drawImage(territoryImage, left + copy * world.width * m.scale, top, world.width * m.scale, world.height * m.scale);
+        target.restore();
+      }
+    }
     if (showRegions && regionBorders) {
       target.save(); target.strokeStyle = '#5b3a29'; target.globalAlpha = 0.55; target.lineCap = 'square';
       for (let copy = startCopy; copy <= endCopy; copy++) {
@@ -240,8 +251,9 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       target.restore();
     }
     // Polity markers at their region's centre. Populations run from a few dozen foragers to a million farmers, so size
-    // follows the logarithm of population, and no marker grows wider than about half a region.
-    if (markers.length) {
+    // follows the logarithm of population, and no marker grows wider than about half a region. Over territories they
+    // appear once a region is large enough on screen to hold one.
+    if (markers.length && (!territoryFill || m.scale >= 2)) {
       target.save(); target.lineWidth = m.scale < 3 ? 0.6 : 1.2; target.strokeStyle = '#2b1d12';
       // Small at world scale (a region is a few pixels wide), larger when zoomed in.
       const grow = Math.sqrt(m.scale), largest = Math.max(1.4, 2.6 * m.scale);
@@ -277,7 +289,40 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     }
     canvas.dataset.regionBorders = String(showRegions ? regionBorderCount : 0);
     canvas.dataset.bandMarkers = String(markers.length);
+    canvas.dataset.territoryRegions = String(territoryFill && regionCells ? territoryCount : 0);
     canvas.dataset.settlementMarks = String(villages.length);
+  }
+  /**
+   * The territory image: each land cell takes its region's packed RGBA colour (0 = nobody lives there). Cells on the
+   * edge of a colour (beside another colour or empty land; water does not count) are drawn darker and nearly opaque,
+   * so each people's land reads as an outlined patch over the terrain.
+   */
+  function paintTerritories(fill: Uint32Array, cells: Uint16Array) {
+    const { width, height } = world;
+    if (cells.length !== width * height) return null;
+    const image = document.createElement('canvas');
+    image.width = width; image.height = height;
+    const paint = image.getContext('2d');
+    if (!paint) return null;
+    const pixels = paint.createImageData(width, height), packed = new Uint32Array(pixels.data.buffer);
+    // A neighbouring cell's colour; water (and the map's edge) takes the asking cell's colour, so coasts and lakes
+    // draw no outline.
+    const colorAt = (x: number, y: number, own: number) => {
+      if (y < 0 || y >= height) return own;
+      const region = cells[y * width + (x + width) % width];
+      return region ? (fill[region - 1] ?? 0) & 0xffffff : own;
+    };
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const region = cells[y * width + x], value = region ? fill[region - 1] ?? 0 : 0;
+      if (!value) continue;
+      const color = value & 0xffffff;
+      const edge = colorAt(x - 1, y, color) !== color || colorAt(x + 1, y, color) !== color || colorAt(x, y - 1, color) !== color || colorAt(x, y + 1, color) !== color;
+      if (!edge) { packed[y * width + x] = value; continue; }
+      const darker = (shift: number) => Math.round(((color >>> shift) & 0xff) * 0.62);
+      packed[y * width + x] = (darker(0) | darker(8) << 8 | darker(16) << 16 | 235 << 24) >>> 0;
+    }
+    paint.putImageData(pixels, 0, 0);
+    return image;
   }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
   function changed() {
@@ -388,12 +433,20 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     clearSelection() { select(null); },
     /** Band markers in world cell coordinates; replaces the previous set. */
     setBands(next: BandMarker[]) { markers = next; safe(() => overlay ? drawOverlay() : draw()); },
+    /**
+     * Territories: packed little-endian RGBA per region (`r | g << 8 | b << 16 | a << 24`, 0 for nobody), drawn under the
+     * borders and markers once the region map is set; null hides them.
+     */
+    setTerritories(fill: Uint32Array | null) {
+      territoryFill = fill; territoryImage = null; territoryCount = fill ? fill.reduce((count, value) => count + (value ? 1 : 0), 0) : 0;
+      safe(() => overlay ? drawOverlay() : draw());
+    },
     /** Settlement marks in world cell coordinates, in the observer's palette; replaces the previous set. */
     setSettlements(next: SettlementMark[], style: { fill: string; stroke: string }) { villages = next; villageStyle = style; safe(() => overlay ? drawOverlay() : draw()); },
     /** Region index from the simulation (region id + 1, 0 for water); null clears it. */
     setRegions(cells: Uint16Array | null, visible: boolean) {
       if (cells !== regionCells) {
-        regionCells = cells; regionBorders = null; regionBorderCount = 0;
+        regionCells = cells; regionBorders = null; regionBorderCount = 0; territoryImage = null;
         if (cells && cells.length === world.width * world.height) {
           const path = new Path2D(), runs = regionBorderRuns(cells, world.width, world.height);
           for (const run of runs) { path.moveTo(run.x1, run.y1); path.lineTo(run.x2, run.y2); }
@@ -408,7 +461,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; markers = []; villages = []; canvas.style.touchAction = '';
+      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; markers = []; villages = []; territoryFill = null; territoryImage = null; canvas.style.touchAction = '';
       if (overlay) overlay.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
     },
   };
