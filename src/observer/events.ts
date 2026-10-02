@@ -32,7 +32,7 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   expedition: '{@civ} sends an expedition from region {region}.',
   voyageLost: 'A voyage from {@civ} is lost at sea.',
   newLandsDiscovered: '{@civ} discovers new lands at region {region}.',
-  firstContact: '{@a} and {@b} meet for the first time.',
+  firstContact: 'The {name} and the {other} meet for the first time in region {region}{?sea|, across the sea}.',
   tradeAgreement: '{@a} and {@b} agree to trade {resource}.',
   nonAggressionPact: '{@a} and {@b} sign a non-aggression pact.',
   alliance: '{@a} and {@b} form an alliance.',

@@ -81,6 +81,8 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   // Specialists work in settlements only.
   assert.ok(state.living.every(id => state.polities[id].kind === 'civ' || state.polities[id].groups.every(group => state.groups[group].specialists === 0)));
   assert.ok(civs.some(id => state.polities[id].groups.some(group => state.groups[group].specialists > 0)), 'surplus frees specialists');
+  // Civilizations remember land beyond their sight, from their own travels and from their neighbours (M3).
+  assert.ok(civs.filter(id => state.polities[id].map.snapshots.size > 0).length * 2 > civs.length, 'most civilizations know land they cannot see');
   // Whole tribes settled: civilizations of many regions, a village in each (the invariants check one living village per
   // region they hold and the capital in the heartland every month).
   assert.ok(settled.some(event => (event.data.regions as number) >= 10), 'tribes of ten or more regions settled as one');

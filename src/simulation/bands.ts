@@ -3,6 +3,7 @@ import { capacity, FARM_METHOD, gameChange, harvest, HERD_METHOD, METHOD_COUNT, 
 import { greatCircleKm } from './geography.ts';
 import { inheritKnowledge, startingKnowledge, type Knowledge } from './knowledge.ts';
 import { createLanguage, createName } from './names.ts';
+import { emptyMap, forgetMap, inheritContacts, lookAgain, seeRegion } from './perception.ts';
 import { createRng, type Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
 import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING } from './tunables.ts';
@@ -102,6 +103,7 @@ function newGroup(state: SimulationState, polity: Polity, region: number, size: 
   };
   state.groups.push(group); polity.groups.push(group.id);
   state.occupant[region] = polity.id; state.groupAt[region] = group.id;
+  seeRegion(polity, region);
   return group;
 }
 
@@ -115,6 +117,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     // A lineage's home is where its first band began: a daughter on another landmass is still away from home.
     homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], contactWeights: [],
     exposure: { tech: -1, learned: 0, deaths: 0, value: 0 }, capital: null, settledTick: null,
+    map: emptyMap(state.partition.regions.length), met: new Map(),
   };
   state.polities.push(polity); state.living.push(polity.id);
   newGroup(state, polity, region, size);
@@ -290,6 +293,7 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
   const region = group.region;
   state.occupant[region] = -1; state.groupAt[region] = -1; state.overCapacity[region] = 0;
   polity.groups.splice(polity.groups.indexOf(group.id), 1);
+  lookAgain(polity);
   if (state.owner[region] === polity.id) {
     state.owner[region] = -1;
     for (const settlement of state.settlements) if (settlement.region === region && settlement.owner === polity.id && settlement.status === 'alive') {
@@ -299,6 +303,7 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
   if (polity.groups.length) return;
   polity.deathTick = tick; state.deathCount++;
   state.living.splice(state.living.indexOf(polity.id), 1);
+  forgetMap(polity);
   if (polity.kind === 'civ') {
     const capital = polity.capital !== null ? state.settlements[polity.capital] : null;
     state.chronicle.emit({
@@ -399,6 +404,7 @@ function move(state: SimulationState, context: TickContext, tribe: Polity, group
   state.occupant[from] = -1; state.groupAt[from] = -1; state.overCapacity[from] = 0;
   state.occupant[to] = tribe.id; state.groupAt[to] = group.id;
   group.region = to; group.arrivedTick = context.tick;
+  seeRegion(tribe, to);
   // The cached capacity may be a former occupant's; the over-capacity check needs this band's.
   regionCapacity(state, to);
   state.metrics.moves++;
@@ -430,6 +436,7 @@ function split(state: SimulationState, context: TickContext, tribe: Polity, grou
   if (breaksAway) {
     culture = newCulture(state, rng, state.cultures[tribe.culture]);
     polity = newTribe(state, rng, to, leaving, culture, tribe);
+    inheritContacts(state, polity, tribe, context.tick);
     child = state.groups[polity.core];
   } else {
     polity = tribe;

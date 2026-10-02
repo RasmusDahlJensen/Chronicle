@@ -1,7 +1,8 @@
 import { EVENT_TYPES } from '../../shared/simulation.ts';
 import type { RegionPartition } from './regions.ts';
 import { cellNeighbors, type SimulationGeography } from './geography.ts';
-import type { SimulationState } from './state.ts';
+import { KNOWN, OBSERVED, UNKNOWN } from './perception.ts';
+import type { Polity, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
 import { REGION_TUNING } from './tunables.ts';
 
@@ -84,6 +85,7 @@ export function checkInvariants(state: SimulationState) {
       else if (capital.region !== state.groups[polity.core].region) fail(`civilization ${id}'s capital is not in its heartland region ${state.groups[polity.core].region}`);
       else if (state.partition.regionOf[capital.cell] !== capital.region) fail(`settlement ${capital.id} is not on a land cell of its region`);
     } else if (polity.capital !== null) fail(`band ${id} has a capital`);
+    checkMap(state, polity, fail);
   }
   // Transfers close: everyone who left a region arrived in another, and food carried out was carried in somewhere.
   let migratedIn = 0, migratedOut = 0, carriedIn = 0, carriedOut = 0;
@@ -101,6 +103,30 @@ export function checkInvariants(state: SimulationState) {
     const game = state.gameStock[region];
     if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);
   }
+}
+
+/**
+ * Map knowledge (VISION.md "Knowledge of the world"): its own regions are in sight; only civilizations remember;
+ * research contacts are polities it has met; and, yearly per polity, the sight list is ascending and marked observed,
+ * every remembered region has a snapshot, contact is mutual and no region is marked without a record.
+ */
+function checkMap(state: SimulationState, polity: Polity, fail: (message: string) => never) {
+  const map = polity.map, id = polity.id;
+  if (map.status.length !== state.partition.regions.length) fail(`polity ${id} has a map of ${map.status.length} regions`);
+  for (const groupId of polity.groups) if (map.status[state.groups[groupId].region] !== OBSERVED) fail(`polity ${id} does not see its own region ${state.groups[groupId].region}`);
+  if (polity.kind === 'band' && map.snapshots.size) fail(`tribe ${id} remembers regions out of sight`);
+  for (const contact of polity.contacts) if (!polity.met.has(contact)) fail(`polity ${id} is in research contact with ${contact}, which it has not met`);
+  // The rest changes only when sight is rebuilt or polities meet: checked once a year per polity, staggered by id.
+  if ((state.tick + id) % 12 !== 0) return;
+  for (let at = 0; at < map.observed.length; at++) {
+    if (map.status[map.observed[at]] !== OBSERVED || (at > 0 && map.observed[at] <= map.observed[at - 1])) fail(`polity ${id}'s sight list is inconsistent at ${map.observed[at]}`);
+  }
+  map.snapshots.forEach((snapshot, region) => { if (map.status[region] !== KNOWN || snapshot.tick > state.tick) fail(`polity ${id} has a stray snapshot of region ${region}`); });
+  for (const other of polity.met.keys()) { const them = state.polities[other]; if (them.deathTick === null && !them.met.has(id)) fail(`polity ${id} has met ${other}, but not the other way round`); }
+  let marked = 0;
+  const status = map.status;
+  for (let region = 0; region < status.length; region++) if (status[region] !== UNKNOWN) marked++;
+  if (marked !== map.observed.length + map.snapshots.size) fail(`polity ${id} marks ${marked} regions but records ${map.observed.length + map.snapshots.size}`);
 }
 
 /**

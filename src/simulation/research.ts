@@ -1,5 +1,6 @@
 import { coreRegion, landPressure } from './bands.ts';
 import { blockedExtraction } from './deposits.ts';
+import { observe, shareSurroundings } from './perception.ts';
 import { farmingPotential } from './food.ts';
 import { chooseTarget, knows, learn, remaining, type ResearchContext } from './knowledge.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
@@ -71,7 +72,8 @@ export function refreshContacts(state: SimulationState, polity: Polity) {
       if (stamp[region] === mark) return;
       stamp[region] = mark; next.push(region);
       const other = state.occupant[region];
-      if (other >= 0 && other !== polity.id && !counted.has(other)) { counted.add(other); contacts.push(other); weights.push(weight); }
+      // Only polities it has met (M3: contact is meeting; M2's neutral form was nearness alone).
+      if (other >= 0 && other !== polity.id && !counted.has(other) && polity.met.has(other)) { counted.add(other); contacts.push(other); weights.push(weight); }
     };
     for (const region of frontier) {
       for (const edge of regions[region].neighbors) visit(edge.region);
@@ -139,10 +141,16 @@ export function research(state: SimulationState, context: TickContext) {
   // Discoveries take effect after every polity has researched this month, so knowledge moves at most one contact
   // a month (a neighbour's discovery this month counts from next month).
   const learned: { id: number; tech: number; exposure: number }[] = [];
+  // Sight first, so contacts and choices this month see the world as it is now (VISION.md: observed, refreshed every tick).
+  for (const id of state.living) {
+    const polity = state.polities[id];
+    if (polity.map.dirty || polity.map.sea !== polity.knowledge.sea || ((context.tick - id) % cadence + cadence) % cadence === 0) observe(state, polity, context.tick);
+  }
   for (const id of state.living) {
     const polity = state.polities[id], knowledge = polity.knowledge;
     // Yearly (staggered): refresh contacts and reconsider the target; otherwise choose only when there is none.
     if (((context.tick - id) % cadence + cadence) % cadence === 0) {
+      if (polity.kind === 'civ') shareSurroundings(state, polity, context.tick);
       refreshContacts(state, polity);
       chooseTarget(knowledge, contextFor(state, polity), context.stream(id));
     } else if (knowledge.target < 0) chooseTarget(knowledge, contextFor(state, polity), context.stream(id));

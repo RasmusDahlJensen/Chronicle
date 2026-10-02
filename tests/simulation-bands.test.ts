@@ -81,6 +81,10 @@ test('M1 acceptance on Chronicle over 500 years: births and deaths, growth, spre
   assert.ok(breakaways > 0 && breakaways * 2 < splits.length, `splits mostly stay in their tribe (${breakaways} of ${splits.length} broke away)`);
   assert.ok(end.tribes < end.bands, `tribes hold several bands (${end.tribes} tribes, ${end.bands} bands)`);
   for (const event of [...moves, ...splits]) assert.ok(event.causes.length > 0 && event.region !== null, `${event.type} ${event.id} records causes and a place`);
+  // Peoples meet as they spread (M3): each first contact is an event, between polities that know each other since.
+  const contacts = state.chronicle.events.filter(event => event.type === 'firstContact');
+  assert.ok(contacts.length > 0 && contacts.length === m.firstContacts, `${contacts.length} first contacts`);
+  for (const event of contacts) assert.ok(state.polities[event.actors[0].id].met.has(event.actors[1].id) && state.polities[event.actors[1].id].met.has(event.actors[0].id));
   const citing = moves.filter(event => event.causes.some(cause => (cause.factor === 'gameDepletion' || cause.factor === 'landPressure') && cause.weight >= 0.1));
   assert.ok(citing.length * 2 >= moves.length, `${citing.length} of ${moves.length} moves cite game depletion or land pressure`);
   assert.ok(end.waterPopulationShare >= 1.25 * end.waterRegionShare, `water share ${end.waterPopulationShare} vs ${end.waterRegionShare}`);
@@ -113,6 +117,9 @@ test('exact accounting catches any population or food change without a recorded 
     const group = core(state, 3);
     group.store += 500; state.ledger.food.get(group.id)!.carriedIn += 500;
   }, /carried out but .* carried in/);
+  // Contact that only one side remembers, and a band that does not see its own region.
+  tamper(state => { const polity = state.polities[state.living[0]]; polity.met.set(state.living[1], state.tick); state.polities[state.living[1]].met.delete(polity.id); }, /not the other way round/);
+  tamper(state => { const polity = state.polities[state.living[2]]; polity.map.status[state.groups[polity.core].region] = 0; }, /does not see its own region/);
   // An empty region that still names a band.
   tamper(state => { state.groupAt[state.partition.regions.find(region => state.occupant[region.id] < 0)!.id] = 0; }, /records a band that is not there/);
 });

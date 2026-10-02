@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 5;
+export const SIMULATION_PROTOCOL_VERSION = 6;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -122,6 +122,8 @@ export const ObserverFrameSchema = Type.Object({
       era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
       /** Known techs in graph order; research points a year; contacts within two regions. */
       known: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 200 }), researchPerYear: Type.Number({ minimum: 0 }), contacts: Type.Integer({ minimum: 0 }),
+      /** Its map: regions it knows (in sight or remembered), regions in sight, and polities it has met. */
+      regionsKnown: Type.Integer({ minimum: 1 }), regionsInSight: Type.Integer({ minimum: 1 }), met: Type.Integer({ minimum: 0 }),
       /** The active research target, its progress and cost at the current exposure, why it was chosen, and the strongest options at the last choice. */
       research: Type.Union([Type.Null(), Type.Object({
         tech: Type.String({ maxLength: 40 }), progress: Type.Number({ minimum: 0 }), cost: Type.Number({ minimum: 0 }), exposure: Type.Number({ minimum: 0, maximum: 1 }),

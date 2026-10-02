@@ -4,6 +4,7 @@ import { Chronicle } from './chronicle.ts';
 import { buildFoodModel, farmingPotential } from './food.ts';
 import type { SimulationGeography } from './geography.ts';
 import { checkInvariants } from './invariants.ts';
+import { knownRegionCount } from './perception.ts';
 import { regionAffinities, research, shareKnowing } from './research.ts';
 import { SYSTEMS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
 import type { RegionPartition } from './regions.ts';
@@ -40,7 +41,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1), groupAt: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
     ledger: emptyLedger(regions), habitable: new Uint8Array(regions), settledLandmasses: [],
-    metrics: { silentBandYears: 0, maxOverCapacityMonths: 0, moves: 0, movesCitingPressure: 0, movesLedByPressure: 0, splits: 0, breakaways: 0, births: 0, deaths: 0, famineDeaths: 0, settled: 0, discoveries: 0 },
+    metrics: { silentBandYears: 0, maxOverCapacityMonths: 0, moves: 0, movesCitingPressure: 0, movesLedByPressure: 0, splits: 0, breakaways: 0, births: 0, deaths: 0, famineDeaths: 0, settled: 0, discoveries: 0, firstContacts: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -84,7 +85,7 @@ function seriesPoint(state: SimulationState, year: number): [number, number, num
 }
 
 export function collectStats(state: SimulationState, year: number): CenturyStats {
-  let population = 0, largest = 0, largestRegions = 0, waterPopulation = 0, bands = 0, tribes = 0, occupied = 0, specialists = 0, leadingEra = 0;
+  let population = 0, largest = 0, largestRegions = 0, waterPopulation = 0, bands = 0, tribes = 0, occupied = 0, specialists = 0, leadingEra = 0, civKnown = 0;
   for (const id of state.living) {
     const polity = state.polities[id];
     let people = 0;
@@ -96,6 +97,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     }
     population += people; largest = Math.max(largest, people); largestRegions = Math.max(largestRegions, polity.groups.length);
     if (polity.kind === 'band') tribes++;
+    else civKnown += knownRegionCount(polity);
     leadingEra = Math.max(leadingEra, polity.knowledge.era);
   }
   let waterRegions = 0;
@@ -115,6 +117,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     settlements: state.settlements.filter(settlement => settlement.status === 'alive').length, specialists,
     agricultureShare: Math.round(shareKnowing(state, 'Agriculture') * 1000) / 1000, leadingEra,
     occupiedHabitableShare: Math.round(occupiedHabitableShare * 1000) / 1000,
+    firstContacts: m.firstContacts, civKnownRegions: state.living.length > tribes ? Math.round(civKnown / (state.living.length - tribes)) : 0,
   };
 }
 
@@ -152,6 +155,10 @@ export function stateHash(state: SimulationState) {
     for (const points of polity.knowledge.progress) if (points) add(points);
     for (const known of polity.knowledge.known) add(known);
     for (const contact of polity.contacts) add(contact);
+    // Who it has met and what it knows of the map decide what it can see and choose.
+    for (const [id, tick] of polity.met) { add(id); add(tick); }
+    for (const region of polity.map.observed) add(region);
+    for (const [region, snapshot] of polity.map.snapshots) { add(region); add(snapshot.occupant); add(snapshot.owner); add(snapshot.tick); }
   }
   for (const settlement of state.settlements) { add(settlement.cell); add(settlement.owner); add(settlement.status === 'alive' ? 1 : 0); add(settlement.capital ? 1 : 0); }
   for (const value of state.owner) add(value);

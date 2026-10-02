@@ -60,7 +60,27 @@ export interface Polity {
   exposure: { tech: number; learned: number; deaths: number; value: number };
   /** A civilization's capital settlement, and when it settled. */
   capital: number | null; settledTick: number | null;
+  /** What it knows of the map (VISION.md "Knowledge of the world"); read through `perception.ts`. */
+  map: MapKnowledge;
+  /** Polities it has met, with the tick they met (first contact, or a breakaway's birth); in the order met. */
+  met: Map<number, number>;
 }
+
+/**
+ * A polity's map: per region unknown (0), known (1: seen before, remembered as it was then) or observed (2: in sight
+ * now). Civilizations remember; tribes keep only what is in sight. Released (emptied) when the polity dies.
+ */
+export interface MapKnowledge {
+  status: Uint8Array;
+  /** The regions in sight, ascending. */
+  observed: number[];
+  /** What each known region looked like when last seen: who lived there and who owned it, and when. */
+  snapshots: Map<number, RegionSnapshot>;
+  /** Sight changes only when the polity's regions or its sea reach change: set when a group arrives or leaves, and the
+   *  sea reach the sight was last built with. */
+  dirty: boolean; sea: number;
+}
+export interface RegionSnapshot { occupant: number; owner: number; tick: number }
 
 /** A named place (VISION.md "Settlements"); until M3b only a village with a cell, region, owner and capital flag. */
 export interface Settlement {
@@ -105,6 +125,8 @@ export interface CenturyStats {
   agricultureShare: number; leadingEra: number;
   /** Lowest share of habitable regions occupied, over the landmasses that started with bands (story health: ≥ 50% by year 700). */
   occupiedHabitableShare: number;
+  /** First contacts so far, and the mean number of regions a civilization knows (in sight or remembered). */
+  firstContacts: number; civKnownRegions: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -131,6 +153,8 @@ export interface Metrics {
   splits: number; breakaways: number;
   births: number; deaths: number; famineDeaths: number;
   settled: number; discoveries: number;
+  /** First contacts between polities. */
+  firstContacts: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */

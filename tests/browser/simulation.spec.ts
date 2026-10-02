@@ -127,6 +127,9 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await expect(page.locator('#polity-regions')).toHaveText(held.length.toLocaleString('en'));
   await expect(page.locator('#polity-total')).toHaveText(held.reduce((sum: number, people: number) => sum + people, 0).toLocaleString('en'));
   await expect(details).toContainText('Births this year');
+  // What it knows of the map: the inspector shows the frame's counts.
+  const inspected = (await (await page.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${band.region}`)).json()).inspect.polity;
+  await expect(page.locator('#polity-map')).toContainText(`Knows ${inspected.regionsKnown.toLocaleString('en')} regions (${inspected.regionsInSight.toLocaleString('en')} in sight)`);
   await expect(details).toContainText('Food security');
   await expect(page.locator('#region-capacity')).toContainText('people');
   // Peoples' territories: every living polity's region is filled — by default by polity, with a legend of the largest

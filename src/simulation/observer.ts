@@ -3,6 +3,7 @@ import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { remaining } from './knowledge.ts';
 import { exposureOf, researchRate } from './research.ts';
 import { polityPopulation } from './bands.ts';
+import { knownRegionCount } from './perception.ts';
 import type { SimulationState } from './state.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING } from './tunables.ts';
@@ -76,6 +77,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       capital: capital ? { name: capital.name, cell: capital.cell, settled: polity.settledTick ?? capital.foundedTick } : null,
       era: knowledge.era, known: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => definition.name),
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
+      regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
       research: target < 0 ? null : {
         tech: TECHS[target].name, progress: round(knowledge.progress[target], 1), exposure: round(exposure),
         cost: round(knowledge.progress[target] + Math.max(0, remaining(knowledge, exposure)), 1),

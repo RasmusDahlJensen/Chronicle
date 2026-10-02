@@ -48,6 +48,7 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
     <p className="atlas-panel-note">Food security is expected food over need — for farmers, the coming harvest and other food over the harvest cycle; below 1, or when the store runs out before the harvest, people go hungry and famine deaths rise. Crops sown since the last harvest come in at the next one. Surplus frees specialists, who live in settlements and research; bands have none.</p>
     <section className="world-polity-knowledge" aria-label="Knowledge">
       <p className="atlas-detail-label">Research · {polity.researchPerYear.toLocaleString('en', { maximumFractionDigits: 1 })} points a year · {polity.contacts} contacts</p>
+      <p className="atlas-panel-note" id="polity-map">Knows {number.format(polity.regionsKnown)} regions ({number.format(polity.regionsInSight)} in sight{civ ? '; the rest as last seen' : ''}) and has met {number.format(polity.met)} living {polity.met === 1 ? 'people' : 'peoples'}.</p>
       {research ? <>
         <h4 id="polity-research">{research.tech} <span>{Math.round(percent)}%</span></h4>
         <p className="atlas-panel-note">{number.format(Math.round(research.progress))} of {number.format(Math.round(research.cost))} points{research.exposure > 0 ? ` · known nearby (exposure ${research.exposure.toFixed(2)})` : ''}.{research.reasons.length ? ` Chosen for ${research.reasons.map(reason => `${reason.factor} ${reason.weight >= 0 ? '+' : ''}${reason.weight.toFixed(2)}`).join(', ')}.` : ''}</p>
