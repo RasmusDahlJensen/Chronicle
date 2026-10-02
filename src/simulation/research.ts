@@ -5,7 +5,8 @@ import { farmingPotential } from './food.ts';
 import { chooseTarget, knows, learn, remaining, type ResearchContext } from './knowledge.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
 import { TECH_INDEX, TECHS, type Affinity } from './techs.ts';
-import { MOBILITY_TUNING, RESEARCH_TUNING } from './tunables.ts';
+import { MOBILITY_TUNING, RESEARCH_TUNING, STABILITY_TUNING } from './tunables.ts';
+import { unrestDepth } from './pressure.ts';
 import { WORLD_BIOMES } from '../../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
 
@@ -111,7 +112,8 @@ export function exposureOf(state: SimulationState, polity: Polity, tech: number)
 export function researchRate(state: SimulationState, polity: Polity) {
   const tuning = RESEARCH_TUNING, contacts = Math.min(polity.contacts.length, tuning.contactCap);
   let people = 0, specialists = 0;
-  for (const id of polity.groups) { const group = state.groups[id]; people += group.size; specialists += group.specialists; }
+  // Specialists in regions in unrest research less (VISION.md "Stability": lower output and research).
+  for (const id of polity.groups) { const group = state.groups[id]; people += group.size; specialists += group.specialists * (1 - STABILITY_TUNING.researchLoss * unrestDepth(state, group.region)); }
   return (tuning.basePerPerson * Math.min(people, tuning.basePeople) * (1 + tuning.contactBonus * contacts) + tuning.specialistResearch * specialists) * polity.knowledge.multipliers.research;
 }
 

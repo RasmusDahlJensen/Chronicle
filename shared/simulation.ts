@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 7;
+export const SIMULATION_PROTOCOL_VERSION = 8;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -131,6 +131,11 @@ export const ObserverFrameSchema = Type.Object({
       regionsKnown: Type.Integer({ minimum: 1 }), regionsInSight: Type.Integer({ minimum: 1 }), met: Type.Integer({ minimum: 0 }),
       /** Governance reach in travel-km, and this region's travel-km from the capital (null when cut off from it). */
       reachKm: Type.Number({ minimum: 0 }), capitalKm: Type.Union([Type.Null(), Type.Number({ minimum: 0 })]),
+      /** A civilization region's stability (0–1, as last assessed), whether it is in unrest, and what lowers it now. */
+      stability: Type.Union([Type.Null(), Type.Object({
+        value: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Boolean(),
+        hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }),
+      }, { additionalProperties: false })]),
       /** Its last decision step: every option with its score and factors, what it chose and what came of it. */
       lastDecision: Type.Union([Type.Null(), Type.Object({
         tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing')]),
@@ -193,7 +198,7 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   });
   if (polities.size !== frame.polities || frame.civs > frame.polities || civs.size !== frame.civs) throw invalid();
   // The civilization list holds the largest living civilizations, by people, with the regions and people they report.
-  if (frame.civList.length !== Math.min(frame.civs, 100)) throw invalid();
+  if (frame.civList.length !== Math.min(frame.civs, 100) || new Set(frame.civList.map(entry => entry.id)).size !== frame.civList.length) throw invalid();
   for (const [at, entry] of frame.civList.entries()) {
     let held = 0, people = 0;
     ids.forEach((polity, index) => { if (polity === entry.id) { held++; people += populations[index]; } });

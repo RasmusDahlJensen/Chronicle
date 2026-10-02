@@ -146,7 +146,9 @@
                     "message": "Decision code sees the world only through the view types perception.ts builds (VISION.md \"Implementation rule\").",
                     "allowImportNames": [
                       "PolityView",
-                      "Candidate"
+                      "Candidate",
+                      "JoinView",
+                      "JoinOption"
                     ]
                   }
                 },

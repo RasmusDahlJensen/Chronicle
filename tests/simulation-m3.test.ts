@@ -5,9 +5,13 @@ import { generateWorld } from '../src/world/generation/generate.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { decodeGeography } from '../src/simulation/geography.ts';
 import { arrive, decisionView, emptyMap, hasMet, inheritContacts, KNOWN, knownRegions, lookAgain, observe, regionView, shareSurroundings, UNKNOWN, type Candidate, type PolityView } from '../src/simulation/perception.ts';
-import { choose, expansionScore, explorationScore, options } from '../src/simulation/decisions/choose.ts';
+import { choose, drivers, expansionScore, explorationScore, options } from '../src/simulation/decisions/choose.ts';
+import { chooseJoin, joinOptions, joinScore } from '../src/simulation/decisions/join.ts';
+import { stabilityOf } from '../src/simulation/stability.ts';
+import { unrestDepth } from '../src/simulation/pressure.ts';
+import type { JoinOption, JoinView } from '../src/simulation/perception.ts';
 import { createRng } from '../src/simulation/rng.ts';
-import { DECISION_TUNING } from '../src/simulation/tunables.ts';
+import { DECISION_TUNING, REACH_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { soleCivilization } from '../src/simulation/scenarios.ts';
 import { stepSimulation } from '../src/simulation/simulation.ts';
@@ -170,7 +174,7 @@ function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] =
   return {
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
     reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0,
-    candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, ...entry })),
+    candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, ...entry })),
     ...overrides,
   };
 }
@@ -199,4 +203,54 @@ test('decision scores: crowding, good land and Expansionism draw a civilization 
   const picks = { expand: 0, explore: 0, nothing: 0 };
   for (let draw = 0; draw < 2000; draw++) picks[choose(view({ unknownFrontier: 8 }, [{}]), createRng(5, draw)).chosen.action]++;
   assert.ok(picks.expand > picks.explore && picks.explore > 0 && picks.nothing > 0, JSON.stringify(picks));
+});
+
+test('an expansion cites the needs that drove it, never its multipliers, and settlers must be there to send', () => {
+  const crowded = view({}, [{}]);
+  const option = expansionScore(crowded, crowded.candidates[0]);
+  assert.deepEqual(drivers(option).map(entry => entry.factor), ['landPressure']);
+  const empty = view({}, [{ fromPeople: 30 }]);
+  assert.equal(expansionScore(empty, empty.candidates[0]).score, Number.NEGATIVE_INFINITY, 'too few people to send settlers');
+  const tribe = view({}, [{ fromPeople: 30, tribe: true }]);
+  assert.ok(expansionScore(tribe, tribe.candidates[0]).score > 0, 'a band living there can still be taken in');
+});
+
+/** A tribe of 5,000 deciding at settling, with civilizations next to it as given. */
+function joining(options: Partial<JoinOption>[], values: Partial<JoinView['values']> = {}): JoinView {
+  return {
+    tribe: 1, people: 5_000, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5, ...values },
+    options: options.map((entry, at) => ({ civ: at + 10, kin: false, similarity: 0.7, seenPeople: 50_000, fed: 1, stability: 0.9, crossingKm: 400, border: 3, ...entry })),
+  };
+}
+
+test('joining: kin, a large well-kept civilization and an easy crossing draw a settling tribe in; pride and tradition hold it back', () => {
+  const score = (option: Partial<JoinOption>, values: Partial<JoinView['values']> = {}) => { const entry = joining([option], values); return joinScore(entry, entry.options[0]).score; };
+  assert.ok(score({ kin: true }) > score({}), 'kin');
+  assert.ok(score({ seenPeople: 500_000 }) > score({ seenPeople: 5_000 }), 'a larger civilization');
+  assert.ok(score({ fed: 1, stability: 1 }) > score({ fed: 0.3, stability: 0.2 }), 'well fed and stable');
+  assert.ok(score({ crossingKm: 2_000 }) < score({ crossingKm: 200 }), 'mountains or great rivers between them');
+  assert.ok(score({}, { tradition: 0.9, expansionism: 0.9 }) < score({}, { tradition: 0.1, expansionism: 0.1 }), 'tradition and expansionism');
+  // Founding its own is always an option; the choice is weighted random among the best.
+  const all = joinOptions(joining([{ kin: true }, {}]));
+  assert.ok(all.some(option => option.civ === null) && all.length === 3);
+  let joined = 0;
+  for (let draw = 0; draw < 1000; draw++) if (chooseJoin(joining([{ kin: true, seenPeople: 500_000 }]), createRng(3, draw)).chosen.civ !== null) joined++;
+  assert.ok(joined > 600 && joined < 1000, `kin next to a large civilization mostly join, not always (${joined} of 1,000)`);
+});
+
+test('stability: hunger, distance beyond the capital\'s reach and foreign rule lower it; unrest grows below the threshold', () => {
+  const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
+  const state = { cultures: [{ values }, { values: { ...values, tradition: 0.9, openness: 0.1 } }], stability: new Float64Array([1, 0.3, 0]) } as unknown as SimulationState;
+  const civ = { culture: 0, knowledge: { multipliers: { reach: 1 } } } as unknown as Polity;
+  const group = (foodSecurity: number, culture = 0) => ({ foodSecurity, culture }) as never;
+  const reach = REACH_TUNING.baseKm;
+  const home = stabilityOf(state, civ, group(1.2), reach / 2);
+  assert.equal(home.value, STABILITY_TUNING.base, 'fed, near the capital, its own people');
+  assert.ok(stabilityOf(state, civ, group(0.5), reach / 2).value < home.value, 'hunger');
+  assert.ok(stabilityOf(state, civ, group(1.2), reach * 2).value < home.value, 'beyond reach');
+  assert.equal(stabilityOf(state, civ, group(1.2), reach * 0.99).overextension, 0, 'within reach costs nothing');
+  assert.ok(stabilityOf(state, civ, group(1.2, 1), reach / 2).foreignRule > 0, 'another people under its rule');
+  assert.equal(unrestDepth(state, 0), 0);
+  assert.ok(unrestDepth(state, 1) > 0 && unrestDepth(state, 1) < unrestDepth(state, 2));
+  assert.equal(unrestDepth(state, 2), 1);
 });

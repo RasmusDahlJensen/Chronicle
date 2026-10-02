@@ -4,6 +4,7 @@ import { remaining } from './knowledge.ts';
 import { exposureOf, researchRate } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { capitalKm, knownRegionCount } from './perception.ts';
+import { stabilityOf } from './stability.ts';
 import type { Polity, SimulationState } from './state.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
@@ -84,6 +85,10 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
       reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: kmFromCapital === null ? null : Math.round(kmFromCapital),
       lastDecision: lastDecision(polity),
+      stability: polity.kind !== 'civ' ? null : (() => {
+        const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);
+        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule) };
+      })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
       research: target < 0 ? null : {
         tech: TECHS[target].name, progress: round(knowledge.progress[target], 1), exposure: round(exposure),

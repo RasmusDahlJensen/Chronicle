@@ -186,6 +186,8 @@ test('farming bands settle into civilizations with villages, specialists and res
   // M3: a civilization weighs expanding, exploring or doing nothing every six months; the inspector shows the last
   // step with its options and their reasons, and its governance reach.
   await expect(details.getByRole('region', { name: 'Decisions' })).toContainText('reach');
+  // M3.3: each civilization region has a stability, with what lowers it.
+  await expect(page.locator('#polity-stability')).toContainText(/Stability here [01]\.\d\d/);
   await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing/);
   // Do nothing is always weighed; Expand only when it knows land next to its own that nobody holds.
   const weighed = details.getByRole('list', { name: 'Options weighed' });

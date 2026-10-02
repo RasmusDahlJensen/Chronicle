@@ -100,6 +100,8 @@ export function checkInvariants(state: SimulationState) {
     if (now[region] !== expected) fail(`region ${region} population ${now[region]} differs from its accounted ${expected}`);
     const owner = state.owner[region];
     if (owner >= 0 && (state.polities[owner]?.kind !== 'civ' || state.polities[owner].deathTick !== null || state.occupant[region] !== owner)) fail(`region ${region} is owned by ${owner}, which is not a living civilization there`);
+    const stable = state.stability[region];
+    if (!(stable >= 0 && stable <= 1) || (owner < 0 && (stable !== 1 || state.unrest[region] !== 0))) fail(`region ${region} has stability ${stable} (unrest ${state.unrest[region]}) under owner ${owner}`);
     const game = state.gameStock[region];
     if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);
   }

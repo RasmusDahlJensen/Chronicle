@@ -1,3 +1,4 @@
+import { cultureSimilarity } from './culture.ts';
 import { landPressure } from './pressure.ts';
 import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
 import { MOBILITY_TUNING, REACH_TUNING } from './tunables.ts';
@@ -178,9 +179,9 @@ export interface PolityView {
 
 export interface Candidate {
   region: number;
-  /** Its own region next to it with the most people (where settlers would come from), that region's land pressure,
+  /** Its own region next to it with the most people (where settlers would come from), its people and land pressure,
    *  and the crossing's travel cost. */
-  from: number; pressure: number; crossingKm: number;
+  from: number; fromPeople: number; pressure: number; crossingKm: number;
   /** Travel cost from its capital, through its own land. */
   capitalKm: number;
   /** The land's value (static farming capacity) and whether a tribe's band lives there, as it knows. */
@@ -225,6 +226,12 @@ function travelFromCapital(state: SimulationState, polity: Polity) {
 
 const travelled = (region: number) => costStamp[region] === costMark ? cost[region] : Number.POSITIVE_INFINITY;
 
+/** Travel-km from the polity's capital to each of its regions and the land next to them (∞ when cut off); the getter is valid until the next search. */
+export function capitalTravel(state: SimulationState, polity: Polity): (region: number) => number {
+  travelFromCapital(state, polity);
+  return travelled;
+}
+
 /** Travel-km from the polity's capital to one of its regions or the land next to them (null when cut off). */
 export function capitalKm(state: SimulationState, polity: Polity, region: number) {
   travelFromCapital(state, polity);
@@ -252,7 +259,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     const size = state.groups[state.groupAt[from]].size, current = found.get(region);
     if (current && state.groups[state.groupAt[current.from]].size >= size) return;
     found.set(region, {
-      region, from, pressure: landPressure(size, state.capacity[from]), crossingKm: crossing, capitalKm: Number.POSITIVE_INFINITY,
+      region, from, fromPeople: size, pressure: landPressure(size, state.capacity[from]), crossingKm: crossing, capitalKm: Number.POSITIVE_INFINITY,
       value: state.landValue[region], tribe: view.occupant >= 0,
     });
   };
@@ -280,6 +287,50 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
 }
 
 let frontierStamp = new Int32Array(0), frontierMark = 0;
+
+/**
+ * What a farming tribe about to settle weighs (VISION.md "Joining"): each civilization it has met whose land it sees
+ * next to its own, as far as it can tell from what it sees — kinship, how alike their ways are, the people it sees in
+ * that civilization's regions, how well fed they are and how stable their regions, and the easiest crossing.
+ */
+export interface JoinView { tribe: number; people: number; values: CultureValues; options: JoinOption[] }
+export interface JoinOption {
+  civ: number; kin: boolean; similarity: number;
+  /** Its people in the tribe's sight, their food security (0–1, people-weighted) and their regions' stability. */
+  seenPeople: number; fed: number; stability: number;
+  /** The cheapest crossing from the tribe's land into its land, and the tribe's region on that crossing. */
+  crossingKm: number; border: number;
+}
+
+export function joinView(state: SimulationState, tribe: Polity): JoinView {
+  const regions = state.partition.regions, culture = state.cultures[tribe.culture];
+  const found = new Map<number, JoinOption>();
+  let people = 0;
+  for (const id of tribe.groups) {
+    const region = state.groups[id].region;
+    people += state.groups[id].size;
+    for (const edge of regions[region].neighbors) {
+      const civ = state.owner[edge.region];
+      if (civ < 0 || !tribe.met.has(civ)) continue;
+      const km = edgeKm(edge.travelKm, edge.riverTier), option = found.get(civ);
+      if (option && option.crossingKm <= km) continue;
+      if (option) { option.crossingKm = km; option.border = region; continue; }
+      const them = state.polities[civ];
+      found.set(civ, {
+        civ, kin: them.lineage === tribe.lineage, similarity: cultureSimilarity(culture.values, state.cultures[them.culture].values),
+        seenPeople: 0, fed: 0, stability: 0, crossingKm: km, border: region,
+      });
+    }
+  }
+  for (const region of tribe.map.observed) {
+    const option = found.get(state.owner[region]);
+    if (!option) continue;
+    const group = state.groups[state.groupAt[region]];
+    option.seenPeople += group.size; option.fed += group.size * Math.min(1, group.foodSecurity); option.stability += group.size * state.stability[region];
+  }
+  for (const option of found.values()) if (option.seenPeople > 0) { option.fed /= option.seenPeople; option.stability /= option.seenPeople; }
+  return { tribe: tribe.id, people, values: { ...culture.values }, options: [...found.values()].sort((a, b) => a.civ - b.civ) };
+}
 
 function push(at: number, region: number) {
   heap.push(at, region);
@@ -322,6 +373,20 @@ export function reveal(state: SimulationState, polity: Polity, region: number, t
   map.status[region] = KNOWN;
   map.snapshots.set(region, { occupant: state.occupant[region], owner: state.owner[region], tick });
   return fresh;
+}
+
+/** A polity that joins or is annexed hands over what it knew: the newer view of each region is kept (VISION.md "Sharing knowledge"). */
+export function absorbMap(state: SimulationState, into: Polity, from: Polity, tick: number) {
+  for (const region of from.map.observed) if (into.map.status[region] !== OBSERVED) {
+    into.map.status[region] = KNOWN;
+    into.map.snapshots.set(region, { occupant: state.occupant[region], owner: state.owner[region], tick });
+  }
+  from.map.snapshots.forEach((snapshot, region) => {
+    if (into.map.status[region] === OBSERVED) return;
+    const mine = into.map.snapshots.get(region);
+    if (mine && mine.tick >= snapshot.tick) return;
+    into.map.status[region] = KNOWN; into.map.snapshots.set(region, { ...snapshot });
+  });
 }
 
 /** A dead polity's map is released; who it met stays as history. */

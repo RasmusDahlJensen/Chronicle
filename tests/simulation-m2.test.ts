@@ -10,6 +10,9 @@ import { exposureOf } from '../src/simulation/research.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { createSimulation, stepSimulation, worldPopulation } from '../src/simulation/simulation.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
+import { expand } from '../src/simulation/expansion.ts';
+import type { Rng } from '../src/simulation/rng.ts';
+import { refuge } from '../src/simulation/bands.ts';
 
 async function chronicleWorld() {
   const bundle = encodeGeneratedWorld(await generateWorld({ seed: 'Chronicle', size: 'large' }));
@@ -25,7 +28,12 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   // Every tick runs the invariants, including the rule that no polity holds another landmass before Sailing.
   const population = [worldPopulation(state)];
   let viaNeighbours = 0;
+  let exercised = false;
   while (state.tick < 12 * 900) {
+    // Once civilizations and tribes live side by side, carry out expansions into tribes' land directly (between months,
+    // so the next month's accounting starts from the result): a band the settlers could not replace is taken in, and
+    // one with land to go to that will not join moves on and the settlers found a village.
+    if (!exercised && state.tick >= 12 * 560) exercised = exerciseExpansion(state);
     // Knowledge moves at most one contact a month: whoever learns Agriculture from neighbours this month has a contact
     // that knew it when the month began.
     const knew = new Uint8Array(state.polities.length);
@@ -81,6 +89,13 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   // Specialists work in settlements only.
   assert.ok(state.living.every(id => state.polities[id].kind === 'civ' || state.polities[id].groups.every(group => state.groups[group].specialists === 0)));
   assert.ok(civs.some(id => state.polities[id].groups.some(group => state.groups[group].specialists > 0)), 'surplus frees specialists');
+  assert.ok(exercised, 'a civilization next to a tribe was found to exercise expansion');
+  // Tribes join civilizations as they settle (M3.3): each join is an event with its causes, and the tribe ends.
+  const joins = state.chronicle.events.filter(event => event.type === 'bandJoined');
+  assert.ok(joins.length > 0 && joins.length === state.metrics.joined, `${joins.length} tribes joined`);
+  assert.ok(joins.every(event => event.causes.length > 0 && state.polities[event.actors[0].id].deathTick !== null));
+  const unrest = state.chronicle.events.filter(event => event.type === 'unrest');
+  assert.equal(unrest.length, state.metrics.unrestOutbreaks);
   // Civilizations decide every six months (M3): each step is logged; expanding takes in tribes' bands or sends settlers,
   // and every such change is an event with its causes.
   const m = state.metrics;
@@ -148,3 +163,43 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
   }, /has no village there/);
   tamper(state => { state.groups[state.polities[state.living[3]].core].planted += 100; }, /crops in the field/);
 });
+
+/** A stand-in for a random stream whose chances always fail (the band never agrees to join). */
+const refusing: Rng = { next: () => 0.999, int: () => 0, chance: () => false, weighted: weights => weights.findIndex(weight => weight > 0) };
+
+/** Expand into tribes' land next to a civilization both ways; false while no such pair exists yet. */
+function exerciseExpansion(state: ReturnType<typeof createSimulation>) {
+  const pairs: { civ: number; from: number; target: number }[] = [];
+  for (const id of state.living) {
+    const civ = state.polities[id];
+    if (civ.kind !== 'civ') continue;
+    for (const groupId of civ.groups) {
+      const from = state.groups[groupId].region;
+      for (const edge of state.partition.regions[from].neighbors) {
+        const other = state.occupant[edge.region];
+        if (other >= 0 && state.polities[other].kind === 'band') pairs.push({ civ: id, from, target: edge.region });
+      }
+    }
+  }
+  const tribeAt = (region: number) => state.polities[state.occupant[region]];
+  const replaceable = pairs.find(pair => refuge(state, tribeAt(pair.target), state.groups[state.groupAt[pair.target]], pair.target) >= 0 && state.groups[state.groupAt[pair.from]].size > 1000);
+  const blocked = pairs.find(pair => pair !== replaceable && pair.target !== replaceable?.target);
+  if (!replaceable || !blocked) return false;
+  // Settlers cannot come (too few people to spare): the band is taken in, not driven out for nothing.
+  const source = state.groups[state.groupAt[blocked.from]], kept = source.size;
+  source.size = 30;
+  const displaced = state.metrics.displaced, band = state.groupAt[blocked.target];
+  assert.equal(expand(state, { tick: state.tick }, refusing, state.polities[blocked.civ], blocked.target, blocked.from, [{ factor: 'test', weight: 1 }]), 'took in a band');
+  assert.equal(state.metrics.displaced, displaced);
+  assert.equal(state.owner[blocked.target], blocked.civ); assert.equal(state.groups[band].polity, blocked.civ);
+  source.size = kept;
+  // The band will not join and has land to go to: it moves on, and settlers found a village.
+  const tribe = tribeAt(replaceable.target), moving = state.groupAt[replaceable.target], villages = state.settlements.length;
+  assert.equal(expand(state, { tick: state.tick }, refusing, state.polities[replaceable.civ], replaceable.target, replaceable.from, [{ factor: 'test', weight: 1 }]), 'expanded');
+  assert.equal(state.metrics.displaced, displaced + 1);
+  assert.equal(state.groups[moving].polity, tribe.id, 'the band is still its tribe\'s');
+  assert.notEqual(state.groups[moving].region, replaceable.target);
+  assert.equal(state.owner[replaceable.target], replaceable.civ);
+  assert.equal(state.settlements.length, villages + 1);
+  return true;
+}

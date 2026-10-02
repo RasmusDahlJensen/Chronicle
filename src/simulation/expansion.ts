@@ -31,33 +31,31 @@ export function expand(state: SimulationState, context: Pick<TickContext, 'tick'
   const tick = context.tick;
   if (state.owner[target] >= 0) return 'taken by another civilization first';
   if (state.occupant[from] !== civ.id) return 'its own land there is gone';
-  const occupant = state.occupant[target];
+  const occupant = state.occupant[target], source = state.groups[state.groupAt[from]], tuning = EXPAND_TUNING;
+  // As many settlers as the new land feeds well (a share of its capacity), at most a share of the source's people.
+  const room = Math.floor(regionCapacity(state, target, civ.knowledge) * tuning.settlerRoom);
+  const settlers = Math.min(room, Math.max(tuning.minSettlers, Math.floor(source.size * tuning.settlerShare)));
+  const settling = settlers < tuning.minSettlers ? 'the land is too poor to settle' : source.size - settlers < tuning.minSettlers ? 'too few people to send' : null;
   if (occupant >= 0) {
     const tribe = state.polities[occupant], band = state.groups[state.groupAt[target]];
     const chance = absorbChance(polityPopulation(state, civ), band.size, state.cultures[tribe.culture].values.tradition);
-    // A band with nowhere to go that would feed it stays and joins.
+    // A band with nowhere to go that would feed it stays and joins; so does one the newcomers could not replace.
     const to = refuge(state, tribe, band, target);
-    if (to < 0 || rng.chance(chance)) {
-      transferGroup(state, rng, band, tribe, civ, tick);
-      regionCapacity(state, target);
-      state.metrics.absorbed++;
-      markExpansion(civ, tick);
+    if (to < 0 || settling !== null || rng.chance(chance)) {
       state.chronicle.emit({
         type: 'bandAbsorbed', actors: [{ id: tribe.id, role: 'band' }, { id: civ.id, role: 'civ' }], region: target,
         causes: [...cited, ...(to >= 0 ? [] : [{ factor: 'nowhereToGo', weight: 1 }])].slice(0, 4), importance: 0.08,
-        data: { name: tribe.name, civ: civ.name, population: band.size, ended: tribe.deathTick !== null },
+        data: { name: tribe.name, civ: civ.name, population: band.size, ended: tribe.groups.length === 1 },
       });
+      transferGroup(state, rng, band, tribe, civ, tick, cited);
+      regionCapacity(state, target);
+      state.metrics.absorbed++;
+      markExpansion(civ, tick);
       return 'took in a band';
     }
     move(state, context, tribe, band, to, { displaced: 1 });
     state.metrics.displaced++;
-  }
-  const source = state.groups[state.groupAt[from]], tuning = EXPAND_TUNING;
-  // As many as the new land feeds well (a share of its capacity), at most a share of the source's people.
-  const room = Math.floor(regionCapacity(state, target, civ.knowledge) * tuning.settlerRoom);
-  const settlers = Math.min(room, Math.max(tuning.minSettlers, Math.floor(source.size * tuning.settlerShare)));
-  if (settlers < tuning.minSettlers) return 'the land is too poor to settle';
-  if (source.size - settlers < tuning.minSettlers) return 'too few people to send';
+  } else if (settling !== null) return settling;
   const group = newGroup(state, civ, target, settlers);
   const carried = Math.floor(source.store * settlers / source.size);
   const flows = state.ledger.food.get(source.id);
@@ -80,7 +78,7 @@ export function expand(state: SimulationState, context: Pick<TickContext, 'tick'
 }
 
 /**
- * An expedition (VISION.md "Exploration"): from its own region with the most unknown neighbours it walks
+ * An expedition (VISION.md "Exploration"): from the edge of its sight where most land is unknown it walks
  * EXPLORE_TUNING.range steps (more with sea reach), each step to the neighbour with the most land it does not know
  * (ties at random), mapping every region it passes and those next to them, and meeting whoever lives on its path.
  */
@@ -92,13 +90,10 @@ export function explore(state: SimulationState, tick: number, rng: Rng, civ: Pol
     if (sea > 0) for (const link of regions[region].sea) if (sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) options.push(link.region);
     return options;
   };
+  // Its own regions' neighbours are always in sight, so expeditions set out from the edge of its sight: the region
+  // there that borders the most unknown land (the lowest id among equals).
   let start = -1, most = 0;
-  for (const id of civ.groups) {
-    const region = state.groups[id].region, count = unknownAround(region);
-    if (count > most || (count === most && count > 0 && region < start)) { start = region; most = count; }
-  }
-  // Nothing unknown next to its own land: set out from the region of its sight that borders the most unknown land.
-  if (start < 0) for (const region of map.observed) {
+  for (const region of map.observed) {
     const count = unknownAround(region);
     if (count > most) { start = region; most = count; }
   }

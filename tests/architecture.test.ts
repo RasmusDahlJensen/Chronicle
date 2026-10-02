@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -123,4 +123,16 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   assert.match(invalid.output, /noNodejsModules/);
   assert.match(invalid.output, /noImportCycles/);
   assert.match(invalid.output, /noUndeclaredDependencies/);
+});
+
+test('decision code names no true-state type or module, not even through an import() type expression', async () => {
+  // The Biome rule cannot see `import('../state.ts').SimulationState` written as a type; this scan of the real folder can.
+  const folder = new URL('../src/simulation/decisions/', import.meta.url);
+  const files = (await readdir(folder)).filter(name => name.endsWith('.ts'));
+  assert.ok(files.length > 0);
+  for (const name of files) {
+    const text = await readFile(new URL(name, folder), 'utf8');
+    assert.doesNotMatch(text, /\bimport\s*\(/, `${name} uses an import() expression`);
+    assert.doesNotMatch(text, /\b(SimulationState|PopulationGroup|Polity|Settlement|MapKnowledge)\b/, `${name} names a true-state type`);
+  }
 });

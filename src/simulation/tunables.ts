@@ -117,7 +117,7 @@ export const BAND_TUNING = {
    * tribeBands)^sizePower and c = 1 + cultureWeight × (Expansionism − Tradition). Near the heartland of a small tribe
    * splits almost always stay; far out, or in a large tribe, they mostly go their own way.
    */
-  reachKm: 1_200, distancePower: 3, tribeBands: 30, sizePower: 2, cultureWeight: 0.8,
+  reachKm: 2_000, distancePower: 3, tribeBands: 80, sizePower: 2, cultureWeight: 0.8,
 } as const;
 
 export const SPAWN_TUNING = {
@@ -179,8 +179,11 @@ export const SPECIALIST_TUNING = {
 } as const;
 
 export const SETTLE_TUNING = {
-  /** Yearly settling chance rises from `from` to `from + span` years in a region, times (0.3 + 0.7 × farmed/herded share of food). */
-  fromYears: 10, spanYears: 20, baseShare: 0.3,
+  /**
+   * Yearly settling chance: rises from `from` to `from + span` years in a region, times rate × (baseShare + (1 −
+   * baseShare) × farmed/herded share of food)^farmingPower — people settle as they come to live off their fields.
+   */
+  fromYears: 10, spanYears: 20, baseShare: 0.3, rate: 1, farmingPower: 1, scalePeople: 200_000, scalePower: 2,
 } as const;
 
 export const MOBILITY_TUNING = { coastalSailingKm: 300 } as const;
@@ -197,7 +200,7 @@ export const DECISION_TUNING = { months: 6, minScore: 0.02, doNothing: 0.08, top
  * chiefdom's `baseKm` (government forms change it from M7) times its techs' reach multiplier. Travel cost is an edge's
  * travel-km, plus a share of it for crossing a stream, river or great river, and sea crossings cost `seaFactor` per km.
  */
-export const REACH_TUNING = { baseKm: 1_500, riverCrossing: [0, 0.1, 0.5, 1], seaFactor: 1.5 } as const;
+export const REACH_TUNING = { baseKm: 3_000, riverCrossing: [0, 0.1, 0.5, 1], seaFactor: 1.5 } as const;
 
 /**
  * Expansion (VISION.md "Expansion", no threshold): a candidate's score is drive × value × culture − distance − reach.
@@ -216,6 +219,32 @@ export const EXPAND_TUNING = {
   hungerWeight: 0.5, opportunityWeight: 0.5, valuePower: 0.5, occupiedValue: 0.7, expansionismBase: 0.5, distancePerKm: 0.00003, reachWeight: 0.05, reachPower: 4,
   settlerShare: 0.15, settlerRoom: 0.5, minSettlers: 20,
   absorbBase: 0.5, absorbSize: 0.6, absorbTradition: 0.6, absorbMin: 0.1, absorbMax: 0.95,
+} as const;
+
+/**
+ * Joining (VISION.md "Joining"): a farming tribe about to settle weighs each civilization it has met whose land it sees
+ * next to its own against founding its own (`foundScore`). A civilization's pull = kin (the same founding people) +
+ * similarity × culture similarity + prestige × min(1, log10(1 + its people in sight ÷ the tribe's) ÷ prestigeScale)
+ * + fed × how well fed its people in sight are + stability × how stable their regions are − crossing × the cheapest
+ * crossing's travel-km ÷ 1,000; the tribe's Tradition and Expansionism hold it back (resistance). The choice is
+ * weighted random among the best `DECISION_TUNING.topChoices` above `DECISION_TUNING.minScore`. The civilization
+ * takes the tribe in with chance 1 ÷ (1 + (travel-km from its capital to the tribe's land ÷ its reach)^admitPower).
+ */
+export const JOIN_TUNING = {
+  kin: 0.6, similarity: 0.3, prestige: 0.6, prestigeScale: 2, fed: 0.1, stability: 0.1, crossing: 0.15,
+  tradition: 0.3, expansionism: 0.3, foundScore: 0.1, admitPower: 4,
+} as const;
+
+/**
+ * Regional stability (VISION.md "Stability", M3's basic form), yearly per civilization: base − hunger × (1 − food
+ * security) − min(overextensionCap, overextension × (travel-km from the capital ÷ reach − 1, if beyond reach)) −
+ * foreignRule × (1 − similarity) where a people of another culture lives. Below `unrestBelow` a region falls into
+ * unrest (an event) until it recovers past unrestBelow + hysteresis; below it, output falls by up to `outputLoss`
+ * and its specialists' research by up to `researchLoss`, in proportion to how far below it is.
+ */
+export const STABILITY_TUNING = {
+  base: 0.9, hunger: 0.6, overextension: 0.4, overextensionCap: 0.8, foreignRule: 0.5,
+  unrestBelow: 0.4, hysteresis: 0.1, outputLoss: 0.2, researchLoss: 0.5,
 } as const;
 
 /**
@@ -311,7 +340,7 @@ export function validateTunables() {
   if (!(fa.sowingPatience > 0 && fa.sowingPatience <= 1)) problems.push('sowing patience must be in (0, 1]');
   if (!(SPECIALIST_TUNING.slope >= 0 && SPECIALIST_TUNING.floor >= 0 && SPECIALIST_TUNING.floor <= 1 && SPECIALIST_TUNING.baseCap >= 0 && SPECIALIST_TUNING.baseCap < 1 && SPECIALIST_TUNING.maxShare > 0 && SPECIALIST_TUNING.maxShare < 1)) problems.push('specialist settings are invalid');
   const st = SETTLE_TUNING;
-  if (!(st.fromYears >= 0 && st.spanYears > 0 && st.baseShare >= 0 && st.baseShare <= 1)) problems.push('settling settings are invalid');
+  if (!(st.fromYears >= 0 && st.spanYears > 0 && st.baseShare >= 0 && st.baseShare <= 1 && st.rate > 0 && st.rate <= 1 && st.farmingPower > 0 && st.scalePeople >= 0 && st.scalePower > 0)) problems.push('settling settings are invalid');
   if (!(MOBILITY_TUNING.coastalSailingKm > 0)) problems.push('the coastal sailing reach must be positive');
   const d = DECISION_TUNING;
   if (!(Number.isInteger(d.months) && d.months >= 1 && d.minScore >= 0 && d.doNothing > d.minScore && d.doNothing <= 1 && Number.isInteger(d.topChoices) && d.topChoices >= 1 && Number.isInteger(d.logSize) && d.logSize >= 1 && Number.isInteger(d.factorCount) && d.factorCount >= 1)) problems.push('decision settings are invalid');
@@ -322,6 +351,10 @@ export function validateTunables() {
   if (!(e.settlerShare > 0 && e.settlerShare < 0.5 && e.settlerRoom > 0 && e.settlerRoom <= 1 && Number.isInteger(e.minSettlers) && e.minSettlers >= 1)) problems.push('settler settings are invalid');
   if (!(e.absorbMin >= 0 && e.absorbMin <= e.absorbMax && e.absorbMax <= 1 && e.absorbSize >= 0 && e.absorbTradition >= 0)) problems.push('absorption settings are invalid');
   if (!(MIGRATION_TUNING.rate > 0 && MIGRATION_TUNING.rate < 0.5)) problems.push('the migration rate must be in (0, 0.5)');
+  const j = JOIN_TUNING;
+  if (!(Object.values(j).every(value => value >= 0) && j.prestigeScale > 0 && j.foundScore > 0 && j.admitPower > 0)) problems.push('joining settings are invalid');
+  const st2 = STABILITY_TUNING;
+  if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   const x = EXPLORE_TUNING;
   if (!(x.opennessWeight >= 0 && x.expansionismWeight >= 0 && x.base >= 0 && x.frontierScale > 0 && x.freshMobility >= 0 && x.freshYears > 0 && x.range.length === 3 && x.range.every(steps => Number.isInteger(steps) && steps >= 1))) problems.push('exploration settings are invalid');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);

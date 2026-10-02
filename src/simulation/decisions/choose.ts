@@ -2,6 +2,9 @@ import type { Candidate, PolityView } from '../perception.ts';
 import type { Rng } from '../rng.ts';
 import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING } from '../tunables.ts';
 
+/** Factors named with a leading × are multipliers (logged, never cited as causes); the rest are contributions to the score. */
+export const MULTIPLIER = '×';
+
 /**
  * The decision step (VISION.md "Personality and the decision model"), M3's form: Expand, Explore or Do nothing,
  * weighed from the needs land pressure, hunger and opportunity and the civilization's values. Pure: it sees only the
@@ -26,14 +29,18 @@ export function expansionScore(view: PolityView, candidate: Candidate): Option {
   const culture = (tuning.expansionismBase + view.values.expansionism) / (tuning.expansionismBase + 1);
   const distance = tuning.distancePerKm * candidate.crossingKm;
   const reach = tuning.reachWeight * (candidate.capitalKm / view.reachKm) ** tuning.reachPower;
+  // Settlers need people to spare where they would come from; a tribe living there may instead be taken in.
+  const feasible = candidate.tribe || candidate.fromPeople >= 2 * tuning.minSettlers;
   const score = drive * value * culture - distance - reach;
+  // Each need's share of the score (what the event cites), the multipliers, and the costs.
+  const scale = value * culture;
   return {
-    action: 'expand', score: Number.isFinite(score) ? score : Number.NEGATIVE_INFINITY, target: candidate.region,
+    action: 'expand', score: feasible && Number.isFinite(score) ? score : Number.NEGATIVE_INFINITY, target: candidate.region,
     factors: [
-      { factor: 'landPressure', weight: round(candidate.pressure) }, { factor: 'hunger', weight: round(tuning.hungerWeight * view.hunger) },
-      { factor: 'opportunity', weight: round(tuning.opportunityWeight * opportunity) }, { factor: 'landValue', weight: round(value) },
-      { factor: 'expansionism', weight: round(culture) }, { factor: 'distance', weight: -round(distance) },
-      { factor: 'governanceReach', weight: Number.isFinite(reach) ? -round(reach) : -1 },
+      { factor: 'landPressure', weight: round(candidate.pressure * scale) }, { factor: 'hunger', weight: round(tuning.hungerWeight * view.hunger * scale) },
+      { factor: 'opportunity', weight: round(tuning.opportunityWeight * opportunity * scale) },
+      { factor: `${MULTIPLIER}landValue`, weight: round(value) }, { factor: `${MULTIPLIER}expansionism`, weight: round(culture) },
+      { factor: 'distance', weight: -round(distance) }, { factor: 'governanceReach', weight: Number.isFinite(reach) ? -round(reach) : -1 },
     ],
   };
 }
@@ -53,13 +60,14 @@ export function explorationScore(view: PolityView): Option {
   const curiosity = clamp01(view.unknownFrontier / tuning.frontierScale);
   const culture = tuning.opennessWeight * view.values.openness + tuning.expansionismWeight * view.values.expansionism;
   const fresh = view.seaTick >= 0 && view.tick - view.seaTick < tuning.freshYears * 12 ? tuning.freshMobility : 0;
-  const score = curiosity * culture * (tuning.base + view.landPressure) + (curiosity > 0 ? fresh : 0);
+  const push = tuning.base + view.landPressure, score = curiosity * culture * push + (curiosity > 0 ? fresh : 0);
   return {
     action: 'explore', score, target: null,
     factors: [
-      { factor: 'unknownLand', weight: round(curiosity) }, { factor: 'openness', weight: round(tuning.opennessWeight * view.values.openness) },
-      { factor: 'expansionism', weight: round(tuning.expansionismWeight * view.values.expansionism) },
-      { factor: 'landPressure', weight: round(view.landPressure) }, { factor: 'newSeaReach', weight: round(curiosity > 0 ? fresh : 0) },
+      { factor: 'openness', weight: round(curiosity * tuning.opennessWeight * view.values.openness * push) },
+      { factor: 'expansionism', weight: round(curiosity * tuning.expansionismWeight * view.values.expansionism * push) },
+      { factor: 'landPressure', weight: round(curiosity * culture * view.landPressure) }, { factor: 'newSeaReach', weight: round(curiosity > 0 ? fresh : 0) },
+      { factor: `${MULTIPLIER}unknownLand`, weight: round(curiosity) },
     ],
   };
 }
@@ -82,7 +90,7 @@ export function choose(view: PolityView, rng: Rng): { chosen: Option; options: O
   return { chosen: eligible[Math.max(0, pick)], options: all };
 }
 
-/** The strongest positive factors of an option, for the causes of the event it leads to. */
+/** The strongest positive contributions to an option, for the causes of the event it leads to (multipliers excluded). */
 export function drivers(option: Option): Factor[] {
-  return option.factors.filter(entry => entry.weight > 0).sort((a, b) => b.weight - a.weight || (a.factor < b.factor ? -1 : 1)).slice(0, DECISION_TUNING.factorCount);
+  return option.factors.filter(entry => entry.weight > 0 && !entry.factor.startsWith(MULTIPLIER)).sort((a, b) => b.weight - a.weight || (a.factor < b.factor ? -1 : 1)).slice(0, DECISION_TUNING.factorCount);
 }

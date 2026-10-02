@@ -105,13 +105,13 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${agriculture ? agriculture.year.toFixed(0) : 'not yet'} | ${agriculture ? `${agriculture.topQuartile ? 'yes' : 'no'}, ${RIVER_TIERS[agriculture.riverTier]}, ${agriculture.openLake ? 'yes' : 'no'}` : '—'} | ${quarter > 0 ? quarter : '—'} | ${growth} | ${factor} | ${plateaus(series).join(', ') || 'none'} | ${knowledge.eras.map(entry => `${entry.era} ${Math.round(entry.year)}`).join(', ')} |`);
   }
   // M3 acceptance (VISION.md): settled civilizations at 1,000, borders along barriers, first contact, expansion gaps.
-  lines.push('', '| Seed | Civilizations at 1,000 (10–60) | Border ratio at 1,000 / 3,000 (≥ 1.5) | First contacts by 1,000 | Longest gap between expansions, median / max (years) | By 1,000: expansions · bands taken in · bands moved on · expeditions · migrants |',
-    '| --- | ---: | --- | ---: | --- | --- |');
+  lines.push('', '| Seed | Civilizations at 1,000 (10–60) | Border ratio at 1,000 / 3,000 (≥ 1.5) | First contacts by 1,000 | Longest gap between expansions, median / max (years) | By 1,000: tribes joined · expansions · bands taken in · bands moved on · expeditions · migrants | Unrest at 1,000: regions (outbreaks so far) · mean stability |',
+    '| --- | ---: | --- | ---: | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year);
     const y1000 = at(1000), y3000 = at(3000), gaps = [...result.report.politics.longestExpansionGaps].sort((a, b) => a - b);
     const gap = gaps.length ? `${gaps[Math.floor(gaps.length / 2)]} / ${gaps[gaps.length - 1]}` : '—';
-    lines.push(`| ${result.seed} | ${y1000?.civs ?? '—'} | ${y1000?.borderRatio ?? '—'} / ${y3000?.borderRatio ?? '—'} | ${y1000?.firstContacts ?? '—'} | ${gap} | ${y1000 ? `${y1000.expansions} · ${y1000.absorbed} · ${y1000.displaced} · ${y1000.expeditions} · ${y1000.migrants.toLocaleString('en')}` : '—'} |`);
+    lines.push(`| ${result.seed} | ${y1000?.civs ?? '—'} | ${y1000?.borderRatio ?? '—'} / ${y3000?.borderRatio ?? '—'} | ${y1000?.firstContacts ?? '—'} | ${gap} | ${y1000 ? `${y1000.joined} · ${y1000.expansions} · ${y1000.absorbed} · ${y1000.displaced} · ${y1000.expeditions} · ${y1000.migrants.toLocaleString('en')}` : '—'} | ${y1000 ? `${y1000.unrestRegions} (${y1000.unrestOutbreaks}) · ${y1000.meanStability}` : '—'} |`);
   }
   // Story health: the decision mix per century (share of decision steps by chosen action).
   lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: |');

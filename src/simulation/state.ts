@@ -149,6 +149,9 @@ export interface CenturyStats {
   expansions: number; absorbed: number; displaced: number; expeditions: number;
   /** People who migrated between populated regions. */
   migrants: number;
+  /** Tribes that joined a civilization instead of founding their own, and civilization regions in unrest now (with
+   *  how often unrest broke out so far), and the mean stability of civilization regions. */
+  joined: number; unrestRegions: number; unrestOutbreaks: number; meanStability: number;
   /** Median travel cost of land edges between regions of different civilizations over the median of all land edges
    *  (VISION.md M3: borders follow barriers; 0 when no two civilizations border). */
   borderRatio: number;
@@ -183,6 +186,8 @@ export interface Metrics {
   /** Decision steps by chosen action (VISION.md story health: the decision mix), and what expansion did. */
   chosen: Record<Action, number>;
   expansions: number; absorbed: number; displaced: number; expeditions: number; migrants: number;
+  /** Tribes that joined a civilization, and outbreaks of unrest. */
+  joined: number; unrestOutbreaks: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -202,6 +207,8 @@ export interface SimulationState {
   settlements: Settlement[];
   /** Per region: the civilization that owns it (−1 for none). */
   owner: Int32Array;
+  /** Per region: stability (0–1; 1 where no civilization rules) and whether it is in unrest (VISION.md "Stability"). */
+  stability: Float64Array; unrest: Uint8Array;
   firsts: FirstDiscovery[];
   /** Per lineage, the culture name of its starting band (the observer names peoples by it). */
   lineages: string[];

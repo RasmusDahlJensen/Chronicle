@@ -2,12 +2,13 @@ import { simulationDate, type KnowledgeReport, type ObserverFrame, type Politics
 import { coreRegion, isWaterRegion, landValues, populate, produce, regionCapacity, spawnBands } from './bands.ts';
 import { Chronicle } from './chronicle.ts';
 import { decide } from './decide.ts';
+import { stabilize } from './stability.ts';
 import { buildFoodModel, farmingPotential } from './food.ts';
 import type { SimulationGeography } from './geography.ts';
 import { checkInvariants } from './invariants.ts';
 import { edgeKm, knownRegionCount } from './perception.ts';
 import { regionAffinities, research, shareKnowing } from './research.ts';
-import { SYSTEMS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
+import { ACTIONS, SYSTEMS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
 import type { RegionPartition } from './regions.ts';
 import { seedFromText, systemStream } from './rng.ts';
 import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
@@ -21,7 +22,7 @@ type SystemRun = (state: SimulationState, context: TickContext) => void;
 /** Rules per system. Empty systems keep their slot, cadence and timing until a milestone fills them. */
 const RUNS: Record<SystemKey, SystemRun> = {
   environment: () => {}, production: produce, population: populate, knowledge: research, culture: () => {},
-  stability: () => {}, decisions: decide, construction: () => {}, diplomacy: () => {}, war: () => {}, fracture: () => {},
+  stability: stabilize, decisions: decide, construction: () => {}, diplomacy: () => {}, war: () => {}, fracture: () => {},
   chronicle: (state, context) => state.chronicle.flush(context.tick),
 };
 
@@ -37,13 +38,13 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
   const state: SimulationState = {
     seedText, seed: seedFromText(seedText), tick: 0, geography, partition, food: buildFoodModel(geography, partition),
     chronicle: new Chronicle(), cultures: [], polities: [], groups: [], living: [],
-    settlements: [], owner: new Int32Array(regions).fill(-1), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions),
+    settlements: [], owner: new Int32Array(regions).fill(-1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions),
     learnedCount: new Int32Array(TECHS.length), deathCount: 0, lineages: [],
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1), groupAt: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
     ledger: emptyLedger(regions), habitable: new Uint8Array(regions), settledLandmasses: [],
     metrics: { silentBandYears: 0, maxOverCapacityMonths: 0, moves: 0, movesCitingPressure: 0, movesLedByPressure: 0, splits: 0, breakaways: 0, births: 0, deaths: 0, famineDeaths: 0, settled: 0, discoveries: 0, firstContacts: 0,
-      chosen: { expand: 0, explore: 0, nothing: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0 },
+      chosen: { expand: 0, explore: 0, nothing: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -122,6 +123,8 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
   }
   const median = (values: number[]) => { values.sort((x, y) => x - y); return values.length ? values[Math.floor(values.length / 2)] : 0; };
   const borderRatio = borders.length && all.length ? Math.round(median(borders) / median(all) * 1000) / 1000 : 0;
+  let ruled = 0, stable = 0, unrestRegions = 0;
+  for (let region = 0; region < state.owner.length; region++) if (state.owner[region] >= 0) { ruled++; stable += state.stability[region]; unrestRegions += state.unrest[region]; }
   return {
     year, regions: state.partition.regions.length, polities: state.living.length, tribes, bands, civs: state.living.length - tribes, population,
     largestShare: population > 0 ? largest / population : 0, events: state.chronicle.events.length, occupiedRegions: occupied, largestRegions,
@@ -133,6 +136,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     firstContacts: m.firstContacts, civKnownRegions: state.living.length > tribes ? Math.round(civKnown / (state.living.length - tribes)) : 0,
     chosenExpand: m.chosen.expand, chosenExplore: m.chosen.explore, chosenNothing: m.chosen.nothing,
     expansions: m.expansions, absorbed: m.absorbed, displaced: m.displaced, expeditions: m.expeditions, migrants: m.migrants, borderRatio,
+    joined: m.joined, unrestRegions, unrestOutbreaks: m.unrestOutbreaks, meanStability: ruled ? Math.round(stable / ruled * 1000) / 1000 : 0,
   };
 }
 
@@ -144,7 +148,8 @@ export function politicsReport(state: SimulationState): PoliticsReport {
   const longestExpansionGaps: number[] = [];
   for (const id of state.living) {
     const polity = state.polities[id];
-    if (polity.kind === 'civ') longestExpansionGaps.push(Math.round(polity.longestExpansionGap / 12 * 10) / 10);
+    // Counting the time since its last expansion, so a civilization that never expanded again is not reported as 0.
+    if (polity.kind === 'civ') longestExpansionGaps.push(Math.round(Math.max(polity.longestExpansionGap, state.tick - (polity.lastExpansion ?? state.tick)) / 12 * 10) / 10);
   }
   return { longestExpansionGaps };
 }
@@ -186,10 +191,11 @@ export function stateHash(state: SimulationState) {
     for (const region of polity.map.observed) add(region);
     for (const [region, snapshot] of polity.map.snapshots) { add(region); add(snapshot.occupant); add(snapshot.owner); add(snapshot.tick); }
     add(polity.lastExpansion ?? -1); add(polity.longestExpansionGap); add(polity.seaTick);
-    for (const step of polity.decisions) { add(step.tick); add(step.options.length); for (const option of step.options) { add(option.score * 1000); add(option.target ?? -1); } }
+    for (const step of polity.decisions) { add(step.tick); add(ACTIONS.indexOf(step.chosen)); add(step.outcome.length); add(step.options.length); for (const option of step.options) { add(option.score * 1000); add(option.target ?? -1); } }
   }
   for (const settlement of state.settlements) { add(settlement.cell); add(settlement.owner); add(settlement.status === 'alive' ? 1 : 0); add(settlement.capital ? 1 : 0); }
   for (const value of state.owner) add(value);
+  for (let region = 0; region < state.stability.length; region++) { add(state.stability[region] * 1e6); add(state.unrest[region]); }
   // The capacity cache warm-starts later solves, so it is part of what determines history.
   for (let region = 0; region < state.capacity.length; region++) { add(state.capacity[region] * 1e3); add(state.capacityGame[region] * 1e6); add(state.overCapacity[region]); }
   for (const value of state.gameStock) add(value * 1e6);
