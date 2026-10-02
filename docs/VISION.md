@@ -133,6 +133,8 @@ All polities share one technology graph defined in data, but each progresses thr
 - **exposure:** a tech known by a contacted polity gets a large cost discount and weight bonus, scaled by contact intensity (trade, roads, borders, war). This is how knowledge diffuses.
 - **culture:** the Tradition value slows research of techs that change the economy; Openness raises the exposure bonus
 
+**Where a discovery happens.** A polity that spans many regions discovers a tech where its people live in the conditions that drew it to that tech: the region with the most people × the strength of the tech's environment affinities there, or its heartland when none apply. For example, farming is invented in its fertile river valley. The record of firsts and the chronicle use the same place. (Added at the M3 review, 2 October 2026, at the user's request.)
+
 **Eras** (Stone, Neolithic, Bronze, Iron, Classical, Medieval, Early modern, Industrial, Modern, Atomic) are labels computed from the techs a polity knows. They are never gates.
 
 **Resource gating.** Each resource type has a `revealedBy` tech and an `extractedBy` tech, and some need a further tech to be useful. Per polity, every deposit is in one of three states: unknown (invisible to that polity), known but unusable (raises research weight for its extraction tech), usable. Examples: iron ore is revealed early, extracted with Mining, and useful only with Iron working; coal and oil are invisible until Geology, coal is extracted with Deep mining and used by Industrialization, oil is extracted with Drilling and used by Combustion engine; uranium is invisible until Nuclear physics and extracted with Advanced mining. Deposits a polity cannot see have no value to it in trade or war decisions.
@@ -186,7 +188,7 @@ Starting reference values (data; tune with evidence): foraging supports about 0.
 
 **Band movement and fission.** Each of a tribe's bands moves as a whole to a better reachable region when its pressure and the opportunity justify it. When a band grows past its split size (data, about 400 people) or its pressure stays high, about 40% of it leaves for the best reachable unoccupied neighbor. Usually the newcomers stay part of their tribe, as a new band of it (event: band spread); sometimes they break away as a new tribe, with the parent's techs and a daughter culture that keeps the language seed and slightly mutates the values (event: band split). Breaking away is graded, never certain: likelier the further the new land lies from the tribe's heartland and the larger the tribe already is, a little likelier for cultures high in Expansionism and less for those high in Tradition, and its causes are recorded. Fission is how people spread across each landmass before farming; expect hundreds of bands by year 500, in fewer, larger tribes. A band with no free neighbor stays and feels the pressure (famine, later raids). (Changed at the M2 review, 2 October 2026, at the user's request: splits mostly stay together, so peoples grow as groups and become civilizations together.)
 
-**Settling.** A tribe settles when it knows Agriculture or Animal husbandry and its heartland band has stayed in its region long enough (data, about 20 years). The whole tribe keeps its identity and becomes one civilization: it owns all the regions its bands live in, founds a named village in each, and the village in its heartland becomes its capital. (Changed at the M2 review, 2 October 2026, at the user's request.)
+**Settling.** A tribe settles when it knows Agriculture or Animal husbandry and its heartland band has stayed in its region long enough (data, about 20 years). Larger peoples form states first: the chance grows with the tribe's people, with a floor so that small farming tribes settle too in time. Meanwhile they can join a civilization next to them or be taken in by one. (Added at the M3 review, 2 October 2026, at the user's request.) The whole tribe keeps its identity and becomes one civilization: it owns all the regions its bands live in, founds a named village in each, and the village in its heartland becomes its capital. (Changed at the M2 review, 2 October 2026, at the user's request.)
 
 **Joining.** A band that would settle in or next to a civilization's land, within that civ's governance reach, weighs joining it against founding its own civ: joining scores higher with culture similarity, the civ's prestige, food security and stability, and lower with the band's Tradition and Expansionism. The choice and its causes are recorded (event: band joined). Bands beyond every civ's reach found their own civilization. Before war exists, joining and absorption are how early civs grow beyond their first valley instead of the map filling with hundreds of one-region civs.
 
@@ -608,7 +610,7 @@ Acceptance:
 
 - Lab: political lens (required), capitals, a civ list with population.
 - By year 1,000, every seed has 10–60 settled civs (fixed for acceptance: tune the simulation, not the range).
-- The median land travel cost of edges between regions of different civs is at least 1.5× the median of all land region edges.
+- Borders follow barriers more than chance: the median land travel cost of edges between regions of different civs exceeds the median of all land region edges in every seed. (Changed at the M3 review, 2 October 2026, at the user's request: the 1.5× target moved to M6, when war shifts borders onto defensible lines.)
 - Every seed has at least one first-contact event.
 - Every unification is an event with its causes, and no civilization unites into a smaller one.
 - In a labelled test scenario with one settled civ alone on the largest landmass of seed `Chronicle`, the civ keeps expanding while reachable habitable land remains within its governance reach: its longest gap between expansions is under 50 years whenever its land pressure is above 0.5. The study reports every civ's longest gap between expansions.
@@ -652,6 +654,7 @@ Acceptance:
 - Of all wars that ended in the five seeds, more than half end in white or negotiated peace, not annexation, and this holds in most seeds.
 - In most seeds, at least one settlement is razed and later resettled, and at least one bridge or road is destroyed in war.
 - The largest civ's land share over time is reported (the hegemony limit becomes acceptance in M7).
+- Borders settle onto barriers: by year 3,000 the median land travel cost of edges between regions of different civs is at least 1.5× the median of all land region edges in every seed. (Moved here from M3 at the M3 review, 2 October 2026.)
 
 **M7 — Government, rulers and fracture.** Government forms and transitions, rulers, dynasties, succession crises, elections, cohesion, revolts, secession, civil war, independence (movements, referendums where the government allows them, and dissolution of a collapsing center, held back by economic ties and repression), plague, knowledge loss.
 

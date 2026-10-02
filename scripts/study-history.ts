@@ -105,7 +105,7 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${agriculture ? agriculture.year.toFixed(0) : 'not yet'} | ${agriculture ? `${agriculture.topQuartile ? 'yes' : 'no'}, ${RIVER_TIERS[agriculture.riverTier]}, ${agriculture.openLake ? 'yes' : 'no'}` : '—'} | ${quarter > 0 ? quarter : '—'} | ${growth} | ${factor} | ${plateaus(series).join(', ') || 'none'} | ${knowledge.eras.map(entry => `${entry.era} ${Math.round(entry.year)}`).join(', ')} |`);
   }
   // M3 acceptance (VISION.md): settled civilizations at 1,000, borders along barriers, first contact, expansion gaps.
-  lines.push('', '| Seed | Civilizations at 1,000 (10–60) | Border ratio at 1,000 / 3,000 (≥ 1.5) | First contacts by 1,000 | Longest gap between expansions, median / max (years) | By 1,000: tribes joined · unions · expansions · bands taken in · bands moved on · expeditions · migrants | Unrest at 1,000: regions (outbreaks so far) · mean stability |',
+  lines.push('', '| Seed | Civilizations at 1,000 (10–60) | Border ratio at 1,000 / 3,000 (M3: > 1.0; M6: ≥ 1.5 by 3,000) | First contacts by 1,000 | Longest gap between expansions, median / max (years) | By 1,000: tribes joined · unions · expansions · bands taken in · bands moved on · expeditions · migrants | Unrest at 1,000: regions (outbreaks so far) · mean stability |',
     '| --- | ---: | --- | ---: | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year);
