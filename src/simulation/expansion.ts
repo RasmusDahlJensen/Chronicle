@@ -1,9 +1,10 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { endPolity, foundVillage, move, newGroup, polityPopulation, refuge, regionCapacity, transferGroup } from './bands.ts';
-import { absorbMap, arrive, capitalKm, lookAgain, meet, reveal, UNKNOWN } from './perception.ts';
+import { absorbMap, arrive, governable, lookAgain, meet, reveal, UNKNOWN } from './perception.ts';
+import { assess } from './stability.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
-import { EXPAND_TUNING, EXPLORE_TUNING, MOBILITY_TUNING, REACH_TUNING, UNITE_TUNING } from './tunables.ts';
+import { EXPAND_TUNING, EXPLORE_TUNING, MOBILITY_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * Carrying out what a civilization decided (VISION.md "Expansion", "Migration", "Exploration"). This is physical: it
@@ -127,9 +128,9 @@ export function explore(state: SimulationState, tick: number, rng: Rng, civ: Pol
 export function unite(state: SimulationState, tick: number, rng: Rng, small: Polity, large: Polity, border: number, cited: ChronicleEvent['causes']): string {
   if (large.deathTick !== null || large.kind !== 'civ') return 'the other civilization is gone';
   if (large.groups.length <= small.groups.length) return 'the other civilization is not larger';
-  const km = capitalKm(state, large, border) ?? Number.POSITIVE_INFINITY;
-  const admit = 1 / (1 + (km / (REACH_TUNING.baseKm * large.knowledge.multipliers.reach)) ** UNITE_TUNING.admitPower);
-  if (!rng.chance(admit)) return `the ${large.name} would not take them in`;
+  // It takes in only people it can govern, weighed over all their land; a refusal is remembered.
+  const admit = governable(state, large, small.groups, UNITE_TUNING.admitPower);
+  if (!rng.chance(admit)) { small.rebuffed.set(large.id, tick); return `the ${large.name} would not take them in`; }
   const people = polityPopulation(state, small), regions = small.groups.length;
   const capital = small.capital !== null ? state.settlements[small.capital] : null;
   state.chronicle.emit({
@@ -148,5 +149,7 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
   lookAgain(small);
   endPolity(state, small, tick);
   state.metrics.unions++;
+  // Its regions are judged under their new rule at once (stability and unrest).
+  assess(state, large);
   return `united with the ${large.name}`;
 }

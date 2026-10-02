@@ -22,23 +22,27 @@ export function stabilityOf(state: SimulationState, civ: Polity, group: Populati
 
 /** Stability system: once a year per civilization (staggered by id), each of its regions; unrest begins and ends. */
 export function stabilize(state: SimulationState, context: TickContext) {
-  const tuning = STABILITY_TUNING;
   for (const id of state.living) {
     const civ = state.polities[id];
     if (civ.kind !== 'civ' || ((context.tick - id) % 12 + 12) % 12 !== 0) continue;
-    const km = capitalTravel(state, civ);
-    for (const groupId of civ.groups) {
-      const group = state.groups[groupId], region = group.region;
-      const result = stabilityOf(state, civ, group, km(region));
-      state.stability[region] = result.value;
-      if (!state.unrest[region] && result.value < tuning.unrestBelow) {
-        state.unrest[region] = 1; state.metrics.unrestOutbreaks++;
-        state.chronicle.emit({
-          type: 'unrest', actors: [{ id: civ.id, role: 'civ' }], region,
-          causes: causes({ hunger: result.hunger, overextension: result.overextension, foreignRule: result.foreignRule }), importance: 0.1,
-          data: { civ: civ.name, stability: Math.round(result.value * 100) / 100 },
-        });
-      } else if (state.unrest[region] && result.value >= tuning.unrestBelow + tuning.hysteresis) state.unrest[region] = 0;
-    }
+    assess(state, civ);
+  }
+}
+
+/** Stability of each of a civilization's regions now, and unrest beginning (an event) or ending. */
+export function assess(state: SimulationState, civ: Polity) {
+  const tuning = STABILITY_TUNING, km = capitalTravel(state, civ);
+  for (const groupId of civ.groups) {
+    const group = state.groups[groupId], region = group.region;
+    const result = stabilityOf(state, civ, group, km(region));
+    state.stability[region] = result.value;
+    if (!state.unrest[region] && result.value < tuning.unrestBelow) {
+      state.unrest[region] = 1; state.metrics.unrestOutbreaks++;
+      state.chronicle.emit({
+        type: 'unrest', actors: [{ id: civ.id, role: 'civ' }], region,
+        causes: causes({ hunger: result.hunger, overextension: result.overextension, foreignRule: result.foreignRule }), importance: 0.1,
+        data: { civ: civ.name, stability: Math.round(result.value * 100) / 100 },
+      });
+    } else if (state.unrest[region] && result.value >= tuning.unrestBelow + tuning.hysteresis) state.unrest[region] = 0;
   }
 }

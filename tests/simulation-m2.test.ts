@@ -10,7 +10,11 @@ import { exposureOf } from '../src/simulation/research.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { createSimulation, stepSimulation, worldPopulation } from '../src/simulation/simulation.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
-import { expand } from '../src/simulation/expansion.ts';
+import { expand, unite } from '../src/simulation/expansion.ts';
+import { decisionView } from '../src/simulation/perception.ts';
+import { assess } from '../src/simulation/stability.ts';
+import { edgeKm } from '../src/simulation/perception.ts';
+import { STABILITY_TUNING } from '../src/simulation/tunables.ts';
 import type { Rng } from '../src/simulation/rng.ts';
 import { refuge } from '../src/simulation/bands.ts';
 
@@ -81,6 +85,9 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   assert.ok(discoveries.every(event => event.causes.some(cause => cause.factor === 'exposure' && cause.weight > 0) || event.causes.some(cause => cause.factor === 'ownResearch' && cause.weight >= 0.99)),
     'learned from neighbours, or invented with the polity\'s own research');
   const invention = discoveries.find(event => event.data.tech === 'Agriculture' && event.data.first === true)!;
+  // The record of firsts and the event name the same place: where the inventors live on the land that drew them to it.
+  assert.equal(invention.region, first.region);
+  assert.ok(state.affinity[first.region].has('fertileRiver') || state.affinity[first.region].has('riverOrLake') || state.affinity[first.region].has('grainSite'));
   assert.ok(invention.causes.some(cause => cause.factor === 'fertileRiver'), `the first Agriculture cites fertile river land: ${JSON.stringify(invention.causes)}`);
   const settled = state.chronicle.events.filter(event => event.type === 'settled');
   assert.equal(settled.length, state.metrics.settled);
@@ -137,6 +144,9 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   assert.notEqual(civ.deathTick, null);
   assert.deepEqual(ending.map(event => event.type), ['civDestroyed'], `all ${villages} villages died in one month: one event`);
   assert.ok(state.settlements.every(settlement => settlement.owner !== civ.id || settlement.status === 'ruined'));
+  // Unions and stability, carried out directly on the same world (after the counts above, which they would change).
+  exerciseUnion(state);
+  exerciseStability(state);
 });
 
 test('a polity on another landmass without Sailing (rail is not Sailing), a civilization without its village, or unexplained crops break the invariants', async () => {
@@ -207,4 +217,60 @@ function exerciseExpansion(state: ReturnType<typeof createSimulation>) {
   assert.equal(state.owner[replaceable.target], replaceable.civ);
   assert.equal(state.settlements.length, villages + 1);
   return true;
+}
+
+/** A stand-in stream whose chances always succeed. */
+const accepting: Rng = { next: () => 0, int: () => 0, chance: () => true, weighted: weights => weights.findIndex(weight => weight > 0) };
+
+/**
+ * A civilization's view of its neighbours, and a union carried out directly: refused (and remembered), then accepted,
+ * with every region, its village and the capital flag passing over and the regions judged under their new rule.
+ */
+function exerciseUnion(state: ReturnType<typeof createSimulation>) {
+  const civs = state.living.filter(id => state.polities[id].kind === 'civ');
+  let pair: { small: number; large: number } | null = null;
+  for (const id of civs) {
+    const view = decisionView(state, state.polities[id]);
+    for (const neighbour of view.neighbours) {
+      // Neighbours are civilizations it has met whose land touches its own; the crossing is the median of the edges they share.
+      assert.ok(state.polities[id].met.has(neighbour.civ));
+      const shared: number[] = [];
+      for (const groupId of state.polities[id].groups) for (const edge of state.partition.regions[state.groups[groupId].region].neighbors) if (state.owner[edge.region] === neighbour.civ) shared.push(edgeKm(edge.travelKm, edge.riverTier));
+      shared.sort((a, b) => a - b);
+      assert.ok(shared.length > 0 && neighbour.crossingKm === shared[Math.floor(shared.length / 2)], 'the median crossing between their lands');
+      assert.ok(neighbour.knownRegions >= 1);
+      if (!pair && state.polities[neighbour.civ].groups.length > state.polities[id].groups.length) pair = { small: id, large: neighbour.civ };
+    }
+  }
+  assert.ok(pair, 'two neighbouring civilizations of different sizes');
+  const small = state.polities[pair.small], large = state.polities[pair.large];
+  const refused = unite(state, state.tick, refusing, small, large, small.groups.length ? state.groups[small.groups[0]].region : 0, [{ factor: 'test', weight: 1 }]);
+  assert.match(refused, /would not take them in/);
+  assert.equal(small.deathTick, null);
+  assert.ok(!decisionView(state, small).neighbours.some(entry => entry.civ === large.id), 'it does not ask the same civilization again for a while');
+  const regions = small.groups.map(id => state.groups[id].region), before = large.groups.length;
+  assert.match(unite(state, state.tick, accepting, small, large, regions[0], [{ factor: 'test', weight: 1 }]), /united/);
+  assert.notEqual(small.deathTick, null);
+  assert.equal(large.groups.length, before + regions.length);
+  for (const region of regions) {
+    assert.equal(state.owner[region], large.id); assert.equal(state.occupant[region], large.id);
+    assert.ok(state.settlements.filter(settlement => settlement.region === region && settlement.status === 'alive').every(settlement => settlement.owner === large.id && !settlement.capital));
+  }
+  assert.ok(state.settlements.filter(settlement => settlement.owner === large.id && settlement.capital).length === 1, 'one capital');
+}
+
+/** Hunger lowers a region's stability; unrest begins below the threshold and ends only once well above it. */
+function exerciseStability(state: ReturnType<typeof createSimulation>) {
+  const civ = state.polities[state.living.find(id => state.polities[id].kind === 'civ' && state.polities[id].groups.length > 1)!];
+  const group = state.groups[civ.groups.find(id => id !== civ.core)!], region = group.region, kept = group.foodSecurity;
+  const outbreaks = state.metrics.unrestOutbreaks, before = state.unrest[region];
+  group.foodSecurity = 0;
+  assess(state, civ);
+  assert.ok(state.stability[region] < STABILITY_TUNING.unrestBelow && state.unrest[region] === 1, 'a starving region falls into unrest');
+  assert.equal(state.metrics.unrestOutbreaks, outbreaks + (before ? 0 : 1), 'an outbreak is counted once');
+  // Fed again, it leaves unrest only if its stability clears the threshold by the hysteresis.
+  group.foodSecurity = 1.2;
+  assess(state, civ);
+  assert.equal(state.unrest[region], state.stability[region] >= STABILITY_TUNING.unrestBelow + STABILITY_TUNING.hysteresis ? 0 : 1);
+  group.foodSecurity = kept;
 }

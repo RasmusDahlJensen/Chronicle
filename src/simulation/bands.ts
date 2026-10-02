@@ -5,12 +5,12 @@ import { inheritKnowledge, learn, startingKnowledge, type Knowledge } from './kn
 import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
-import { absorbMap, arrive, capitalKm, emptyMap, forgetMap, inheritContacts, joinView, lookAgain } from './perception.ts';
+import { absorbMap, arrive, capitalKm, emptyMap, forgetMap, governable, inheritContacts, joinView, lookAgain } from './perception.ts';
 import { chooseJoin } from './decisions/join.ts';
 import { landPressure, unrestDepth } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
-import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, REACH_TUNING, STABILITY_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING } from './tunables.ts';
+import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING } from './tunables.ts';
 
 /**
  * Tribes and settled polities (VISION.md "Food, population and borders"). A polity holds one or more regions with
@@ -23,8 +23,8 @@ import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, JOIN_TUNING, MI
 const yields = new Float64Array(METHOD_COUNT), workers = new Float64Array(METHOD_COUNT);
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 const UNITS = FOOD_TUNING.unitsPerPersonMonth;
-// RNG salts within the population system: polity streams use no salt (settling) or SETTLING_NAMES; group streams
-// use DECISION or SPLITTING, so a polity and a group with the same id never share numbers.
+// RNG salts within the population system: polity streams use no salt (settling), SETTLING_NAMES or JOINING; group
+// streams use DECISION or SPLITTING, so a polity and a group with the same id never share numbers.
 const DECISION = 1, SETTLING_NAMES = 2, SPLITTING = 3, JOINING = 4;
 
 /** A region is near water when it has a coast, open-lake access or a river of tier ≥ river. */
@@ -144,7 +144,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], contactWeights: [],
     exposure: { tech: -1, learned: 0, deaths: 0, value: 0 }, capital: null, settledTick: null,
     map: emptyMap(state.partition.regions.length), met: new Map(),
-    decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1,
+    decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -265,7 +265,7 @@ function foodSecurity(group: PopulationGroup, farming: boolean, otherRate: numbe
  * farms or herds may settle, and each of its bands may split or move.
  */
 export function populate(state: SimulationState, context: TickContext) {
-  const { ledger, metrics } = state, tuning = POPULATION_TUNING;
+  const { ledger, metrics } = state, tuning = POPULATION_TUNING, joining: Joining[] = [];
   const yearEnd = context.month === 12, cadence = BAND_TUNING.decisionMonths;
   const due = (id: number) => ((context.tick - id) % cadence + cadence) % cadence === 0;
   for (const id of state.living.slice()) {
@@ -306,18 +306,20 @@ export function populate(state: SimulationState, context: TickContext) {
     rehome(state, polity);
     if (polity.kind !== 'band') { if (due(id)) migrate(state, polity); continue; }
     // The tribe settles (or prepares to join a civilization) before its bands move on.
-    if (due(id) && considerSettling(state, context, polity)) continue;
+    if (due(id) && considerSettling(state, context, polity, joining)) continue;
     for (const groupId of polity.groups.slice()) if (due(groupId)) decide(state, context, polity, state.groups[groupId]);
   }
   // Joins take effect once every group has had its month, so no one is born or dies twice this month.
-  for (const { tribe, civ, factors } of joining.splice(0)) {
+  for (const { tribe, civ, factors, settling } of joining) {
     if (tribe.deathTick !== null) continue;
     if (civ.deathTick === null) joinCivilization(state, context, tribe, civ, factors);
-    else settle(state, context, tribe, { yearsHere: 1, farming: 1 });
+    // The civilization it meant to join is gone: it settles on its own after all.
+    else settle(state, context, tribe, { ...settling, joinedLost: 1 });
   }
 }
 
-const joining: { tribe: Polity; civ: Polity; factors: { factor: string; weight: number }[] }[] = [];
+/** A tribe on its way into a civilization this month, with why, and the settling reasons should it settle alone after all. */
+interface Joining { tribe: Polity; civ: Polity; factors: { factor: string; weight: number }[]; settling: { yearsHere: number; farming: number } }
 
 /**
  * Migration (VISION.md "Migration"): once a year per civilization, people move from each of its regions to less
@@ -422,7 +424,7 @@ export function rehome(state: SimulationState, polity: Polity) {
 }
 
 /** Yearly (staggered by tribe id): a tribe that farms or herds settles once its heartland band has stayed long enough. */
-function considerSettling(state: SimulationState, context: TickContext, tribe: Polity) {
+function considerSettling(state: SimulationState, context: TickContext, tribe: Polity, joining: Joining[]) {
   if (!tribe.knowledge.methods.farm && !tribe.knowledge.methods.herd) return false;
   const core = state.groups[tribe.core];
   // Graded: the chance rises with the years the heartland band has stayed and with how much of the tribe's food is
@@ -432,7 +434,7 @@ function considerSettling(state: SimulationState, context: TickContext, tribe: P
   let people = 0, farmed = 0;
   for (const id of tribe.groups) { const group = state.groups[id]; people += group.size; farmed += group.size * group.farmShare; }
   const farming = people > 0 ? farmed / people : 0;
-  const scale = SETTLE_TUNING.scalePeople > 0 ? Math.min(1, (people / SETTLE_TUNING.scalePeople) ** SETTLE_TUNING.scalePower) : 1;
+  const scale = SETTLE_TUNING.scalePeople > 0 ? Math.max(SETTLE_TUNING.scaleFloor, Math.min(1, (people / SETTLE_TUNING.scalePeople) ** SETTLE_TUNING.scalePower)) : 1;
   const share = SETTLE_TUNING.rate * scale * (SETTLE_TUNING.baseShare + (1 - SETTLE_TUNING.baseShare) * farming) ** SETTLE_TUNING.farmingPower;
   if (!(stay > 0 && context.stream(tribe.id).chance(stay * share))) return false;
   // Before founding its own civilization, it weighs joining one next to it (VISION.md "Joining"); the civilization
@@ -441,10 +443,9 @@ function considerSettling(state: SimulationState, context: TickContext, tribe: P
   if (view.options.length) {
     const rng = context.stream(tribe.id, JOINING), { chosen, options } = chooseJoin(view, rng);
     if (chosen.civ !== null) {
-      const civ = state.polities[chosen.civ], option = view.options.find(entry => entry.civ === chosen.civ)!;
-      const km = capitalKm(state, civ, option.border) ?? Number.POSITIVE_INFINITY;
-      const admit = 1 / (1 + (km / (REACH_TUNING.baseKm * civ.knowledge.multipliers.reach)) ** JOIN_TUNING.admitPower);
-      if (rng.chance(admit)) { joining.push({ tribe, civ, factors: chosen.factors }); return true; }
+      // The civilization takes in only people it can govern: weighed over all the tribe's land.
+      const civ = state.polities[chosen.civ], admit = governable(state, civ, tribe.groups, JOIN_TUNING.admitPower);
+      if (rng.chance(admit)) { joining.push({ tribe, civ, factors: chosen.factors, settling: { yearsHere: stay, farming } }); return true; }
       settle(state, context, tribe, { yearsHere: stay, farming, turnedAway: 1 - admit });
       return true;
     }
@@ -548,7 +549,7 @@ export function breakawayChance(state: SimulationState, tribe: Polity, to: numbe
   const values = state.cultures[tribe.culture].values;
   // How far in travel: from the heartland through the tribe's own land, so a group that crosses mountains or a great
   // river is likelier to go its own way (and peoples part along barriers).
-  const km = BAND_TUNING.travelDistance ? capitalKm(state, tribe, to) ?? Number.POSITIVE_INFINITY
+  const km = BAND_TUNING.travelDistance ? capitalKm(state, tribe, to)
     : greatCircleKm(state.geography, state.partition.regions[coreRegion(state, tribe)].centroid, state.partition.regions[to].centroid);
   return breakawayOdds(km, tribe.groups.length, values);
 }
@@ -612,7 +613,7 @@ export function settle(state: SimulationState, context: Pick<TickContext, 'tick'
   const culture = state.cultures[tribe.culture], heartland = coreRegion(state, tribe);
   tribe.kind = 'civ'; tribe.settledTick = context.tick; tribe.lastExpansion = context.tick;
   state.metrics.settled++;
-  const cited = causes({ farming: factors.farming, yearsHere: factors.yearsHere, independence: factors.independence ?? 0, turnedAway: factors.turnedAway ?? 0 });
+  const cited = causes({ farming: factors.farming, yearsHere: factors.yearsHere, independence: factors.independence ?? 0, turnedAway: factors.turnedAway ?? 0, joinedLost: factors.joinedLost ?? 0 });
   // The heartland first, so the capital is the tribe's first village.
   const regions = [heartland, ...tribe.groups.map(id => state.groups[id].region).filter(region => region !== heartland)];
   const villages: Settlement[] = [];

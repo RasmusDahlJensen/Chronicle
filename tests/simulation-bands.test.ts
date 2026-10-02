@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
-import { breakawayOdds, isWaterRegion } from '../src/simulation/bands.ts';
+import { breakawayChance, breakawayOdds, isWaterRegion, reachableFree } from '../src/simulation/bands.ts';
 import { capacity, harvest, METHOD_COUNT } from '../src/simulation/food.ts';
 import { decodeGeography, greatCircleKm } from '../src/simulation/geography.ts';
 import { checkInvariants, InvariantError } from '../src/simulation/invariants.ts';
@@ -139,6 +139,22 @@ test('breaking away is graded by travel from the heartland, the tribe\'s size an
   assert.ok(chance(300, BAND_TUNING.tribeBands) > 0.5 && chance(300, BAND_TUNING.tribeBands) < 0.75, 'a tribe of tribeBands bands loses most splits even near home');
   assert.ok(chance(reach, 10, { expansionism: 0.9, tradition: 0.1 }) > chance(reach, 10) && chance(reach, 10) > chance(reach, 10, { expansionism: 0.1, tradition: 0.9 }), 'Expansionism raises it, Tradition lowers it');
   assert.equal(chance(Number.POSITIVE_INFINITY, 1), 1, 'land cut off from the heartland always goes its own way');
+});
+
+test('a split from a real tribe is never certain to break away, wherever it goes', async () => {
+  const { geography, partition } = await chronicleWorld();
+  const state = createSimulation(geography, partition, 'Breakaways');
+  while (state.tick < 12 * 250) stepSimulation(state);
+  let options = 0;
+  for (const id of state.living) {
+    const tribe = state.polities[id];
+    for (const groupId of tribe.groups) for (const option of reachableFree(state, tribe, state.groups[groupId].region)) {
+      const chance = breakawayChance(state, tribe, option.region).chance;
+      assert.ok(chance > 0 && chance < 1, `tribe ${id} into region ${option.region}: ${chance}`);
+      options++;
+    }
+  }
+  assert.ok(options > 100, `${options} splits weighed`);
 });
 
 test('a tribe that loses its heartland band passes the heartland to another of its bands', async () => {

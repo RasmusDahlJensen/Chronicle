@@ -83,7 +83,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       capital: capital ? { name: capital.name, cell: capital.cell, settled: polity.settledTick ?? capital.foundedTick } : null,
       era: knowledge.era, known: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => definition.name),
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
-      reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: kmFromCapital === null ? null : Math.round(kmFromCapital),
+      reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: Math.round(kmFromCapital),
       lastDecision: lastDecision(polity),
       stability: polity.kind !== 'civ' ? null : (() => {
         const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);

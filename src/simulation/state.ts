@@ -70,6 +70,8 @@ export interface Polity {
   lastExpansion: number | null; longestExpansionGap: number;
   /** Tick its sea reach last grew (−1 never): a fresh mobility unlock makes exploring attractive. */
   seaTick: number;
+  /** Civilizations that turned it away when it asked to unite, and when (it waits before asking again). */
+  rebuffed: Map<number, number>;
 }
 
 export const ACTIONS = ['expand', 'explore', 'nothing', 'unite'] as const;

@@ -131,20 +131,20 @@ test('M3 acceptance: a civilization alone on Chronicle\'s largest landmass keeps
   assert.equal(state.living.length, 1);
   const civ = state.polities[state.living[0]];
   assert.equal(civ.kind, 'civ');
-  let longest = 0, pressed = 0;
+  let longest = 0, pressed = 0, crowded = 0, longestCrowded = 0;
   while (state.tick < 12 * 900) {
     stepSimulation(state);
     if (state.tick % 6) continue;
-    // Whenever land pressure is above 0.5 and land within its governance reach remains, the gap since its last
-    // expansion stays under 50 years (VISION.md M3).
-    const view = decisionView(state, civ);
-    if (view.landPressure > 0.5 && view.candidates.some(candidate => candidate.capitalKm <= view.reachKm)) {
-      pressed++;
-      longest = Math.max(longest, state.tick - civ.lastExpansion!);
-    }
+    const view = decisionView(state, civ), governable = view.candidates.some(candidate => candidate.capitalKm <= view.reachKm);
+    // VISION.md M3: whenever land pressure is above 0.5 and land within its governance reach remains, the gap since its
+    // last expansion stays under 50 years. With a wide reach it keeps expanding before it gets that crowded, so the
+    // same must also hold, more strictly, from its first expansion on whenever its land pressure is above 0.25.
+    if (view.landPressure > 0.5 && governable) { pressed++; longest = Math.max(longest, state.tick - civ.lastExpansion!); }
+    if (view.landPressure > 0.25 && governable && civ.groups.length > 1) { crowded++; longestCrowded = Math.max(longestCrowded, state.tick - civ.lastExpansion!); }
   }
-  assert.ok(pressed > 0, 'the civilization felt land pressure with land to take');
-  assert.ok(longest < 50 * 12, `longest gap under pressure: ${(longest / 12).toFixed(1)} years`);
+  assert.ok(longest < 50 * 12, `longest gap at land pressure > 0.5: ${(longest / 12).toFixed(1)} years over ${pressed} steps`);
+  assert.ok(crowded > 100, `the civilization felt land pressure with land to take (${crowded} steps)`);
+  assert.ok(longestCrowded < 50 * 12, `longest gap at land pressure > 0.25: ${(longestCrowded / 12).toFixed(1)} years`);
   assert.ok(civ.groups.length >= 20, `it expanded into ${civ.groups.length - 1} regions`);
   // Every expansion is an event citing why, and the civilization holds land only within reach of its capital.
   const expansions = state.chronicle.events.filter(event => event.type === 'expansion');

@@ -1,7 +1,8 @@
 import { cultureSimilarity } from './culture.ts';
+import { greatCircleKm } from './geography.ts';
 import { landPressure } from './pressure.ts';
 import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
-import { MOBILITY_TUNING, REACH_TUNING } from './tunables.ts';
+import { MOBILITY_TUNING, REACH_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
@@ -219,41 +220,64 @@ const heap: number[] = [];
  * (`travelled`); returns its own regions.
  */
 function travelFromCapital(state: SimulationState, polity: Polity) {
-  const regions = state.partition.regions, map = polity.map, sea = polity.knowledge.sea;
+  const regions = state.partition.regions, map = polity.map, sea = polity.knowledge.sea, tuning = REACH_TUNING;
+  travelGeography = state.geography; travelRegions = regions;
   if (costStamp.length !== regions.length) { costStamp = new Int32Array(regions.length); cost = new Float64Array(regions.length); costMark = 0; }
   costMark++;
   const own = new Set<number>();
   for (const id of polity.groups) own.add(state.groups[id].region);
-  const capital = polity.capital !== null ? state.settlements[polity.capital].region : state.groups[polity.core].region;
+  origin = polity.capital !== null ? state.settlements[polity.capital].region : state.groups[polity.core].region;
+  limit = tuning.searchReaches * tuning.baseKm * polity.knowledge.multipliers.reach;
   const reach = (region: number, through: number) => {
-    if (costStamp[region] === costMark && cost[region] <= through) return;
+    if (through > limit || (costStamp[region] === costMark && cost[region] <= through)) return;
     costStamp[region] = costMark; cost[region] = through;
-    if (own.has(region)) push(through, region);
+    push(through, region);
   };
   heap.length = 0;
-  reach(capital, 0);
+  reach(origin, 0);
   while (heap.length) {
     const [at, region] = pop();
     if (at > cost[region]) continue;
-    for (const edge of regions[region].neighbors) if (map.status[edge.region] !== UNKNOWN) reach(edge.region, at + edgeKm(edge.travelKm, edge.riverTier));
-    if (sea > 0) for (const link of regions[region].sea) if ((sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) && map.status[link.region] !== UNKNOWN) reach(link.region, at + seaKm(link.km));
+    // Its own land relays at the crossings' cost; known land it does not hold relays at a premium.
+    const factor = own.has(region) ? 1 : tuning.foreignRelay;
+    for (const edge of regions[region].neighbors) if (map.status[edge.region] !== UNKNOWN) reach(edge.region, at + factor * edgeKm(edge.travelKm, edge.riverTier));
+    if (sea > 0) for (const link of regions[region].sea) if ((sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) && map.status[link.region] !== UNKNOWN) reach(link.region, at + factor * seaKm(link.km));
   }
   return own;
 }
 
-const travelled = (region: number) => costStamp[region] === costMark ? cost[region] : Number.POSITIVE_INFINITY;
+let origin = 0, limit = 0;
 
-/** Travel-km from the polity's capital to each of its regions and the land next to them (∞ when cut off); the getter is valid until the next search. */
+/** Travel-km from the last search's origin; land it did not reach counts as straight-line km × the fallback factor. */
+function travelled(region: number) {
+  if (costStamp[region] === costMark) return cost[region];
+  const geography = travelGeography!, regions = travelRegions!;
+  return Math.max(limit, greatCircleKm(geography, regions[origin].centroid, regions[region].centroid) * REACH_TUNING.fallbackFactor);
+}
+let travelGeography: SimulationState['geography'] | null = null, travelRegions: SimulationState['partition']['regions'] | null = null;
+
+/** Travel-km from the polity's capital to each region (never infinite); the getter is valid until the next search. */
 export function capitalTravel(state: SimulationState, polity: Polity): (region: number) => number {
   travelFromCapital(state, polity);
   return travelled;
 }
 
-/** Travel-km from the polity's capital to one of its regions or the land next to them (null when cut off). */
+/** Travel-km from the polity's capital (its heartland for a tribe) to a region (never infinite: see `travelled`). */
 export function capitalKm(state: SimulationState, polity: Polity, region: number) {
   travelFromCapital(state, polity);
-  const km = travelled(region);
-  return Number.isFinite(km) ? km : null;
+  return travelled(region);
+}
+
+/**
+ * How much of these people a civilization could govern from its capital (VISION.md: it accepts only land it can
+ * govern): the people-weighted mean of 1 ÷ (1 + (travel-km ÷ reach)^power) over their regions.
+ */
+export function governable(state: SimulationState, civ: Polity, groups: readonly number[], power: number) {
+  travelFromCapital(state, civ);
+  const reach = REACH_TUNING.baseKm * civ.knowledge.multipliers.reach;
+  let fit = 0, people = 0;
+  for (const id of groups) { const group = state.groups[id]; fit += group.size / (1 + (travelled(group.region) / reach) ** power); people += group.size; }
+  return people > 0 ? fit / people : 0;
 }
 
 export function decisionView(state: SimulationState, polity: Polity): PolityView {
@@ -294,6 +318,9 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   for (const region of own) for (const edge of regions[region].neighbors) {
     const civ = state.owner[edge.region];
     if (civ < 0 || civ === polity.id || !polity.met.has(civ)) continue;
+    // A civilization that turned it away lately is not asked again yet.
+    const rebuffed = polity.rebuffed.get(civ);
+    if (rebuffed !== undefined && state.tick - rebuffed < UNITE_TUNING.rebuffYears * 12) continue;
     const km = edgeKm(edge.travelKm, edge.riverTier), entry = neighbours.get(civ);
     shared.get(civ)?.push(km) ?? shared.set(civ, [km]);
     if (entry) { if (km < entry.crossingKm) { entry.crossingKm = km; entry.border = region; } continue; }

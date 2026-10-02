@@ -183,9 +183,11 @@ export const SPECIALIST_TUNING = {
 export const SETTLE_TUNING = {
   /**
    * Yearly settling chance: rises from `from` to `from + span` years in a region, times rate × (baseShare + (1 −
-   * baseShare) × farmed/herded share of food)^farmingPower — people settle as they come to live off their fields.
+   * baseShare) × farmed/herded share of food)^farmingPower — people settle as they come to live off their fields —
+   * times max(scaleFloor, min(1, (people ÷ scalePeople)^scalePower)): large peoples form states first, small farming
+   * tribes later (pending the user's approval, M3.4 brief).
    */
-  fromYears: 10, spanYears: 20, baseShare: 0.3, rate: 1, farmingPower: 1, scalePeople: 200_000, scalePower: 2,
+  fromYears: 10, spanYears: 20, baseShare: 0.3, rate: 1, farmingPower: 1, scalePeople: 200_000, scalePower: 2, scaleFloor: 0.02,
 } as const;
 
 export const MOBILITY_TUNING = { coastalSailingKm: 300 } as const;
@@ -202,7 +204,12 @@ export const DECISION_TUNING = { months: 6, minScore: 0.02, doNothing: 0.08, top
  * chiefdom's `baseKm` (government forms change it from M7) times its techs' reach multiplier. Travel cost is an edge's
  * travel-km, plus a share of it for crossing a stream, river or great river, and sea crossings cost `seaFactor` per km.
  */
-export const REACH_TUNING = { baseKm: 3_000, riverCrossing: [0, 0.1, 0.5, 1], seaFactor: 1.5 } as const;
+export const REACH_TUNING = {
+  baseKm: 3_600, riverCrossing: [0, 0.1, 0.5, 1], seaFactor: 1.5,
+  /** Travel through land it does not hold costs this many times as much; the search stops at `searchReaches` reaches,
+   *  and land beyond it (or cut off) counts as straight-line km × `fallbackFactor`, so no land is infinitely far. */
+  foreignRelay: 2, searchReaches: 3, fallbackFactor: 2.5,
+} as const;
 
 /**
  * Expansion (VISION.md "Expansion", no threshold): a candidate's score is drive × value × culture − distance − reach.
@@ -249,6 +256,8 @@ export const JOIN_TUNING = {
 export const UNITE_TUNING = {
   kin: 0.16, similarity: 0.08, size: 0.22, sizeScale: 1.5, fed: 0.03, stability: 0.03, trouble: 0.25,
   tradition: 0.06, expansionism: 0.06, contentment: 0.1, crossing: 0.25, admitPower: 4,
+  /** A civilization turned away does not ask the same one again for this many years. */
+  rebuffYears: 30,
 } as const;
 
 /**
@@ -356,12 +365,12 @@ export function validateTunables() {
   if (!(fa.sowingPatience > 0 && fa.sowingPatience <= 1)) problems.push('sowing patience must be in (0, 1]');
   if (!(SPECIALIST_TUNING.slope >= 0 && SPECIALIST_TUNING.floor >= 0 && SPECIALIST_TUNING.floor <= 1 && SPECIALIST_TUNING.baseCap >= 0 && SPECIALIST_TUNING.baseCap < 1 && SPECIALIST_TUNING.maxShare > 0 && SPECIALIST_TUNING.maxShare < 1)) problems.push('specialist settings are invalid');
   const st = SETTLE_TUNING;
-  if (!(st.fromYears >= 0 && st.spanYears > 0 && st.baseShare >= 0 && st.baseShare <= 1 && st.rate > 0 && st.rate <= 1 && st.farmingPower > 0 && st.scalePeople >= 0 && st.scalePower > 0)) problems.push('settling settings are invalid');
+  if (!(st.fromYears >= 0 && st.spanYears > 0 && st.baseShare >= 0 && st.baseShare <= 1 && st.rate > 0 && st.rate <= 1 && st.farmingPower > 0 && st.scalePeople >= 0 && st.scalePower > 0 && st.scaleFloor > 0 && st.scaleFloor <= 1)) problems.push('settling settings are invalid');
   if (!(MOBILITY_TUNING.coastalSailingKm > 0)) problems.push('the coastal sailing reach must be positive');
   const d = DECISION_TUNING;
   if (!(Number.isInteger(d.months) && d.months >= 1 && d.minScore >= 0 && d.doNothing > d.minScore && d.doNothing <= 1 && Number.isInteger(d.topChoices) && d.topChoices >= 1 && Number.isInteger(d.logSize) && d.logSize >= 1 && Number.isInteger(d.factorCount) && d.factorCount >= 1)) problems.push('decision settings are invalid');
   const reach = REACH_TUNING;
-  if (!(reach.baseKm > 0 && reach.seaFactor >= 1 && reach.riverCrossing.length === 4 && reach.riverCrossing.every(value => value >= 0))) problems.push('reach settings are invalid');
+  if (!(reach.baseKm > 0 && reach.seaFactor >= 1 && reach.riverCrossing.length === 4 && reach.riverCrossing.every(value => value >= 0) && reach.foreignRelay >= 1 && reach.searchReaches > 0 && reach.fallbackFactor >= 1)) problems.push('reach settings are invalid');
   const e = EXPAND_TUNING;
   if (!(e.hungerWeight >= 0 && e.opportunityWeight >= 0 && e.valuePower > 0 && e.valuePower <= 1 && e.occupiedValue > 0 && e.occupiedValue <= 1 && e.expansionismBase >= 0 && e.distancePerKm >= 0 && e.reachWeight >= 0 && e.reachPower > 0)) problems.push('expansion scoring is invalid');
   if (!(e.settlerShare > 0 && e.settlerShare < 0.5 && e.settlerRoom > 0 && e.settlerRoom <= 1 && Number.isInteger(e.minSettlers) && e.minSettlers >= 1)) problems.push('settler settings are invalid');

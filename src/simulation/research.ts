@@ -87,15 +87,18 @@ export function refreshContacts(state: SimulationState, polity: Polity) {
 
 /**
  * Where a polity's discovery happens, for the record of firsts and the event alike: where its people live in the
- * conditions that drew it to the tech (the most populous of its regions with one of the tech's environment
- * affinities), else its heartland. Fixed in advance for every tech, not chosen after the fact.
+ * conditions that drew it to the tech — the region with the most people × the strength of the tech's environment
+ * affinities there (fertile river land weighs 40× for Agriculture, a stream 1.5×) — else its heartland. Fixed in
+ * advance for every tech, the same weights that drew the polity's choice; not picked after the fact.
  */
 function discoveryRegion(state: SimulationState, polity: Polity, tech: number) {
-  const conditions = Object.entries(TECHS[tech].affinity ?? {}).filter(([, value]) => value > 1).map(([condition]) => condition as Affinity);
-  let best = coreRegion(state, polity), most = -1;
+  const affinities = Object.entries(TECHS[tech].affinity ?? {}).filter(([, value]) => value > 1) as [Affinity, number][];
+  let best = coreRegion(state, polity), most = 0;
   for (const id of polity.groups) {
     const group = state.groups[id];
-    if (group.size > most && conditions.some(condition => state.affinity[group.region].has(condition))) { best = group.region; most = group.size; }
+    let strength = 1;
+    for (const [condition, value] of affinities) if (state.affinity[group.region].has(condition)) strength *= value;
+    if (strength > 1 && group.size * strength > most) { best = group.region; most = group.size * strength; }
   }
   return best;
 }
