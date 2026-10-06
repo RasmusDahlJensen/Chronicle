@@ -180,7 +180,7 @@ export function ruinSettlements(state: SimulationState, region: number, tick: nu
  * Why a settlement shrank a tier: the hard years its region remembers, a famine there now, unrest — and, when none of
  * those weighs, only that it has fewer townspeople.
  */
-function fallCauses(state: SimulationState, group: { region: number; size: number }, fewer: number) {
+export function fallCauses(state: SimulationState, group: { region: number; size: number }, fewer: number) {
   const region = group.region;
   const factors = {
     hardship: state.hardship[region], famine: state.famine[region] ? Math.min(1, state.famineRecent[region] / Math.max(1, group.size) * 10) : 0,

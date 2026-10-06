@@ -14,8 +14,6 @@ const HARVEST = 1, DROUGHT = 2;
  */
 export function environment(state: SimulationState, context: TickContext) {
   const tuning = ENVIRONMENT_TUNING, harvest = state.food.harvest, regions = state.weather.length, month = context.month;
-  // One stream for the month's harvests, drawn in region order.
-  let rng: ReturnType<TickContext['stream']> | null = null;
   for (let region = 0; region < regions; region++) {
     if (state.drought[region] > 0) state.drought[region]--;
     state.famineRecent[region] *= tuning.famineFade;
@@ -24,6 +22,12 @@ export function environment(state: SimulationState, context: TickContext) {
       if (state.famine[region] && state.famineRecent[region] < tuning.famineMin) state.famine[region] = 0;
       if (state.fields[region] > 0) fallow(state, region);
     }
+  }
+  // Droughts begin before this month's harvests come in, so a harvest in a drought's first month is cut too.
+  if (month === 1) { beginDroughts(state, context); checkFamineWatches(state); }
+  // One stream for the month's harvests, drawn in region order.
+  let rng: ReturnType<TickContext['stream']> | null = null;
+  for (let region = 0; region < regions; region++) {
     if (harvest[region * 12 + month - 1] > 0) {
       rng ??= context.stream(0, HARVEST);
       // A standard normal draw (the sum of three uniforms, scaled), within the bounds.
@@ -33,7 +37,6 @@ export function environment(state: SimulationState, context: TickContext) {
       state.harvestFactor[region] = harvestYield(state, region);
     }
   }
-  if (month === 1) { beginDroughts(state, context); checkFamineWatches(state); }
 }
 
 /** Each January: droughts begin, each in one region and those beside it it spreads to; an event where it touches people. */

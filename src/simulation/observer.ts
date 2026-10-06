@@ -1,6 +1,6 @@
 import type { ObserverFrame } from '../../shared/simulation.ts';
-import { capacity, FARM_METHOD, harvest, METHOD_COUNT, regionYields } from './food.ts';
-import { cultivatedCells } from './fields.ts';
+import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
+import { cultivatedCells, fieldLand } from './fields.ts';
 import { speedOf } from './knowledge.ts';
 import { BUILDINGS } from './buildings.ts';
 import { WONDERS } from './wonders.ts';
@@ -152,7 +152,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews,
     weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)) },
     fields: (() => {
-      const land = state.food.labor[region * METHOD_COUNT + FARM_METHOD];
+      const land = fieldLand(state.fieldRanking, region);
       return { share: land > 0 ? round(Math.min(1, state.fields[region] / land)) : 0, cells: cultivatedCells(state.fieldRanking, region, state.fields[region]) };
     })(),
     food: { forage: output(0), hunt: output(1), fish: output(2), herd: output(3), farm: output(4) },

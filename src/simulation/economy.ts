@@ -58,19 +58,22 @@ export function incomeOf(state: SimulationState, civ: Polity) {
 
 function townsIncome(state: SimulationState, civ: Polity) {
   let income = 0;
-  for (const groupId of civ.groups) {
-    const region = state.groups[groupId].region;
-    let mine = false, quarry = false;
-    for (const id of state.regionSettlements[region]) {
-      const settlement = state.settlements[id];
-      if (settlement.status !== 'alive') continue;
-      income += settlementIncome(state, settlement);
-      mine ||= settlement.bonus.mine; quarry ||= settlement.bonus.quarry;
-    }
-    // A region's sites are worked once, by its mine and its quarry.
-    if (mine) income += siteIncome(state, civ, region, 'mineral');
-    if (quarry) income += siteIncome(state, civ, region, 'stone');
+  for (const groupId of civ.groups) income += regionIncome(state, civ, state.groups[groupId].region);
+  return income;
+}
+
+/** What one of a civilization's regions earns it a year: its settlements' townspeople, and the sites its mine and
+ *  quarry work (each region's sites worked once). */
+export function regionIncome(state: SimulationState, civ: Polity, region: number) {
+  let income = 0, mine = false, quarry = false;
+  for (const id of state.regionSettlements[region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status !== 'alive') continue;
+    income += settlementIncome(state, settlement);
+    mine ||= settlement.bonus.mine; quarry ||= settlement.bonus.quarry;
   }
+  if (mine) income += siteIncome(state, civ, region, 'mineral');
+  if (quarry) income += siteIncome(state, civ, region, 'stone');
   return income;
 }
 
@@ -103,10 +106,10 @@ export function upkeepOf(state: SimulationState, civ: Polity) {
   return upkeep;
 }
 
-/** Production system, after a civilization's townspeople are housed: a month of their earnings joins the treasury in
- *  whole units (the fraction waits for next month). */
-export function produceWealth(state: SimulationState, civ: Polity) {
-  civ.wealthCarry += incomeOf(state, civ) / 12;
+/** Production system, after a civilization's townspeople are housed: a month of their earnings (`towns`, what its
+ *  regions earn, as production summed them) joins the treasury in whole units (the fraction waits for next month). */
+export function produceWealth(state: SimulationState, civ: Polity, towns = townsIncome(state, civ)) {
+  civ.wealthCarry += towns * wonderBonus(state, civ).wealth / 12;
   const produced = Math.floor(civ.wealthCarry);
   if (produced <= 0) return;
   const flows = wealthFlows(state, civ);

@@ -6,7 +6,7 @@ import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
 import { absorbMap, arrive, capitalKm, crosses, emptyMap, forgetMap, governable, hasHarbor, inheritContacts, joinView, lookAgain, seaFrom } from './perception.ts';
-import { loseWealth, produceWealth, regionFarm, regionSpoilage, regionStore } from './economy.ts';
+import { loseWealth, produceWealth, regionFarm, regionIncome, regionSpoilage, regionStore } from './economy.ts';
 import { herdYield } from './environment.ts';
 import { tendFields, watchFamine } from './fields.ts';
 import { announceSettlement, foundSettlement, growSettlements, house, livingSettlements, ruinSettlements, setCapital } from './settlements.ts';
@@ -151,7 +151,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     exchanges: new Map(), exchangeRefused: new Map(), capital: null, settledTick: null,
     map: emptyMap(state.partition.regions.length), met: new Map(),
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
-    wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, famineTick: -1,
+    wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0,
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -209,6 +209,7 @@ export function produce(state: SimulationState, context: TickContext) {
   const harvested = new Uint8Array(state.partition.regions.length);
   for (const id of state.living) {
     const polity = state.polities[id], knowledge = polity.knowledge, m = knowledge.multipliers;
+    let towns = 0;
     for (const groupId of polity.groups) {
       const group = state.groups[groupId], region = group.region;
       regionYields(food, state.gameStock[region], yields, region, knowledge, regionFarm(state, region));
@@ -221,7 +222,7 @@ export function produce(state: SimulationState, context: TickContext) {
       const cap = Math.min(SPECIALIST_TUNING.baseCap * m.specialistCap, SPECIALIST_TUNING.maxShare);
       group.specialists = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (fedSecurity(group) - 1), 0, 1));
       // Townspeople live in the region's settlements; there are only as many as they can house (VISION.md "Settlements").
-      if (polity.kind === 'civ') group.specialists = house(state, region, group.specialists);
+      if (polity.kind === 'civ') { group.specialists = house(state, region, group.specialists); towns += regionIncome(state, polity, region); }
       const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;
       const farming = knowledge.methods.farm;
       // The store that will still be there to eat before the harvest: part of it perishes on the way.
@@ -233,7 +234,8 @@ export function produce(state: SimulationState, context: TickContext) {
         : harvest(food.labor, at, yields, group.size - group.specialists, workers).output;
       const methodOutput = (method: number) => workers[method] > 0 ? yields[method] * food.labor[at + method] * (1 - Math.exp(-workers[method] / food.labor[at + method])) : 0;
       // Farmland not yet cleared yields less (VISION.md "Cultivated land"); the fields follow the farmers.
-      const farmedAll = methodOutput(FARM_METHOD), farmed = farmedAll * tendFields(state, region, workers[FARM_METHOD]);
+      state.fieldShare[region] = tendFields(state, region, workers[FARM_METHOD]);
+      const farmedAll = methodOutput(FARM_METHOD), farmed = farmedAll * state.fieldShare[region];
       const herded = methodOutput(HERD_METHOD), other = output - farmedAll;
       // Output is a monthly rate. Crops sown this month join those in the field; a harvest month brings them all in, as
       // the weather and any drought allow (VISION.md "yield variance, droughts"): the difference is a flow of its own.
@@ -255,8 +257,8 @@ export function produce(state: SimulationState, context: TickContext) {
       state.gameStock[region] = clamp(state.gameStock[region] + gameChange(food, region, state.gameStock[region], workers) / 12, FOOD_TUNING.gameFloor, 1);
       harvested[region] = 1;
     }
-    // Townspeople earn wealth for their civilization (VISION.md "Wealth").
-    if (polity.kind === 'civ') produceWealth(state, polity);
+    // Townspeople earn wealth for their civilization (VISION.md "Wealth"), summed region by region as they were housed.
+    if (polity.kind === 'civ') produceWealth(state, polity, towns);
   }
   workers.fill(0);
   for (let region = 0; region < harvested.length; region++) {
@@ -283,12 +285,22 @@ function foodSecurity(group: PopulationGroup, farming: boolean, otherRate: numbe
 /**
  * Food security as hunger feels it in a passing shortfall (deaths within capacity, and townspeople): what the land
  * gives (`foodSecurity`), but no less than the months of need still in store, at most 1 — a people eating its fill
- * from its stores does not starve (VISION.md: food security counts stored food). Births follow the land alone (and
- * the reserve), so stores never let a people grow beyond what its land feeds.
+ * from its stores does not starve. This departs from VISION.md's food security ("stored plus expected food ÷ annual
+ * need") on purpose: stores count only while they last, month by month, not as a year's security. Births follow the
+ * land alone (and the reserve), so stores never let a people grow beyond what its land feeds.
  */
 export function fedSecurity(group: PopulationGroup) {
   const need = group.size * UNITS;
   return need > 0 ? Math.max(group.foodSecurity, Math.min(1, group.store / need)) : 1;
+}
+
+/**
+ * The food security hunger deaths follow: within what the land lastingly feeds (`capacity`), food in store carries
+ * people through a bad month or year (`fedSecurity`); beyond it, hunger follows the land, so no store lets them linger
+ * above it (VISION.md M1).
+ */
+export function hungerSecurity(group: PopulationGroup, capacity: number) {
+  return group.size > capacity ? group.foodSecurity : fedSecurity(group);
 }
 
 /**
@@ -307,25 +319,29 @@ export function reserveShortfall(state: SimulationState, polity: Polity, group: 
 }
 
 /** A region of a polity that fell into famine this month: its deaths over about a year, its people and why. */
-export interface FamineOnset { region: number; deaths: number; population: number; shortfall: number; factors: Record<'drought' | 'poorHarvest' | 'crowding' | 'unrest', number> }
+export interface FamineOnset { region: number; deaths: number; population: number; shortfall: number; factors: Record<'drought' | 'poorHarvest' | 'uncleared' | 'crowding' | 'unrest', number> }
 
 /**
  * A region whose famine deaths over about a year reach a share of its people falls into famine (VISION.md event
- * "famine"), once for the episode, with what brought it — a drought (its cut of the last harvest, or of the herds now),
- * a bad harvest, more people than the land feeds, unrest; the onset joins `onsets` for `announceFamine`. The famine
- * ends when the dying falls back.
+ * "famine"), with what brought it — a drought (its cut of the last harvest, or of the herds now), a bad harvest, land
+ * farmed before it was cleared, more people than the land feeds, unrest; the onset joins `onsets` for
+ * `announceFamine`, unless the region's last famine began less than a year ago (the same famine, flaring again). The
+ * famine ends when the dying falls back.
  */
 export function recordFamine(state: SimulationState, polity: Polity, group: PopulationGroup, capacity: number, onsets: FamineOnset[]) {
   const tuning = ENVIRONMENT_TUNING, region = group.region, recent = state.famineRecent[region];
   if (state.famine[region]) { if (recent < tuning.famineEnd * group.size) state.famine[region] = 0; return; }
   if (recent < Math.max(tuning.famineMin, tuning.famineShare * group.size)) return;
   state.famine[region] = 1;
+  if (state.famineSince[region] >= 0 && state.tick - state.famineSince[region] < 12) return;
+  state.famineSince[region] = state.tick;
   const weather = state.weather[region], farming = polity.knowledge.methods.farm;
   onsets.push({
     region, deaths: Math.round(recent), population: group.size, shortfall: 1 - Math.min(1, group.foodSecurity),
     factors: {
       drought: Math.max(farming && weather > 0 ? 1 - state.harvestFactor[region] / weather : 0, 1 - herdYield(state, region)),
       poorHarvest: farming ? Math.max(0, 1 - weather) : 0,
+      uncleared: 1 - state.fieldShare[region],
       crowding: capacity > 0 ? Math.max(0, group.size / capacity - 1) : 1,
       unrest: STABILITY_TUNING.outputLoss * unrestDepth(state, region),
     },
@@ -334,17 +350,13 @@ export function recordFamine(state: SimulationState, polity: Polity, group: Popu
 
 /**
  * A polity's regions that fell into famine this month are one event (a drought often strikes several at once), set in
- * the worst of them, unless they join a famine of the same people begun or spread within the last year. It cites each
- * cause at its strongest among them where it weighs enough, and failing those the shortfall itself (people who
- * outgrew their harvest, often in their first years of farming).
+ * the worst of them; a famine spreading to more of its regions later is another. It cites each cause at its strongest
+ * among them where it weighs enough, and failing those the shortfall itself (people who outgrew their harvest).
  */
 export function announceFamine(state: SimulationState, polity: Polity, onsets: FamineOnset[]) {
   if (!onsets.length) return;
   // A civilization's famine is watched for its fields shrinking and regrowing (VISION.md M3b).
   if (polity.kind === 'civ') watchFamine(state, polity.id, onsets.map(onset => onset.region));
-  const continuing = polity.famineTick >= 0 && state.tick - polity.famineTick < 12;
-  polity.famineTick = state.tick;
-  if (continuing) { onsets.length = 0; return; }
   const tuning = ENVIRONMENT_TUNING, worst = onsets.reduce((a, b) => b.deaths > a.deaths ? b : a);
   const factors: Record<string, number> = {};
   for (const onset of onsets) for (const [factor, weight] of Object.entries(onset.factors)) if (weight >= tuning.famineCause) factors[factor] = Math.max(factors[factor] ?? 0, weight);
@@ -375,9 +387,10 @@ export function populate(state: SimulationState, context: TickContext) {
       // Farmers short of their reserve for bad years have fewer children until it is rebuilt.
       const short = polity.knowledge.methods.farm ? reserveShortfall(state, polity, group, context.month) : 0;
       const birthRate = (tuning.birthRate + tuning.birthSlope * clamp((security - short - 1) / tuning.securitySpan, -1, 1)) * m.birthRate;
-      // Within what their land lastingly feeds, food in store carries people through a bad month or year (weather,
-      // drought); beyond it, hunger follows the land, so no store lets them linger above it (VISION.md M1).
-      const hunger = group.size > state.capacity[region] ? security : fedSecurity(group);
+      // What the land lastingly feeds (refreshed yearly, or sooner when the people or the game have moved away from it).
+      const stale = due(groupId) || group.size > CLOCK_TUNING.capacityRefresh * state.capacity[region] || Math.abs(state.gameStock[region] - state.capacityGame[region]) > CLOCK_TUNING.capacityGameDrift;
+      const people = stale ? regionCapacity(state, region) : state.capacity[region];
+      const hunger = hungerSecurity(group, people);
       const famineRate = tuning.famineDeaths * Math.sqrt(Math.max(0, 1 - hunger));
       group.birthCarry += group.size * birthRate / 12;
       group.naturalCarry += group.size * tuning.deathRate * m.mortality / 12;
@@ -399,8 +412,6 @@ export function populate(state: SimulationState, context: TickContext) {
         group.birthsYear = 0; group.deathsYear = 0; group.sizeAtYearStart = group.size;
       }
       if (group.size <= 0) { removeGroup(state, polity, group, context.tick); continue; }
-      const stale = due(groupId) || group.size > CLOCK_TUNING.capacityRefresh * state.capacity[region] || Math.abs(state.gameStock[region] - state.capacityGame[region]) > CLOCK_TUNING.capacityGameDrift;
-      const people = stale ? regionCapacity(state, region) : state.capacity[region];
       if (group.size > 1.1 * people) {
         state.overCapacity[region]++;
         metrics.maxOverCapacityMonths = Math.max(metrics.maxOverCapacityMonths, state.overCapacity[region]);

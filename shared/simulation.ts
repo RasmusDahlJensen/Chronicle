@@ -315,15 +315,21 @@ export function parseRegionMap(value: unknown): { map: RegionMap; cells: Uint16A
     if (region.id !== index || sizes[index] !== region.cells || cells[region.centroid] !== index + 1) throw invalid();
     if (region.neighbors.some(other => other >= map.regions.length || other === index)) throw invalid();
   }
-  // Farmland ranks: none on water, and within a region below its cell count.
+  // Farmland ranks: none on water; within each region 0, 1, … with no gaps or repeats.
   const ranks = atob(map.fieldRank);
   if (ranks.length !== count * 2) throw invalid();
-  const fieldRank = new Uint16Array(count);
+  const fieldRank = new Uint16Array(count), offsets = new Uint32Array(map.regions.length + 1), farmland = new Uint32Array(map.regions.length);
+  for (const [index, region] of map.regions.entries()) offsets[index + 1] = offsets[index] + region.cells;
+  const taken = new Uint8Array(offsets[map.regions.length]);
   for (let cell = 0; cell < count; cell++) {
     const rank = ranks.charCodeAt(cell * 2) | (ranks.charCodeAt(cell * 2 + 1) << 8);
-    if (rank !== 0xffff && (!cells[cell] || rank >= map.regions[cells[cell] - 1].cells)) throw invalid();
     fieldRank[cell] = rank;
+    if (rank === 0xffff) continue;
+    const region = cells[cell] - 1;
+    if (region < 0 || rank >= map.regions[region].cells || taken[offsets[region] + rank]) throw invalid();
+    taken[offsets[region] + rank] = 1; farmland[region]++;
   }
+  for (let index = 0; index < map.regions.length; index++) for (let rank = 0; rank < farmland[index]; rank++) if (!taken[offsets[index] + rank]) throw invalid();
   return { map, cells, fieldRank };
 }
 

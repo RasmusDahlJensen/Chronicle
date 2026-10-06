@@ -359,28 +359,39 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
     if (buildingKnown(civ.knowledge, type)) catalog.push({ type, name: definition.name, one: definition.one, many: definition.many, purpose: definition.purpose, cost: buildingCost(state, civ, type), upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast, water: definition.water, perRegion: definition.perRegion, works: definition.effects.works ?? '' });
   });
   const settlements: PolityView['build']['settlements'] = [];
+  // Its works under way by settlement, and the settlements where a wonder is being built (looked up once).
+  const works = new Map<number, number[]>(), wonderWorks = new Set<number>();
+  for (const project of civ.projects) works.get(project.settlement)?.push(project.type) ?? works.set(project.settlement, [project.type]);
+  for (const wonder of state.wonders) if (wonder.status === 'building') wonderWorks.add(wonder.settlement);
+  // Sites matter only once it can build what works them.
+  const mines = catalog.some(kind => kind.works === 'mineral'), quarries = catalog.some(kind => kind.works === 'stone');
   if (catalog.length) for (const groupId of civ.groups) {
     const group = state.groups[groupId], region = group.region;
     // Foreign peoples on the region's borders, as it sees them (its neighbours are always in sight).
     const foreign = new Set<number>();
-    for (const edge of state.partition.regions[region].neighbors) { const view = regionView(state, civ, edge.region); if (view && view.occupant >= 0 && view.occupant !== civ.id) foreign.add(view.occupant); }
+    for (const edge of state.partition.regions[region].neighbors) {
+      const status = civ.map.status[edge.region], occupant = status === OBSERVED ? state.occupant[edge.region] : status === KNOWN ? civ.map.snapshots.get(edge.region)!.occupant : -1;
+      if (occupant >= 0 && occupant !== civ.id) foreign.add(occupant);
+    }
     const here = livingSettlements(state, region);
     // What the region has, or is building, of the buildings one region needs only one of.
     const regionHas: number[] = [];
     for (const settlement of here) {
       for (const building of settlement.buildings) if (BUILDINGS[building.type].perRegion) regionHas.push(building.type);
-      for (const project of civ.projects) if (project.settlement === settlement.id && BUILDINGS[project.type].perRegion) regionHas.push(project.type);
+      for (const type of works.get(settlement.id) ?? []) if (BUILDINGS[type].perRegion) regionHas.push(type);
     }
     let seaLinks = 0;
     for (const link of state.partition.regions[region].sea) if (crosses(civ.knowledge.sea, link.km)) seaLinks++;
-    const mineYield = siteIncome(state, civ, region, 'mineral'), quarryYield = siteIncome(state, civ, region, 'stone');
+    const mineYield = mines ? siteIncome(state, civ, region, 'mineral') : 0, quarryYield = quarries ? siteIncome(state, civ, region, 'stone') : 0;
+    const water = riverOrLake(state, region), farmers = Math.round((group.size - group.specialists) * group.farmShare);
     for (const settlement of here) {
-      const has = [...regionHas, ...settlement.buildings.map(building => building.type)];
-      for (const project of civ.projects) if (project.settlement === settlement.id) has.push(project.type);
+      const has = regionHas.slice();
+      for (const building of settlement.buildings) has.push(building.type);
+      for (const type of works.get(settlement.id) ?? []) has.push(type);
       settlements.push({
         id: settlement.id, region, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, hardship: state.hardship[region],
-        farmShare: group.farmShare, farmers: Math.round((group.size - group.specialists) * group.farmShare), stability: state.stability[region], frontier: foreign.size, has,
-        coast: bySea(state, settlement.cell), water: riverOrLake(state, region), seaLinks, mineYield, quarryYield, wonder: settlement.wonder !== null || state.wonders.some(wonder => wonder.settlement === settlement.id && wonder.status === 'building'),
+        farmShare: group.farmShare, farmers, stability: state.stability[region], frontier: foreign.size, has,
+        coast: bySea(state, settlement.cell), water, seaLinks, mineYield, quarryYield, wonder: settlement.wonder !== null || wonderWorks.has(settlement.id),
       });
     }
   }

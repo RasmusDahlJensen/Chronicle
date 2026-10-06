@@ -18,6 +18,7 @@ import { createRng, type Rng } from '../src/simulation/rng.ts';
 import { polityPopulation, refuge, settle } from '../src/simulation/bands.ts';
 import { edgeBetween, roadKey, roadUpkeep } from '../src/simulation/roads.ts';
 import { WONDERS } from '../src/simulation/wonders.ts';
+import { fieldLand } from '../src/simulation/fields.ts';
 
 async function chronicleWorld() {
   const bundle = encodeGeneratedWorld(await generateWorld({ seed: 'Chronicle', size: 'large' }));
@@ -296,6 +297,8 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
     const civ = civilization(state, 9);
     state.wonders.push({ id: 0, type: 0, settlement: civ.capital!, builder: civ.id, begunTick: state.tick, builtTick: null, status: 'abandoned', spent: 0, cost: WONDERS[0].cost, condition: 1, endedTick: state.tick, endCause: null, causes: [], waited: 0 });
   }, /ended without a date or cause/);
+  // Cultivated land lies within the region's farmland.
+  tamper(state => { const region = state.partition.regions.find(entry => fieldLand(state.fieldRanking, entry.id) > 0)!; state.fields[region.id] = fieldLand(state.fieldRanking, region.id) + 1; }, /fields on .* of farmland/);
   // A harvest gains or loses to the weather only within what weather and drought allow.
   tamper(state => { const flows = state.ledger.food.get(state.groups[state.polities[state.living[10]].core].id)!; flows.harvested += 100; flows.plantedBefore += 100; flows.weather = 60; flows.production += 60; state.groups[state.polities[state.living[10]].core].store += 60; }, /not what that share gives/);
 });

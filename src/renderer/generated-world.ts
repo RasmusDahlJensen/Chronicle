@@ -256,7 +256,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     if (fieldCells && fieldCount) {
       fieldImage ??= paintFields(fieldCells);
       if (fieldImage) {
-        target.save(); target.imageSmoothingEnabled = false; target.globalAlpha = clamp(0.95 - m.scale * 0.04, 0.5, 0.9);
+        // Faint at world scale, so the peoples' colours show through; plainer as the map zooms in.
+        target.save(); target.imageSmoothingEnabled = false; target.globalAlpha = clamp(0.2 + m.scale * 0.06, 0.3, 0.7);
         for (let copy = startCopy; copy <= endCopy; copy++) target.drawImage(fieldImage, left + copy * world.width * m.scale, top, world.width * m.scale, world.height * m.scale);
         target.restore();
       }

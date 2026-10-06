@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EVENT_TYPES, parseObserverFrame, SIMULATION_PROTOCOL_VERSION, simulationDate } from '../shared/simulation.ts';
+import { EVENT_TYPES, parseObserverFrame, parseRegionMap, SIMULATION_PROTOCOL_VERSION, simulationDate } from '../shared/simulation.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
@@ -163,4 +163,25 @@ test('observer frames reject events newer than the frame or out of order', () =>
   assert.throws(() => parseObserverFrame({ ...frame, polities: 2 }), 'one marker per living polity');
   assert.throws(() => parseObserverFrame({ ...frame, settlementCount: 1 }), 'settlement count matches the settlements');
   assert.throws(() => parseObserverFrame({ ...frame, series: [[10, 30, 1]] }), 'the series cannot run ahead of the clock');
+});
+
+test('the region map carries each cell\'s farmland rank: none on water, and 0, 1, … within each region', () => {
+  // A standard-size world of water with one region of three land cells (0, 1, 2).
+  const width = 512, height = 256, count = width * height;
+  const encode = (values: number[], fill: number) => {
+    const bytes = new Uint8Array(count * 2);
+    for (let cell = 0; cell < count; cell++) { const value = values[cell] ?? fill; bytes[cell * 2] = value & 0xff; bytes[cell * 2 + 1] = value >> 8; }
+    return Buffer.from(bytes).toString('base64');
+  };
+  const map = (ranks: number[]) => ({
+    protocolVersion: SIMULATION_PROTOCOL_VERSION, worldKey: 'w', partitionVersion: 1, width, height, encoding: 'region-u16le' as const,
+    data: encode([1, 1, 1], 0), fieldRank: encode(ranks, 0xffff),
+    regions: [{ id: 0, landmass: 0, cells: 3, areaKm2: 3, centroid: 1, island: true, coastal: true, openLake: false, riverTier: 0, neighbors: [] }],
+  });
+  assert.deepEqual([...parseRegionMap(map([1, 0, 0xffff])).fieldRank.slice(0, 3)], [1, 0, 0xffff]);
+  assert.throws(() => parseRegionMap(map([0, 0, 0xffff])), 'a rank twice');
+  assert.throws(() => parseRegionMap(map([1, 2, 0xffff])), 'a gap: no rank 0');
+  assert.throws(() => parseRegionMap(map([0, 1, 3])), 'beyond the region\'s cells');
+  assert.throws(() => parseRegionMap(map([0, 1, 2, 0])), 'farmland on water');
+  assert.throws(() => parseRegionMap({ ...map([0, 1, 2]), fieldRank: encode([0], 0xffff).slice(0, 100) }), 'the wrong length');
 });

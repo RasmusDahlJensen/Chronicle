@@ -82,9 +82,6 @@ export interface Polity {
   roadWorks: RoadWork[];
   /** Its share of last month's road upkeep left unpaid (0–1): the roads it keeps wear by it. */
   roadsUnpaid: number;
-  /** Tick one of its regions last fell into famine (−1 never): regions falling into famine within a year of it join
-   *  that famine rather than making a new one. */
-  famineTick: number;
 }
 
 export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build'] as const;
@@ -352,6 +349,9 @@ export interface SimulationState {
    *  harvest came in at (the weather times any drought's share, as applied), months of drought left (0: none), famine
    *  deaths over about the last year (a fading sum) and whether it is in a famine now. */
   weather: Float64Array; harvestFactor: Float64Array; drought: Uint8Array; famineRecent: Float64Array; famine: Uint8Array;
+  /** Per region: the tick its last recorded famine began (−1 never; a famine there again within a year is the same
+   *  famine), and the share of its farm output its fields allowed last month (1 when cleared). */
+  famineSince: Int32Array; fieldShare: Float64Array;
   /** Per region, derived from its living settlements' buildings (recomputed whenever they change): the farm yield
    *  multiplier and the share of a drought's loss kept away (irrigation), and the food store limit and spoilage
    *  multipliers (a granary). */

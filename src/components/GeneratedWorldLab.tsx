@@ -364,8 +364,9 @@ export function GeneratedWorldLab() {
             <label className="world-resource-toggle"><input type="checkbox" checked={rivers} onChange={event => setRivers(event.target.checked)} /> Rivers</label>
             <p className="atlas-panel-note world-river-note">Larger rivers stand out at world scale. Zoom in to see smaller streams.</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={showRegions} onChange={event => setShowRegions(event.target.checked)} /> Regions</label>
-            <label className="world-resource-toggle"><input type="checkbox" checked={showFields} onChange={event => setShowFields(event.target.checked)} /> Fields</label>
             <p className="atlas-panel-note">{regions ? `${number.format(regions.map.regions.length)} simulation regions of 20,000–60,000 km²; small islands are their own region.` : regionError ?? 'Dividing the land into regions…'}</p>
+            <label className="world-resource-toggle"><input type="checkbox" checked={showFields} onChange={event => setShowFields(event.target.checked)} /> Fields</label>
+            <p className="atlas-panel-note">Cultivated land, as wheat-coloured furrows: each region's best farmland near its main settlement, as much as its farmers work.</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={resources} onChange={event => setResources(event.target.checked)} /> Resource sites</label>
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
             <ul className="world-resource-legend" aria-label="Resource site legend">{RESOURCE_IDS.map(resource => <li key={resource} title={`Extraction: ${RESOURCE_RULES[resource].extractionTechnology}`}><ResourceIcon resource={resource} />{RESOURCES[resource].label}</li>)}</ul>

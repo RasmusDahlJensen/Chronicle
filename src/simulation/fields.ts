@@ -1,7 +1,8 @@
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { WORLD_BIOMES } from '../../shared/generated-world.ts';
-import { FARM_METHOD, METHOD_COUNT } from './food.ts';
 import type { SimulationGeography } from './geography.ts';
 import type { RegionPartition } from './regions.ts';
+import { FARM_METHOD, METHOD_COUNT } from './food.ts';
 import type { FieldRanking, SimulationState } from './state.ts';
 import { FARM_TUNING, FIELD_TUNING } from './tunables.ts';
 
@@ -19,18 +20,22 @@ export const NO_FIELD = 0xffff;
 
 /**
  * Each region's farmland ranked once: by a cell's farm labour (area × farm density × fertility^exponent, as the food
- * model counts it) × closeness to the region's best settlement site (1 ÷ (1 + cells away ÷ closeCells)).
+ * model counts it, and a grain site's labour on its cell) × closeness to the region's best settlement site (1 ÷ (1 +
+ * cells away ÷ closeCells)). Land too poor to be worth clearing (under minDensity people of farm labour per km²:
+ * desert, tundra, most mountains) is no farmland: people may still work it, but it is never fields.
  */
 export function rankFarmland(geography: SimulationGeography, partition: RegionPartition): FieldRanking {
   const regions = partition.regions, start = new Int32Array(regions.length + 1), rank = new Uint16Array(geography.cells).fill(NO_FIELD);
-  const order: number[] = [], cumulative: number[] = [];
+  const order: number[] = [], cumulative: number[] = [], grain = RESOURCE_IDS.indexOf('grain') + 1;
   for (const region of regions) {
     start[region.id] = order.length;
     const home = region.settlementSites[0] ?? region.centroid, homeX = home % geography.width, homeY = Math.floor(home / geography.width);
+    const sites = new Map<number, number>();
+    for (const [cell, code] of region.sites) if (code === grain) sites.set(cell, (sites.get(cell) ?? 0) + FARM_TUNING.grainSiteLabor);
     const cells: { cell: number; labour: number; score: number }[] = [];
     for (const cell of region.cells) {
-      const labour = cellLabour(geography, cell);
-      if (!(labour > 0)) continue;
+      const own = cellLabour(geography, cell), labour = own + (sites.get(cell) ?? 0);
+      if (!(labour > 0) || (own < FIELD_TUNING.minDensity * geography.cellAreaKm2 && !sites.has(cell))) continue;
       const dx = Math.abs(cell % geography.width - homeX), away = Math.hypot(Math.min(dx, geography.width - dx), Math.floor(cell / geography.width) - homeY);
       cells.push({ cell, labour, score: labour / (1 + away / FIELD_TUNING.closeCells) });
     }
@@ -53,14 +58,15 @@ function cellLabour(geography: SimulationGeography, cell: number) {
 }
 
 /**
- * Production system, for a group's region each month: the fields its `farmers` would work (fieldFactor each, at most
- * the region's farmland) are the target; fields below it are cleared at clearRate × target a year, fields above it
- * fall fallow by fallowRate of the gap a year. Returns the share of the month's farm output the fields allow: all of
- * it once cleared, else uncleared + (1 − uncleared) × fields ÷ target.
+ * Production system, for a group's region each month: the target is the share of the region's farmland its
+ * `farmers` work, as the share of the land's farm yield they reap (1 − e^(−fieldFactor × farmers ÷ the food model's
+ * farm labour): more farmers clear more, ever more slowly as the land fills); fields below it are cleared at clearRate
+ * × target a year, fields above it fall fallow by fallowRate of the gap a year. Returns the share of the month's farm
+ * output the fields allow: all of it once cleared, else uncleared + (1 − uncleared) × fields ÷ target.
  */
 export function tendFields(state: SimulationState, region: number, farmers: number) {
-  const tuning = FIELD_TUNING, land = state.food.labor[region * METHOD_COUNT + FARM_METHOD];
-  const target = Math.min(land, tuning.fieldFactor * farmers), fields = state.fields[region];
+  const tuning = FIELD_TUNING, land = fieldLand(state.fieldRanking, region), labour = state.food.labor[region * METHOD_COUNT + FARM_METHOD];
+  const target = land > 0 && labour > 0 ? land * (1 - Math.exp(-tuning.fieldFactor * farmers / labour)) : 0, fields = state.fields[region];
   if (fields < target) state.fields[region] = Math.min(target, fields + tuning.clearRate / 12 * target);
   else if (fields > target) fallow(state, region, target);
   const now = state.fields[region];
@@ -71,6 +77,11 @@ export function tendFields(state: SimulationState, region: number, farmers: numb
 export function fallow(state: SimulationState, region: number, target = 0) {
   const left = state.fields[region] - FIELD_TUNING.fallowRate / 12 * (state.fields[region] - target);
   state.fields[region] = left < 1 && target <= 0 ? 0 : left;
+}
+
+/** All of a region's farmland, as farm labour (people): what its fields can cover. */
+export function fieldLand(ranking: FieldRanking, region: number) {
+  return ranking.start[region + 1] > ranking.start[region] ? ranking.cumulative[ranking.start[region + 1] - 1] : 0;
 }
 
 /** How many of a region's ranked farmland cells its fields cover (those whose cumulative labour they reach). */

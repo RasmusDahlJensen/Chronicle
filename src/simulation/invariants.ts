@@ -9,7 +9,7 @@ import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
 import type { Polity, RoadWork, Settlement, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
 import { BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING } from './tunables.ts';
-import { FARM_METHOD, METHOD_COUNT } from './food.ts';
+import { fieldLand } from './fields.ts';
 
 /** The least share of its crops a harvest can come in at: the worst weather in drought without irrigation. */
 const lowestHarvest = ENVIRONMENT_TUNING.harvestMin * (1 - ENVIRONMENT_TUNING.droughtFarmLoss);
@@ -73,7 +73,7 @@ export function checkInvariants(state: SimulationState) {
     if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowestHarvest && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
     if (state.drought[region] > ENVIRONMENT_TUNING.droughtYears * 12 || state.famine[region] > 1 || !(state.famineRecent[region] >= 0)) fail(`region ${region} has drought ${state.drought[region]}, famine ${state.famine[region]} and recent famine deaths ${state.famineRecent[region]}`);
     // Cultivated land lies within the region's farmland (VISION.md "Cultivated land").
-    if (!(state.fields[region] >= 0 && state.fields[region] <= state.food.labor[region * METHOD_COUNT + FARM_METHOD])) fail(`region ${region} has ${state.fields[region]} fields on ${state.food.labor[region * METHOD_COUNT + FARM_METHOD]} of farmland`);
+    if (!(state.fields[region] >= 0 && state.fields[region] <= fieldLand(state.fieldRanking, region))) fail(`region ${region} has ${state.fields[region]} fields on ${fieldLand(state.fieldRanking, region)} of farmland`);
   }
   // What one region needs only one of (granary, shrine, temple, mine, quarry, harbor), standing or under way.
   for (let region = 0; region < regions; region++) {

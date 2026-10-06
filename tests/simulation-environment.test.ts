@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { announceFamine, fedSecurity, recordFamine, reserveShortfall, type FamineOnset } from '../src/simulation/bands.ts';
+import { announceFamine, fedSecurity, hungerSecurity, recordFamine, reserveShortfall, type FamineOnset } from '../src/simulation/bands.ts';
 import { BUILDING_INDEX, BUILDINGS } from '../src/simulation/buildings.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { buildScore, need } from '../src/simulation/decisions/build.ts';
@@ -11,7 +11,7 @@ import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
 import type { PolityView } from '../src/simulation/perception.ts';
 import type { Rng } from '../src/simulation/rng.ts';
 import { systemStream } from '../src/simulation/rng.ts';
-import { bonusOf, refreshRegionBonus } from '../src/simulation/settlements.ts';
+import { bonusOf, fallCauses, refreshRegionBonus } from '../src/simulation/settlements.ts';
 import type { Polity, PopulationGroup, Settlement, SimulationState } from '../src/simulation/state.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
 import { ENVIRONMENT_TUNING, FOOD_TUNING, POPULATION_TUNING } from '../src/simulation/tunables.ts';
@@ -31,9 +31,10 @@ function fixture() {
     groups: [{ id: 0, region: 1, size: 10_000, store: 0, specialists: 0, foodSecurity: 0.9 }], regionSettlements: [[], [], [], []], settlements: [], stability: new Float64Array(4).fill(1), unrest: new Uint8Array(4),
     chronicle: new Chronicle(), metrics: { droughts: 0, famines: 0 }, capacity: new Float64Array(4).fill(10_000),
     farmBonus: new Float64Array(4).fill(1), droughtShield: new Float64Array(4), storeBonus: new Float64Array(4).fill(1), spoilageBonus: new Float64Array(4).fill(1),
-    fields: new Float64Array(4), famineWatches: [],
+    fields: new Float64Array(4), famineWatches: [], famineSince: new Int32Array(4).fill(-1), fieldShare: new Float64Array(4).fill(1),
+    hardship: new Float64Array(4), fieldRanking: { order: Int32Array.from([0, 1, 2, 3]), start: Int32Array.from([0, 1, 2, 3, 4]), cumulative: Float64Array.from([1000, 1000, 1000, 1000]), rank: new Uint16Array(4) },
   } as unknown as SimulationState;
-  const tribe = { id: 0, kind: 'band', name: 'Ora', famineTick: -1, knowledge: learn(learn(startingKnowledge(), TECH_INDEX.get('Pottery')!), TECH_INDEX.get('Agriculture')!) } as unknown as Polity;
+  const tribe = { id: 0, kind: 'band', name: 'Ora', knowledge: learn(learn(startingKnowledge(), TECH_INDEX.get('Pottery')!), TECH_INDEX.get('Agriculture')!) } as unknown as Polity;
   state.polities = [tribe];
   return { state, tribe, group: state.groups[0] as PopulationGroup };
 }
@@ -99,7 +100,7 @@ test('famine is recorded once while hunger kills a clear share of a region\'s pe
   state.famineRecent[1] = ENVIRONMENT_TUNING.famineEnd * group.size - 1;
   month();
   assert.equal(state.famine[1], 0, 'the dying fell back: it is over');
-  // Within a year of the last, a famine joins it: no new event.
+  // Flaring again in the same region within a year of its start, it is the same famine: no new event.
   state.famineRecent[1] = group.size; state.tick = 11;
   month();
   assert.equal(state.metrics.famines, 1, 'the same famine');
@@ -116,6 +117,40 @@ test('famine is recorded once while hunger kills a clear share of a region\'s pe
   state.chronicle.flush(2);
   const joint = state.chronicle.events.filter(event => event.type === 'famine').at(-1)!;
   assert.deepEqual([joint.region, joint.data.regions, joint.data.more, joint.data.deaths], [2, 2, 1, group.size + second.size]);
+  // Spreading to a region not yet struck, within the year, it is recorded too (a famine spreads); uncleared land is cited.
+  const third = { ...group, id: 2, region: 3, size: 5_000 } as PopulationGroup;
+  state.famineRecent[3] = third.size; state.fieldShare[3] = 0.85; state.harvestFactor[3] = 1; state.tick = 50;
+  recordFamine(state, tribe, third, 10_000, onsets); announceFamine(state, tribe, onsets);
+  state.chronicle.flush(3);
+  const spread = state.chronicle.events.filter(event => event.type === 'famine').at(-1)!;
+  assert.deepEqual([spread.region, spread.causes[0].factor], [3, 'uncleared']);
+});
+
+test('hunger counts stores only within what the land lastingly feeds; tier falls cite the hard times behind them', () => {
+  const { state, group } = fixture();
+  group.foodSecurity = 0.8; group.store = group.size * FOOD_TUNING.unitsPerPersonMonth * 4;
+  assert.equal(hungerSecurity(group, group.size), 1, 'within capacity: the store carries them');
+  assert.equal(hungerSecurity(group, group.size - 1), 0.8, 'beyond it: hunger follows the land');
+  state.hardship[1] = 0.3;
+  assert.equal(fallCauses(state, group, 0.5)[0].factor, 'hardship');
+  state.hardship[1] = 0.01;
+  assert.deepEqual(fallCauses(state, group, 0.5).map(cause => cause.factor), ['fewerTownspeople'], 'nothing else to name');
+  state.famine[1] = 1; state.famineRecent[1] = group.size * 0.05;
+  assert.equal(fallCauses(state, group, 0.5)[0].factor, 'famine');
+});
+
+test('the environment sets every region\'s harvest share at its harvest month, lets empty regions\' fields fall fallow, and checks famine watches each January', () => {
+  const { state } = fixture();
+  state.fields[2] = 500; state.drought[3] = 30;
+  environment(state, context(state, 8));
+  assert.ok(state.harvestFactor[0] !== 1 || state.weather[0] === 1, 'set for regions nobody farms');
+  assert.ok(Math.abs(state.harvestFactor[3] - state.weather[3] * (1 - ENVIRONMENT_TUNING.droughtFarmLoss)) < 1e-12, 'with the drought');
+  assert.ok(state.fields[2] < 500, 'nobody farms region 2: its fields fall fallow');
+  Object.assign(state.metrics, { faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0 });
+  state.fields[2] = 400;
+  state.famineWatches.push({ polity: 0, regions: [2], tick: 0, before: 500, shrunk: -1 });
+  environment(state, context(state, 12, () => ({ next: () => 0.5, int: () => 0, chance: () => false, weighted: () => 0 })));
+  assert.equal(state.metrics.fieldsShrank, 1, 'the yearly check ran');
 });
 
 test('hunger counts food in store: people eating their fill from their stores do not starve, whatever the land gives', () => {

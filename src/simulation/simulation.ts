@@ -47,7 +47,8 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     settlements: [], regionSettlements: Array.from({ length: regions }, () => []), owner: new Int32Array(regions).fill(-1), hardship: new Float64Array(regions), harbors: new Uint8Array(regions), wonders: [], roads: new Map(),
     weather: new Float64Array(regions).fill(1), harvestFactor: new Float64Array(regions).fill(1), drought: new Uint8Array(regions), famineRecent: new Float64Array(regions), famine: new Uint8Array(regions),
     farmBonus: new Float64Array(regions).fill(1), droughtShield: new Float64Array(regions), storeBonus: new Float64Array(regions).fill(1), spoilageBonus: new Float64Array(regions).fill(1),
-    fields: new Float64Array(regions), fieldRanking: rankFarmland(geography, partition), famineWatches: [], stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions),
+    fields: new Float64Array(regions), fieldRanking: rankFarmland(geography, partition), famineWatches: [],
+    famineSince: new Int32Array(regions).fill(-1), fieldShare: new Float64Array(regions).fill(1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions),
     lineages: [],
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1), groupAt: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
@@ -242,7 +243,7 @@ export function stateHash(state: SimulationState) {
     for (const [civ, tick] of polity.rebuffed) { add(civ); add(tick); }
     add(polity.wealth); add(polity.wealthCarry * 1e6); add(polity.upkeepCarry * 1e6); add(polity.repairing ? 1 : 0);
     for (const project of polity.projects) { add(project.settlement); add(project.type); add(project.spent); add(project.waited); }
-    add(polity.roadsUnpaid * 1e6); add(polity.famineTick);
+    add(polity.roadsUnpaid * 1e6);
     for (const work of polity.roadWorks) { add(work.to); add(work.tier); add(work.spent); add(work.cost); for (const [a, b] of work.edges) { add(a); add(b); } }
     for (const step of polity.decisions) { add(step.tick); add(ACTIONS.indexOf(step.chosen)); add(step.pick); add(step.outcome.length); add(step.options.length); for (const option of step.options) { add(option.score * 1000); add(option.target ?? -1); } }
   }
@@ -253,7 +254,7 @@ export function stateHash(state: SimulationState) {
   for (let region = 0; region < state.capacity.length; region++) { add(state.capacity[region] * 1e3); add(state.capacityGame[region] * 1e6); add(state.overCapacity[region]); }
   for (const value of state.gameStock) add(value * 1e6);
   for (const value of state.hardship) add(value * 1e6);
-  for (const value of state.fields) add(value * 1e3);
+  for (let region = 0; region < state.fields.length; region++) { add(state.fields[region] * 1e3); add(state.fieldShare[region] * 1e6); add(state.famineSince[region]); }
   for (let region = 0; region < state.weather.length; region++) { add(state.weather[region] * 1e6); add(state.harvestFactor[region] * 1e6); add(state.drought[region]); add(state.famineRecent[region] * 1e3); add(state.famine[region]); }
   for (const [key, road] of state.roads) { add(key); add(road.tier); add(road.bridge ? 1 : 0); add(road.condition * 1e6); }
   for (const wonder of state.wonders) { add(wonder.type); add(wonder.settlement); add(wonder.spent); add(wonder.condition * 1e6); add(['building', 'standing', 'destroyed', 'abandoned'].indexOf(wonder.status)); add(wonder.waited); }
