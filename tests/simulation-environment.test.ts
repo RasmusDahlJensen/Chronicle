@@ -200,7 +200,7 @@ test('irrigation raises its region\'s farm yield and is wanted where a river or 
   assert.ok(need('farming', settlement({ hardship: 0.5 }) as never, values) > need('farming', settlement({}) as never, values), 'hard years call for it');
   assert.equal(need('farming', settlement({ farmShare: 0 }) as never, values), 0, 'no farming, no irrigation');
   const kind = { type: irrigation, name: definition.name, one: definition.one, many: definition.many, purpose: definition.purpose, cost: definition.cost, upkeep: definition.upkeep, minTier: 0, coast: false, water: true, perRegion: true, works: '' as const };
-  const view = (entry: Record<string, unknown>) => ({ values, budget: { rate: 0.2, output: 500_000, sites: 0, costs: 0, treasury: 1_000_000, revenue: 100_000, surplus: 100_000, strain: 0, tradition: 0.5 }, build: { regions: 1, catalog: [kind], settlements: [settlement(entry)], wonders: [], stability: 1 } }) as unknown as PolityView;
+  const view = (entry: Record<string, unknown>) => ({ values, budget: { rate: 0.2, output: 500_000, sites: 0, costs: 0, treasury: 1_000_000, revenue: 100_000, surplus: 100_000, strain: 0, tradition: 0.5, calm: 0.9 }, build: { regions: 1, catalog: [kind], settlements: [settlement(entry)], wonders: [], stability: 1 } }) as unknown as PolityView;
   assert.ok(buildScore(view({}), kind).score > 0, 'a village of farmers by a river wants it');
   assert.equal(buildScore(view({ water: false }), kind).score, Number.NEGATIVE_INFINITY, 'no river or lake: nothing to water the fields');
   assert.ok(buildScore(view({ farmers: 2_000 }), kind).score < buildScore(view({}), kind).score, 'it serves the region\'s farmers');

@@ -137,18 +137,14 @@ export function regionAccount(state: SimulationState, civ: Polity, group: Popula
   return { farms, sites, administration: administered, balance: farms + sites - administered };
 }
 
-/** A realm's revenue and costs a year by kind, as the sums of its settlements' accounts (and of regions without a
- *  living settlement) and its roads' upkeep: what the observer shows, the same as `incomeOf` and `costsOf`. */
+/** A realm's revenue and costs a year by kind, as the sums of its settlements' accounts (every region it holds has a
+ *  living settlement, its seat: an invariant) and its roads' upkeep: what the observer shows, the same as `incomeOf`
+ *  and `costsOf`. */
 export function realmAccount(state: SimulationState, civ: Polity) {
   const wonder = wonderBonus(state, civ).wealth;
   let trades = 0, farms = 0, sites = 0, administered = 0, served = 0, upkeep = 0;
   for (const groupId of civ.groups) {
-    const group = state.groups[groupId];
-    if (seatOf(state, group.region) < 0) {
-      const region = regionAccount(state, civ, group);
-      farms += region.farms; sites += region.sites; administered += region.administration;
-    }
-    for (const id of state.regionSettlements[group.region]) {
+    for (const id of state.regionSettlements[state.groups[groupId].region]) {
       if (state.settlements[id].status !== 'alive') continue;
       const account = settlementAccount(state, civ, id, wonder);
       trades += account.trades; farms += account.farms; sites += account.sites; administered += account.administration; served += account.services; upkeep += account.upkeep;

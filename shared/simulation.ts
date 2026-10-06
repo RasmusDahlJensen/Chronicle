@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 18;
+export const SIMULATION_PROTOCOL_VERSION = 19;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -32,7 +32,7 @@ export const EVENT_TYPES = [
   'governmentChange', 'unrest', 'revolt', 'secession', 'civilWar', 'civDestroyed', 'cultureSplit', 'hybridCulture',
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
-  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears',
+  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -136,9 +136,10 @@ export const ObserverFrameSchema = Type.Object({
   inspect: Type.Union([Type.Null(), Type.Object({
     region: id(), capacity: Type.Number({ minimum: 0 }), gameStock: Type.Number({ minimum: 0, maximum: 1 }),
     /** The region's weather (VISION.md "Environment"): the share of its crops its last harvest came in at, months of
-     *  drought left (0: none), whether it is in famine, and its irrigation's farm yield multiplier (1: none). */
+     *  drought left (0: none), whether it is in famine, its irrigation's farm yield multiplier (1: none), and whether
+     *  famine relief reached it last month. */
     weather: Type.Object({
-      harvest: Type.Number({ minimum: 0 }), drought: Type.Integer({ minimum: 0 }), famine: Type.Boolean(), irrigation: Type.Number({ minimum: 1 }),
+      harvest: Type.Number({ minimum: 0 }), drought: Type.Integer({ minimum: 0 }), famine: Type.Boolean(), irrigation: Type.Number({ minimum: 1 }), relief: Type.Boolean(),
     }, { additionalProperties: false }),
     /** Its cultivated land: the share of its farmland's labour under cultivation (0–1) and the cells it covers. */
     fields: Type.Object({ share: Type.Number({ minimum: 0, maximum: 1 }), cells: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),

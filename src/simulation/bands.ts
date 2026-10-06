@@ -6,7 +6,8 @@ import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
 import { absorbMap, arrive, capitalKm, crosses, emptyMap, forgetMap, governable, hasHarbor, inheritContacts, joinView, lookAgain, seaFrom } from './perception.ts';
-import { loseWealth, produceWealth, regionFarm, regionIncome, regionSpoilage, regionStore, wonderBonus } from './economy.ts';
+import { relieve } from './relief.ts';
+import { loseWealth, produceWealth, regionFarm, regionOutput, regionSites, regionSpoilage, regionStore, wonderBonus } from './economy.ts';
 import { herdYield } from './environment.ts';
 import { tendFields, watchFamine } from './fields.ts';
 import { announceSettlement, foundSettlement, growSettlements, house, livingSettlements, ruinSettlements, setCapital } from './settlements.ts';
@@ -152,7 +153,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     map: emptyMap(state.partition.regions.length), met: new Map(),
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
-    taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false,
+    taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, famineDeaths: 0, personMonths: 0, outputSum: 0,
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -228,7 +229,12 @@ export function produce(state: SimulationState, context: TickContext) {
       const freed = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (fedSecurity(group) - 1), 0, 1));
       group.specialists = polity.kind === 'band' ? 0 : townspeopleToward(group.specialists, freed, group.size);
       // Townspeople live in the region's settlements; there are only as many as they can house (VISION.md "Settlements").
-      if (polity.kind === 'civ') { group.specialists = house(state, region, group.specialists); income += regionIncome(state, polity, region, wonder); }
+      if (polity.kind === 'civ') {
+        group.specialists = house(state, region, group.specialists);
+        const output = regionOutput(state, region, wonder);
+        income += polity.taxRate * output + regionSites(state, polity, region);
+        polity.outputSum += output / 12; polity.personMonths += group.size;
+      }
       const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;
       const farming = knowledge.methods.farm;
       // The store that will still be there to eat before the harvest: part of it perishes on the way.
@@ -263,8 +269,8 @@ export function produce(state: SimulationState, context: TickContext) {
       state.gameStock[region] = clamp(state.gameStock[region] + gameChange(food, region, state.gameStock[region], workers) / 12, FOOD_TUNING.gameFloor, 1);
       harvested[region] = 1;
     }
-    // Taxes and sites pay the civilization (VISION.md "Wealth").
-    if (polity.kind === 'civ') produceWealth(state, polity, income);
+    // Taxes and sites pay the civilization (VISION.md "Wealth"), and it relieves its hungry regions from the rest.
+    if (polity.kind === 'civ') { produceWealth(state, polity, income); relieve(state, polity, context.month); }
   }
   workers.fill(0);
   for (let region = 0; region < harvested.length; region++) {
@@ -417,6 +423,7 @@ export function populate(state: SimulationState, context: TickContext) {
       group.birthsYear += births; group.deathsYear += natural + famine;
       ledger.births[region] += births; ledger.naturalDeaths[region] += natural; ledger.famineDeaths[region] += famine;
       metrics.births += births; metrics.deaths += natural + famine; metrics.famineDeaths += famine;
+      if (polity.kind === 'civ') polity.famineDeaths += famine;
       state.famineRecent[region] += famine;
       if (yearEnd) {
         // The acceptance rule: a band of at least 50 people, alive all year, has births and deaths every year.

@@ -168,7 +168,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   });
   return {
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews,
-    weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)) },
+    weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)), relief: state.relieved[region] === 1 },
     fields: (() => {
       const land = fieldLand(state.fieldRanking, region);
       return { share: land > 0 ? round(Math.min(1, state.fields[region] / land)) : 0, cells: cultivatedCells(state.fieldRanking, region, state.fields[region]) };

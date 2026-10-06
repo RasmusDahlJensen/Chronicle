@@ -78,6 +78,9 @@ export interface Polity {
   wealth: number; wealthCarry: number; upkeepCarry: number; projects: Project[];
   /** Whether any of its buildings is worn below full condition (they mend while upkeep is paid). */
   repairing: boolean;
+  /** As a civilization: its people's famine deaths, the months its people lived (person-months) and their output
+   *  before tax (a twelfth of a year's each month), so far (M3c's health check: famine and wealth). */
+  famineDeaths: number; personMonths: number; outputSum: number;
   /** Its roads under construction (VISION.md "Roads"). */
   roadWorks: RoadWork[];
   /** Wonders (ids) it has heard of only by trying to build the same type (see `perception.ts` `knowsOfWonder`). */
@@ -269,11 +272,17 @@ export interface CenturyStats {
   cultivatedCells: number; cultivatedShare: number; faminesWatched: number; fieldsShrank: number; fieldsRegrew: number;
   /** Realms' budgets (VISION.md "Wealth", M3c): the median civilization's treasury in years of its costs, the median
    *  and highest tax rate, civilizations in arrears now; the shares of living settlements and of civilization regions
-   *  (with their settlements) that cost more than they pay; costs a year per person in the third of civilizations
-   *  largest and oldest (by their size × age factors) and in the smallest and youngest third (people-weighted); and
-   *  civilizations that fell into arrears, raised heavy taxes and eased them so far. */
+   *  (with their settlements) that cost more than they pay; costs and administration a year per person in the third of
+   *  civilizations largest and oldest (by their size × age factors) and in the smallest and youngest third
+   *  (people-weighted); and civilizations that fell into arrears, raised heavy taxes and eased them so far. */
   treasuryYears: number; taxMedian: number; taxMax: number; civsInArrears: number; settlementsAtLoss: number; regionsAtLoss: number;
-  costPerPersonLargeOld: number; costPerPersonSmallYoung: number; arrearsBegun: number; taxesRaised: number; taxesEased: number;
+  costPerPersonLargeOld: number; costPerPersonSmallYoung: number; adminPerPersonLargeOld: number; adminPerPersonSmallYoung: number;
+  arrearsBegun: number; taxesRaised: number; taxesEased: number;
+  /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
+   *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
+   *  least a century) richest in output a year and in the poorest third (M3c: famine kills a smaller share in rich
+   *  realms). */
+  reliefFood: number; reliefLost: number; reliefCost: number; reliefBegun: number; famineRich: number; faminePoor: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -288,9 +297,9 @@ export interface Ledger {
 }
 
 /** What changed a treasury this tick: production (taxes and the crown's sites), construction, the costs of running
- *  the realm (upkeep of buildings, wonders and roads; administration; services), and wealth passed between
+ *  the realm (upkeep of buildings, wonders and roads; administration; services), famine relief (carriage), and wealth passed between
  *  civilizations (a union) or lost (a civilization that dies out). */
-export interface WealthFlows { before: number; produced: number; construction: number; upkeep: number; administration: number; services: number; received: number; given: number; lost: number }
+export interface WealthFlows { before: number; produced: number; construction: number; upkeep: number; administration: number; services: number; relief: number; received: number; given: number; lost: number }
 
 export interface FoodFlows {
   before: number; production: number; consumption: number; spoilage: number; carriedIn: number; carriedOut: number;
@@ -335,6 +344,8 @@ export interface Metrics {
   faminesWatched: number; fieldsShrank: number; fieldsRegrew: number;
   /** Civilizations that fell into arrears, raised heavy taxes and eased them again (each an event). */
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
+  /** Famine relief: food landed and lost on the way (units), wealth paid for carriage, and episodes begun (events). */
+  reliefUnits: number; reliefLost: number; reliefCost: number; reliefBegun: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -387,6 +398,8 @@ export interface SimulationState {
    *  costs follow, and the civilization it was measured for (−1 none); measured at the owner's yearly assessment and in
    *  the month the region joins a realm (`budget.ts`). */
   remoteness: Float64Array; remoteOwner: Int32Array;
+  /** Per region: whether famine relief reached it last month (relief reaching it again is the same episode). */
+  relieved: Uint8Array;
   firsts: FirstDiscovery[];
   /** Per lineage, the culture name of its starting band (the observer names peoples by it). */
   lineages: string[];

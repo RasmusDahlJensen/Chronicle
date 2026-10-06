@@ -13,7 +13,9 @@ import { expand, unite } from '../src/simulation/expansion.ts';
 import { decisionView } from '../src/simulation/perception.ts';
 import { assess } from '../src/simulation/stability.ts';
 import { edgeKm } from '../src/simulation/perception.ts';
-import { STABILITY_TUNING } from '../src/simulation/tunables.ts';
+import { BUDGET_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
+import { refreshRemoteness } from '../src/simulation/budget.ts';
+import { wealthFlows } from '../src/simulation/economy.ts';
 import { createRng, type Rng } from '../src/simulation/rng.ts';
 import { polityPopulation, refuge, settle } from '../src/simulation/bands.ts';
 import { edgeBetween, roadKey, roadUpkeep } from '../src/simulation/roads.ts';
@@ -247,6 +249,22 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
     settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
     band.wealth += 5;
   }, /treasury changed with no flows recorded/);
+  // M3c.2: taxes stay within what a realm may take, every region a civilization holds is measured from its capital,
+  // and what it pays to run the realm is a flow like any other.
+  const settled = (state: ReturnType<typeof createSimulation>, at: number) => {
+    const band = state.polities[state.living[at]];
+    settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
+    return band;
+  };
+  tamper(state => { const civ = settled(state, 6); refreshRemoteness(state, civ, () => 0); civ.taxRate = BUDGET_TUNING.maxRate + 0.1; }, /taxes at/);
+  tamper(state => { settled(state, 6); }, /remoteness .* was measured for -1/);
+  tamper(state => {
+    const civ = settled(state, 7);
+    refreshRemoteness(state, civ, () => 0);
+    civ.wealth = 100;
+    const flows = wealthFlows(state, civ);
+    civ.wealth -= 10; flows.administration += 5; flows.services += 3;
+  }, /treasury 90 is not explained by its flows/);
   // Knowledge: an exchange held by one side only, an exchange between two tribes, research on a known tech, or more
   // progress from speed-ups than in all. (Knowledge is checked yearly per polity, staggered by id; these tamper with
   // a polity due this month.)

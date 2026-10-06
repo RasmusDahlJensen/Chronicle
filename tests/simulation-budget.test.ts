@@ -32,15 +32,24 @@ test('administration costs more for more people, farther from the capital, in a 
 test('a realm sets its taxes to cover its costs and refill its reserve, step by step, within bounds', () => {
   const tuning = BUDGET_TUNING;
   // A people of middling Tradition keeps two years of costs in reserve.
-  const budget = (entry: Partial<PolityView['budget']>) => ({ rate: tuning.customaryRate, output: 1_000_000, sites: 0, costs: 200_000, treasury: 400_000, revenue: 0, surplus: 0, strain: 0, tradition: (2 - tuning.reserveYears) / tuning.reserveTradition, ...entry });
+  const budget = (entry: Partial<PolityView['budget']>) => ({ rate: tuning.customaryRate, output: 1_000_000, sites: 0, costs: 200_000, treasury: 400_000, revenue: 0, surplus: 0, strain: 0, tradition: (2 - tuning.reserveYears) / tuning.reserveTradition, calm: 0.9, ...entry });
   assert.equal(taxRate(budget({})), tuning.customaryRate, 'its costs covered at the customary rate and its reserve full: unchanged');
-  assert.equal(taxRate(budget({ costs: 400_000, treasury: 800_000 })), tuning.customaryRate + tuning.rateStep, 'costlier: up by a step');
-  assert.equal(taxRate(budget({ costs: 100_000, treasury: 200_000 })), tuning.customaryRate - tuning.rateStep, 'cheaper: down by a step');
+  assert.equal(taxRate(budget({ costs: 400_000, treasury: 800_000 })), 0.22, 'costlier: up by a step');
+  assert.equal(taxRate(budget({ costs: 100_000, treasury: 200_000 })), 0.18, 'cheaper: down by a step');
   assert.ok(taxRate(budget({ treasury: 0 })) > tuning.customaryRate, 'an empty treasury is refilled');
   assert.ok(taxRate(budget({ sites: 100_000 })) < tuning.customaryRate, 'mines and quarries pay part');
   assert.equal(taxRate(budget({ rate: tuning.maxRate, costs: 10_000_000, treasury: 10_000_000 })), tuning.maxRate, 'never above the most it can take');
   assert.equal(taxRate(budget({ rate: tuning.minRate, costs: 0, treasury: 1e9 })), tuning.minRate, 'never below the least');
   assert.ok(taxRate(budget({ tradition: 1 })) > taxRate(budget({ tradition: 0 })), 'a traditional people keeps a larger reserve');
+  // A restless realm raises taxes above the custom only as far as its people bear it; at the unrest line, not at all.
+  const costly = { rate: 0.3, costs: 10_000_000, treasury: 10_000_000 };
+  assert.equal(taxRate(budget({ ...costly, calm: tuning.calmFull })), 0.32, 'calm: up a step');
+  assert.equal(taxRate(budget({ ...costly, calm: tuning.calmFloor })), 0.28, 'restless: back toward the custom');
+  assert.equal(taxRate(budget({ ...costly, rate: tuning.customaryRate, calm: tuning.calmFloor })), tuning.customaryRate);
+  // Steps add up exactly: from the custom, five steps up reach 30% and no more.
+  let rate: number = tuning.customaryRate;
+  for (let year = 0; year < 5; year++) rate = taxRate(budget({ ...costly, rate }));
+  assert.equal(rate, 0.3);
 });
 
 test('taxes above the customary rate unsettle people and below it content them; arrears unsettle the far regions most', () => {
@@ -165,7 +174,7 @@ test('a realm whose costs outrun its customary taxes is loath to expand, far lan
   const view = (strain: number) => ({
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
     reachKm: 1_500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
-    budget: { rate: 0.2, output: 1_000_000, sites: 0, costs: 200_000 * (1 + strain), treasury: 0, revenue: 200_000, surplus: -200_000 * strain, strain, tradition: 0.5 },
+    budget: { rate: 0.2, output: 1_000_000, sites: 0, costs: 200_000 * (1 + strain), treasury: 0, revenue: 200_000, surplus: -200_000 * strain, strain, tradition: 0.5, calm: 0.9 },
   }) as unknown as PolityView;
   const factor = (option: ReturnType<typeof expansionScore>) => option.factors.find(entry => entry.factor === 'administration')!.weight;
   assert.ok(factor(expansionScore(view(0), candidate(1_500))) === 0, 'no strain, no weight');
@@ -180,7 +189,7 @@ test('building weighs the realm\'s surplus after its costs: a realm already shor
   const settlement = { id: 1, region: 0, name: 'Kesh', tier: 1, urban: 8_000, housing: 8_000, hardship: 0.5, farmShare: 1, farmers: 20_000, stability: 0.9, frontier: 0, has: [] as number[], coast: false, water: true, seaLinks: 0, mineYield: 0, quarryYield: 0, wonder: false };
   const view = (surplus: number, treasury: number) => ({
     values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 },
-    budget: { rate: 0.2, output: 50_000, sites: 0, costs: 10_000 - surplus, treasury, revenue: 10_000, surplus, strain: Math.max(0, -surplus / 10_000), tradition: 0.5 },
+    budget: { rate: 0.2, output: 50_000, sites: 0, costs: 10_000 - surplus, treasury, revenue: 10_000, surplus, strain: Math.max(0, -surplus / 10_000), tradition: 0.5, calm: 0.9 },
     build: { regions: 1, catalog: [kind], settlements: [settlement], wonders: [], stability: 0.9 },
   }) as unknown as PolityView;
   const rich = buildScore(view(5_000, 10_000), kind), short = buildScore(view(-2_000, 10_000), kind), broke = buildScore(view(-2_000, 0), kind);

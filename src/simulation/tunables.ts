@@ -368,7 +368,10 @@ export const WEALTH_TUNING = {
  * Taxes: the rate is a share of that output, between `minRate` and `maxRate`. Once a year, at its stability
  * assessment, a realm sets the rate that covers its costs (less its sites) and refills its treasury toward a reserve of
  * reserveYears + reserveTradition × Tradition years of costs (prudent, traditional peoples keep more) over
- * `refillYears`, moving at most `rateStep` a year. Above the customary rate, taxes lower
+ * `refillYears`, moving at most `rateStep` a year. It raises taxes above the customary rate only as far as its people
+ * are calm (VISION.md: a realm chooses between the unrest of heavy taxes and the decay of arrears): at most customary
+ * rate + (maxRate − customary rate) × clamp((calm − calmFloor) ÷ (calmFull − calmFloor), 0, 1), where calm is its
+ * regions' people-weighted mean stability apart from its taxes and arrears. Above the customary rate, taxes lower
  * every region's stability by up to `taxUnrest` at the maximum; below it they raise it by up to `taxContent`. A realm
  * raising its rate above `heavyRate` (an event) or easing it back to the customary rate (an event) is recorded.
  *
@@ -387,13 +390,21 @@ export const WEALTH_TUNING = {
  */
 export const BUDGET_TUNING = {
   townOutput: 5, farmOutput: 0.2, hungerLine: 0.8,
-  customaryRate: 0.2, minRate: 0.05, maxRate: 0.5, rateStep: 0.02, reserveYears: 0.5, reserveTradition: 3, refillYears: 5, heavyRate: 0.3,
+  customaryRate: 0.2, minRate: 0.05, maxRate: 0.5, rateStep: 0.02, reserveYears: 0.5, reserveTradition: 3, refillYears: 5, heavyRate: 0.3, calmFloor: 0.4, calmFull: 0.85,
   taxUnrest: 0.3, taxContent: 0.05,
   perRegion: 100, perPerson: 0.01, distance: 0.5, remoteCap: 2, sizeScale: 20, sizePower: 0.5, ageMax: 1, ageYears: 600,
   servicesBase: 0.3, servicesScale: 10_000, servicesPower: 0.5,
   arrearsMonths: 12, arrearsUnrest: 0.5, arrearsCore: 0.2, arrearsEvent: 0.1,
   adminWeight: 0.5,
 } as const;
+
+/**
+ * Famine relief (VISION.md "Famine is mitigable, by wealth and knowledge"; `relief.ts`): a hungry region within what
+ * its land lastingly feeds wants `months` of need in store; carriage costs `costPer1000Km` wealth per person-month of
+ * food per 1,000 travel-km (roads shorten the way), travels `kmPerMonth` and spoils on the way at the realm's monthly
+ * store spoilage; the treasury pays at most `treasuryShare` of itself a month.
+ */
+export const RELIEF_TUNING = { months: 2, costPer1000Km: 0.2, kmPerMonth: 500, treasuryShare: 0.2 } as const;
 
 /**
  * Building (VISION.md "Buildings" and the Build action). At its decision step a civilization weighs each building type
@@ -573,8 +584,10 @@ export function validateTunables() {
     && Object.values(WEALTH_TUNING.siteYield).every(value => value >= 0))) problems.push('wealth settings are invalid');
   const bg = BUDGET_TUNING;
   if (!(Object.values(bg).every(value => value >= 0) && bg.townOutput > 0 && bg.hungerLine < 1 && bg.minRate > 0 && bg.minRate < bg.customaryRate && bg.customaryRate < bg.maxRate && bg.maxRate <= 1
-    && bg.heavyRate > bg.customaryRate && bg.heavyRate <= bg.maxRate && bg.rateStep > 0 && bg.refillYears > 0 && bg.sizeScale > 0 && bg.ageYears > 0 && bg.servicesScale > 0
+    && bg.heavyRate > bg.customaryRate && bg.heavyRate <= bg.maxRate && bg.rateStep > 0 && bg.refillYears > 0 && bg.calmFull > bg.calmFloor && bg.calmFull <= 1 && bg.sizeScale > 0 && bg.ageYears > 0 && bg.servicesScale > 0
     && bg.arrearsMonths >= 1 && bg.arrearsCore <= 1 && bg.arrearsEvent > 0 && bg.arrearsEvent <= 1)) problems.push('budget settings are invalid');
+  const rl = RELIEF_TUNING;
+  if (!(rl.months > 0 && rl.costPer1000Km >= 0 && rl.kmPerMonth > 0 && rl.treasuryShare > 0 && rl.treasuryShare <= 1)) problems.push('relief settings are invalid');
   const bu = BUILD_TUNING;
   if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.roadReuse > 0 && bu.roadReuse <= 1 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight, bu.surplusFloor].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');

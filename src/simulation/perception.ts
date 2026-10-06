@@ -1,7 +1,7 @@
 import { BUILDINGS, buildingKnown } from './buildings.ts';
 import { WONDERS, wonderKnown } from './wonders.ts';
 import { cultureSimilarity } from './culture.ts';
-import { type Costs, costsOf, totalCosts } from './budget.ts';
+import { arrearsBurden, type Costs, costsOf, taxBurden, totalCosts } from './budget.ts';
 import { buildingCost, outputOf, siteIncome } from './economy.ts';
 import { livingSettlements } from './settlements.ts';
 import { cellNeighbors, greatCircleKm } from './geography.ts';
@@ -216,9 +216,10 @@ export interface PolityView {
    * Its budget a year (VISION.md "Wealth"): its tax rate, its people's output before tax, what its mines and quarries
    * pay, what running the realm costs, its treasury; what customary taxes and its sites would raise (`revenue`) and
    * what that leaves after its costs (`surplus`, below 0 when it must tax above the custom), its strain: how far its
-   * costs exceed that revenue, as a share of it (0–1), and its people's Tradition (how much of a reserve they keep).
+   * costs exceed that revenue, as a share of it (0–1), its people's Tradition (how much of a reserve they keep), and how
+   * calm its regions are apart from its taxes and arrears (their people-weighted mean stability without those).
    */
-  budget: { rate: number; output: number; sites: number; costs: number; treasury: number; revenue: number; surplus: number; strain: number; tradition: number };
+  budget: { rate: number; output: number; sites: number; costs: number; treasury: number; revenue: number; surplus: number; strain: number; tradition: number; calm: number };
   /** What it could build, and where (VISION.md "Buildings"; the Build action). */
   build: {
     /** Its regions (how widely it builds at once). */
@@ -433,9 +434,16 @@ export function wonderOptions(state: SimulationState, civ: Polity): PolityView['
 /** A civilization's budget as it knows it: its own output, sites, costs and treasury (`PolityView['budget']`). */
 export function budgetView(state: SimulationState, civ: Polity, costs: Costs = costsOf(state, civ)): PolityView['budget'] {
   const { output, sites } = outputOf(state, civ), total = totalCosts(costs), revenue = BUDGET_TUNING.customaryRate * output + sites;
+  let calm = 0, people = 0;
+  for (const groupId of civ.groups) {
+    const group = state.groups[groupId], region = group.region;
+    calm += group.size * Math.min(1, state.stability[region] + taxBurden(civ.taxRate) + arrearsBurden(civ, state.remoteness[region]));
+    people += group.size;
+  }
   return {
     rate: civ.taxRate, output, sites, costs: total, treasury: civ.wealth, revenue, surplus: revenue - total,
     strain: revenue > 0 ? Math.max(0, Math.min(1, total / revenue - 1)) : total > 0 ? 1 : 0, tradition: state.cultures[civ.culture].values.tradition,
+    calm: people > 0 ? Math.max(0, calm / people) : 1,
   };
 }
 

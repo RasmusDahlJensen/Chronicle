@@ -17,7 +17,7 @@ import { BUDGET_TUNING, STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
 /** This tick's wealth flows of a civilization, begun with its treasury as it stood when they began. */
 export function wealthFlows(state: SimulationState, civ: Polity): WealthFlows {
   let flows = state.ledger.wealth.get(civ.id);
-  if (!flows) { flows = { before: civ.wealth, produced: 0, construction: 0, upkeep: 0, administration: 0, services: 0, received: 0, given: 0, lost: 0 }; state.ledger.wealth.set(civ.id, flows); }
+  if (!flows) { flows = { before: civ.wealth, produced: 0, construction: 0, upkeep: 0, administration: 0, services: 0, relief: 0, received: 0, given: 0, lost: 0 }; state.ledger.wealth.set(civ.id, flows); }
   return flows;
 }
 

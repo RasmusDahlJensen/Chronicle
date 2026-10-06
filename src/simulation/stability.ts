@@ -28,25 +28,33 @@ export function stabilityOf(state: SimulationState, civ: Polity, group: Populati
   return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - taxes - arrears + buildings)), hunger, overextension, foreignRule, taxes, arrears, buildings };
 }
 
-/** Stability system: once a year per civilization (staggered by id), its budget and each of its regions; unrest
- *  begins and ends. */
+/**
+ * Stability system: once a year per civilization (staggered by id), its yearly assessment: how far each of its
+ * regions lies from its capital, the taxes it sets for the year (VISION.md "Wealth"; heavy taxes and their easing are
+ * events), and each region's stability, with unrest beginning and ending.
+ */
 export function stabilize(state: SimulationState, context: TickContext) {
   for (const id of state.living) {
     const civ = state.polities[id];
     if (civ.kind !== 'civ' || ((context.tick - id) % 12 + 12) % 12 !== 0) continue;
-    assess(state, civ);
+    const km = capitalTravel(state, civ);
+    refreshRemoteness(state, civ, km);
+    setTaxes(state, civ);
+    judge(state, civ, km);
   }
 }
 
-/**
- * A civilization's yearly assessment: how far each of its regions lies from its capital, the taxes it sets for the
- * year (VISION.md "Wealth"; heavy taxes and their easing are events), and the stability of each region now, with
- * unrest beginning (an event) or ending.
- */
+/** A civilization's regions judged at once when its land changes (a union): measured from its capital again, and
+ *  their stability. Taxes are set only at the yearly assessment. */
 export function assess(state: SimulationState, civ: Polity) {
-  const tuning = STABILITY_TUNING, km = capitalTravel(state, civ);
+  const km = capitalTravel(state, civ);
   refreshRemoteness(state, civ, km);
-  setTaxes(state, civ);
+  judge(state, civ, km);
+}
+
+/** The stability of each of a civilization's regions now, with unrest beginning (an event) or ending. */
+function judge(state: SimulationState, civ: Polity, km: (region: number) => number) {
+  const tuning = STABILITY_TUNING;
   for (const groupId of civ.groups) {
     const group = state.groups[groupId], region = group.region;
     const result = stabilityOf(state, civ, group, km(region));

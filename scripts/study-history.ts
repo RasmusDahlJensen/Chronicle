@@ -152,13 +152,21 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => at(year)?.buildings ?? '—').join(' / ')} | ${m.buildingsCompleted} · ${m.buildingsLost} | ${[...byType].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(', ') || '—'} | ${[1000, 3000].map(year => at(year)?.wealth.toLocaleString('en') ?? '—').join(' / ')} |`);
   }
   // M3c (VISION.md "Wealth"): treasuries level off, taxes, arrears, places at a loss, and the costs of large old realms.
-  lines.push('', '| Seed | Treasury in years of costs, median civilization, at 1,000 / 2,000 / 3,000 (M3c: levels off at a few years) | Tax rate median · highest at 1,000 / 2,000 / 3,000 | Civilizations in arrears at 1,000 / 2,000 / 3,000 · fell into arrears by 3,000 | Settlements · regions at a loss at 1,000 / 2,000 / 3,000 | Costs per person a year: largest and oldest third ÷ smallest and youngest third, at 1,000 / 2,000 / 3,000 | Heavy taxes raised · eased by 3,000 |',
+  lines.push('', '| Seed | Treasury in years of costs, median civilization, at 1,000 / 2,000 / 3,000 (M3c: levels off at a few years) | Tax rate median · highest at 1,000 / 2,000 / 3,000 | Civilizations in arrears at 1,000 / 2,000 / 3,000 · fell into arrears by 3,000 | Settlements · regions at a loss at 1,000 / 2,000 / 3,000 | Costs (of which administration) per person a year: largest and oldest third ÷ smallest and youngest third, at 1,000 / 2,000 / 3,000 | Heavy taxes raised · eased by 3,000 |',
     '| --- | --- | --- | --- | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), years = [1000, 2000, 3000];
     const each = (show: (row: Stats) => string) => years.map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
     const percent = (share: number) => `${Math.round(share * 100)}%`, last = at(3000) ?? stats.at(-1)!;
-    lines.push(`| ${result.seed} | ${each(row => row.treasuryYears.toFixed(1))} | ${each(row => `${percent(row.taxMedian)} · ${percent(row.taxMax)}`)} | ${each(row => String(row.civsInArrears))} · ${last.arrearsBegun} | ${each(row => `${percent(row.settlementsAtLoss)} · ${percent(row.regionsAtLoss)}`)} | ${each(row => `${row.costPerPersonLargeOld} ÷ ${row.costPerPersonSmallYoung}`)} | ${last.taxesRaised} · ${last.taxesEased} |`);
+    lines.push(`| ${result.seed} | ${each(row => row.treasuryYears.toFixed(1))} | ${each(row => `${percent(row.taxMedian)} · ${percent(row.taxMax)}`)} | ${each(row => String(row.civsInArrears))} · ${last.arrearsBegun} | ${each(row => `${percent(row.settlementsAtLoss)} · ${percent(row.regionsAtLoss)}`)} | ${each(row => `${row.costPerPersonLargeOld} (${row.adminPerPersonLargeOld}) ÷ ${row.costPerPersonSmallYoung} (${row.adminPerPersonSmallYoung})`)} | ${last.taxesRaised} · ${last.taxesEased} |`);
+  }
+  // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
+  lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | Famines by 3,000 |',
+    '| --- | --- | --- | ---: |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    lines.push(`| ${result.seed} | ${each(row => `${row.famineRich} ÷ ${row.faminePoor}`)} | ${last.reliefBegun.toLocaleString('en')} · ${last.reliefFood.toLocaleString('en')} · ${last.reliefLost.toLocaleString('en')} · ${last.reliefCost.toLocaleString('en')} | ${last.famines.toLocaleString('en')} |`);
   }
   // M3b acceptance (VISION.md): at least one wonder completed by year 2,500 in most seeds.
   lines.push('', '| Seed | Wonders completed by 2,500 (M3b: ≥ 1 in most seeds) | Wonders completed, by year | Destroyed · abandoned by 3,000 |', '| --- | ---: | --- | --- |');

@@ -58,8 +58,9 @@ export const BUILDINGS: readonly BuildingDefinition[] = [
   // Iron (Iron working: stone tools of iron; Sailing): stone sites, and the sea.
   building('quarry', 'mining', 6_000, 24, 120, 0, { works: 'stone' }, { perRegion: true }),
   building('harbor', 'sea', 12_000, 36, 240, 0, { harbor: true }, { coast: true, perRegion: true }),
-  // Classical (Engineering).
+  // Classical (Engineering; Architecture: silos keep a region's grain longer and better than a granary alone).
   building('aqueduct', 'housing', 30_000, 60, 600, 1, { housing: 2.5 }, { stone: true }),
+  building('silo', 'food', 12_000, 24, 240, 1, { storeMonths: 2, spoilage: 0.6 }, { stone: true, perRegion: true }),
   // Medieval (Astronomy) and Early modern (Printing).
   building('observatory', 'learning', 25_000, 48, 500, 2, { research: 1.15 }),
   building('university', 'learning', 40_000, 60, 800, 2, { research: 1.4 }, { one: 'a university' }),

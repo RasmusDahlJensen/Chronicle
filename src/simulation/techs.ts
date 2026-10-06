@@ -83,7 +83,7 @@ export const TECHS: readonly TechDefinition[] = [
   tech('Administration', 'Classical', ['Writing', 'Currency'], 505_600_000, ['governance'], { multiply: { reach: 1.3, specialistCap: 1.2 }, unlocks: ['dictatorship'] }, undefined, true),
   tech('Organized religion', 'Classical', ['Writing', 'Philosophy'], 460_800_000, ['religion'], { unlocks: ['religionFounding', 'temple'] }),
   tech('Cartography', 'Classical', ['Mathematics', 'Sailing'], 416_000_000, ['sailing'], { multiply: { tradeRange: 1.2 } }, { coastal: 1.5 }),
-  tech('Architecture', 'Classical', ['Masonry', 'Mathematics'], 460_800_000, ['construction'], { unlocks: ['monument'] }),
+  tech('Architecture', 'Classical', ['Masonry', 'Mathematics'], 460_800_000, ['construction', 'storage'], { unlocks: ['monument', 'silo'] }),
   tech('Crop rotation', 'Classical', ['Plough', 'Iron working'], 460_800_000, ['food'], { multiply: { farmYield: 1.2 } }),
   // Medieval.
   tech('Feudalism', 'Medieval', ['Administration', 'Horseback riding'], 1_030_400_000, ['governance', 'military'], { multiply: { reach: 1.2, military: 1.1 }, unlocks: ['feudalMonarchy'] }),
@@ -106,6 +106,8 @@ export const TECHS: readonly TechDefinition[] = [
   tech('Railways', 'Industrial', ['Steam power', 'Steel'], 3_840_000_000, ['industry', 'trade'], { mobility: 'rail', multiply: { reach: 1.4, tradeRange: 1.4 }, unlocks: ['railway', 'railStation'] }),
   tech('Industrialization', 'Industrial', ['Steam power', 'Banking'], 4_224_000_000, ['industry', 'economy'], { use: ['coal', 'iron'], multiply: { specialistCap: 2 }, unlocks: ['factory', 'coalPowerPlant', 'oneParty'] }, undefined, true),
   tech('Fertilizer', 'Industrial', ['Chemistry', 'Industrialization'], 3_840_000_000, ['food', 'industry'], { multiply: { farmYield: 1.8 } }),
+  // Cold stores and refrigerated carriage: food keeps far longer, in store and on the way (VISION.md: famine is mitigable by knowledge).
+  tech('Refrigeration', 'Industrial', ['Chemistry', 'Steam power'], 3_840_000_000, ['storage', 'food'], { multiply: { spoilage: 0.3, storeMonths: 1.5 } }),
   tech('Drilling', 'Industrial', ['Geology', 'Steam power'], 3_840_000_000, ['mining', 'industry'], { extract: ['oil'] }),
   // Modern.
   tech('Electricity', 'Modern', ['Industrialization', 'Chemistry'], 5_990_400_000, ['energy', 'scholarship'], { multiply: { research: 1.2 }, unlocks: ['powerGrid'] }),

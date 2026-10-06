@@ -170,9 +170,9 @@ export function checkInvariants(state: SimulationState) {
   // Exact wealth accounting (VISION.md rule 8): every treasury is explained by this tick's flows.
   for (const [id, flows] of ledger.wealth) {
     const polity = state.polities[id];
-    const values = [flows.before, flows.produced, flows.construction, flows.upkeep, flows.administration, flows.services, flows.received, flows.given, flows.lost];
+    const values = [flows.before, flows.produced, flows.construction, flows.upkeep, flows.administration, flows.services, flows.relief, flows.received, flows.given, flows.lost];
     if (!values.every(value => Number.isInteger(value) && value >= 0)) fail(`civilization ${id} has invalid wealth flows ${JSON.stringify(flows)}`);
-    const expected = flows.before + flows.produced + flows.received - flows.construction - flows.upkeep - flows.administration - flows.services - flows.given - flows.lost;
+    const expected = flows.before + flows.produced + flows.received - flows.construction - flows.upkeep - flows.administration - flows.services - flows.relief - flows.given - flows.lost;
     if (!Number.isInteger(polity.wealth) || polity.wealth < 0 || polity.wealth !== expected) fail(`civilization ${id}'s treasury ${polity.wealth} is not explained by its flows ${JSON.stringify(flows)}`);
   }
   // Transfers close: everyone who left a region arrived in another, and food carried out was carried in somewhere.
@@ -190,7 +190,8 @@ export function checkInvariants(state: SimulationState) {
     if (owner >= 0 && (state.polities[owner]?.kind !== 'civ' || state.polities[owner].deathTick !== null || state.occupant[region] !== owner)) fail(`region ${region} is owned by ${owner}, which is not a living civilization there`);
     const stable = state.stability[region];
     if (!(stable >= 0 && stable <= 1) || (owner < 0 && (stable !== 1 || state.unrest[region] !== 0))) fail(`region ${region} has stability ${stable} (unrest ${state.unrest[region]}) under owner ${owner}`);
-    // After the construction system, every region a civilization holds is measured from its capital (`budget.ts`).
+    // After the construction system, every region a civilization holds is measured from its capital (`budget.ts`). A
+    // later system that moves regions between owners (war, fracture: M6–M7) must measure the regions it moves.
     if (owner >= 0 && (state.remoteOwner[region] !== owner || !(state.remoteness[region] >= 0 && Number.isFinite(state.remoteness[region])))) fail(`region ${region}'s remoteness ${state.remoteness[region]} was measured for ${state.remoteOwner[region]}, not its owner ${owner}`);
     const game = state.gameStock[region];
     if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);

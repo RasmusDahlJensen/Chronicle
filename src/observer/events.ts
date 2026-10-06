@@ -35,6 +35,7 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   firstContact: 'The {name} and the {other} meet for the first time in region {region}{?sea|, across the sea}.',
   buildingDecayed: 'The {civ} can no longer keep up {the} at {name}, and it is lost.',
   taxes: '{?raised|The {civ} raise their taxes to {rate}% of what their people produce, to pay for running their realm.}{?eased|The {civ} ease their taxes to {rate}% of what their people produce.}',
+  famineRelief: 'The {civ} send stored food to {?moreRegions|{regions} of their regions}{?one|region {region}} going hungry, {people} people, from {donors} regions with food to spare.',
   arrears: '{?begun|The {civ} can no longer pay for running their realm: their buildings and roads go unkept, and their far provinces grow restless.}{?ended|The {civ} pay their way again.}',
   knowledgeShared: 'The {name} and the {other} agree to share what they know for {years} years.',
   tradeAgreement: '{@a} and {@b} agree to trade {resource}.',
