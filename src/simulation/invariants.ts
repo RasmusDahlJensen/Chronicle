@@ -8,7 +8,7 @@ import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
 import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
 import type { Polity, RoadWork, Settlement, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
-import { BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING, SETTLEMENT_TUNING } from './tunables.ts';
+import { BUDGET_TUNING, BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING, SETTLEMENT_TUNING } from './tunables.ts';
 import { fieldLand } from './fields.ts';
 
 /** The least share of its crops a harvest can come in at: the worst weather in drought without irrigation. */
@@ -156,6 +156,8 @@ export function checkInvariants(state: SimulationState) {
     // A tribe has no treasury; a civilization's works under construction stand in its own living settlements.
     if (polity.kind === 'band' && (polity.wealth !== 0 || polity.projects.length || polity.roadWorks.length)) fail(`tribe ${id} has wealth or works`);
     if (!(polity.roadsUnpaid >= 0 && polity.roadsUnpaid <= 1)) fail(`polity ${id} left ${polity.roadsUnpaid} of its road upkeep unpaid`);
+    // Taxes stay within what a realm may take; arrears are a share of its costs.
+    if (!(polity.taxRate >= BUDGET_TUNING.minRate && polity.taxRate <= BUDGET_TUNING.maxRate && polity.arrears >= 0 && polity.arrears <= 1)) fail(`polity ${id} taxes at ${polity.taxRate} with arrears ${polity.arrears}`);
     for (const work of polity.roadWorks) checkRoadWork(state, id, work, fail);
     if (!(polity.wealthCarry >= 0 && polity.wealthCarry < 1 && polity.upkeepCarry >= 0 && polity.upkeepCarry < 1)) fail(`polity ${id} carries ${polity.wealthCarry} wealth and ${polity.upkeepCarry} upkeep`);
     for (const project of polity.projects) {
@@ -168,9 +170,9 @@ export function checkInvariants(state: SimulationState) {
   // Exact wealth accounting (VISION.md rule 8): every treasury is explained by this tick's flows.
   for (const [id, flows] of ledger.wealth) {
     const polity = state.polities[id];
-    const values = [flows.before, flows.produced, flows.construction, flows.upkeep, flows.received, flows.given, flows.lost];
+    const values = [flows.before, flows.produced, flows.construction, flows.upkeep, flows.administration, flows.services, flows.received, flows.given, flows.lost];
     if (!values.every(value => Number.isInteger(value) && value >= 0)) fail(`civilization ${id} has invalid wealth flows ${JSON.stringify(flows)}`);
-    const expected = flows.before + flows.produced + flows.received - flows.construction - flows.upkeep - flows.given - flows.lost;
+    const expected = flows.before + flows.produced + flows.received - flows.construction - flows.upkeep - flows.administration - flows.services - flows.given - flows.lost;
     if (!Number.isInteger(polity.wealth) || polity.wealth < 0 || polity.wealth !== expected) fail(`civilization ${id}'s treasury ${polity.wealth} is not explained by its flows ${JSON.stringify(flows)}`);
   }
   // Transfers close: everyone who left a region arrived in another, and food carried out was carried in somewhere.
@@ -188,6 +190,8 @@ export function checkInvariants(state: SimulationState) {
     if (owner >= 0 && (state.polities[owner]?.kind !== 'civ' || state.polities[owner].deathTick !== null || state.occupant[region] !== owner)) fail(`region ${region} is owned by ${owner}, which is not a living civilization there`);
     const stable = state.stability[region];
     if (!(stable >= 0 && stable <= 1) || (owner < 0 && (stable !== 1 || state.unrest[region] !== 0))) fail(`region ${region} has stability ${stable} (unrest ${state.unrest[region]}) under owner ${owner}`);
+    // After the construction system, every region a civilization holds is measured from its capital (`budget.ts`).
+    if (owner >= 0 && (state.remoteOwner[region] !== owner || !(state.remoteness[region] >= 0 && Number.isFinite(state.remoteness[region])))) fail(`region ${region}'s remoteness ${state.remoteness[region]} was measured for ${state.remoteOwner[region]}, not its owner ${owner}`);
     const game = state.gameStock[region];
     if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);
   }

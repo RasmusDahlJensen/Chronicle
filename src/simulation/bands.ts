@@ -6,7 +6,7 @@ import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
 import { absorbMap, arrive, capitalKm, crosses, emptyMap, forgetMap, governable, hasHarbor, inheritContacts, joinView, lookAgain, seaFrom } from './perception.ts';
-import { loseWealth, produceWealth, regionFarm, regionIncome, regionSpoilage, regionStore } from './economy.ts';
+import { loseWealth, produceWealth, regionFarm, regionIncome, regionSpoilage, regionStore, wonderBonus } from './economy.ts';
 import { herdYield } from './environment.ts';
 import { tendFields, watchFamine } from './fields.ts';
 import { announceSettlement, foundSettlement, growSettlements, house, livingSettlements, ruinSettlements, setCapital } from './settlements.ts';
@@ -14,7 +14,7 @@ import { chooseJoin } from './decisions/join.ts';
 import { landPressure, unrestDepth } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
-import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, ENVIRONMENT_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING } from './tunables.ts';
+import { BAND_TUNING, BUDGET_TUNING, CLOCK_TUNING, CULTURE_TUNING, ENVIRONMENT_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING } from './tunables.ts';
 
 /**
  * Tribes and settled polities (VISION.md "Food, population and borders"). A polity holds one or more regions with
@@ -152,6 +152,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     map: emptyMap(state.partition.regions.length), met: new Map(),
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
+    taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false,
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -209,7 +210,9 @@ export function produce(state: SimulationState, context: TickContext) {
   const harvested = new Uint8Array(state.partition.regions.length);
   for (const id of state.living) {
     const polity = state.polities[id], knowledge = polity.knowledge, m = knowledge.multipliers;
-    let towns = 0;
+    // A civilization's income this month: its taxes and sites, region by region as its townspeople are housed.
+    let income = 0;
+    const wonder = polity.kind === 'civ' ? wonderBonus(state, polity).wealth : 1;
     for (const groupId of polity.groups) {
       const group = state.groups[groupId], region = group.region;
       regionYields(food, state.gameStock[region], yields, region, knowledge, regionFarm(state, region));
@@ -223,10 +226,9 @@ export function produce(state: SimulationState, context: TickContext) {
       // People move to and from the towns over months, not all at once: the townspeople close a share of the gap to
       // what the surplus frees each month (at least one person).
       const freed = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (fedSecurity(group) - 1), 0, 1));
-      const gap = freed - group.specialists;
-      group.specialists = gap === 0 || polity.kind === 'band' ? freed : Math.min(group.size, group.specialists + Math.sign(gap) * Math.max(1, Math.floor(Math.abs(gap) * SPECIALIST_TUNING.adjust)));
+      group.specialists = polity.kind === 'band' ? 0 : townspeopleToward(group.specialists, freed, group.size);
       // Townspeople live in the region's settlements; there are only as many as they can house (VISION.md "Settlements").
-      if (polity.kind === 'civ') { group.specialists = house(state, region, group.specialists); towns += regionIncome(state, polity, region); }
+      if (polity.kind === 'civ') { group.specialists = house(state, region, group.specialists); income += regionIncome(state, polity, region, wonder); }
       const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;
       const farming = knowledge.methods.farm;
       // The store that will still be there to eat before the harvest: part of it perishes on the way.
@@ -261,14 +263,21 @@ export function produce(state: SimulationState, context: TickContext) {
       state.gameStock[region] = clamp(state.gameStock[region] + gameChange(food, region, state.gameStock[region], workers) / 12, FOOD_TUNING.gameFloor, 1);
       harvested[region] = 1;
     }
-    // Townspeople earn wealth for their civilization (VISION.md "Wealth"), summed region by region as they were housed.
-    if (polity.kind === 'civ') produceWealth(state, polity, towns);
+    // Taxes and sites pay the civilization (VISION.md "Wealth").
+    if (polity.kind === 'civ') produceWealth(state, polity, income);
   }
   workers.fill(0);
   for (let region = 0; region < harvested.length; region++) {
     if (harvested[region] || state.gameStock[region] >= 1) continue;
     state.gameStock[region] = clamp(state.gameStock[region] + gameChange(food, region, state.gameStock[region], workers) / 12, FOOD_TUNING.gameFloor, 1);
   }
+}
+
+/** Townspeople after a month: they close `SPECIALIST_TUNING.adjust` of the gap to what the surplus frees (at least one
+ *  person), never more than the people there. */
+export function townspeopleToward(current: number, freed: number, size: number) {
+  const gap = freed - current;
+  return gap === 0 ? freed : Math.min(size, current + Math.sign(gap) * Math.max(1, Math.floor(Math.abs(gap) * SPECIALIST_TUNING.adjust)));
 }
 
 /**

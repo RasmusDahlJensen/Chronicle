@@ -36,13 +36,33 @@ function SettlementList({ settlements }: { settlements: NonNullable<ObserverFram
         ...settlement.buildings.map(building => building.condition < 0.995 ? `${building.name} (${Math.round(building.condition * 100)}% kept up)` : building.name),
         ...settlement.building.map(work => `${work.name} being built (${Math.round(work.progress * 100)}% paid)`),
       ].join(' · ')}</p>}
+      {settlement.account && <p className="atlas-panel-note world-settlement-account">{settlementBalance(settlement.account)}</p>}
       {settlement.events.length > 0 && <ol className="world-settlement-history">{settlement.events.map(event => <li key={event.id}>Year {simulationDate(event.tick).year}: {describeEvent(event)}</li>)}</ol>}
     </li>)}</ul>
   </section>;
 }
 
+type Inspected = NonNullable<ObserverFrame['inspect']>;
+
+/** What a settlement pays and costs its realm a year (VISION.md "Wealth": not every place pays); the region's seat also
+ *  keeps the region's farm taxes, mines and quarries and administration. */
+function settlementBalance(account: NonNullable<Inspected['settlements'][number]['account']>) {
+  const pays = account.trades + account.farms + account.sites, costs = account.administration + account.services + account.upkeep, balance = pays - costs;
+  const income = account.seat ? ` (trades ${number.format(account.trades)}, farm taxes ${number.format(account.farms)}${account.sites ? `, mines and quarries ${number.format(account.sites)}` : ''})` : ' in taxes on its trades';
+  const spending = `${account.seat ? `administration ${number.format(account.administration)}, ` : ''}services ${number.format(account.services)}, upkeep ${number.format(account.upkeep)}`;
+  return `${account.seat ? 'Seat of the region: pays' : 'Pays'} ${number.format(pays)} a year${income}; costs ${number.format(costs)} (${spending}): ${balance >= 0 ? 'a profit' : 'a loss'} of ${number.format(Math.abs(balance))} a year.`;
+}
+
+/** A civilization's budget (VISION.md "Wealth"). */
+function BudgetDetail({ wealth }: { wealth: NonNullable<NonNullable<Inspected['polity']>['wealth']> }) {
+  const { revenue, costs } = wealth;
+  const income = revenue.trades + revenue.farms + revenue.sites, spending = costs.administration + costs.services + costs.upkeep + costs.roads, balance = income - spending;
+  const works = [wealth.projects ? `${number.format(wealth.projects)} ${wealth.projects === 1 ? 'building' : 'buildings'}` : '', wealth.roadWorks ? `${number.format(wealth.roadWorks)} ${wealth.roadWorks === 1 ? 'road' : 'roads'}` : ''].filter(Boolean).join(' and ');
+  return <p className="atlas-panel-note" id="polity-wealth">Treasury {number.format(wealth.treasury)} · taxes {Math.round(wealth.taxRate * 100)}% of what its people produce · revenue {number.format(income)} a year (trades {number.format(revenue.trades)}, farms {number.format(revenue.farms)}{revenue.sites ? `, mines and quarries ${number.format(revenue.sites)}` : ''}) · costs {number.format(spending)} a year (administration {number.format(costs.administration)}, services {number.format(costs.services)}, upkeep {number.format(costs.upkeep)}{costs.roads ? `, roads ${number.format(costs.roads)}` : ''}) · {balance >= 0 ? 'a surplus' : 'a deficit'} of {number.format(Math.abs(balance))} a year{wealth.arrears >= 0.005 ? ` · in arrears: ${Math.round(wealth.arrears * 100)}% of its costs unpaid, so its buildings and roads wear and its far regions grow restless` : ''}{works ? ` · ${works} under construction` : ''}.</p>;
+}
+
 /** A band or civilization in the inspected region: people, food, specialists and knowledge (VISION.md M2 inspection). */
-function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFrame['inspect']>['polity']> }) {
+function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) {
   const civ = polity.kind === 'civ', research = polity.research;
   const percent = research && research.cost > 0 ? Math.min(100, research.progress / research.cost * 100) : 0;
   return <div className="world-cell-band" aria-label={civ ? 'Civilization in this region' : 'Tribe in this region'} role="group" data-polity-kind={polity.kind}>
@@ -66,11 +86,11 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
       <div><dt>{civ ? 'Settled' : 'Here since'}</dt><dd>year {simulationDate(civ && polity.capital ? polity.capital.settled : polity.arrived).year}</dd></div>
       {polity.capital && <div><dt>Capital</dt><dd id="polity-capital">{polity.capital.name}</dd></div>}
     </dl>
-    {polity.wealth && <p className="atlas-panel-note" id="polity-wealth">Treasury {number.format(polity.wealth.treasury)} · income {number.format(Math.round(polity.wealth.income))} a year · upkeep {number.format(polity.wealth.upkeep)} a year{polity.wealth.projects ? ` · ${number.format(polity.wealth.projects)} ${polity.wealth.projects === 1 ? 'building' : 'buildings'} under construction` : ''}{polity.wealth.roadWorks ? ` · ${number.format(polity.wealth.roadWorks)} ${polity.wealth.roadWorks === 1 ? 'road' : 'roads'} under construction` : ''}.</p>}
+    {polity.wealth && <BudgetDetail wealth={polity.wealth} />}
     <p className="atlas-panel-note">Food security is expected food over need — for farmers, the coming harvest and other food over the harvest cycle; below 1, or when the store runs out before the harvest, people go hungry and famine deaths rise. Crops sown since the last harvest come in at the next one. Surplus frees specialists, who live in settlements and research; bands have none.</p>
     {civ && <section className="world-polity-decision" aria-label="Decisions">
       <p className="atlas-detail-label">Governance · reach {number.format(polity.reachKm)} km of travel{polity.capitalKm !== null ? ` · this region ${number.format(polity.capitalKm)} km from the capital` : ''}</p>
-      {polity.stability && <p className="atlas-panel-note" id="polity-stability">Stability here {polity.stability.value.toFixed(2)}{polity.stability.unrest ? ' · in unrest (lower output and research)' : ''}{[['hunger', polity.stability.hunger], ['overextension', polity.stability.overextension], ['foreign rule', polity.stability.foreignRule]].filter(([, weight]) => (weight as number) > 0.005).map(([factor, weight]) => ` · ${factor} −${(weight as number).toFixed(2)}`).join('')}.</p>}
+      {polity.stability && <p className="atlas-panel-note" id="polity-stability">Stability here {polity.stability.value.toFixed(2)}{polity.stability.unrest ? ' · in unrest (lower output and research)' : ''}{[['hunger', polity.stability.hunger], ['overextension', polity.stability.overextension], ['foreign rule', polity.stability.foreignRule], ['taxes', polity.stability.taxes], ['arrears', polity.stability.arrears]].filter(([, weight]) => (weight as number) > 0.005).map(([factor, weight]) => ` · ${factor} −${(weight as number).toFixed(2)}`).join('')}{polity.stability.taxes < -0.005 ? ` · light taxes +${(-polity.stability.taxes).toFixed(2)}` : ''}.</p>}
       {polity.lastDecision ? <>
         <h4 id="polity-decision">{DECISION_LABELS[polity.lastDecision.chosen]}{decisionTarget(polity.lastDecision)} <span>year {simulationDate(polity.lastDecision.tick).year} · {polity.lastDecision.outcome}</span></h4>
         <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map((option, index) => <li key={index}>

@@ -247,7 +247,8 @@ export const REACH_TUNING = {
 } as const;
 
 /**
- * Expansion (VISION.md "Expansion", no threshold): a candidate's score is drive × value × culture − distance − reach.
+ * Expansion (VISION.md "Expansion", no threshold): a candidate's score is drive × value × culture − distance − reach −
+ * administration (BUDGET_TUNING.adminWeight's).
  * drive = the source region's land pressure + hungerWeight × hunger + opportunityWeight × opportunity (at most 1), where opportunity is how
  * much better the best land it knows is than its own (at most 1); value = (the land's farming capacity over the mean of
  * the civilization's own regions, at most 1)^valuePower, so poorer land keeps some worth to people short of land,
@@ -342,18 +343,56 @@ export const SHARE_TUNING = {
 } as const;
 
 /**
- * Wealth (VISION.md "Wealth"): one currency per civilization. Each townsperson earns `perTownsperson` a year (times
- * their settlement's buildings' wealth multipliers, less in unrest as output is). Hardship is the memory of hunger
- * per region: each month it becomes the larger of the month's shortfall of food (1 − food security) and its own value
- * × `hardshipFade`.
+ * Wealth (VISION.md "Wealth"): one currency per civilization; what its people produce and the crown takes in taxes is
+ * BUDGET_TUNING's. Hardship is the memory of hunger per region: each month it becomes the larger of the month's
+ * shortfall of food (1 − food security) and its own value × `hardshipFade`.
  */
 export const WEALTH_TUNING = {
-  perTownsperson: 1, hardshipFade: 0.98,
+  hardshipFade: 0.98,
   /** Wealth a year from each site a mine (minerals) or quarry (stone) works in its region, once its civilization can use
    *  the resource (VISION.md "gold and salt raise wealth"; the supply of the resources themselves comes with trade, M5). */
   siteYield: { copper: 1_500, tin: 2_000, iron: 1_500, gold: 4_000, coal: 1_000, uranium: 2_000, salt: 1_500, stone: 800 },
   /** Buildings of stone cost this share where the civilization quarries stone. */
   stoneDiscount: 0.75,
+} as const;
+
+/**
+ * A realm's budget (VISION.md "Wealth"; M3c.2). Its people produce and the crown takes a share in taxes; running the
+ * realm costs administration, services and upkeep.
+ *
+ * Output a year: each townsperson's trades `townOutput` (× the settlement's markets and the like); each farmer's
+ * surplus `farmOutput` × the share of food farmed or herded × surplus, where surplus = clamp((food security −
+ * hungerLine) ÷ (1 − hungerLine), 0, 1): hungry farmers have nothing to sell. Both are lower in unrest. Mines and
+ * quarries pay the crown their yield directly (`WEALTH_TUNING.siteYield`).
+ *
+ * Taxes: the rate is a share of that output, between `minRate` and `maxRate`. Once a year, at its stability
+ * assessment, a realm sets the rate that covers its costs (less its sites) and refills its treasury toward a reserve of
+ * reserveYears + reserveTradition × Tradition years of costs (prudent, traditional peoples keep more) over
+ * `refillYears`, moving at most `rateStep` a year. Above the customary rate, taxes lower
+ * every region's stability by up to `taxUnrest` at the maximum; below it they raise it by up to `taxContent`. A realm
+ * raising its rate above `heavyRate` (an event) or easing it back to the customary rate (an event) is recorded.
+ *
+ * Administration a year of each region: (perRegion + perPerson × its people) × (1 + distance × min(remoteCap, travel-km
+ * from the capital ÷ governance reach)) × max(1, the realm's regions ÷ sizeScale)^sizePower × (1 + ageMax × (1 −
+ * e^(−years since it settled ÷ ageYears))).
+ *
+ * Services a year of each settlement: townspeople × servicesBase × (1 + townspeople ÷ servicesScale)^servicesPower.
+ *
+ * Arrears: the share of each month's costs left unpaid, averaged over `arrearsMonths`; it lowers each region's
+ * stability by arrearsUnrest × arrears × (arrearsCore + (1 − arrearsCore) × min(1, remoteness)): most at the edges. A
+ * realm whose arrears pass `arrearsEvent` falls into arrears (an event) until they fall below half of it.
+ *
+ * Expansion weighs the strain on a realm's purse: adminWeight × strain × (½ + ½ × min(1, the land's remoteness)),
+ * strain = clamp(costs ÷ (customary taxes + sites) − 1, 0, 1).
+ */
+export const BUDGET_TUNING = {
+  townOutput: 5, farmOutput: 0.2, hungerLine: 0.8,
+  customaryRate: 0.2, minRate: 0.05, maxRate: 0.5, rateStep: 0.02, reserveYears: 0.5, reserveTradition: 3, refillYears: 5, heavyRate: 0.3,
+  taxUnrest: 0.3, taxContent: 0.05,
+  perRegion: 100, perPerson: 0.01, distance: 0.5, remoteCap: 2, sizeScale: 20, sizePower: 0.5, ageMax: 1, ageYears: 600,
+  servicesBase: 0.3, servicesScale: 10_000, servicesPower: 0.5,
+  arrearsMonths: 12, arrearsUnrest: 0.5, arrearsCore: 0.2, arrearsEvent: 0.1,
+  adminWeight: 0.5,
 } as const;
 
 /**
@@ -365,10 +404,12 @@ export const WEALTH_TUNING = {
  *   housing: clamp((townspeople ÷ housing − crowdFrom) ÷ (1 − crowdFrom), 0, 1); defense: min(1, foreign neighbours ÷
  *   frontierScale) × (defenseBase + Militarism).
  * The type's score is purposeWeight × the mean of its best `batch` settlements' values (batch = ceil(regions ÷
- * batchRegions), at most batchMax) − cost × (cost of the batch ÷ (income + treasury ÷ treasuryYears)) − upkeepWeight ×
- * (upkeep after building ÷ income). The best type is the Build option; it is begun in those settlements.
- * Construction is paid in equal monthly instalments while the treasury allows. Upkeep is due monthly; unpaid, every
- * building loses 1 ÷ decayMonths of condition a month (paid, it regains 1 ÷ recoverMonths) and is lost at 0.
+ * batchRegions), at most batchMax) − cost × (cost of the batch ÷ (surplus + treasury ÷ treasuryYears)) −
+ * upkeepWeight × (the batch's upkeep ÷ max(surplus, surplusFloor × revenue)), where revenue is what customary taxes
+ * and the realm's sites raise a year and surplus what that leaves after its costs (VISION.md "Wealth": it weighs its
+ * income after costs). The best type is the Build option; it is begun in those settlements. Construction is paid in
+ * equal monthly instalments while the treasury allows. Costs are due monthly; unpaid, every building loses
+ * unpaid share ÷ decayMonths of condition a month (paid, it regains 1 ÷ recoverMonths) and is lost at 0.
  */
 export const BUILD_TUNING = {
   sizeScale: 8_000, farmStore: 0.2, faithBase: 0.3, learningBase: 0.3, tradeBase: 0.4, tradeOpenness: 0.6, crowdFrom: 0.7, frontierScale: 3, defenseBase: 0.1,
@@ -383,7 +424,8 @@ export const BUILD_TUNING = {
    * Wonders (VISION.md "Wonders": a large surplus and a motive): need = the culture's value for its motive (piety: Zeal,
    * ambition: Expansionism, learning: Openness) × golden age (clamp((the realm's mean stability − goldenFrom) ÷
    * (1 − goldenFrom), 0, 1)) × greatness (min(1, its largest fitting city's townspeople ÷ wonderCity)); the score is
-   * wonderWeight × need − the cost and upkeep burdens as for buildings.
+   * wonderWeight × need − the cost and upkeep burdens as for buildings, its cost counted as what it takes a year while
+   * it is built (cost × 12 ÷ months).
    */
   wonderWeight: 0.6, goldenFrom: 0.6, wonderCity: 20_000,
   /**
@@ -398,7 +440,7 @@ export const BUILD_TUNING = {
   /** Laying out a route, a stretch of road that already serves (or is being built) counts this share of its travel
    *  cost, so new roads branch off the network instead of running beside it. */
   roadReuse: 0.1,
-  batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6,
+  batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6, surplusFloor: 0.05,
   decayMonths: 60, recoverMonths: 24,
   /** Work waits, unpaid, while its settlement is below the tier it needs; after waitMonths it is abandoned. */
   waitMonths: 240,
@@ -527,10 +569,14 @@ export function validateTunables() {
   if (!(Object.values(j).every(value => value >= 0) && j.prestigeScale > 0 && j.foundScore > 0 && j.admitPower > 0)) problems.push('joining settings are invalid');
   const u = UNITE_TUNING;
   if (!(Object.values(u).every(value => value >= 0) && u.sizeScale > 0 && u.admitPower > 0)) problems.push('unification settings are invalid');
-  if (!(WEALTH_TUNING.perTownsperson > 0 && WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1 && WEALTH_TUNING.stoneDiscount > 0 && WEALTH_TUNING.stoneDiscount <= 1
+  if (!(WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1 && WEALTH_TUNING.stoneDiscount > 0 && WEALTH_TUNING.stoneDiscount <= 1
     && Object.values(WEALTH_TUNING.siteYield).every(value => value >= 0))) problems.push('wealth settings are invalid');
+  const bg = BUDGET_TUNING;
+  if (!(Object.values(bg).every(value => value >= 0) && bg.townOutput > 0 && bg.hungerLine < 1 && bg.minRate > 0 && bg.minRate < bg.customaryRate && bg.customaryRate < bg.maxRate && bg.maxRate <= 1
+    && bg.heavyRate > bg.customaryRate && bg.heavyRate <= bg.maxRate && bg.rateStep > 0 && bg.refillYears > 0 && bg.sizeScale > 0 && bg.ageYears > 0 && bg.servicesScale > 0
+    && bg.arrearsMonths >= 1 && bg.arrearsCore <= 1 && bg.arrearsEvent > 0 && bg.arrearsEvent <= 1)) problems.push('budget settings are invalid');
   const bu = BUILD_TUNING;
-  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.roadReuse > 0 && bu.roadReuse <= 1 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
+  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.roadReuse > 0 && bu.roadReuse <= 1 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight, bu.surplusFloor].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
   const sh = SHARE_TUNING;
   if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');

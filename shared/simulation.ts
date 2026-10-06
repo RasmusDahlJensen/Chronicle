@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 17;
+export const SIMULATION_PROTOCOL_VERSION = 18;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -32,7 +32,7 @@ export const EVENT_TYPES = [
   'governmentChange', 'unrest', 'revolt', 'secession', 'civilWar', 'civDestroyed', 'cultureSplit', 'hybridCulture',
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
-  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed',
+  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -154,6 +154,14 @@ export const ObserverFrameSchema = Type.Object({
       building: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), progress: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 32 }),
       /** The wonder standing there, or being built there (with the share paid), if any. */
       wonder: Type.Union([Type.Null(), Type.Object({ name: Type.String({ maxLength: 40 }), standing: Type.Boolean(), progress: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false })]),
+      /** A living settlement's account a year (VISION.md "Wealth": not every place pays): the taxes on its townspeople's
+       *  trades, and what its services and its buildings' and wonder's upkeep cost; the region's seat (its main
+       *  settlement) also takes in the taxes on its farmers' surplus and what its mines and quarries pay, and pays its
+       *  administration (0 elsewhere). */
+      account: Type.Union([Type.Null(), Type.Object({
+        seat: Type.Boolean(), trades: Type.Number({ minimum: 0 }), farms: Type.Number({ minimum: 0 }), sites: Type.Number({ minimum: 0 }),
+        administration: Type.Number({ minimum: 0 }), services: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }),
+      }, { additionalProperties: false })]),
       events: Type.Array(ChronicleEventSchema, { maxItems: 6 }),
     }, { additionalProperties: false }), { maxItems: 16 }),
     food: Type.Object({
@@ -181,10 +189,12 @@ export const ObserverFrameSchema = Type.Object({
       regionsKnown: Type.Integer({ minimum: 1 }), regionsInSight: Type.Integer({ minimum: 1 }), met: Type.Integer({ minimum: 0 }),
       /** Governance reach in travel-km, and this region's travel-km from the capital (null when cut off from it). */
       reachKm: Type.Number({ minimum: 0 }), capitalKm: Type.Union([Type.Null(), Type.Number({ minimum: 0 })]),
-      /** A civilization region's stability (0–1, as last assessed), whether it is in unrest, and what lowers it now. */
+      /** A civilization region's stability (0–1, as last assessed), whether it is in unrest, and what lowers it now
+       *  (taxes below the customary rate raise it: a negative burden). */
       stability: Type.Union([Type.Null(), Type.Object({
         value: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Boolean(),
         hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }),
+        taxes: Type.Number(), arrears: Type.Number({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
        *  action, and its index among the options: the chosen option is always among the best three) and what came of it. */
@@ -200,10 +210,15 @@ export const ObserverFrameSchema = Type.Object({
           factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
         }, { additionalProperties: false }), { maxItems: 4 }),
       }, { additionalProperties: false })]),
-      /** A civilization's treasury, its income and upkeep a year, and its buildings and roads under construction (null for a tribe). */
+      /** A civilization's budget (null for a tribe; VISION.md "Wealth"): its treasury, the share of its people's output
+       *  it takes in taxes, its revenue a year (taxes on trades and on farmers' surplus, and what its sites pay), its
+       *  costs a year, its arrears (the share of its costs left unpaid, over about a year), and its buildings and roads
+       *  under construction. */
       wealth: Type.Union([Type.Null(), Type.Object({
-        treasury: Type.Integer({ minimum: 0 }), income: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }), projects: Type.Integer({ minimum: 0 }),
-        roadWorks: Type.Integer({ minimum: 0 }),
+        treasury: Type.Integer({ minimum: 0 }), taxRate: Type.Number({ minimum: 0, maximum: 1 }),
+        revenue: Type.Object({ trades: Type.Number({ minimum: 0 }), farms: Type.Number({ minimum: 0 }), sites: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
+        costs: Type.Object({ administration: Type.Number({ minimum: 0 }), services: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }), roads: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
+        arrears: Type.Number({ minimum: 0, maximum: 1 }), projects: Type.Integer({ minimum: 0 }), roadWorks: Type.Integer({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Peoples it shares knowledge with (VISION.md "Sharing knowledge") and the year each exchange ends. */
       exchanges: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), until: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 64 }),

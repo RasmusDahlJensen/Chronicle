@@ -124,20 +124,24 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${show([1000, 3000], row => row.agricultureInventions)} | ${show([700, 1000], row => `${Math.round(row.agricultureShare * 100)}%`)} | ${show([1000, 2000, 3000], row => row.civEras)} | ${show([1000, 2000, 3000], row => `${row.civTechsMin}–${row.civTechsMax}`)} | ${show([1000, 3000], row => `${row.exchanges} (${row.tribeExchanges}) of ${row.exchangeOffers}`)} |`);
   }
   // M3b acceptance (VISION.md): settlements by water or a resource site, and the tiers they reach.
-  lines.push('', '| Seed | Settlements by water or a site at 1,000 / 2,000 / 3,000 (M3b: ≥ 80%) | Villages · towns · cities · metropolises at 1,000 | at 1,500 | at 3,000 | Founded by growth · ruins resettled · tier changes | Most tier changes of one settlement in a century · settlements changing more than 3 times in one (M3c: a few at most) |',
+  lines.push('', '| Seed | Settlements by water or a site at 1,000 / 2,000 / 3,000 (M3b: ≥ 80%) | Villages · towns · cities · metropolises at 1,000 | at 1,500 | at 3,000 | Founded by growth · ruins resettled · tier changes | Most tier changes of one settlement in any 100 years · settlements changing more than 3 times in 100 years (M3c: a few at most) |',
     '| --- | --- | --- | --- | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), m = result.report.metrics;
     const tiers = (year: number) => { const row = at(year); return row ? `${row.villages} · ${row.towns} · ${row.cities} · ${row.metropolises}` : '—'; };
-    // Tier churn: per settlement and century, how often it changed tier.
-    const churn = new Map<string, number>();
+    // Tier churn: per settlement, the most tier changes within any 100 years (a window sliding from each change).
+    const changes = new Map<number, number[]>();
     for (const event of (result.report.events ?? []) as { type: string; tick: number; settlement: number | null }[]) {
-      if (event.type !== 'settlementTierChanged') continue;
-      const key = `${event.settlement}:${Math.floor(event.tick / 1200)}`;
-      churn.set(key, (churn.get(key) ?? 0) + 1);
+      if (event.type === 'settlementTierChanged' && event.settlement !== null) changes.get(event.settlement)?.push(event.tick) ?? changes.set(event.settlement, [event.tick]);
     }
-    const churning = new Set([...churn].filter(([, count]) => count > 3).map(([key]) => key.split(':')[0]));
-    lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => { const row = at(year); return row ? `${Math.round(row.settlementsByWater * 100)}%` : '—'; }).join(' / ')} | ${tiers(1000)} | ${tiers(1500)} | ${tiers(3000)} | ${m.settlementsGrown} · ${m.ruinsResettled} · ${m.tierChanges} | ${Math.max(0, ...churn.values())} · ${churning.size} |`);
+    const churn = new Map<number, number>();
+    for (const [settlement, ticks] of changes) {
+      let most = 0;
+      for (let first = 0, last = 0; last < ticks.length; last++) { while (ticks[last] - ticks[first] >= 1200) first++; most = Math.max(most, last - first + 1); }
+      churn.set(settlement, most);
+    }
+    const churning = [...churn.values()].filter(count => count > 3);
+    lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => { const row = at(year); return row ? `${Math.round(row.settlementsByWater * 100)}%` : '—'; }).join(' / ')} | ${tiers(1000)} | ${tiers(1500)} | ${tiers(3000)} | ${m.settlementsGrown} · ${m.ruinsResettled} · ${m.tierChanges} | ${Math.max(0, ...churn.values())} · ${churning.length} |`);
   }
   // M3b: wealth and buildings (VISION.md "Buildings", "Wealth").
   lines.push('', '| Seed | Standing buildings at 1,000 / 2,000 / 3,000 | Completed · lost to unpaid upkeep by 3,000 | Completed by type by 3,000 | Treasuries at 1,000 / 3,000 |', '| --- | --- | --- | --- | --- |');
@@ -146,6 +150,15 @@ function storyHealth(rows: SeedResult[]) {
     const byType = new Map<string, number>();
     for (const event of (result.report.events ?? []) as { type: string; data: Record<string, unknown> }[]) if (event.type === 'buildingCompleted') byType.set(String(event.data.building), (byType.get(String(event.data.building)) ?? 0) + 1);
     lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => at(year)?.buildings ?? '—').join(' / ')} | ${m.buildingsCompleted} · ${m.buildingsLost} | ${[...byType].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(', ') || '—'} | ${[1000, 3000].map(year => at(year)?.wealth.toLocaleString('en') ?? '—').join(' / ')} |`);
+  }
+  // M3c (VISION.md "Wealth"): treasuries level off, taxes, arrears, places at a loss, and the costs of large old realms.
+  lines.push('', '| Seed | Treasury in years of costs, median civilization, at 1,000 / 2,000 / 3,000 (M3c: levels off at a few years) | Tax rate median · highest at 1,000 / 2,000 / 3,000 | Civilizations in arrears at 1,000 / 2,000 / 3,000 · fell into arrears by 3,000 | Settlements · regions at a loss at 1,000 / 2,000 / 3,000 | Costs per person a year: largest and oldest third ÷ smallest and youngest third, at 1,000 / 2,000 / 3,000 | Heavy taxes raised · eased by 3,000 |',
+    '| --- | --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), years = [1000, 2000, 3000];
+    const each = (show: (row: Stats) => string) => years.map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    const percent = (share: number) => `${Math.round(share * 100)}%`, last = at(3000) ?? stats.at(-1)!;
+    lines.push(`| ${result.seed} | ${each(row => row.treasuryYears.toFixed(1))} | ${each(row => `${percent(row.taxMedian)} · ${percent(row.taxMax)}`)} | ${each(row => String(row.civsInArrears))} · ${last.arrearsBegun} | ${each(row => `${percent(row.settlementsAtLoss)} · ${percent(row.regionsAtLoss)}`)} | ${each(row => `${row.costPerPersonLargeOld} ÷ ${row.costPerPersonSmallYoung}`)} | ${last.taxesRaised} · ${last.taxesEased} |`);
   }
   // M3b acceptance (VISION.md): at least one wonder completed by year 2,500 in most seeds.
   lines.push('', '| Seed | Wonders completed by 2,500 (M3b: ≥ 1 in most seeds) | Wonders completed, by year | Destroyed · abandoned by 3,000 |', '| --- | ---: | --- | --- |');

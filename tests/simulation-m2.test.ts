@@ -382,7 +382,12 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
   // A road under way passes too (its target and way are the union's land now).
   small.roadWorks.push({ from: small.capital!, to: small.capital!, path: regions.slice(0, 1).concat(regions.slice(0, 1)), tier: 1, edges: [], bridges: 0, spent: 0, cost: 1, months: 1, startedTick: state.tick, causes: [] });
   const roads = small.roadWorks.length + large.roadWorks.length;
+  // What it had heard of great works abroad passes to the union too.
+  const heard = state.wonders.length + 99;
+  small.heardWonders.push(heard);
   assert.match(unite(state, state.tick, accepting, small, large, regions[0], [{ factor: 'test', weight: 1 }]), /united/);
+  assert.ok(large.heardWonders.includes(heard));
+  large.heardWonders.pop();
   assert.equal(large.wealth, treasury); assert.equal(small.wealth, 0); assert.equal(large.projects.length, works); assert.ok(large.repairing);
   assert.deepEqual([large.roadWorks.length, small.roadWorks.length], [roads, 0]);
   large.roadWorks.pop();

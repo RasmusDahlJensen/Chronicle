@@ -1,6 +1,6 @@
 import type { Candidate, Neighbour, Partner, PolityView } from '../perception.ts';
 import type { Rng } from '../rng.ts';
-import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, UNITE_TUNING } from '../tunables.ts';
+import { BUDGET_TUNING, DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, UNITE_TUNING } from '../tunables.ts';
 import { bestBuild, bestRoad, bestWonder } from './build.ts';
 
 /**
@@ -28,9 +28,12 @@ export function expansionScore(view: PolityView, candidate: Candidate): Option {
   const culture = (tuning.expansionismBase + view.values.expansionism) / (tuning.expansionismBase + 1);
   const distance = tuning.distancePerKm * candidate.crossingKm;
   const reach = tuning.reachWeight * (candidate.capitalKm / view.reachKm) ** tuning.reachPower;
+  // A realm whose costs already outrun what customary taxes raise is loath to take on land to administer, far land
+  // most (VISION.md "Wealth").
+  const administration = BUDGET_TUNING.adminWeight * view.budget.strain * (0.5 + 0.5 * Math.min(1, candidate.capitalKm / view.reachKm));
   // Settlers need people to spare where they would come from; a tribe living there may instead be taken in.
   const feasible = candidate.tribe || candidate.fromPeople >= 2 * tuning.minSettlers;
-  const score = drive * value * culture - distance - reach;
+  const score = drive * value * culture - distance - reach - administration;
   // Each need's share of the score (what the event cites), the multipliers, and the costs.
   const scale = value * culture;
   return {
@@ -40,6 +43,7 @@ export function expansionScore(view: PolityView, candidate: Candidate): Option {
       { factor: 'opportunity', weight: round(tuning.opportunityWeight * opportunity * scale) },
       { factor: `${MULTIPLIER}landValue`, weight: round(value) }, { factor: `${MULTIPLIER}expansionism`, weight: round(culture) },
       { factor: 'distance', weight: -round(distance) }, { factor: 'governanceReach', weight: Number.isFinite(reach) ? -round(reach) : -1 },
+      { factor: 'administration', weight: -round(administration) },
     ],
   };
 }

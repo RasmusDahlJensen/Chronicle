@@ -7,7 +7,7 @@ import { FARM_METHOD, METHOD_COUNT } from '../src/simulation/food.ts';
 import { beginWonder, construct, startProjects } from '../src/simulation/construction.ts';
 import { bestBuild, bestWonder, buildScore, need, needParts } from '../src/simulation/decisions/build.ts';
 import { incomeOf, loseWealth, produceWealth, siteIncome, transferWealth, wealthFlows, wonderBonus } from '../src/simulation/economy.ts';
-import { crosses, knowsOfWonder, seaFrom } from '../src/simulation/perception.ts';
+import { crosses, knowsOfWonder, seaFrom, wonderOptions } from '../src/simulation/perception.ts';
 import { RESOURCE_IDS } from '../shared/atlas.ts';
 import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { createLanguage } from '../src/simulation/names.ts';
@@ -17,7 +17,7 @@ import { applyBuildings, foundSettlement, house, housingOf, ruinSettlements } fr
 import { WONDER_INDEX, WONDERS } from '../src/simulation/wonders.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
-import { BUILD_TUNING, SETTLEMENT_TUNING, WEALTH_TUNING } from '../src/simulation/tunables.ts';
+import { BUDGET_TUNING, BUILD_TUNING, SETTLEMENT_TUNING, WEALTH_TUNING } from '../src/simulation/tunables.ts';
 
 test('buildings are data: each unlocked by a tech that names it, and known only once that tech is', () => {
   assert.doesNotThrow(validateBuildings);
@@ -37,22 +37,31 @@ function fixture() {
     tick: 0, geography: { width, cells, riverRunoff, resource: new Uint8Array(cells), marine: new Uint8Array(cells), lake: new Uint32Array(cells) },
     partition: { regions: [{ id: 0, centroid: 0, settlementSites: [0, 1, 2, 3, 4], neighbors: [] }], regionOf: new Int32Array(cells) },
     cultures: [{ language: createLanguage(createRng(1, 1)) }], settlements: [], regionSettlements: [[]], chronicle: new Chronicle(),
-    groups: [{ id: 0, region: 0, specialists: 0, foodSecurity: 1, size: 100_000 }], groupAt: new Int32Array([0]), unrest: new Uint8Array(1), stability: new Float64Array(1).fill(1),
+    groups: [{ id: 0, region: 0, specialists: 0, foodSecurity: 1, size: 100_000, farmShare: 0 }], groupAt: new Int32Array([0]), unrest: new Uint8Array(1), stability: new Float64Array(1).fill(1),
+    remoteness: new Float64Array(1), remoteOwner: new Int32Array([0]),
     living: [0], ledger: { wealth: new Map() }, wonders: [], roads: new Map(), owner: new Int32Array([0]),
     farmBonus: new Float64Array(1).fill(1), droughtShield: new Float64Array(1), storeBonus: new Float64Array(1).fill(1), spoilageBonus: new Float64Array(1).fill(1),
-    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0, roadsAbandoned: 0 },
+    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0, roadsAbandoned: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0 },
   } as unknown as SimulationState;
-  const civ = { id: 0, kind: 'civ', name: 'Ora', culture: 0, capital: null, groups: [0], wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], roadWorks: [], roadsUnpaid: 0, heardWonders: [], met: new Map() } as unknown as Polity;
+  const civ = { id: 0, kind: 'civ', name: 'Ora', culture: 0, capital: null, groups: [0], wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], roadWorks: [], roadsUnpaid: 0, heardWonders: [], met: new Map(),
+    settledTick: 0, taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, knowledge: { multipliers: { reach: 1 } } } as unknown as Polity;
   state.polities = [civ];
   return { state, civ };
 }
-const month = (state: SimulationState, tick: number) => { state.ledger.wealth.clear(); wealthFlows(state, state.polities[0]); construct(state, { tick } as never); };
+/** A month of construction; returns what the realm paid for running it (administration, services, upkeep). */
+const month = (state: SimulationState, tick: number) => {
+  state.ledger.wealth.clear(); state.tick = tick;
+  const flows = wealthFlows(state, state.polities[0]);
+  construct(state, { tick } as never);
+  return flows.administration + flows.services + flows.upkeep;
+};
 
 test('townspeople earn wealth, recorded to the unit; a union passes the treasury on and a civilization that dies loses it', () => {
   const { state, civ } = fixture();
   foundSettlement(state, createRng(5, 5), civ, 0, true, 0);
   state.groups[0].specialists = house(state, 0, 6_000);
-  assert.equal(incomeOf(state, civ), 6_000 * WEALTH_TUNING.perTownsperson);
+  // Taxes at the customary rate on what 6,000 townspeople's trades produce (no farmers here).
+  assert.equal(incomeOf(state, civ), BUDGET_TUNING.customaryRate * BUDGET_TUNING.townOutput * 6_000);
   produceWealth(state, civ);
   assert.equal(civ.wealth, 500); assert.equal(wealthFlows(state, civ).produced, 500);
   const other = { id: 1, wealth: 0, projects: [], roadWorks: [] } as unknown as Polity;
@@ -69,18 +78,20 @@ test('a building is paid in instalments, completed with the causes that began it
   const { state, civ } = fixture();
   const town = foundSettlement(state, createRng(5, 5), civ, 0, true, 0)!;
   const market = BUILDING_INDEX.get('market')!, definition = BUILDINGS[market];
-  civ.wealth = definition.cost;
+  // Enough for the market and for running the realm meanwhile (its administration and services come first).
+  civ.wealth = definition.cost + 20_000;
   assert.equal(startProjects(state, 0, civ, market, [town.id], []), 'nowhere left to build it', 'a market needs a town');
   town.tier = 1;
   assert.equal(startProjects(state, 0, civ, market, [town.id], [{ factor: 'commerce', weight: 0.2 }]), 'began a market');
   assert.equal(startProjects(state, 0, civ, market, [town.id], []), 'nowhere left to build it', 'not twice in one place');
-  for (let tick = 1; tick <= definition.months; tick++) month(state, tick);
+  let running = 0;
+  for (let tick = 1; tick <= definition.months; tick++) running += month(state, tick);
   state.chronicle.flush(definition.months);
   const done = state.chronicle.events.find(event => event.type === 'buildingCompleted')!;
   assert.ok(done && done.settlement === town.id && done.causes[0].factor === 'commerce');
   assert.deepEqual(town.buildings.map(building => BUILDINGS[building.type].name), ['market']);
   assert.equal(town.housing, Math.round(SETTLEMENT_TUNING.baseHousing * SETTLEMENT_TUNING.capitalHousing * definition.effects.housing!));
-  assert.equal(civ.wealth, 0); assert.equal(civ.projects.length, 0);
+  assert.ok(running > 0); assert.equal(civ.wealth, 20_000 - running, 'the market paid in full, and the realm\'s costs'); assert.equal(civ.projects.length, 0);
   // Work in a settlement that falls to ruin is abandoned.
   civ.wealth = 1_000;
   startProjects(state, 20, civ, BUILDING_INDEX.get('granary')!, [town.id], []);
@@ -126,7 +137,7 @@ test('the Build choice weighs each building\'s need where it is greatest against
   const granary = BUILDING_INDEX.get('granary')!, temple = BUILDING_INDEX.get('temple')!;
   const kind = (type: number) => ({ type, name: BUILDINGS[type].name, one: BUILDINGS[type].one, many: BUILDINGS[type].many, purpose: BUILDINGS[type].purpose, cost: BUILDINGS[type].cost, upkeep: BUILDINGS[type].upkeep, minTier: BUILDINGS[type].minTier, coast: BUILDINGS[type].coast, water: BUILDINGS[type].water, perRegion: BUILDINGS[type].perRegion, works: BUILDINGS[type].effects.works ?? '' as const });
   const kinds = [granary, temple].map(kind);
-  const view = (settlements: ReturnType<typeof settlement>[], wealth = 100_000, income = 50_000) => ({ values, build: { wealth, income, upkeep: 0, regions: 1, catalog: kinds, settlements, wonders: [], stability: 0.9 } }) as unknown as PolityView;
+  const view = (settlements: ReturnType<typeof settlement>[], wealth = 100_000, income = 50_000) => ({ values, budget: { rate: 0.2, output: income * 5, sites: 0, costs: 0, treasury: wealth, revenue: income, surplus: income, strain: 0, tradition: 0.5 }, build: { regions: 1, catalog: kinds, settlements, wonders: [], stability: 0.9 } }) as unknown as PolityView;
   const hungry = view([settlement({ id: 1, hardship: 0.8 }), settlement({ id: 2, hardship: 0.1, name: 'Tal' })]);
   const option = bestBuild(hungry)!;
   assert.equal(option.target, granary); assert.deepEqual(option.targets, [1], 'the hungriest settlement first, one at a time for a civilization of one region');
@@ -183,7 +194,7 @@ test('a wonder is begun with a motive, paid for over years, unique in the world,
   city.tier = 1;
   assert.match(beginWonder(state, 0, civ, gardens, city.id, [{ factor: 'ambition', weight: 0.1 }]), /began the Hanging Gardens/);
   assert.match(beginWonder(state, 0, civ, gardens, city.id, []), /being built or stands elsewhere/, 'unique in the world');
-  civ.wealth = definition.cost;
+  civ.wealth = definition.cost + 100_000;
   for (let tick = 1; tick <= definition.months; tick++) month(state, tick);
   state.chronicle.flush(definition.months);
   const done = state.chronicle.events.find(event => event.type === 'wonderCompleted')!;
@@ -218,7 +229,7 @@ test('a wonder nobody pays for wears away and is destroyed; a standing wonder ra
   };
   const before = incomeOf(state, civ);
   stand(colossus);
-  assert.equal(incomeOf(state, civ), before * WONDERS[colossus].effects.wealth!, 'the Colossus raises wealth');
+  assert.ok(Math.abs(incomeOf(state, civ) - before * WONDERS[colossus].effects.wealth!) < 1e-6, 'the Colossus raises wealth');
   stand(library); stand(temple);
   assert.deepEqual(wonderBonus(state, civ), { research: WONDERS[library].effects.research!, wealth: WONDERS[colossus].effects.wealth!, stability: WONDERS[temple].effects.stability! });
   state.wonders.length = 0; city.wonder = null;
@@ -267,10 +278,11 @@ test('the wonder choice needs a motive, a golden age and a great city', () => {
   const gardens = WONDER_INDEX.get('hangingGardens')!, definition = WONDERS[gardens];
   const view = (stability: number, urban: number, expansionism = 0.5) => ({
     values: { ...values, expansionism },
+    budget: { rate: 0.2, output: 10_000_000, sites: 0, costs: 0, treasury: 50_000_000, revenue: 2_000_000, surplus: 2_000_000, strain: 0, tradition: 0.5 },
     build: {
-      wealth: 50_000_000, income: 2_000_000, upkeep: 0, regions: 10, catalog: [], stability,
+      regions: 10, catalog: [], stability,
       settlements: [{ id: 1, region: 0, name: 'Kesh', tier: 2, urban, housing: 20_000, hardship: 0, farmShare: 1, stability, frontier: 0, has: [], coast: false, water: true, seaLinks: 0, mineYield: 0, quarryYield: 0, wonder: false }],
-      wonders: [{ type: gardens, name: definition.name, motive: definition.motive, cost: definition.cost, upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast }],
+      wonders: [{ type: gardens, name: definition.name, motive: definition.motive, cost: definition.cost, months: definition.months, upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast }],
     },
   }) as unknown as PolityView;
   const golden = bestWonder(view(0.95, 20_000))!;
@@ -313,14 +325,14 @@ test('irrigation built by a river raises its region\'s lasting capacity at once,
   Object.assign(state.partition.regions[0], { riverTier: 2 });
   assert.equal(startProjects(state, 0, civ, irrigation, [town.id], []), 'began irrigation works');
   const before = regionCapacity(state, 0);
-  civ.wealth = definition.cost;
+  civ.wealth = definition.cost + 20_000;
   for (let tick = 1; tick <= definition.months; tick++) month(state, tick);
   assert.equal(state.farmBonus[0], definition.effects.farm);
   assert.ok(state.capacity[0] > before * 1.05, `capacity ${state.capacity[0]} after ${before}`);
 });
 
 test('word of a wonder reaches a civilization only through contact, one step further than other news, or when it tries to build the same', () => {
-  const polity = (id: number) => ({ id, met: new Map<number, number>(), heardWonders: [] as number[], kind: 'civ', name: `P${id}` });
+  const polity = (id: number) => ({ id, met: new Map<number, number>(), heardWonders: [] as number[], kind: 'civ', name: `P${id}`, deathTick: null as number | null });
   const [holder, near, far, beyond] = [0, 1, 2, 3].map(polity);
   const state = { polities: [holder, near, far, beyond], settlements: [{ id: 0, owner: 0, status: 'alive', wonder: null, tier: 2, name: 'Kesh' }, { id: 1, owner: 3, status: 'alive', wonder: null, tier: 2, name: 'Tal' }], wonders: [] as unknown[] } as unknown as SimulationState;
   const wonder = { id: 0, type: 0, settlement: 0, builder: 0, begunTick: 0, builtTick: null, status: 'building', spent: 0, cost: 1, condition: 1, endedTick: null, endCause: null, causes: [], waited: 0 } as SimulationState['wonders'][number];
@@ -331,7 +343,16 @@ test('word of a wonder reaches a civilization only through contact, one step fur
   assert.ok(knows(near as unknown as Polity), 'met the holder');
   assert.ok(knows(far as unknown as Polity), 'met someone who met the holder');
   assert.ok(!knows(beyond as unknown as Polity), 'no word reaches a people out of contact');
+  near.deathTick = 5;
+  assert.ok(!knows(far as unknown as Polity), 'word travels through living peoples only');
+  near.deathTick = null;
+  // What it may begin: a wonder of that type is ruled out only once word of the one under way has reached it.
+  const knowledge = learn(startingKnowledge(), TECH_INDEX.get(WONDERS[0].tech)!);
+  const options = (civ: typeof far) => wonderOptions(state, { ...civ, knowledge } as unknown as Polity).map(option => option.type);
+  assert.ok(options(beyond).includes(0), 'unheard of, the Pyramids still seem its to build');
+  assert.ok(!options(far).includes(0), 'heard of: not offered');
   // Setting out to build the same, it learns of it.
   assert.match(beginWonder(state, 0, beyond as unknown as Polity, 0, 1, []), /being built or stands elsewhere/);
   assert.ok(knows(beyond as unknown as Polity));
+  assert.ok(!options(beyond).includes(0));
 });

@@ -1,14 +1,15 @@
 import { BUILDINGS, buildingKnown } from './buildings.ts';
 import { WONDERS, wonderKnown } from './wonders.ts';
 import { cultureSimilarity } from './culture.ts';
-import { buildingCost, incomeOf, siteIncome, upkeepOf } from './economy.ts';
+import { type Costs, costsOf, totalCosts } from './budget.ts';
+import { buildingCost, outputOf, siteIncome } from './economy.ts';
 import { livingSettlements } from './settlements.ts';
 import { cellNeighbors, greatCircleKm } from './geography.ts';
 import { CostHeap } from './heap.ts';
 import { edgeKm, edgeTravel, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
 import { landPressure } from './pressure.ts';
 import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
-import { MOBILITY_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
+import { BUDGET_TUNING, MOBILITY_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
@@ -211,10 +212,17 @@ export interface PolityView {
   /** Peoples it is in contact with and could share knowledge with (none it shares with now or that refused lately),
    *  and how many exchanges it has now. */
   partners: Partner[]; exchanges: number;
+  /**
+   * Its budget a year (VISION.md "Wealth"): its tax rate, its people's output before tax, what its mines and quarries
+   * pay, what running the realm costs, its treasury; what customary taxes and its sites would raise (`revenue`) and
+   * what that leaves after its costs (`surplus`, below 0 when it must tax above the custom), its strain: how far its
+   * costs exceed that revenue, as a share of it (0–1), and its people's Tradition (how much of a reserve they keep).
+   */
+  budget: { rate: number; output: number; sites: number; costs: number; treasury: number; revenue: number; surplus: number; strain: number; tradition: number };
   /** What it could build, and where (VISION.md "Buildings"; the Build action). */
   build: {
-    /** Its treasury, income and upkeep a year, and its regions (how widely it builds at once). */
-    wealth: number; income: number; upkeep: number; regions: number;
+    /** Its regions (how widely it builds at once). */
+    regions: number;
     /** The building types it knows: purpose, cost (as it would pay), upkeep, the smallest tier they stand in, whether
      *  they need the sea beside the settlement, and which sites they work. */
     catalog: { type: number; name: string; one: string; many: string; purpose: string; cost: number; upkeep: number; minTier: number; coast: boolean; water: boolean; perRegion: boolean; works: '' | 'mineral' | 'stone' }[];
@@ -226,9 +234,10 @@ export interface PolityView {
       id: number; region: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; farmers: number; stability: number; frontier: number; has: number[];
       coast: boolean; water: boolean; seaLinks: number; mineYield: number; quarryYield: number; wonder: boolean;
     }[];
-    /** The wonders it could begin (it knows how, none stands or is being built anywhere, and it builds none now): their
-     *  motive, cost, upkeep, the smallest tier of their city and whether it needs the sea; and its realm's mean stability. */
-    wonders: { type: number; name: string; motive: string; cost: number; upkeep: number; minTier: number; coast: boolean }[];
+    /** The wonders it could begin (it knows how, none it knows of stands or is being built anywhere, and it builds none
+     *  now): their motive, cost, the months they take, upkeep, the smallest tier of their city and whether it needs the
+     *  sea; and its realm's mean stability. */
+    wonders: { type: number; name: string; motive: string; cost: number; months: number; upkeep: number; minTier: number; coast: boolean }[];
     stability: number;
     /** Roads (VISION.md "Roads"): the best tier it knows (0 none) and its names, and for each of its regions with a
      *  town or city that its roads do not yet reach from its capital at that tier, the road it could build there
@@ -395,14 +404,7 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
       });
     }
   }
-  // Wonders: one at a time, each unique in the world while it stands or is being built (VISION.md "Wonders"); a wonder
-  // elsewhere rules its type out only once word of it has reached this civilization.
-  const wonders: PolityView['build']['wonders'] = [];
-  const building = state.wonders.some(wonder => wonder.status === 'building' && state.settlements[wonder.settlement].owner === civ.id);
-  if (!building) WONDERS.forEach((definition, type) => {
-    if (!wonderKnown(civ.knowledge, type) || state.wonders.some(wonder => wonder.type === type && (wonder.status === 'building' || wonder.status === 'standing') && knowsOfWonder(state, civ, wonder))) return;
-    wonders.push({ type, name: definition.name, motive: definition.motive, cost: definition.cost, upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast });
-  });
+  const wonders = wonderOptions(state, civ);
   let stable = 0;
   for (const groupId of civ.groups) stable += state.stability[state.groups[groupId].region];
   const tier = knownRoadTier(civ.knowledge);
@@ -411,7 +413,30 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
     const settlement = state.settlements[route.settlement];
     roads.routes.push({ settlement: route.settlement, name: settlement.name, urban: settlement.urban, km: route.km, cost: route.cost, upkeep: route.upkeep, edges: route.edges.length, bridges: route.bridges });
   }
-  return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1, roads };
+  return { regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1, roads };
+}
+
+/**
+ * The wonders a civilization could begin (VISION.md "Wonders"): one at a time, each unique in the world while it stands
+ * or is being built; a wonder elsewhere rules its type out only once word of it has reached this civilization.
+ */
+export function wonderOptions(state: SimulationState, civ: Polity): PolityView['build']['wonders'] {
+  const wonders: PolityView['build']['wonders'] = [];
+  if (state.wonders.some(wonder => wonder.status === 'building' && state.settlements[wonder.settlement].owner === civ.id)) return wonders;
+  WONDERS.forEach((definition, type) => {
+    if (!wonderKnown(civ.knowledge, type) || state.wonders.some(wonder => wonder.type === type && (wonder.status === 'building' || wonder.status === 'standing') && knowsOfWonder(state, civ, wonder))) return;
+    wonders.push({ type, name: definition.name, motive: definition.motive, cost: definition.cost, months: definition.months, upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast });
+  });
+  return wonders;
+}
+
+/** A civilization's budget as it knows it: its own output, sites, costs and treasury (`PolityView['budget']`). */
+export function budgetView(state: SimulationState, civ: Polity, costs: Costs = costsOf(state, civ)): PolityView['budget'] {
+  const { output, sites } = outputOf(state, civ), total = totalCosts(costs), revenue = BUDGET_TUNING.customaryRate * output + sites;
+  return {
+    rate: civ.taxRate, output, sites, costs: total, treasury: civ.wealth, revenue, surplus: revenue - total,
+    strain: revenue > 0 ? Math.max(0, Math.min(1, total / revenue - 1)) : total > 0 ? 1 : 0, tradition: state.cultures[civ.culture].values.tradition,
+  };
 }
 
 /**
@@ -422,7 +447,8 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
 export function knowsOfWonder(state: SimulationState, civ: Polity, wonder: SimulationState['wonders'][number]) {
   const holder = state.settlements[wonder.settlement].owner;
   if (holder === civ.id || civ.met.has(holder) || civ.heardWonders.includes(wonder.id)) return true;
-  for (const other of civ.met.keys()) if (state.polities[other].met.has(holder)) return true;
+  // Word travels through living peoples, as other news does.
+  for (const other of civ.met.keys()) if (state.polities[other].deathTick === null && state.polities[other].met.has(holder)) return true;
   return false;
 }
 
@@ -532,7 +558,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   }
   partners.sort((a, b) => a.polity - b.polity);
   return {
-    build: buildView(state, polity),
+    budget: budgetView(state, polity), build: buildView(state, polity),
     id: polity.id, tick: state.tick, values: { ...state.cultures[polity.culture].values }, sea: polity.knowledge.sea, seaTick: polity.seaTick,
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,

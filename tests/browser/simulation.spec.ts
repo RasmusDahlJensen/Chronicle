@@ -192,6 +192,9 @@ test('farming bands settle into civilizations with villages, specialists, resear
   // M3b.6: the region's last harvest (and any drought, famine or irrigation); M3b.7: its cultivated land.
   await expect(page.locator('#region-harvest')).toContainText(/\d+% of the crops/);
   await expect(page.locator('#region-fields')).toContainText(/\d+% of its farmland cultivated/);
+  // M3c.2: the realm's budget, and what each settlement pays and costs (the region's seat keeps its farm taxes and administration).
+  await expect(page.locator('#polity-wealth')).toContainText(/taxes \d+% of what its people produce · revenue [\d,]+ a year \(trades [\d,]+, farms [\d,]+.*\) · costs [\d,]+ a year \(administration [\d,]+, services [\d,]+, upkeep [\d,]+/);
+  await expect(settlementsHere).toContainText(/Seat of the region: pays [\d,]+ a year \(trades [\d,]+, farm taxes [\d,]+.*\); costs [\d,]+ \(administration [\d,]+, services [\d,]+, upkeep [\d,]+\): a (profit|loss) of [\d,]+ a year/);
   // The Fields layer draws exactly the cultivated cells the frame reports (each region's count of its ranked farmland).
   const cultivated = frame.fields.cells.reduce((sum: number, cells: number) => sum + cells, 0);
   expect(cultivated).toBeGreaterThan(0);

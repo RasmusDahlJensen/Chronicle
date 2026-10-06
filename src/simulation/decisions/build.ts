@@ -14,6 +14,13 @@ type Kind = PolityView['build']['catalog'][number];
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
+/** What the realm can spend on building (VISION.md "Wealth": what it can afford is its income after costs): its
+ *  surplus a year at customary taxes, and a share of its treasury. */
+const spendable = (budget: PolityView['budget']) => Math.max(1, Math.max(0, budget.surplus) + budget.treasury / BUILD_TUNING.treasuryYears);
+/** What new upkeep would eat into: that surplus, but no less than a small share of the revenue (a realm already
+ *  short weighs new upkeep heavily). */
+const headroom = (budget: PolityView['budget']) => Math.max(1, BUILD_TUNING.surplusFloor * budget.revenue, budget.surplus);
+
 /** What a need is called when it is cited as a cause, by the purpose that answers it. */
 export const NEED_OF: Record<string, string> = { food: 'hardship', faith: 'instability', learning: 'learning', trade: 'commerce', housing: 'crowding', defense: 'frontier', mining: 'deposits', sea: 'seaReach', farming: 'farming' };
 
@@ -78,7 +85,7 @@ export function buildScore(view: PolityView, kind: Kind): Option & { targets: nu
     .filter(entry => entry.value > 0).sort((a, b) => b.value - a.value || a.settlement.id - b.settlement.id)
     // One a region needs only one of: the best settlement in each region.
     .filter(entry => !kind.perRegion || (!regions.has(entry.settlement.region) && regions.add(entry.settlement.region) !== undefined)).slice(0, batch);
-  const income = Math.max(1, build.income), weight = (tuning.purposeWeight as Record<string, number>)[kind.purpose] ?? 0;
+  const weight = (tuning.purposeWeight as Record<string, number>)[kind.purpose] ?? 0;
   const worth = ranked.length ? ranked.reduce((sum, entry) => sum + entry.value, 0) / ranked.length : 0;
   const benefit = weight * worth;
   // Each need's share of the benefit (what a completed building will cite): food splits into hard years and storage.
@@ -88,8 +95,8 @@ export function buildScore(view: PolityView, kind: Kind): Option & { targets: nu
     if (kind.works) parts.set(NEED_OF[kind.purpose], (parts.get(NEED_OF[kind.purpose]) ?? 0) + needFor(kind, settlement, view.values));
     else for (const [name, value] of Object.entries(needParts(kind.purpose, settlement, view.values))) parts.set(name, (parts.get(name) ?? 0) + value * size);
   }
-  const cost = tuning.cost * kind.cost * ranked.length / (income + build.wealth / tuning.treasuryYears);
-  const upkeep = tuning.upkeepWeight * (build.upkeep + kind.upkeep * ranked.length) / income;
+  const cost = tuning.cost * kind.cost * ranked.length / spendable(view.budget);
+  const upkeep = tuning.upkeepWeight * kind.upkeep * ranked.length / headroom(view.budget);
   const label = ranked.length === 1 ? `${kind.one} at ${ranked[0].settlement.name}` : `${kind.many} in ${ranked.length} settlements`;
   const needs = [...parts].map(([factor, total]) => ({ factor, weight: round(weight * total / Math.max(1, ranked.length)) }));
   return {
@@ -118,7 +125,6 @@ const MOTIVE_VALUE: Record<string, keyof PolityView['values']> = { piety: 'zeal'
 export function bestWonder(view: PolityView): (Option & { targets: number[] }) | null {
   const tuning = BUILD_TUNING, build = view.build;
   const golden = clamp01((build.stability - tuning.goldenFrom) / (1 - tuning.goldenFrom));
-  const income = Math.max(1, build.income);
   let best: (Option & { targets: number[] }) | null = null;
   for (const wonder of build.wonders) {
     const city = build.settlements.filter(settlement => settlement.tier >= wonder.minTier && !settlement.wonder && (!wonder.coast || settlement.coast))
@@ -127,7 +133,9 @@ export function bestWonder(view: PolityView): (Option & { targets: number[] }) |
     const motive = view.values[MOTIVE_VALUE[wonder.motive] ?? 'zeal'], greatness = Math.min(1, city.urban / tuning.wonderCity);
     // The motive is what it cites; the golden age and the city's greatness scale it (multipliers, never causes).
     const drive = tuning.wonderWeight * motive * golden * greatness;
-    const cost = tuning.cost * wonder.cost / (income + build.wealth / tuning.treasuryYears), upkeep = tuning.upkeepWeight * (build.upkeep + wonder.upkeep) / income;
+    // A wonder is paid for over decades: what it would take each year while it is built weighs against what the realm
+    // can spend in a year.
+    const cost = tuning.cost * wonder.cost * 12 / wonder.months / spendable(view.budget), upkeep = tuning.upkeepWeight * wonder.upkeep / headroom(view.budget);
     const option = {
       action: 'build' as const, score: drive - cost - upkeep, target: wonder.type, label: `${wonder.name} at ${city.name}`, targets: [city.id], wonder: true,
       factors: [
@@ -157,10 +165,10 @@ export function bestRoad(view: PolityView): (Option & { targets: number[] }) | n
     // Each part's share of the need, as cited.
     return { route, value: need * size, connection: need * size * connection / (connection + remoteness || 1), remoteness: need * size * remoteness / (connection + remoteness || 1) };
   }).sort((a, b) => b.value - a.value || a.route.settlement - b.route.settlement).slice(0, batch);
-  const weight = tuning.purposeWeight.roads, income = Math.max(1, build.income), count = ranked.length;
+  const weight = tuning.purposeWeight.roads, count = ranked.length;
   const mean = (key: 'value' | 'connection' | 'remoteness') => ranked.reduce((sum, entry) => sum + entry[key], 0) / count;
-  const cost = tuning.cost * ranked.reduce((sum, entry) => sum + entry.route.cost, 0) / (income + build.wealth / tuning.treasuryYears);
-  const upkeep = tuning.upkeepWeight * (build.upkeep + ranked.reduce((sum, entry) => sum + entry.route.upkeep, 0)) / income;
+  const cost = tuning.cost * ranked.reduce((sum, entry) => sum + entry.route.cost, 0) / spendable(view.budget);
+  const upkeep = tuning.upkeepWeight * ranked.reduce((sum, entry) => sum + entry.route.upkeep, 0) / headroom(view.budget);
   return {
     action: 'build', road: true, score: weight * mean('value') - cost - upkeep, target: roads.tier, targets: ranked.map(entry => entry.route.settlement),
     label: count === 1 ? `${roads.one} to ${ranked[0].route.name}` : `${roads.many} to ${count} towns`,

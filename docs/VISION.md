@@ -277,6 +277,7 @@ Demand for a resource comes only from the techs a civ knows, so the strategic ma
 
 Wealth must matter: running a society costs money, more the larger and older it is, so a realm's wealth goes into keeping it together (user, M3b review, 6 October 2026). Designed for the systems to come:
 - **Income comes from what people do where they live.** A settlement earns from its townspeople's trades (more with markets, later trade hubs and industry), from the mines and quarries its region works, and from a tax on the surplus food of the farmers around it. Trade (M5), tribute (M6) and industry (M8) add later.
+- **Taxes:** the crown takes a share of what its people produce. Each year a realm sets the rate it needs to cover its costs and keep a reserve. Taxes above the customary rate make its people unhappy (stability), and taxes below it content them. A realm whose costs outrun its people's output must choose between the unrest of heavy taxes and the decay of arrears. Governments (M7) will set the customs and limits.
 - **Costs come from running the society:**
   - **administration:** each region costs a base amount, more the farther it lies from the capital in travel and the more regions the realm holds (the burden grows faster than size);
   - **age:** offices, privileges and courts accumulate, so a realm's administration grows costlier as it ages, until reforms (government, M7) cut it back;

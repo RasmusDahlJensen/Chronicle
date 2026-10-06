@@ -1,8 +1,9 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { regionCapacity } from './bands.ts';
 import { BUILDINGS } from './buildings.ts';
+import { costsOf, recordArrears, refreshRemoteness, remotenessStale, totalCosts } from './budget.ts';
 import { buildingCost, wealthFlows } from './economy.ts';
-import { bySea, hasHarbor, lookAgain, riverOrLake } from './perception.ts';
+import { bySea, capitalTravel, hasHarbor, lookAgain, riverOrLake } from './perception.ts';
 import { applyBuildings, endWonder, house, refreshRegionBonus } from './settlements.ts';
 import { WONDERS } from './wonders.ts';
 import { edgeBetween, keeperOf, knownRoadTier, ROAD_TIERS, roadKey, roadRoutes, roadUpkeep } from './roads.ts';
@@ -10,8 +11,9 @@ import type { Polity, Settlement, SimulationState, TickContext } from './state.t
 import { BUILD_TUNING } from './tunables.ts';
 
 /**
- * Construction system (VISION.md "Buildings", "Roads", "Destruction"), monthly per civilization: upkeep is paid for
- * its standing buildings, wonders and the roads it keeps (unpaid, they wear down and are lost), and its works under
+ * Construction system (VISION.md "Buildings", "Roads", "Destruction", "Wealth"), monthly per civilization: the costs
+ * of running its realm are paid (administration, services, and the upkeep of its buildings, wonders and the roads it
+ * keeps; unpaid, it falls into arrears and its buildings and roads wear down and are lost), and its works under
  * construction are paid in instalments while the treasury allows, then completed. Roads no civilization keeps wear
  * away. Every completion and loss is an event with its causes.
  */
@@ -20,7 +22,9 @@ export function construct(state: SimulationState, context: TickContext) {
   for (const id of state.living) {
     const civ = state.polities[id];
     if (civ.kind !== 'civ') continue;
-    payUpkeep(state, civ, owed[id]);
+    // Land that joined the realm since its yearly assessment is measured from its capital now.
+    if (remotenessStale(state, civ)) refreshRemoteness(state, civ, capitalTravel(state, civ));
+    payCosts(state, civ, owed[id]);
     build(state, context.tick, civ);
     buildWonders(state, context.tick, civ);
     buildRoads(state, context.tick, civ);
@@ -48,23 +52,21 @@ function rehouse(state: SimulationState, settlement: Settlement) {
   if (state.farmBonus[settlement.region] !== farm) regionCapacity(state, settlement.region);
 }
 
-function payUpkeep(state: SimulationState, civ: Polity, roads: number) {
-  // (Allocation-free in the usual month: everything paid and in good repair.)
-  let yearly = roads;
-  for (const groupId of civ.groups) for (const id of state.regionSettlements[state.groups[groupId].region]) {
-    const settlement = state.settlements[id];
-    if (settlement.status === 'alive') yearly += settlement.bonus.upkeep;
-  }
-  for (const wonder of state.wonders) if (wonder.status === 'standing' && state.settlements[wonder.settlement].owner === civ.id) yearly += WONDERS[wonder.type].upkeep;
-  if (yearly === 0) { civ.upkeepCarry = 0; civ.roadsUnpaid = 0; return; }
+/** A month of the realm's costs, paid while the treasury allows; what goes unpaid is arrears. */
+function payCosts(state: SimulationState, civ: Polity, roads: number) {
+  const costs = costsOf(state, civ, roads), yearly = totalCosts(costs);
+  if (yearly === 0) { civ.upkeepCarry = 0; civ.roadsUnpaid = 0; recordArrears(state, civ, 0, costs); return; }
   civ.upkeepCarry += yearly / 12;
   const due = Math.floor(civ.upkeepCarry);
   civ.upkeepCarry -= due;
   const flows = wealthFlows(state, civ), paid = Math.min(due, civ.wealth);
   civ.wealth -= paid;
-  flows.upkeep += paid;
+  // What was paid, by kind of cost, in whole units.
+  const administration = Math.floor(paid * costs.administration / yearly), services = Math.floor(paid * costs.services / yearly);
+  flows.administration += administration; flows.services += services; flows.upkeep += paid - administration - services;
   // Paid in full, buildings mend; short, they wear in proportion to what went unpaid and are lost at nothing.
   const unpaid = due > 0 ? 1 - paid / due : 0;
+  recordArrears(state, civ, unpaid, costs);
   // Its roads wear by the same share (`wearRoads`).
   civ.roadsUnpaid = unpaid;
   if (unpaid <= 0 && !civ.repairing) return;

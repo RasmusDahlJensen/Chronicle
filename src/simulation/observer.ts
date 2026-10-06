@@ -4,7 +4,8 @@ import { cultivatedCells, fieldLand } from './fields.ts';
 import { speedOf } from './knowledge.ts';
 import { BUILDINGS } from './buildings.ts';
 import { WONDERS } from './wonders.ts';
-import { incomeOf, regionFarm, upkeepOf } from './economy.ts';
+import { realmAccount, settlementAccount } from './budget.ts';
+import { regionFarm, wonderBonus } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { capitalKm, knownRegionCount } from './perception.ts';
@@ -107,10 +108,18 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       lastDecision: lastDecision(polity),
       stability: polity.kind !== 'civ' ? null : (() => {
         const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);
-        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule) };
+        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), taxes: round(now.taxes), arrears: round(now.arrears) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
-      wealth: polity.kind !== 'civ' ? null : { treasury: polity.wealth, income: round(incomeOf(state, polity), 1), upkeep: upkeepOf(state, polity), projects: polity.projects.length, roadWorks: polity.roadWorks.length },
+      wealth: polity.kind !== 'civ' ? null : (() => {
+        const account = realmAccount(state, polity), whole = (value: number) => Math.round(value);
+        return {
+          treasury: polity.wealth, taxRate: round(polity.taxRate),
+          revenue: { trades: whole(account.revenue.trades), farms: whole(account.revenue.farms), sites: whole(account.revenue.sites) },
+          costs: { administration: whole(account.costs.administration), services: whole(account.costs.services), upkeep: whole(account.costs.upkeep), roads: whole(account.costs.roads) },
+          arrears: round(polity.arrears), projects: polity.projects.length, roadWorks: polity.roadWorks.length,
+        };
+      })(),
       exchanges: [...polity.exchanges].filter(([other, until]) => until > state.tick && state.polities[other].deathTick === null).slice(0, 64)
         .map(([other, until]) => ({ id: other, name: state.polities[other].name, until: Math.floor(until / 12) })),
       research: target < 0 || !speed ? null : {
@@ -133,6 +142,8 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
     history.push(events[at]);
     if (history.length === 6) wanting--;
   }
+  // Accounts are kept by the civilization that rules the region.
+  const ruler = state.owner[region] >= 0 ? state.polities[state.owner[region]] : null, wonder = ruler ? wonderBonus(state, ruler).wealth : 1;
   const settlementViews = shown.map(settlement => {
     const history = histories.get(settlement.id)!;
     return {
@@ -146,6 +157,13 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
         const wonder = state.wonders.find(entry => entry.settlement === settlement.id && (entry.status === 'standing' || entry.status === 'building'));
         return wonder ? { name: WONDERS[wonder.type].name, standing: wonder.status === 'standing', progress: round(wonder.spent / wonder.cost) } : null;
       })(),
+      account: ruler && settlement.status === 'alive' && settlement.owner === ruler.id ? (() => {
+        const account = settlementAccount(state, ruler, settlement.id, wonder), whole = Math.round;
+        return {
+          seat: account.seat, trades: whole(account.trades), farms: whole(account.farms), sites: whole(account.sites),
+          administration: whole(account.administration), services: whole(account.services), upkeep: whole(account.upkeep),
+        };
+      })() : null,
     };
   });
   return {

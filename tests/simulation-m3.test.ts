@@ -17,7 +17,7 @@ import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { teacherOf } from '../src/simulation/research.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
 import { createRng } from '../src/simulation/rng.ts';
-import { DECISION_TUNING, REACH_TUNING, SHARE_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
+import { BUDGET_TUNING, DECISION_TUNING, REACH_TUNING, SHARE_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { soleCivilization } from '../src/simulation/scenarios.ts';
 import { stepSimulation } from '../src/simulation/simulation.ts';
@@ -183,7 +183,8 @@ function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] =
   return {
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
     reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
-    build: { wealth: 0, income: 0, upkeep: 0, regions: 4, catalog: [], settlements: [], wonders: [], stability: 0.9, roads: { tier: 0, one: '', many: '', routes: [] } },
+    budget: { rate: 0.2, output: 0, sites: 0, costs: 0, treasury: 0, revenue: 0, surplus: 0, strain: 0, tradition: 0.5 },
+    build: { regions: 4, catalog: [], settlements: [], wonders: [], stability: 0.9, roads: { tier: 0, one: '', many: '', routes: [] } },
     candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, ...entry })),
     ...overrides,
   };
@@ -254,7 +255,7 @@ test('stability: hunger, distance beyond the capital\'s reach and foreign rule l
     cultures: [{ values }, { values: { ...values, tradition: 0.9, openness: 0.1 } }], stability: new Float64Array([1, 0.3, 0]),
     settlements: [{ status: 'alive', buildings: [] as { type: number }[], bonus: { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0 } }], regionSettlements: [[], [0]], wonders: [],
   } as unknown as SimulationState;
-  const civ = { culture: 0, knowledge: { multipliers: { reach: 1 } } } as unknown as Polity;
+  const civ = { culture: 0, knowledge: { multipliers: { reach: 1 } }, taxRate: BUDGET_TUNING.customaryRate, arrears: 0 } as unknown as Polity;
   const group = (foodSecurity: number, culture = 0, region = 0) => ({ foodSecurity, culture, region }) as never;
   const reach = REACH_TUNING.baseKm;
   const home = stabilityOf(state, civ, group(1.2), reach / 2);

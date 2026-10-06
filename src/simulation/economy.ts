@@ -2,27 +2,36 @@ import { RESOURCE_IDS, type Resource } from '../../shared/atlas.ts';
 import { BUILDINGS } from './buildings.ts';
 import { depositState } from './deposits.ts';
 import { WONDERS } from './wonders.ts';
-import { roadUpkeepOf } from './roads.ts';
 import { unrestDepth } from './pressure.ts';
-import type { Polity, Settlement, SimulationState, WealthFlows } from './state.ts';
-import { STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
+import type { Polity, PopulationGroup, Settlement, SimulationState, WealthFlows } from './state.ts';
+import { BUDGET_TUNING, STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
 
 /**
- * Wealth and what buildings do for a region (VISION.md "Wealth", "Buildings"). Townspeople earn wealth for their
- * civilization, more in market towns; every change in a treasury is a recorded flow (rule 8). Buildings' effects are
- * read here by the systems they change: housing (`settlements.ts`), research, stability and the food store.
+ * Wealth and what buildings do for a region (VISION.md "Wealth", "Buildings"). A realm's income comes from what its
+ * people do where they live: the crown takes a share of its townspeople's trades and its farmers' surplus in taxes,
+ * and its mines and quarries pay it directly. Every change in a treasury is a recorded flow (rule 8); what running the
+ * realm costs is `budget.ts`'s. Buildings' effects are read here by the systems they change: housing
+ * (`settlements.ts`), research, stability and the food store.
  */
 
 /** This tick's wealth flows of a civilization, begun with its treasury as it stood when they began. */
 export function wealthFlows(state: SimulationState, civ: Polity): WealthFlows {
   let flows = state.ledger.wealth.get(civ.id);
-  if (!flows) { flows = { before: civ.wealth, produced: 0, construction: 0, upkeep: 0, received: 0, given: 0, lost: 0 }; state.ledger.wealth.set(civ.id, flows); }
+  if (!flows) { flows = { before: civ.wealth, produced: 0, construction: 0, upkeep: 0, administration: 0, services: 0, received: 0, given: 0, lost: 0 }; state.ledger.wealth.set(civ.id, flows); }
   return flows;
 }
 
-/** What a settlement's townspeople earn in a year: each earns `perTownsperson`, more with markets, less in unrest. */
-export function settlementIncome(state: SimulationState, settlement: Settlement) {
-  return settlement.urban * WEALTH_TUNING.perTownsperson * settlement.bonus.wealth * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, settlement.region));
+/** What a settlement's townspeople produce in a year before tax: their trades, more with markets, less in unrest. */
+export function settlementOutput(state: SimulationState, settlement: Settlement) {
+  return settlement.urban * BUDGET_TUNING.townOutput * settlement.bonus.wealth * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, settlement.region));
+}
+
+/** What a region's farmers and herders have to sell in a year before tax: their surplus food, none when they go hungry,
+ *  less in unrest. */
+export function farmOutput(state: SimulationState, group: PopulationGroup) {
+  const tuning = BUDGET_TUNING, farmers = Math.max(0, group.size - group.specialists);
+  const surplus = Math.max(0, Math.min(1, (group.foodSecurity - tuning.hungerLine) / (1 - tuning.hungerLine)));
+  return farmers * tuning.farmOutput * Math.max(0, Math.min(1, group.farmShare)) * surplus * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, group.region));
 }
 
 /**
@@ -50,31 +59,47 @@ export function wonderBonus(state: SimulationState, civ: Polity) {
   return { research, wealth, stability };
 }
 
-/** A civilization's income a year, as it stands this month: its townspeople's earnings and its worked sites, more
- *  with a wonder that raises wealth. */
+/** A civilization's income a year, as it stands this month: taxes on its people's output and what its sites pay. */
 export function incomeOf(state: SimulationState, civ: Polity) {
-  return townsIncome(state, civ) * wonderBonus(state, civ).wealth;
-}
-
-function townsIncome(state: SimulationState, civ: Polity) {
+  const wonder = wonderBonus(state, civ).wealth;
   let income = 0;
-  for (const groupId of civ.groups) income += regionIncome(state, civ, state.groups[groupId].region);
+  for (const groupId of civ.groups) income += regionIncome(state, civ, state.groups[groupId].region, wonder);
   return income;
 }
 
-/** What one of a civilization's regions earns it a year: its settlements' townspeople, and the sites its mine and
- *  quarry work (each region's sites worked once). */
-export function regionIncome(state: SimulationState, civ: Polity, region: number) {
-  let income = 0, mine = false, quarry = false;
+/** What one of a civilization's regions pays it a year: its taxes on the region's output (its townspeople's trades
+ *  times `wonder`, a wonder's wealth, and its farmers' surplus) and what its sites pay. */
+export function regionIncome(state: SimulationState, civ: Polity, region: number, wonder: number) {
+  return civ.taxRate * regionOutput(state, region, wonder) + regionSites(state, civ, region);
+}
+
+/** A region's output a year before tax: its settlements' trades (times `wonder`) and its farmers' surplus. */
+export function regionOutput(state: SimulationState, region: number, wonder: number) {
+  let output = 0;
   for (const id of state.regionSettlements[region]) {
     const settlement = state.settlements[id];
-    if (settlement.status !== 'alive') continue;
-    income += settlementIncome(state, settlement);
-    mine ||= settlement.bonus.mine; quarry ||= settlement.bonus.quarry;
+    if (settlement.status === 'alive') output += settlementOutput(state, settlement) * wonder;
   }
-  if (mine) income += siteIncome(state, civ, region, 'mineral');
-  if (quarry) income += siteIncome(state, civ, region, 'stone');
-  return income;
+  const group = state.groupAt[region];
+  return group >= 0 ? output + farmOutput(state, state.groups[group]) : output;
+}
+
+/** What the sites a region's mine and quarry work pay the crown a year (each region's sites worked once). */
+export function regionSites(state: SimulationState, civ: Polity, region: number) {
+  let mine = false, quarry = false;
+  for (const id of state.regionSettlements[region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status === 'alive') { mine ||= settlement.bonus.mine; quarry ||= settlement.bonus.quarry; }
+  }
+  return (mine ? siteIncome(state, civ, region, 'mineral') : 0) + (quarry ? siteIncome(state, civ, region, 'stone') : 0);
+}
+
+/** A realm's output a year before tax (with its wonders' wealth) and what its sites pay: what its taxes are set on. */
+export function outputOf(state: SimulationState, civ: Polity) {
+  const wonder = wonderBonus(state, civ).wealth;
+  let output = 0, sites = 0;
+  for (const groupId of civ.groups) { const region = state.groups[groupId].region; output += regionOutput(state, region, wonder); sites += regionSites(state, civ, region); }
+  return { output, sites };
 }
 
 /** Whether a civilization quarries stone it can use (its stone buildings cost less). */
@@ -95,21 +120,10 @@ export function buildingCost(state: SimulationState, civ: Polity, type: number) 
   return definition.stone && quarriesStone(state, civ) ? Math.round(definition.cost * WEALTH_TUNING.stoneDiscount) : definition.cost;
 }
 
-/** The upkeep a civilization owes a year for its standing buildings and wonders and the roads it keeps. */
-export function upkeepOf(state: SimulationState, civ: Polity) {
-  let upkeep = roadUpkeepOf(state, civ);
-  for (const wonder of state.wonders) if (wonder.status === 'standing' && state.settlements[wonder.settlement].owner === civ.id) upkeep += WONDERS[wonder.type].upkeep;
-  for (const groupId of civ.groups) for (const id of state.regionSettlements[state.groups[groupId].region]) {
-    const settlement = state.settlements[id];
-    if (settlement.status === 'alive') upkeep += settlement.bonus.upkeep;
-  }
-  return upkeep;
-}
-
-/** Production system, after a civilization's townspeople are housed: a month of their earnings (`towns`, what its
- *  regions earn, as production summed them) joins the treasury in whole units (the fraction waits for next month). */
-export function produceWealth(state: SimulationState, civ: Polity, towns = townsIncome(state, civ)) {
-  civ.wealthCarry += towns * wonderBonus(state, civ).wealth / 12;
+/** Production system, after a civilization's townspeople are housed: a month of its income (`yearly`, what its
+ *  regions pay, as production summed them) joins the treasury in whole units (the fraction waits for next month). */
+export function produceWealth(state: SimulationState, civ: Polity, yearly = incomeOf(state, civ)) {
+  civ.wealthCarry += yearly / 12;
   const produced = Math.floor(civ.wealthCarry);
   if (produced <= 0) return;
   const flows = wealthFlows(state, civ);

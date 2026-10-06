@@ -5,7 +5,8 @@ import { createLanguage } from '../src/simulation/names.ts';
 import { createRng, type Rng } from '../src/simulation/rng.ts';
 import { byWater, foundSettlement, growSettlements, house, housingOf, livingSettlements, regionHousing, ruinSettlements, tierFor } from '../src/simulation/settlements.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
-import { SETTLEMENT_TUNING } from '../src/simulation/tunables.ts';
+import { townspeopleToward } from '../src/simulation/bands.ts';
+import { SETTLEMENT_TUNING, SPECIALIST_TUNING } from '../src/simulation/tunables.ts';
 
 /**
  * Test fixture: one region of a 6 × 2 cell strip. Cells 0–2 lie by a river (cell 1 is on it), cells 3–5 are dry; the
@@ -69,10 +70,41 @@ test('townspeople fill the capital first, then the others in founding order, at 
   assert.deepEqual([capital.urban, town.urban], [capital.housing, 300], 'the newer settlement takes the growth');
   assert.equal(house(state, 0, housing + 5_000), housing, 'only as many as they can house');
   assert.deepEqual([capital.urban, town.urban], [capital.housing, town.housing]);
+  // A decline is shared by every settlement in proportion to its townspeople (the remainder to the capital first),
+  // so no one place carries the region's whole swing.
+  const fewer = Math.floor(housing * 0.4);
+  assert.equal(house(state, 0, fewer), fewer);
+  assert.ok(Math.abs(capital.urban - capital.housing * 0.4) <= 1 && Math.abs(town.urban - town.housing * 0.4) <= 1, `${capital.urban}, ${town.urban}`);
+  assert.equal(capital.urban + town.urban, fewer);
+  // Growth again fills in order: the capital first.
+  const [inCapital, inTown] = [capital.urban, town.urban];
+  house(state, 0, fewer + 100);
+  assert.deepEqual([capital.urban, town.urban], [inCapital + 100, inTown]);
   // The moving average follows month by month; a mid-month rehousing leaves it be.
   const mean = town.urbanMean;
   house(state, 0, 0, false);
   assert.equal(town.urbanMean, mean); assert.equal(town.urban, 0);
+});
+
+test('townspeople follow the surplus over months: a twelfth of the gap a month, at least one person, never more than the people', () => {
+  assert.equal(SPECIALIST_TUNING.adjust, 1 / 12);
+  assert.equal(townspeopleToward(1_000, 2_200, 50_000), 1_100, 'up a twelfth of the gap');
+  assert.equal(townspeopleToward(2_200, 1_000, 50_000), 2_100, 'down a twelfth of the gap');
+  assert.equal(townspeopleToward(1_000, 1_005, 50_000), 1_001, 'at least one person');
+  assert.equal(townspeopleToward(1_000, 1_000, 50_000), 1_000);
+  assert.equal(townspeopleToward(1_000, 0, 600), 600, 'never more than the people there');
+});
+
+test('a settlement\'s count of years past its tier\'s line starts again whenever its townspeople are back within it', () => {
+  const { state, civ } = fixture();
+  const capital = foundSettlement(state, createRng(5, 5), civ, 0, true, 0)!;
+  const town = SETTLEMENT_TUNING.tiers[1];
+  capital.urbanMean = town + 1;
+  growSettlements(state, stream, civ);
+  assert.equal(capital.tierYears, 1);
+  capital.urbanMean = town - 1;
+  growSettlements(state, stream, civ);
+  assert.deepEqual([capital.tier, capital.tierYears], [0, 0], 'back within its tier: the count starts again');
 });
 
 test('tiers follow the urban population with a margin, and growth founds settlements with their causes', () => {

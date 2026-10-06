@@ -1,0 +1,190 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { BUILDING_INDEX } from '../src/simulation/buildings.ts';
+import { administration, ageFactor, arrearsBurden, costsOf, realmAccount, regionAccount, seatOf, services, settlementAccount, sizeFactor, taxBurden, totalCosts } from '../src/simulation/budget.ts';
+import { Chronicle } from '../src/simulation/chronicle.ts';
+import { construct } from '../src/simulation/construction.ts';
+import { taxRate } from '../src/simulation/decisions/budget.ts';
+import { buildScore } from '../src/simulation/decisions/build.ts';
+import { expansionScore } from '../src/simulation/decisions/choose.ts';
+import { incomeOf, wealthFlows } from '../src/simulation/economy.ts';
+import { createLanguage } from '../src/simulation/names.ts';
+import type { PolityView } from '../src/simulation/perception.ts';
+import { createRng } from '../src/simulation/rng.ts';
+import { applyBuildings, foundSettlement, house } from '../src/simulation/settlements.ts';
+import { stabilityOf } from '../src/simulation/stability.ts';
+import type { Polity, SimulationState } from '../src/simulation/state.ts';
+import { BUDGET_TUNING, BUILD_TUNING, REACH_TUNING } from '../src/simulation/tunables.ts';
+
+test('administration costs more for more people, farther from the capital, in a larger and in an older realm; services cost more per head in larger places', () => {
+  const base = administration(10_000, 0, 1, 1);
+  assert.equal(base, BUDGET_TUNING.perRegion + BUDGET_TUNING.perPerson * 10_000);
+  assert.ok(administration(20_000, 0, 1, 1) > base, 'more people');
+  assert.ok(administration(10_000, 1, 1, 1) > base, 'farther');
+  assert.equal(administration(10_000, 50, 1, 1), administration(10_000, BUDGET_TUNING.remoteCap, 1, 1), 'at most remoteCap reaches away');
+  assert.equal(sizeFactor(2), 1, 'small realms pay no premium'); assert.equal(sizeFactor(BUDGET_TUNING.sizeScale), 1);
+  assert.ok(sizeFactor(4 * BUDGET_TUNING.sizeScale) > sizeFactor(2 * BUDGET_TUNING.sizeScale), 'larger realms pay more per region');
+  assert.equal(ageFactor(0), 1);
+  assert.ok(ageFactor(1_000) > ageFactor(100) && ageFactor(3_000) > ageFactor(1_000) && ageFactor(1e9) <= 1 + BUDGET_TUNING.ageMax + 1e-9, 'older costs more, up to a limit');
+  assert.ok(services(50_000) / 50_000 > services(1_000) / 1_000, 'per head, more in larger places');
+});
+
+test('a realm sets its taxes to cover its costs and refill its reserve, step by step, within bounds', () => {
+  const tuning = BUDGET_TUNING;
+  // A people of middling Tradition keeps two years of costs in reserve.
+  const budget = (entry: Partial<PolityView['budget']>) => ({ rate: tuning.customaryRate, output: 1_000_000, sites: 0, costs: 200_000, treasury: 400_000, revenue: 0, surplus: 0, strain: 0, tradition: (2 - tuning.reserveYears) / tuning.reserveTradition, ...entry });
+  assert.equal(taxRate(budget({})), tuning.customaryRate, 'its costs covered at the customary rate and its reserve full: unchanged');
+  assert.equal(taxRate(budget({ costs: 400_000, treasury: 800_000 })), tuning.customaryRate + tuning.rateStep, 'costlier: up by a step');
+  assert.equal(taxRate(budget({ costs: 100_000, treasury: 200_000 })), tuning.customaryRate - tuning.rateStep, 'cheaper: down by a step');
+  assert.ok(taxRate(budget({ treasury: 0 })) > tuning.customaryRate, 'an empty treasury is refilled');
+  assert.ok(taxRate(budget({ sites: 100_000 })) < tuning.customaryRate, 'mines and quarries pay part');
+  assert.equal(taxRate(budget({ rate: tuning.maxRate, costs: 10_000_000, treasury: 10_000_000 })), tuning.maxRate, 'never above the most it can take');
+  assert.equal(taxRate(budget({ rate: tuning.minRate, costs: 0, treasury: 1e9 })), tuning.minRate, 'never below the least');
+  assert.ok(taxRate(budget({ tradition: 1 })) > taxRate(budget({ tradition: 0 })), 'a traditional people keeps a larger reserve');
+});
+
+test('taxes above the customary rate unsettle people and below it content them; arrears unsettle the far regions most', () => {
+  const tuning = BUDGET_TUNING;
+  assert.equal(taxBurden(tuning.customaryRate), 0);
+  assert.equal(taxBurden(tuning.maxRate), tuning.taxUnrest);
+  assert.equal(taxBurden(tuning.minRate), -tuning.taxContent);
+  assert.ok(arrearsBurden({ arrears: 1 }, 1) > arrearsBurden({ arrears: 1 }, 0) && arrearsBurden({ arrears: 1 }, 0) > 0, 'the edges most, the heartland a little');
+  assert.equal(arrearsBurden({ arrears: 1 }, 3), tuning.arrearsUnrest);
+  assert.equal(arrearsBurden({ arrears: 0 }, 1), 0);
+  // In a region's stability: heavy taxes and arrears lower it, light taxes raise it.
+  const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
+  const state = { cultures: [{ values }], settlements: [], regionSettlements: [[]], wonders: [] } as unknown as SimulationState;
+  const reach = REACH_TUNING.baseKm, group = { foodSecurity: 1.2, culture: 0, region: 0 } as never;
+  const civ = (taxRate: number, arrears: number) => ({ culture: 0, knowledge: { multipliers: { reach: 1 } }, taxRate, arrears }) as unknown as Polity;
+  const usual = stabilityOf(state, civ(tuning.customaryRate, 0), group, reach / 2);
+  assert.ok(stabilityOf(state, civ(tuning.maxRate, 0), group, reach / 2).value < usual.value, 'heavy taxes');
+  assert.ok(stabilityOf(state, civ(tuning.minRate, 0), group, reach / 2).value > usual.value, 'light taxes');
+  const near = stabilityOf(state, civ(tuning.customaryRate, 1), group, 0), far = stabilityOf(state, civ(tuning.customaryRate, 1), group, reach);
+  assert.ok(far.value < near.value && near.value < usual.value, 'arrears, most at the edge');
+  assert.equal(far.arrears, tuning.arrearsUnrest);
+});
+
+/**
+ * Test fixture: one civilization holding two regions of a 6 × 2 strip (cells 0–5 and 6–11, all by a river): its
+ * heartland of 200,000 well-fed farmers, and a far region (1.5 reaches away) of 20,000 hungry herders and farmers.
+ */
+function realm() {
+  const cells = 12, width = 6;
+  const state = {
+    tick: 12 * 300, geography: { width, cells, riverRunoff: new Uint32Array(cells).fill(9_000), resource: new Uint8Array(cells), marine: new Uint8Array(cells), lake: new Uint32Array(cells) },
+    partition: {
+      regions: [0, 1].map(id => ({ id, centroid: id * 6, settlementSites: [id * 6, id * 6 + 1, id * 6 + 2], neighbors: [], sites: [] })),
+      regionOf: Int32Array.from({ length: cells }, (_, cell) => (cell < 6 ? 0 : 1)),
+    },
+    cultures: [{ language: createLanguage(createRng(1, 1)) }], settlements: [], regionSettlements: [[], []], chronicle: new Chronicle(),
+    groups: [
+      { id: 0, region: 0, specialists: 0, foodSecurity: 1.1, size: 200_000, farmShare: 1 },
+      { id: 1, region: 1, specialists: 0, foodSecurity: 0.75, size: 20_000, farmShare: 0.6 },
+    ],
+    groupAt: Int32Array.from([0, 1]), unrest: new Uint8Array(2), stability: new Float64Array(2).fill(1),
+    remoteness: Float64Array.from([0, 1.5]), remoteOwner: Int32Array.from([0, 0]),
+    living: [0], ledger: { wealth: new Map() }, wonders: [], roads: new Map(), owner: Int32Array.from([0, 0]),
+    farmBonus: new Float64Array(2).fill(1), droughtShield: new Float64Array(2), storeBonus: new Float64Array(2).fill(1), spoilageBonus: new Float64Array(2).fill(1),
+    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, roadsAbandoned: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0 },
+  } as unknown as SimulationState;
+  const civ = {
+    id: 0, kind: 'civ', name: 'Ora', culture: 0, capital: null, groups: [0, 1], wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], roadWorks: [], roadsUnpaid: 0,
+    heardWonders: [], met: new Map(), settledTick: 0, taxRate: 0.25, arrears: 0, inArrears: false, heavyTaxes: false, repairing: false, knowledge: { multipliers: { reach: 1 } },
+  } as unknown as Polity;
+  state.polities = [civ];
+  const city = foundSettlement(state, createRng(5, 5), civ, 0, true, 0, [], false)!;
+  const hamlet = foundSettlement(state, createRng(5, 7), civ, 0, false, 0, [], false)!;
+  state.groups[0].specialists = house(state, 0, city.housing + 10);
+  const village = foundSettlement(state, createRng(5, 6), civ, 1, false, 0, [], false)!;
+  state.groups[1].specialists = house(state, 1, 10);
+  // A shrine in the hamlet: it costs more than the hamlet pays.
+  hamlet.buildings.push({ type: BUILDING_INDEX.get('shrine')!, condition: 1, builtTick: 0 });
+  applyBuildings(hamlet);
+  return { state, civ, city, hamlet, village };
+}
+
+test('each settlement shows what it pays and costs, its region\'s seat keeping the region\'s account, and they add up to the realm\'s; not every place pays', () => {
+  const { state, civ, city, hamlet, village } = realm();
+  const account = realmAccount(state, civ), costs = costsOf(state, civ);
+  const revenue = account.revenue.trades + account.revenue.farms + account.revenue.sites;
+  assert.ok(Math.abs(revenue - incomeOf(state, civ)) < 1e-6, `revenue ${revenue} is the realm's income`);
+  for (const kind of ['administration', 'services', 'upkeep', 'roads'] as const) assert.ok(Math.abs(account.costs[kind] - costs[kind]) < 1e-6, kind);
+  // The capital is its region's seat: it takes in the heartland's farm taxes and pays its administration.
+  assert.deepEqual([seatOf(state, 0), seatOf(state, 1)], [city.id, village.id]);
+  const capital = settlementAccount(state, civ, city.id), heartland = regionAccount(state, civ, state.groups[0]);
+  assert.ok(capital.seat && capital.farms === heartland.farms && capital.administration === heartland.administration);
+  assert.ok(capital.balance > 0, 'the capital of rich farmland pays');
+  const small = settlementAccount(state, civ, hamlet.id);
+  assert.ok(!small.seat && small.farms === 0 && small.administration === 0);
+  assert.ok(small.balance < 0, 'the hamlet with a shrine runs at a loss');
+  // The far, hungry region's seat pays its administration with nothing from its farmers: a loss.
+  const far = settlementAccount(state, civ, village.id);
+  assert.ok(far.seat && far.farms === 0, 'hungry farmers have nothing to sell');
+  assert.ok(far.balance < 0, 'the frontier village runs at a loss');
+  // The far region costs more to administer per person than the heartland.
+  const perPerson = (region: number) => regionAccount(state, civ, state.groups[region]).administration / state.groups[region].size;
+  assert.ok(perPerson(1) > perPerson(0));
+});
+
+test('a realm pays its costs month by month, to the unit; one that cannot falls into arrears, an event citing its costs, and pays its way again', () => {
+  const { state, civ, hamlet } = realm();
+  const costs = totalCosts(costsOf(state, civ));
+  let paid = 0;
+  const start = state.tick;
+  const month = (tick: number) => {
+    state.ledger.wealth.clear(); state.tick = start + tick;
+    const flows = wealthFlows(state, civ), before = civ.wealth;
+    construct(state, { tick } as never);
+    assert.equal(civ.wealth, before - flows.administration - flows.services - flows.upkeep, 'every unit paid is a flow');
+    paid += flows.administration + flows.services + flows.upkeep;
+  };
+  civ.wealth = 1_000_000;
+  for (let tick = 1; tick <= 12; tick++) month(tick);
+  // (The realm ages through the year, so its costs grow a little.)
+  assert.ok(Math.abs(paid - costs) <= 1 + costs * 0.001, `a year's costs paid (${paid} of ${costs})`);
+  assert.equal(civ.arrears, 0);
+  // An empty treasury: nothing is paid, arrears rise, buildings wear.
+  civ.wealth = 0;
+  for (let tick = 13; tick <= 36; tick++) month(tick);
+  assert.ok(civ.arrears > BUDGET_TUNING.arrearsEvent && civ.inArrears);
+  assert.ok(hamlet.buildings[0].condition < 1, 'the shrine wears');
+  state.chronicle.flush(36);
+  const fell = state.chronicle.events.find(event => event.type === 'arrears')!;
+  assert.ok(fell.data.begun, 'fallen into arrears');
+  assert.deepEqual(fell.causes.map(cause => cause.factor).sort(), ['administration', 'services'], 'citing its main costs (the shrine\'s upkeep is too small to cite)');
+  // Paid again, it climbs out.
+  civ.wealth = 10_000_000;
+  for (let tick = 37; tick <= 120 && civ.inArrears; tick++) month(tick);
+  assert.equal(civ.inArrears, false);
+  state.chronicle.flush(120);
+  assert.ok(state.chronicle.events.some(event => event.type === 'arrears' && event.data.ended));
+});
+
+test('a realm whose costs outrun its customary taxes is loath to expand, far land most; one with a surplus is not held back', () => {
+  const candidate = (capitalKm: number) => ({ region: 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm, value: 100_000, tribe: false });
+  const view = (strain: number) => ({
+    id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
+    reachKm: 1_500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
+    budget: { rate: 0.2, output: 1_000_000, sites: 0, costs: 200_000 * (1 + strain), treasury: 0, revenue: 200_000, surplus: -200_000 * strain, strain, tradition: 0.5 },
+  }) as unknown as PolityView;
+  const factor = (option: ReturnType<typeof expansionScore>) => option.factors.find(entry => entry.factor === 'administration')!.weight;
+  assert.ok(factor(expansionScore(view(0), candidate(1_500))) === 0, 'no strain, no weight');
+  const near = expansionScore(view(0.5), candidate(0)), far = expansionScore(view(0.5), candidate(1_500));
+  assert.ok(factor(far) < factor(near) && factor(near) < 0, 'strained: far land weighs most');
+  assert.ok(far.score < expansionScore(view(0), candidate(1_500)).score);
+});
+
+test('building weighs the realm\'s surplus after its costs: a realm already short weighs new upkeep heavily', () => {
+  const granary = BUILDING_INDEX.get('granary')!;
+  const kind = { type: granary, name: 'granary', one: 'a granary', many: 'granaries', purpose: 'food', cost: 2_000, upkeep: 40, minTier: 0, coast: false, water: false, perRegion: true, works: '' as const };
+  const settlement = { id: 1, region: 0, name: 'Kesh', tier: 1, urban: 8_000, housing: 8_000, hardship: 0.5, farmShare: 1, farmers: 20_000, stability: 0.9, frontier: 0, has: [] as number[], coast: false, water: true, seaLinks: 0, mineYield: 0, quarryYield: 0, wonder: false };
+  const view = (surplus: number, treasury: number) => ({
+    values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 },
+    budget: { rate: 0.2, output: 50_000, sites: 0, costs: 10_000 - surplus, treasury, revenue: 10_000, surplus, strain: Math.max(0, -surplus / 10_000), tradition: 0.5 },
+    build: { regions: 1, catalog: [kind], settlements: [settlement], wonders: [], stability: 0.9 },
+  }) as unknown as PolityView;
+  const rich = buildScore(view(5_000, 10_000), kind), short = buildScore(view(-2_000, 10_000), kind), broke = buildScore(view(-2_000, 0), kind);
+  assert.ok(rich.score > short.score && short.score > broke.score, `${rich.score} > ${short.score} > ${broke.score}`);
+  const upkeep = (option: typeof rich) => option.factors.find(entry => entry.factor === 'upkeep')!.weight;
+  assert.equal(upkeep(short), -Math.round(BUILD_TUNING.upkeepWeight * 40 / (BUILD_TUNING.surplusFloor * 10_000) * 1000) / 1000, 'short: upkeep against a small share of its revenue');
+});

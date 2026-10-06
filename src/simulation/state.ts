@@ -84,6 +84,10 @@ export interface Polity {
   heardWonders: number[];
   /** Its share of last month's road upkeep left unpaid (0–1): the roads it keeps wear by it. */
   roadsUnpaid: number;
+  /** A civilization's taxes (VISION.md "Wealth"): the share of its people's output it takes, set once a year; its
+   *  arrears, the share of its costs left unpaid, averaged over about a year (0–1); and whether it is now known to be in
+   *  arrears and to tax heavily (each change of these is an event). */
+  taxRate: number; arrears: number; inArrears: boolean; heavyTaxes: boolean;
 }
 
 export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build'] as const;
@@ -263,6 +267,13 @@ export interface CenturyStats {
   /** Cultivated cells now and their share of all farmland cells; civilizations' famines watched so far, and of those,
    *  the ones whose fields shrank within 10 years, and regrew after (VISION.md M3b). */
   cultivatedCells: number; cultivatedShare: number; faminesWatched: number; fieldsShrank: number; fieldsRegrew: number;
+  /** Realms' budgets (VISION.md "Wealth", M3c): the median civilization's treasury in years of its costs, the median
+   *  and highest tax rate, civilizations in arrears now; the shares of living settlements and of civilization regions
+   *  (with their settlements) that cost more than they pay; costs a year per person in the third of civilizations
+   *  largest and oldest (by their size × age factors) and in the smallest and youngest third (people-weighted); and
+   *  civilizations that fell into arrears, raised heavy taxes and eased them so far. */
+  treasuryYears: number; taxMedian: number; taxMax: number; civsInArrears: number; settlementsAtLoss: number; regionsAtLoss: number;
+  costPerPersonLargeOld: number; costPerPersonSmallYoung: number; arrearsBegun: number; taxesRaised: number; taxesEased: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -276,9 +287,10 @@ export interface Ledger {
   wealth: Map<number, WealthFlows>;
 }
 
-/** What changed a treasury this tick: production, construction and upkeep, and wealth passed between civilizations
- *  (a union) or lost (a civilization that dies out). */
-export interface WealthFlows { before: number; produced: number; construction: number; upkeep: number; received: number; given: number; lost: number }
+/** What changed a treasury this tick: production (taxes and the crown's sites), construction, the costs of running
+ *  the realm (upkeep of buildings, wonders and roads; administration; services), and wealth passed between
+ *  civilizations (a union) or lost (a civilization that dies out). */
+export interface WealthFlows { before: number; produced: number; construction: number; upkeep: number; administration: number; services: number; received: number; given: number; lost: number }
 
 export interface FoodFlows {
   before: number; production: number; consumption: number; spoilage: number; carriedIn: number; carriedOut: number;
@@ -321,6 +333,8 @@ export interface Metrics {
   droughts: number; famines: number;
   /** Civilizations' famines watched, those whose regions' fields shrank within the years watched, and of those, regrew. */
   faminesWatched: number; fieldsShrank: number; fieldsRegrew: number;
+  /** Civilizations that fell into arrears, raised heavy taxes and eased them again (each an event). */
+  arrearsBegun: number; taxesRaised: number; taxesEased: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -369,6 +383,10 @@ export interface SimulationState {
   regionSettlements: number[][];
   /** Per region: stability (0–1; 1 where no civilization rules) and whether it is in unrest (VISION.md "Stability"). */
   stability: Float64Array; unrest: Uint8Array;
+  /** Per region: its remoteness (travel-km from its owner's capital ÷ governance reach), which its administration
+   *  costs follow, and the civilization it was measured for (−1 none); measured at the owner's yearly assessment and in
+   *  the month the region joins a realm (`budget.ts`). */
+  remoteness: Float64Array; remoteOwner: Int32Array;
   firsts: FirstDiscovery[];
   /** Per lineage, the culture name of its starting band (the observer names peoples by it). */
   lineages: string[];
