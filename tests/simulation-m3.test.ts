@@ -255,7 +255,7 @@ test('stability: hunger, distance beyond the capital\'s reach and foreign rule l
     cultures: [{ values }, { values: { ...values, tradition: 0.9, openness: 0.1 } }], stability: new Float64Array([1, 0.3, 0]),
     settlements: [{ status: 'alive', buildings: [] as { type: number }[], bonus: { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0 } }], regionSettlements: [[], [0]], wonders: [],
   } as unknown as SimulationState;
-  const civ = { culture: 0, knowledge: { multipliers: { reach: 1 } }, taxRate: BUDGET_TUNING.customaryRate, arrears: 0 } as unknown as Polity;
+  const civ = { culture: 0, knowledge: { multipliers: { reach: 1 } }, taxRate: BUDGET_TUNING.customaryRate, arrears: 0, groups: [], settledTick: null } as unknown as Polity;
   const group = (foodSecurity: number, culture = 0, region = 0) => ({ foodSecurity, culture, region }) as never;
   const reach = REACH_TUNING.baseKm;
   const home = stabilityOf(state, civ, group(1.2), reach / 2);

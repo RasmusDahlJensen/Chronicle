@@ -24,10 +24,10 @@ function realm(knowledge = learn(startingKnowledge(), TECH_INDEX.get('Pottery')!
   const group = (id: number, store: number, foodSecurity: number) => ({ id, region: id, size: 10_000, store, foodSecurity, specialists: 0 });
   const state = {
     tick: 120, partition: { regions }, roads: new Map(), owner: Int32Array.from([0, 0, 0, 1]), capacity: new Float64Array(4).fill(20_000),
-    food: { harvest }, relieved: new Uint8Array(4), chronicle: new Chronicle(),
+    food: { harvest }, reliefTick: new Int32Array(4).fill(-1), chronicle: new Chronicle(),
     groups: [group(0, 0, 0.6), group(1, 20 * 10_000 * UNITS, 1.1), group(2, 20 * 10_000 * UNITS, 1.1), group(3, 30 * 10_000 * UNITS, 1.1)],
     ledger: { wealth: new Map(), food: new Map() },
-    metrics: { reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0 },
+    metrics: { reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0 },
   } as unknown as SimulationState;
   for (const each of state.groups) state.ledger.food.set(each.id, { before: each.store, production: 0, consumption: 0, spoilage: 0, carriedIn: 0, carriedOut: 0 } as never);
   const civ = { id: 0, name: 'Ora', groups: [0, 1, 2], wealth: 1_000_000, knowledge } as unknown as Polity;
@@ -50,15 +50,24 @@ test('a realm sends stored food to its hungry regions from the nearest with food
   const given = state.ledger.food.get(near.id)!, taken = state.ledger.food.get(hungry.id)!;
   assert.deepEqual([given.carriedOut, given.spoilage, taken.carriedIn], [hungry.store, sent - hungry.store, hungry.store]);
   assert.equal(flows.relief, Math.ceil(carriage(sent, 500))); assert.equal(civ.wealth, 1_000_000 - flows.relief);
-  assert.equal(state.relieved[0], 1);
+  assert.equal(state.reliefTick[0], 120);
   state.chronicle.flush(120);
   const event = state.chronicle.events.find(entry => entry.type === 'famineRelief')!;
   assert.ok(event && event.region === 0 && event.data.people === 10_000 && event.data.donors === 1);
-  // Next month the same relief is the same episode: no new event.
-  hungry.store = 0; state.tick = 121;
-  relieve(state, civ, 2);
-  state.chronicle.flush(121);
-  assert.equal(state.chronicle.events.filter(entry => entry.type === 'famineRelief').length, 1);
+  // The drought goes on: a month later the region has eaten a month of it and is not hungry; the month after it is
+  // again, and relief comes again. It is the same episode: no new event.
+  const relief = () => state.chronicle.events.filter(entry => entry.type === 'famineRelief').length;
+  for (const [tick, eaten] of [[121, 1], [122, 1]] as const) {
+    hungry.store -= eaten * 10_000 * UNITS; state.tick = tick;
+    relieve(state, civ, tick - 119);
+    state.chronicle.flush(tick);
+  }
+  assert.equal(state.reliefTick[0], 122, 'relieved again'); assert.equal(relief(), 1, 'one episode');
+  // A drought years later is a new episode.
+  hungry.store = 0; state.tick = 122 + RELIEF_TUNING.episodeMonths + 1;
+  relieve(state, civ, 1);
+  state.chronicle.flush(state.tick);
+  assert.equal(relief(), 2);
 });
 
 test('a donor keeps what it needs until its next harvest and its reserve; a poor treasury buys less relief; roads and better storage make it go further', () => {
@@ -73,6 +82,8 @@ test('a donor keeps what it needs until its next harvest and its reserve; a poor
   relieve(poor.state, poor.civ, 1);
   assert.ok(poor.civ.wealth >= 1_000 * (1 - RELIEF_TUNING.treasuryShare) - 1);
   assert.ok(poor.state.groups[0].store > 0 && poor.state.groups[0].store < RELIEF_TUNING.months * 10_000 * UNITS, 'some relief, not enough');
+  assert.ok(poor.state.metrics.reliefShortTreasury > 0 && poor.state.metrics.reliefShortFood === 0, 'held back by the treasury, not by food');
+  assert.ok(lean.state.metrics.reliefShortFood > 0 && lean.state.metrics.reliefShortTreasury === 0, 'held back by food to spare');
   // A road on the way makes carriage cheaper; refrigeration keeps more of the food.
   const plain = realm(), road = realm();
   road.state.roads.set(roadKey(4, 0, 1), { a: 0, b: 1, tier: 3, bridge: false, condition: 1, builder: 0, builtTick: 0, upkeep: 0 });
@@ -80,6 +91,13 @@ test('a donor keeps what it needs until its next harvest and its reserve; a poor
   assert.ok(road.civ.wealth > plain.civ.wealth, 'by rail it costs less');
   const cold = learn(learn(startingKnowledge(), TECH_INDEX.get('Pottery')!), TECH_INDEX.get('Refrigeration')!);
   assert.ok(arriving({ knowledge: cold } as Polity, 2_000) > arriving(plain.civ, 2_000), 'cold stores keep food on the way');
+  assert.equal(cold.multipliers.storeMonths, 1.5 * plain.civ.knowledge.multipliers.storeMonths, 'and hold more in store');
+  // The hungriest people first: with the treasury for one region's relief, the shorter of two hungry regions gets it.
+  const two = realm();
+  Object.assign(two.state.groups[2], { store: 0, foodSecurity: 0.3 });
+  two.civ.wealth = 2_000;
+  relieve(two.state, two.civ, 1);
+  assert.ok(two.state.groups[2].store > 0 && two.state.groups[0].store === 0, 'region 2 is hungrier');
   // A people beyond what its land feeds is not kept there by food from elsewhere.
   const crowded = realm();
   crowded.state.groups[0].size = 30_000;

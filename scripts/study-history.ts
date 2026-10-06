@@ -160,13 +160,22 @@ function storyHealth(rows: SeedResult[]) {
     const percent = (share: number) => `${Math.round(share * 100)}%`, last = at(3000) ?? stats.at(-1)!;
     lines.push(`| ${result.seed} | ${each(row => row.treasuryYears.toFixed(1))} | ${each(row => `${percent(row.taxMedian)} · ${percent(row.taxMax)}`)} | ${each(row => String(row.civsInArrears))} · ${last.arrearsBegun} | ${each(row => `${percent(row.settlementsAtLoss)} · ${percent(row.regionsAtLoss)}`)} | ${each(row => `${row.costPerPersonLargeOld} (${row.adminPerPersonLargeOld}) ÷ ${row.costPerPersonSmallYoung} (${row.adminPerPersonSmallYoung})`)} | ${last.taxesRaised} · ${last.taxesEased} |`);
   }
-  // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
-  lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | Famines by 3,000 |',
-    '| --- | --- | --- | ---: |');
+  // M3c.4 (VISION.md M3c: empire strain): large, old realms are harder to hold; the largest people's share.
+  lines.push('', '| Seed | Mean stability · regions in unrest: largest and oldest third ÷ smallest and youngest third, at 1,000 / 2,000 / 3,000 | Largest share of world people at 1,000 / 2,000 / 3,000 · longest run above 35% · years above 35% in all (story health: above 35% for at most 200 years in a row) | Civilizations at 1,000 / 2,000 / 3,000 · unions by 3,000 (refused only for the larger realm\'s strain) |',
+    '| --- | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
     const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
-    lines.push(`| ${result.seed} | ${each(row => `${row.famineRich} ÷ ${row.faminePoor}`)} | ${last.reliefBegun.toLocaleString('en')} · ${last.reliefFood.toLocaleString('en')} · ${last.reliefLost.toLocaleString('en')} · ${last.reliefCost.toLocaleString('en')} | ${last.famines.toLocaleString('en')} |`);
+    const percent = (share: number) => `${Math.round(share * 1000) / 10}%`;
+    lines.push(`| ${result.seed} | ${each(row => `${row.stabilityLargeOld.toFixed(2)} · ${percent(row.unrestLargeOld)} ÷ ${row.stabilitySmallYoung.toFixed(2)} · ${percent(row.unrestSmallYoung)}`)} | ${each(row => percent(row.largestShare))} · ${last.longestDominance} · ${last.dominanceYears} years | ${each(row => String(row.civs))} · ${last.unions} (${last.unionsRefusedForStrain}) |`);
+  }
+  // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
+  lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
+    '| --- | --- | --- | --- | ---: |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    lines.push(`| ${result.seed} | ${each(row => `${row.famineRich} ÷ ${row.faminePoor}`)} | ${last.reliefBegun.toLocaleString('en')} · ${last.reliefFood.toLocaleString('en')} · ${last.reliefLost.toLocaleString('en')} · ${last.reliefCost.toLocaleString('en')} | ${last.reliefShortTreasury.toLocaleString('en')} · ${last.reliefShortFood.toLocaleString('en')} | ${last.famines.toLocaleString('en')} |`);
   }
   // M3b acceptance (VISION.md): at least one wonder completed by year 2,500 in most seeds.
   lines.push('', '| Seed | Wonders completed by 2,500 (M3b: ≥ 1 in most seeds) | Wonders completed, by year | Destroyed · abandoned by 3,000 |', '| --- | ---: | --- | --- |');

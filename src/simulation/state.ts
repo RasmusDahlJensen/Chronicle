@@ -277,12 +277,17 @@ export interface CenturyStats {
    *  (people-weighted); and civilizations that fell into arrears, raised heavy taxes and eased them so far. */
   treasuryYears: number; taxMedian: number; taxMax: number; civsInArrears: number; settlementsAtLoss: number; regionsAtLoss: number;
   costPerPersonLargeOld: number; costPerPersonSmallYoung: number; adminPerPersonLargeOld: number; adminPerPersonSmallYoung: number;
+  /** Empire strain (M3c.4): the mean stability and the share of regions in unrest in the same two thirds; unions
+   *  refused only for the larger realm's strain so far; and story health's dominance rule: the longest run of years
+   *  the largest polity held more than 35% of the world's people, and all such years, so far. */
+  stabilityLargeOld: number; stabilitySmallYoung: number; unrestLargeOld: number; unrestSmallYoung: number;
+  unionsRefusedForStrain: number; longestDominance: number; dominanceYears: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
    *  least a century) richest in output a year and in the poorest third (M3c: famine kills a smaller share in rich
    *  realms). */
-  reliefFood: number; reliefLost: number; reliefCost: number; reliefBegun: number; famineRich: number; faminePoor: number;
+  reliefFood: number; reliefLost: number; reliefCost: number; reliefBegun: number; reliefShortTreasury: number; reliefShortFood: number; famineRich: number; faminePoor: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -344,8 +349,14 @@ export interface Metrics {
   faminesWatched: number; fieldsShrank: number; fieldsRegrew: number;
   /** Civilizations that fell into arrears, raised heavy taxes and eased them again (each an event). */
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
-  /** Famine relief: food landed and lost on the way (units), wealth paid for carriage, and episodes begun (events). */
-  reliefUnits: number; reliefLost: number; reliefCost: number; reliefBegun: number;
+  /** Famine relief: food landed and lost on the way (units), wealth paid for carriage, episodes begun (events), and food
+   *  the hungry still wanted (units) for lack of treasury or of food to spare within reach. */
+  reliefUnits: number; reliefLost: number; reliefCost: number; reliefBegun: number; reliefShortTreasury: number; reliefShortFood: number;
+  /** Unions a larger civilization refused only for its budget strain (it would have admitted them unstrained). */
+  unionsRefusedForStrain: number;
+  /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
+   *  people, the longest such run and all such years. */
+  dominanceRun: number; longestDominance: number; dominanceYears: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -392,14 +403,16 @@ export interface SimulationState {
   /** Per region: every settlement ever founded there (living or in ruins), in founding order; the first living one is
    *  the region's main settlement. */
   regionSettlements: number[][];
-  /** Per region: stability (0–1; 1 where no civilization rules) and whether it is in unrest (VISION.md "Stability"). */
-  stability: Float64Array; unrest: Uint8Array;
+  /** Per region: stability (0–1; 1 where no civilization rules) and whether it is in unrest (VISION.md "Stability"),
+   *  and its calm as last judged: its stability apart from its realm's taxes and arrears (what taxes can rest on). */
+  stability: Float64Array; unrest: Uint8Array; calm: Float64Array;
   /** Per region: its remoteness (travel-km from its owner's capital ÷ governance reach), which its administration
    *  costs follow, and the civilization it was measured for (−1 none); measured at the owner's yearly assessment and in
    *  the month the region joins a realm (`budget.ts`). */
   remoteness: Float64Array; remoteOwner: Int32Array;
-  /** Per region: whether famine relief reached it last month (relief reaching it again is the same episode). */
-  relieved: Uint8Array;
+  /** Per region: the tick famine relief last reached it (−1 never, or since its people left); relief again within
+   *  RELIEF_TUNING.episodeMonths is the same episode. */
+  reliefTick: Int32Array;
   firsts: FirstDiscovery[];
   /** Per lineage, the culture name of its starting band (the observer names peoples by it). */
   lineages: string[];

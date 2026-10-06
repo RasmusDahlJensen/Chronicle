@@ -108,7 +108,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       lastDecision: lastDecision(polity),
       stability: polity.kind !== 'civ' ? null : (() => {
         const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);
-        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), taxes: round(now.taxes), arrears: round(now.arrears) };
+        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
       wealth: polity.kind !== 'civ' ? null : (() => {
@@ -168,7 +168,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   });
   return {
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews,
-    weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)), relief: state.relieved[region] === 1 },
+    weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)), relief: state.reliefTick[region] >= 0 && state.tick - state.reliefTick[region] <= 1 },
     fields: (() => {
       const land = fieldLand(state.fieldRanking, region);
       return { share: land > 0 ? round(Math.min(1, state.fields[region] / land)) : 0, cells: cultivatedCells(state.fieldRanking, region, state.fields[region]) };

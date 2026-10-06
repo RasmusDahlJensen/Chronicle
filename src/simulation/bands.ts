@@ -501,14 +501,14 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
   group.store = 0; group.planted = 0; group.size = 0; group.deathTick = tick;
   const region = group.region;
   state.occupant[region] = -1; state.groupAt[region] = -1; state.overCapacity[region] = 0;
-  state.stability[region] = 1; state.unrest[region] = 0;
+  state.stability[region] = 1; state.unrest[region] = 0; state.calm[region] = 1;
   polity.groups.splice(polity.groups.indexOf(group.id), 1);
   lookAgain(polity);
   if (state.owner[region] === polity.id) {
     state.owner[region] = -1;
     ruinSettlements(state, region, tick);
   }
-  state.hardship[region] = 0;
+  state.hardship[region] = 0; state.reliefTick[region] = -1;
   if (polity.groups.length) return;
   endPolity(state, polity, tick);
   if (polity.kind === 'civ') {

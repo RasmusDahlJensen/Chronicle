@@ -1,4 +1,4 @@
-import { arrearsBurden, costShares, costsOf, refreshRemoteness, taxBurden } from './budget.ts';
+import { ageFactor, arrearsBurden, costShares, costsOf, realmYears, refreshRemoteness, sizeFactor, taxBurden } from './budget.ts';
 import { causes } from './causes.ts';
 import { taxRate } from './decisions/budget.ts';
 import { buildingStability, wonderBonus } from './economy.ts';
@@ -15,23 +15,30 @@ import { BUDGET_TUNING, REACH_TUNING, STABILITY_TUNING } from './tunables.ts';
  */
 
 /** A region's stability and what lowers it, from its people's food, its distance from the capital, who lives there,
- *  its realm's taxes (below the customary rate they raise it) and its realm's arrears. */
+ *  the strain of a large, old realm on its far provinces, its realm's taxes (below the customary rate they raise it)
+ *  and its realm's arrears. */
 export function stabilityOf(state: SimulationState, civ: Polity, group: PopulationGroup, kmFromCapital: number) {
   const tuning = STABILITY_TUNING;
   const hunger = tuning.hunger * Math.max(0, 1 - Math.min(1, group.foodSecurity));
   const reach = REACH_TUNING.baseKm * civ.knowledge.multipliers.reach;
   const overextension = Math.min(tuning.overextensionCap, tuning.overextension * (Number.isFinite(kmFromCapital) ? Math.max(0, kmFromCapital / reach - 1) : Number.POSITIVE_INFINITY));
   const foreignRule = group.culture === civ.culture ? 0 : tuning.foreignRule * (1 - cultureSimilarity(state.cultures[group.culture].values, state.cultures[civ.culture].values));
-  const taxes = taxBurden(civ.taxRate), arrears = arrearsBurden(civ, Number.isFinite(kmFromCapital) ? kmFromCapital / reach : Number.POSITIVE_INFINITY);
+  const remoteness = Number.isFinite(kmFromCapital) ? kmFromCapital / reach : Number.POSITIVE_INFINITY;
+  const taxes = taxBurden(civ.taxRate), arrears = arrearsBurden(civ, remoteness);
+  // A large, old realm holds its far provinces less firmly (VISION.md M3c: empire strain).
+  const strain = tuning.strain * (sizeFactor(civ.groups.length) * ageFactor(realmYears(state, civ)) - 1) * (tuning.strainCore + (1 - tuning.strainCore) * Math.min(1, remoteness));
   // Shrines and temples steady their region, and some wonders the whole realm (VISION.md "Buildings", "Wonders").
   const buildings = buildingStability(state, group.region) + wonderBonus(state, civ).stability;
-  return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - taxes - arrears + buildings)), hunger, overextension, foreignRule, taxes, arrears, buildings };
+  // How calm the region is apart from its realm's budget: what its taxes can rest on.
+  const calm = Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - strain + buildings));
+  return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - strain - taxes - arrears + buildings)), calm, hunger, overextension, foreignRule, strain, taxes, arrears, buildings };
 }
 
 /**
  * Stability system: once a year per civilization (staggered by id), its yearly assessment: how far each of its
- * regions lies from its capital, the taxes it sets for the year (VISION.md "Wealth"; heavy taxes and their easing are
- * events), and each region's stability, with unrest beginning and ending.
+ * regions lies from its capital, how calm each is apart from the realm's budget, the taxes it sets for the year on
+ * that calm (VISION.md "Wealth"; heavy taxes and their easing are events), and each region's stability under them,
+ * with unrest beginning and ending.
  */
 export function stabilize(state: SimulationState, context: TickContext) {
   for (const id of state.living) {
@@ -39,6 +46,7 @@ export function stabilize(state: SimulationState, context: TickContext) {
     if (civ.kind !== 'civ' || ((context.tick - id) % 12 + 12) % 12 !== 0) continue;
     const km = capitalTravel(state, civ);
     refreshRemoteness(state, civ, km);
+    for (const groupId of civ.groups) { const group = state.groups[groupId]; state.calm[group.region] = stabilityOf(state, civ, group, km(group.region)).calm; }
     setTaxes(state, civ);
     judge(state, civ, km);
   }
@@ -58,12 +66,12 @@ function judge(state: SimulationState, civ: Polity, km: (region: number) => numb
   for (const groupId of civ.groups) {
     const group = state.groups[groupId], region = group.region;
     const result = stabilityOf(state, civ, group, km(region));
-    state.stability[region] = result.value;
+    state.stability[region] = result.value; state.calm[region] = result.calm;
     if (!state.unrest[region] && result.value < tuning.unrestBelow) {
       state.unrest[region] = 1; state.metrics.unrestOutbreaks++;
       state.chronicle.emit({
         type: 'unrest', actors: [{ id: civ.id, role: 'civ' }], region,
-        causes: causes({ hunger: result.hunger, overextension: result.overextension, foreignRule: result.foreignRule, taxes: result.taxes, arrears: result.arrears }), importance: 0.1,
+        causes: causes({ hunger: result.hunger, overextension: result.overextension, foreignRule: result.foreignRule, strain: result.strain, taxes: result.taxes, arrears: result.arrears }), importance: 0.1,
         data: { civ: civ.name, stability: Math.round(result.value * 100) / 100 },
       });
     } else if (state.unrest[region] && result.value >= tuning.unrestBelow + tuning.hysteresis) state.unrest[region] = 0;

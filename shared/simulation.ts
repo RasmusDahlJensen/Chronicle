@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 19;
+export const SIMULATION_PROTOCOL_VERSION = 20;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -137,7 +137,7 @@ export const ObserverFrameSchema = Type.Object({
     region: id(), capacity: Type.Number({ minimum: 0 }), gameStock: Type.Number({ minimum: 0, maximum: 1 }),
     /** The region's weather (VISION.md "Environment"): the share of its crops its last harvest came in at, months of
      *  drought left (0: none), whether it is in famine, its irrigation's farm yield multiplier (1: none), and whether
-     *  famine relief reached it last month. */
+     *  famine relief reached it this month or last. */
     weather: Type.Object({
       harvest: Type.Number({ minimum: 0 }), drought: Type.Integer({ minimum: 0 }), famine: Type.Boolean(), irrigation: Type.Number({ minimum: 1 }), relief: Type.Boolean(),
     }, { additionalProperties: false }),
@@ -190,12 +190,13 @@ export const ObserverFrameSchema = Type.Object({
       regionsKnown: Type.Integer({ minimum: 1 }), regionsInSight: Type.Integer({ minimum: 1 }), met: Type.Integer({ minimum: 0 }),
       /** Governance reach in travel-km, and this region's travel-km from the capital (null when cut off from it). */
       reachKm: Type.Number({ minimum: 0 }), capitalKm: Type.Union([Type.Null(), Type.Number({ minimum: 0 })]),
-      /** A civilization region's stability (0–1, as last assessed), whether it is in unrest, and what lowers it now
-       *  (taxes below the customary rate raise it: a negative burden). */
+      /** A civilization region's stability (0–1, as last assessed), whether it is in unrest, and what lowers it now:
+       *  hunger, overextension, foreign rule, the strain of a large, old realm, taxes (below the customary rate they
+       *  raise it: a negative burden) and arrears. */
       stability: Type.Union([Type.Null(), Type.Object({
         value: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Boolean(),
         hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }),
-        taxes: Type.Number(), arrears: Type.Number({ minimum: 0 }),
+        strain: Type.Number({ minimum: 0 }), taxes: Type.Number(), arrears: Type.Number({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
        *  action, and its index among the options: the chosen option is always among the best three) and what came of it. */

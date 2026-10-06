@@ -190,6 +190,8 @@ export function checkInvariants(state: SimulationState) {
     if (owner >= 0 && (state.polities[owner]?.kind !== 'civ' || state.polities[owner].deathTick !== null || state.occupant[region] !== owner)) fail(`region ${region} is owned by ${owner}, which is not a living civilization there`);
     const stable = state.stability[region];
     if (!(stable >= 0 && stable <= 1) || (owner < 0 && (stable !== 1 || state.unrest[region] !== 0))) fail(`region ${region} has stability ${stable} (unrest ${state.unrest[region]}) under owner ${owner}`);
+    // Land nobody holds is calm and has had no relief (both are cleared when its people leave).
+    if (!(state.calm[region] >= 0 && state.calm[region] <= 1) || (owner < 0 && (state.calm[region] !== 1 || state.reliefTick[region] !== -1))) fail(`region ${region} has calm ${state.calm[region]} and relief at ${state.reliefTick[region]} under owner ${owner}`);
     // After the construction system, every region a civilization holds is measured from its capital (`budget.ts`). A
     // later system that moves regions between owners (war, fracture: M6–M7) must measure the regions it moves.
     if (owner >= 0 && (state.remoteOwner[region] !== owner || !(state.remoteness[region] >= 0 && Number.isFinite(state.remoteness[region])))) fail(`region ${region}'s remoteness ${state.remoteness[region]} was measured for ${state.remoteOwner[region]}, not its owner ${owner}`);

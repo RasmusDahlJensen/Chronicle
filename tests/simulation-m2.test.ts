@@ -9,11 +9,11 @@ import { catchUp, learn, shareSpeed } from '../src/simulation/knowledge.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { createSimulation, stepSimulation, worldPopulation } from '../src/simulation/simulation.ts';
 import { ERAS, TECH_INDEX, TECHS } from '../src/simulation/techs.ts';
-import { expand, unite } from '../src/simulation/expansion.ts';
-import { decisionView } from '../src/simulation/perception.ts';
+import { admission, expand, unite } from '../src/simulation/expansion.ts';
+import { budgetView, decisionView } from '../src/simulation/perception.ts';
 import { assess } from '../src/simulation/stability.ts';
 import { edgeKm } from '../src/simulation/perception.ts';
-import { BUDGET_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
+import { BUDGET_TUNING, STABILITY_TUNING, UNITE_TUNING } from '../src/simulation/tunables.ts';
 import { refreshRemoteness } from '../src/simulation/budget.ts';
 import { wealthFlows } from '../src/simulation/economy.ts';
 import { createRng, type Rng } from '../src/simulation/rng.ts';
@@ -265,6 +265,13 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
     const flows = wealthFlows(state, civ);
     civ.wealth -= 10; flows.administration += 5; flows.services += 3;
   }, /treasury 90 is not explained by its flows/);
+  // Famine relief paid for carriage is a flow too (M3c.3).
+  tamper(state => {
+    const civ = settled(state, 8);
+    refreshRemoteness(state, civ, () => 0);
+    civ.wealth = 100;
+    wealthFlows(state, civ).relief += 7;
+  }, /treasury 100 is not explained by its flows/);
   // Knowledge: an exchange held by one side only, an exchange between two tribes, research on a known tech, or more
   // progress from speed-ups than in all. (Knowledge is checked yearly per polity, staggered by id; these tamper with
   // a polity due this month.)
@@ -400,6 +407,18 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
   // A road under way passes too (its target and way are the union's land now).
   small.roadWorks.push({ from: small.capital!, to: small.capital!, path: regions.slice(0, 1).concat(regions.slice(0, 1)), tier: 1, edges: [], bridges: 0, spent: 0, cost: 1, months: 1, startedTick: state.tick, causes: [] });
   const roads = small.roadWorks.length + large.roadWorks.length;
+  // M3c.4: a strained realm admits less, by its budget strain; a refusal only the strain made is counted. (Its
+  // strain is forced for the test by a huge upkeep in one of its settlements.)
+  const seat = state.settlements.find(settlement => settlement.owner === large.id && settlement.status === 'alive')!, upkeep = seat.bonus.upkeep;
+  const unstrained = admission(state, small, large);
+  seat.bonus.upkeep = 1e12;
+  const chance = admission(state, small, large);
+  assert.equal(budgetView(state, large).strain, 1);
+  assert.ok(unstrained.governed > 0 && chance.governed === unstrained.governed && Math.abs(chance.admit - chance.governed * (1 - UNITE_TUNING.strainRefusal)) < 1e-12);
+  const refusedBefore = state.metrics.unionsRefusedForStrain, between: Rng = { ...refusing, next: () => (chance.admit + chance.governed) / 2 };
+  assert.match(unite(state, state.tick, between, small, large, regions[0], []), /would not take them in/);
+  assert.equal(state.metrics.unionsRefusedForStrain, refusedBefore + 1);
+  seat.bonus.upkeep = upkeep; small.rebuffed.delete(large.id);
   // What it had heard of great works abroad passes to the union too.
   const heard = state.wonders.length + 99;
   small.heardWonders.push(heard);

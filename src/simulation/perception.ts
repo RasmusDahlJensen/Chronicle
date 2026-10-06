@@ -1,7 +1,7 @@
 import { BUILDINGS, buildingKnown } from './buildings.ts';
 import { WONDERS, wonderKnown } from './wonders.ts';
 import { cultureSimilarity } from './culture.ts';
-import { arrearsBurden, type Costs, costsOf, taxBurden, totalCosts } from './budget.ts';
+import { type Costs, costsOf, totalCosts } from './budget.ts';
 import { buildingCost, outputOf, siteIncome } from './economy.ts';
 import { livingSettlements } from './settlements.ts';
 import { cellNeighbors, greatCircleKm } from './geography.ts';
@@ -217,7 +217,7 @@ export interface PolityView {
    * pay, what running the realm costs, its treasury; what customary taxes and its sites would raise (`revenue`) and
    * what that leaves after its costs (`surplus`, below 0 when it must tax above the custom), its strain: how far its
    * costs exceed that revenue, as a share of it (0–1), its people's Tradition (how much of a reserve they keep), and how
-   * calm its regions are apart from its taxes and arrears (their people-weighted mean stability without those).
+   * calm its regions are apart from its taxes and arrears (their people-weighted mean calm, as last judged).
    */
   budget: { rate: number; output: number; sites: number; costs: number; treasury: number; revenue: number; surplus: number; strain: number; tradition: number; calm: number };
   /** What it could build, and where (VISION.md "Buildings"; the Build action). */
@@ -437,7 +437,7 @@ export function budgetView(state: SimulationState, civ: Polity, costs: Costs = c
   let calm = 0, people = 0;
   for (const groupId of civ.groups) {
     const group = state.groups[groupId], region = group.region;
-    calm += group.size * Math.min(1, state.stability[region] + taxBurden(civ.taxRate) + arrearsBurden(civ, state.remoteness[region]));
+    calm += group.size * state.calm[region];
     people += group.size;
   }
   return {

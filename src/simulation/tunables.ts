@@ -287,11 +287,12 @@ export const JOIN_TUNING = {
  * other's people in sight are + stability × how stable their regions are + trouble × (its own hunger + its share of
  * regions in unrest); resistance = tradition × Tradition + expansionism × Expansionism + contentment × its own mean
  * stability + crossing × the cheapest crossing's travel-km ÷ 1,000. Score = pull − resistance. The larger
- * civilization admits it with chance 1 ÷ (1 + (travel-km from its capital to where they meet ÷ its reach)^admitPower).
+ * civilization admits it with chance 1 ÷ (1 + (travel-km from its capital to where they meet ÷ its reach)^admitPower)
+ * × (1 − strainRefusal × its own budget strain): a realm already strained is loath to take in more (M3c).
  */
 export const UNITE_TUNING = {
   kin: 0.16, similarity: 0.08, size: 0.22, sizeScale: 1.5, fed: 0.03, stability: 0.03, trouble: 0.25,
-  tradition: 0.06, expansionism: 0.06, contentment: 0.1, crossing: 0.25, admitPower: 4,
+  tradition: 0.06, expansionism: 0.06, contentment: 0.1, crossing: 0.25, admitPower: 4, strainRefusal: 0.6,
   /** A civilization turned away does not ask the same one again for this many years. */
   rebuffYears: 30,
 } as const;
@@ -299,12 +300,15 @@ export const UNITE_TUNING = {
 /**
  * Regional stability (VISION.md "Stability", M3's basic form), yearly per civilization: base − hunger × (1 − food
  * security) − min(overextensionCap, overextension × (travel-km from the capital ÷ reach − 1, if beyond reach)) −
- * foreignRule × (1 − similarity) where a people of another culture lives. Below `unrestBelow` a region falls into
- * unrest (an event) until it recovers past unrestBelow + hysteresis; below it, output falls by up to `outputLoss`
- * and its specialists' research by up to `researchLoss`, in proportion to how far below it is.
+ * foreignRule × (1 − similarity) where a people of another culture lives − strain × (the realm's size factor × age
+ * factor − 1) × (strainCore + (1 − strainCore) × min(1, remoteness)): a large, old realm holds its far provinces less
+ * firmly (VISION.md M3c: empire strain; the factors are BUDGET_TUNING's administration factors) − its taxes and
+ * arrears (BUDGET_TUNING) + its buildings' and wonders'. Below `unrestBelow` a region falls into unrest (an event)
+ * until it recovers past unrestBelow + hysteresis; below it, output falls by up to `outputLoss` and its specialists'
+ * research by up to `researchLoss`, in proportion to how far below it is.
  */
 export const STABILITY_TUNING = {
-  base: 0.9, hunger: 0.6, overextension: 0.4, overextensionCap: 0.8, foreignRule: 0.5,
+  base: 0.9, hunger: 0.6, overextension: 0.4, overextensionCap: 0.8, foreignRule: 0.5, strain: 0.02, strainCore: 0.25,
   unrestBelow: 0.4, hysteresis: 0.1, outputLoss: 0.2, researchLoss: 0.5,
 } as const;
 
@@ -402,9 +406,10 @@ export const BUDGET_TUNING = {
  * Famine relief (VISION.md "Famine is mitigable, by wealth and knowledge"; `relief.ts`): a hungry region within what
  * its land lastingly feeds wants `months` of need in store; carriage costs `costPer1000Km` wealth per person-month of
  * food per 1,000 travel-km (roads shorten the way), travels `kmPerMonth` and spoils on the way at the realm's monthly
- * store spoilage; the treasury pays at most `treasuryShare` of itself a month.
+ * store spoilage; the treasury pays at most `treasuryShare` of itself a month. Relief to a region relieved no more than
+ * `episodeMonths` before continues its episode.
  */
-export const RELIEF_TUNING = { months: 2, costPer1000Km: 0.2, kmPerMonth: 500, treasuryShare: 0.2 } as const;
+export const RELIEF_TUNING = { months: 2, costPer1000Km: 0.2, kmPerMonth: 500, treasuryShare: 0.2, episodeMonths: 12 } as const;
 
 /**
  * Building (VISION.md "Buildings" and the Build action). At its decision step a civilization weighs each building type
@@ -495,6 +500,10 @@ export const NAME_TUNING = { thirdSyllable: 0.3, initialCluster: 0.25, initialCo
 /** Statistics sampled for the lab's world chart. */
 export const SERIES_YEARS = 1;
 
+/** Story health measures (VISION.md "Story health"): the largest polity's share of the world's people it may hold except
+ *  for a while. */
+export const STORY_TUNING = { dominantShare: 0.35 } as const;
+
 export function validateTunables() {
   const r = REGION_TUNING;
   const problems: string[] = [];
@@ -579,7 +588,7 @@ export function validateTunables() {
   const j = JOIN_TUNING;
   if (!(Object.values(j).every(value => value >= 0) && j.prestigeScale > 0 && j.foundScore > 0 && j.admitPower > 0)) problems.push('joining settings are invalid');
   const u = UNITE_TUNING;
-  if (!(Object.values(u).every(value => value >= 0) && u.sizeScale > 0 && u.admitPower > 0)) problems.push('unification settings are invalid');
+  if (!(Object.values(u).every(value => value >= 0) && u.sizeScale > 0 && u.admitPower > 0 && u.strainRefusal <= 1)) problems.push('unification settings are invalid');
   if (!(WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1 && WEALTH_TUNING.stoneDiscount > 0 && WEALTH_TUNING.stoneDiscount <= 1
     && Object.values(WEALTH_TUNING.siteYield).every(value => value >= 0))) problems.push('wealth settings are invalid');
   const bg = BUDGET_TUNING;
@@ -587,7 +596,7 @@ export function validateTunables() {
     && bg.heavyRate > bg.customaryRate && bg.heavyRate <= bg.maxRate && bg.rateStep > 0 && bg.refillYears > 0 && bg.calmFull > bg.calmFloor && bg.calmFull <= 1 && bg.sizeScale > 0 && bg.ageYears > 0 && bg.servicesScale > 0
     && bg.arrearsMonths >= 1 && bg.arrearsCore <= 1 && bg.arrearsEvent > 0 && bg.arrearsEvent <= 1)) problems.push('budget settings are invalid');
   const rl = RELIEF_TUNING;
-  if (!(rl.months > 0 && rl.costPer1000Km >= 0 && rl.kmPerMonth > 0 && rl.treasuryShare > 0 && rl.treasuryShare <= 1)) problems.push('relief settings are invalid');
+  if (!(rl.months > 0 && rl.costPer1000Km >= 0 && rl.kmPerMonth > 0 && rl.treasuryShare > 0 && rl.treasuryShare <= 1 && Number.isInteger(rl.episodeMonths) && rl.episodeMonths >= 1)) problems.push('relief settings are invalid');
   const bu = BUILD_TUNING;
   if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.roadReuse > 0 && bu.roadReuse <= 1 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight, bu.surplusFloor].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
@@ -601,7 +610,8 @@ export function validateTunables() {
   if (!(fi.fieldFactor >= 1 && fi.minDensity >= 0 && fi.clearRate > 0 && fi.clearRate <= 12 && fi.fallowRate > 0 && fi.fallowRate <= 12 && fi.uncleared >= 0 && fi.uncleared <= 1 && fi.closeCells > 0
     && fi.shrinkYears > 0 && fi.shrinkMargin >= 0 && fi.shrinkMargin < 1 && fi.watchYears >= fi.shrinkYears)) problems.push('field settings are invalid');
   const st2 = STABILITY_TUNING;
-  if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
+  if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.strain >= 0 && st2.strainCore >= 0 && st2.strainCore <= 1 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
+  if (!(STORY_TUNING.dominantShare > 0 && STORY_TUNING.dominantShare < 1)) problems.push('story health settings are invalid');
   const x = EXPLORE_TUNING;
   if (!(x.opennessWeight >= 0 && x.expansionismWeight >= 0 && x.base >= 0 && x.frontierScale > 0 && x.freshMobility >= 0 && x.freshYears > 0 && x.range.length === 3 && x.range.every(steps => Number.isInteger(steps) && steps >= 1))) problems.push('exploration settings are invalid');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);

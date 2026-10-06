@@ -3,7 +3,7 @@ import { endPolity, learnFrom, move, newGroup, polityPopulation, refuge, regionC
 import { foundSettlement, house, livingSettlements, setCapital } from './settlements.ts';
 import { transferWealth } from './economy.ts';
 import { newTechs } from './knowledge.ts';
-import { absorbMap, arrive, crosses, governable, hasHarbor, lookAgain, meet, reveal, seaFrom, UNKNOWN } from './perception.ts';
+import { absorbMap, arrive, budgetView, crosses, governable, hasHarbor, lookAgain, meet, reveal, seaFrom, UNKNOWN } from './perception.ts';
 import { assess } from './stability.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
@@ -128,6 +128,16 @@ export function explore(state: SimulationState, tick: number, rng: Rng, civ: Pol
 }
 
 /**
+ * How likely `large` is to take `small` in: as far as it can govern their people from its capital (`governed`, weighed
+ * over all their land), and the less the more its costs already outrun its customary taxes (VISION.md M3c: empire
+ * strain).
+ */
+export function admission(state: SimulationState, small: Polity, large: Polity) {
+  const governed = governable(state, large, small.groups, UNITE_TUNING.admitPower);
+  return { governed, admit: governed * (1 - UNITE_TUNING.strainRefusal * budgetView(state, large).strain) };
+}
+
+/**
  * Unification (VISION.md "Unification"): `small` asks to join `large`, which admits it if it can govern the land from
  * its capital (a graded chance by travel-km to where they meet). On union every region, its people and village pass
  * to `large`; the small civilization's capital becomes an ordinary village; its people keep their culture; `large`
@@ -136,9 +146,13 @@ export function explore(state: SimulationState, tick: number, rng: Rng, civ: Pol
 export function unite(state: SimulationState, tick: number, rng: Rng, small: Polity, large: Polity, border: number, cited: ChronicleEvent['causes']): string {
   if (large.deathTick !== null || large.kind !== 'civ') return 'the other civilization is gone';
   if (large.groups.length <= small.groups.length) return 'the other civilization is not larger';
-  // It takes in only people it can govern, weighed over all their land; a refusal is remembered.
-  const admit = governable(state, large, small.groups, UNITE_TUNING.admitPower);
-  if (!rng.chance(admit)) { small.rebuffed.set(large.id, tick); return `the ${large.name} would not take them in`; }
+  // A refusal is remembered, and counted when only the larger realm's strain made it.
+  const { governed, admit } = admission(state, small, large), roll = rng.next();
+  if (roll >= admit) {
+    if (roll < governed) state.metrics.unionsRefusedForStrain++;
+    small.rebuffed.set(large.id, tick);
+    return `the ${large.name} would not take them in`;
+  }
   const people = polityPopulation(state, small), regions = small.groups.length, techs = newTechs(large.knowledge, small.knowledge);
   const capital = small.capital !== null ? state.settlements[small.capital] : null;
   state.chronicle.emit({

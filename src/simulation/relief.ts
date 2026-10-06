@@ -50,43 +50,48 @@ export const carriage = (units: number, distance: number) => units / UNITS * dis
 
 /**
  * Production system, after a civilization's people have eaten: its hungry regions are relieved from its regions with
- * food to spare, the hungriest first, each from the nearest. Hungry: food security below 1 with less than a month in
- * store, within what the land lastingly feeds. It wants enough in store for `months` of need. A donor keeps what it
- * needs until its next harvest and its reserve. The treasury pays at most `treasuryShare` of itself a month. Relief
- * reaching regions that had none last month is an event.
+ * food to spare, the hungriest people first, each from the nearest. Hungry: food security below 1 with less than a
+ * month in store, within what the land lastingly feeds. It wants enough in store for `months` of need. A donor keeps
+ * what it needs until its next harvest and its reserve. The treasury pays at most `treasuryShare` of itself a month.
+ * Food sent this month lands this month (a month's consignment; distance sets its cost and what spoils on the way), so
+ * it spares that month's hunger too. Relief reaching a region relieved no more than `episodeMonths` ago continues its
+ * episode; a new episode is an event. What the hungry still want, for lack of treasury or of food to spare, is counted.
  */
 export function relieve(state: SimulationState, civ: Polity, month: number) {
   const tuning = RELIEF_TUNING, food = state.food;
-  const hungry: { group: number; want: number; was: number }[] = [];
+  if (civ.groups.length < 2) return;
+  const hungry: { group: number; want: number; security: number }[] = [];
   for (const groupId of civ.groups) {
-    const group = state.groups[groupId], need = group.size * UNITS, was = state.relieved[group.region];
-    state.relieved[group.region] = 0;
-    if (civ.groups.length < 2 || need <= 0 || group.foodSecurity >= 1 || group.store >= need || group.size > state.capacity[group.region]) continue;
-    hungry.push({ group: groupId, want: need * tuning.months - group.store, was });
+    const group = state.groups[groupId], need = group.size * UNITS;
+    if (need <= 0 || group.foodSecurity >= 1 || group.store >= need || group.size > state.capacity[group.region]) continue;
+    hungry.push({ group: groupId, want: need * tuning.months - group.store, security: group.foodSecurity });
   }
-  if (!hungry.length || civ.wealth <= 0) return;
-  hungry.sort((a, b) => b.want - a.want || a.group - b.group);
+  if (!hungry.length) return;
+  hungry.sort((a, b) => a.security - b.security || a.group - b.group);
   let budget = Math.floor(civ.wealth * tuning.treasuryShare), begun = 0, people = 0, paid = 0;
-  const flows = wealthFlows(state, civ), spared = new Map<number, number>();
+  // Food in reach the treasury could not pay for is set aside for the region that wanted it, so it is counted once.
+  const flows = wealthFlows(state, civ), spared = new Map<number, number>(), unpaidFrom = new Map<number, number>(), regions: number[] = [];
   for (const entry of hungry) {
-    if (budget <= 0) break;
     const recipient = state.groups[entry.group];
     overland(state, civ, recipient.region);
     // Donors by distance (ties by region): what each holds beyond its own needs until its next harvest and its reserve.
     const donors = civ.groups.map(id => state.groups[id]).filter(group => group.id !== recipient.id && Number.isFinite(travelled(group.region)) && group.foodSecurity >= 1)
       .sort((a, b) => travelled(a.region) - travelled(b.region) || a.region - b.region);
-    let want = entry.want, arrived = 0;
+    let want = entry.want, arrived = 0, unpaid = 0;
     for (const donor of donors) {
       // (Less than a person-month still wanted is not worth a carriage.)
-      if (want < UNITS || budget <= 0) break;
+      if (want < UNITS) break;
       const keep = donor.size * UNITS * (monthsToHarvest(food, donor.region, month % 12 + 1) + POPULATION_TUNING.reserveMonths);
-      const spare = donor.store - keep;
+      const spare = donor.store - keep - (unpaidFrom.get(donor.id) ?? 0);
       if (spare <= 0) continue;
       const distance = travelled(donor.region), share = arriving(civ, distance);
       if (!(share > 0)) continue;
       // What it sends: enough that what arrives meets the want, as far as its spare food and the treasury go.
-      const perUnit = carriage(1, distance);
-      const sent = Math.floor(Math.min(spare, want / share, perUnit > 0 ? budget / perUnit : Number.POSITIVE_INFINITY));
+      const perUnit = carriage(1, distance), wanted = Math.min(spare, want / share);
+      const affordable = budget <= 0 ? 0 : perUnit > 0 ? budget / perUnit : Number.POSITIVE_INFINITY;
+      // What the treasury cannot pay for of what this donor could send (as it would land).
+      if (affordable < wanted) { const left = wanted - affordable; unpaid += left * share; want -= left * share; unpaidFrom.set(donor.id, (unpaidFrom.get(donor.id) ?? 0) + left); }
+      const sent = Math.floor(Math.min(wanted, affordable));
       if (sent <= 0) continue;
       const landed = Math.floor(sent * share), cost = Math.ceil(carriage(sent, distance));
       if (cost > budget) continue;
@@ -98,13 +103,16 @@ export function relieve(state: SimulationState, civ: Polity, month: number) {
       state.metrics.reliefUnits += landed; state.metrics.reliefLost += sent - landed; state.metrics.reliefCost += cost;
       want -= landed; arrived += landed; paid += cost;
     }
+    // The month's need still unmet: for lack of treasury as far as food in reach went unpaid for, else of food to spare.
+    const unmet = Math.max(0, recipient.size * UNITS - recipient.store), poor = Math.min(unmet, unpaid);
+    state.metrics.reliefShortTreasury += poor; state.metrics.reliefShortFood += unmet - poor;
     if (arrived <= 0) continue;
-    state.relieved[recipient.region] = 1;
-    if (!entry.was) { begun++; people += recipient.size; }
+    const last = state.reliefTick[recipient.region];
+    state.reliefTick[recipient.region] = state.tick;
+    if (last < 0 || state.tick - last > tuning.episodeMonths) { begun++; people += recipient.size; regions.push(recipient.region); }
   }
   if (!begun) return;
   state.metrics.reliefBegun++;
-  const regions = hungry.filter(entry => !entry.was && state.relieved[state.groups[entry.group].region]).map(entry => state.groups[entry.group].region);
   state.chronicle.emit({
     type: 'famineRelief', actors: [{ id: civ.id, role: 'civ' }], region: regions[0], importance: 0.05,
     causes: causes({ hunger: 1 }),

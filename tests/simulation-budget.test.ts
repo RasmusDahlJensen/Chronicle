@@ -9,12 +9,12 @@ import { buildScore } from '../src/simulation/decisions/build.ts';
 import { expansionScore } from '../src/simulation/decisions/choose.ts';
 import { incomeOf, wealthFlows } from '../src/simulation/economy.ts';
 import { createLanguage } from '../src/simulation/names.ts';
-import type { PolityView } from '../src/simulation/perception.ts';
+import { budgetView, type PolityView } from '../src/simulation/perception.ts';
 import { createRng } from '../src/simulation/rng.ts';
 import { applyBuildings, foundSettlement, house } from '../src/simulation/settlements.ts';
 import { stabilityOf } from '../src/simulation/stability.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
-import { BUDGET_TUNING, BUILD_TUNING, REACH_TUNING } from '../src/simulation/tunables.ts';
+import { BUDGET_TUNING, BUILD_TUNING, REACH_TUNING, STABILITY_TUNING } from '../src/simulation/tunables.ts';
 
 test('administration costs more for more people, farther from the capital, in a larger and in an older realm; services cost more per head in larger places', () => {
   const base = administration(10_000, 0, 1, 1);
@@ -64,13 +64,17 @@ test('taxes above the customary rate unsettle people and below it content them; 
   const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
   const state = { cultures: [{ values }], settlements: [], regionSettlements: [[]], wonders: [] } as unknown as SimulationState;
   const reach = REACH_TUNING.baseKm, group = { foodSecurity: 1.2, culture: 0, region: 0 } as never;
-  const civ = (taxRate: number, arrears: number) => ({ culture: 0, knowledge: { multipliers: { reach: 1 } }, taxRate, arrears }) as unknown as Polity;
+  const civ = (taxRate: number, arrears: number) => ({ culture: 0, knowledge: { multipliers: { reach: 1 } }, taxRate, arrears, groups: [], settledTick: null }) as unknown as Polity;
   const usual = stabilityOf(state, civ(tuning.customaryRate, 0), group, reach / 2);
   assert.ok(stabilityOf(state, civ(tuning.maxRate, 0), group, reach / 2).value < usual.value, 'heavy taxes');
   assert.ok(stabilityOf(state, civ(tuning.minRate, 0), group, reach / 2).value > usual.value, 'light taxes');
   const near = stabilityOf(state, civ(tuning.customaryRate, 1), group, 0), far = stabilityOf(state, civ(tuning.customaryRate, 1), group, reach);
   assert.ok(far.value < near.value && near.value < usual.value, 'arrears, most at the edge');
   assert.equal(far.arrears, tuning.arrearsUnrest);
+  // Calm is stability apart from the budget: heavy taxes and arrears lower stability, not calm.
+  const burdened = stabilityOf(state, civ(tuning.maxRate, 1), group, reach);
+  assert.equal(burdened.calm, usual.calm);
+  assert.ok(Math.abs(burdened.calm - burdened.value - burdened.taxes - burdened.arrears) < 1e-12 && burdened.value < burdened.calm);
 });
 
 /**
@@ -85,7 +89,7 @@ function realm() {
       regions: [0, 1].map(id => ({ id, centroid: id * 6, settlementSites: [id * 6, id * 6 + 1, id * 6 + 2], neighbors: [], sites: [] })),
       regionOf: Int32Array.from({ length: cells }, (_, cell) => (cell < 6 ? 0 : 1)),
     },
-    cultures: [{ language: createLanguage(createRng(1, 1)) }], settlements: [], regionSettlements: [[], []], chronicle: new Chronicle(),
+    cultures: [{ language: createLanguage(createRng(1, 1)), values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 } }], settlements: [], regionSettlements: [[], []], chronicle: new Chronicle(),
     groups: [
       { id: 0, region: 0, specialists: 0, foodSecurity: 1.1, size: 200_000, farmShare: 1 },
       { id: 1, region: 1, specialists: 0, foodSecurity: 0.75, size: 20_000, farmShare: 0.6 },
@@ -133,6 +137,12 @@ test('each settlement shows what it pays and costs, its region\'s seat keeping t
   // The far region costs more to administer per person than the heartland.
   const perPerson = (region: number) => regionAccount(state, civ, state.groups[region]).administration / state.groups[region].size;
   assert.ok(perPerson(1) > perPerson(0));
+});
+
+test('a realm\'s budget view reads how calm its regions are, people-weighted, as last judged', () => {
+  const { state, civ } = realm();
+  Object.assign(state, { calm: Float64Array.from([0.8, 0.4]) });
+  assert.ok(Math.abs(budgetView(state, civ).calm - (200_000 * 0.8 + 20_000 * 0.4) / 220_000) < 1e-12);
 });
 
 test('a realm pays its costs month by month, to the unit; one that cannot falls into arrears, an event citing its costs, and pays its way again', () => {
@@ -196,4 +206,18 @@ test('building weighs the realm\'s surplus after its costs: a realm already shor
   assert.ok(rich.score > short.score && short.score > broke.score, `${rich.score} > ${short.score} > ${broke.score}`);
   const upkeep = (option: typeof rich) => option.factors.find(entry => entry.factor === 'upkeep')!.weight;
   assert.equal(upkeep(short), -Math.round(BUILD_TUNING.upkeepWeight * 40 / (BUILD_TUNING.surplusFloor * 10_000) * 1000) / 1000, 'short: upkeep against a small share of its revenue');
+});
+
+test('a large, old realm holds its far provinces less firmly, most in its far regions', () => {
+  const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
+  const state = { tick: 12 * 1_500, cultures: [{ values }], settlements: [], regionSettlements: [[]], wonders: [] } as unknown as SimulationState;
+  const realm = (regions: number, settled: number) => ({ culture: 0, knowledge: { multipliers: { reach: 1 } }, taxRate: BUDGET_TUNING.customaryRate, arrears: 0, groups: new Array(regions).fill(0), settledTick: settled }) as unknown as Polity;
+  const group = { foodSecurity: 1.2, culture: 0, region: 0 } as never, reach = REACH_TUNING.baseKm;
+  const empire = realm(400, 0), young = realm(10, 12 * 1_450);
+  const far = stabilityOf(state, empire, group, reach), near = stabilityOf(state, empire, group, 0);
+  assert.ok(far.strain > near.strain && near.strain > 0, 'far provinces most, the heartland a little');
+  const expected = STABILITY_TUNING.strain * (sizeFactor(400) * ageFactor(1_500) - 1);
+  assert.ok(Math.abs(far.strain - expected) < 1e-12 && Math.abs(far.value - (STABILITY_TUNING.base - expected)) < 1e-12);
+  assert.ok(stabilityOf(state, young, group, reach).strain < 0.005, 'a small young realm feels hardly any');
+  assert.equal(far.calm, far.value, 'strain is no part of the budget: calm counts it');
 });
