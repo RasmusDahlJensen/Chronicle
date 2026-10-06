@@ -15,14 +15,19 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
 /** What a need is called when it is cited as a cause, by the purpose that answers it. */
-export const NEED_OF: Record<string, string> = { food: 'hardship', faith: 'unrest', learning: 'learning', trade: 'commerce', housing: 'crowding', defense: 'frontier', mining: 'deposits', sea: 'seaReach', farming: 'farming' };
+export const NEED_OF: Record<string, string> = { food: 'hardship', faith: 'instability', learning: 'learning', trade: 'commerce', housing: 'crowding', defense: 'frontier', mining: 'deposits', sea: 'seaReach', farming: 'farming' };
 
 /**
  * The needs a building of this purpose answers in one settlement, by name (each 0–1 before its size, summing to at
  * most 1), given the civilization's values: what the decision cites. Food has two: hard years (hardship) and farmers'
- * storage; so has farming: the fields themselves and hard years; the other purposes one each.
+ * storage; so has farming: the fields themselves and hard years; and faith: the region's instability, and the piety
+ * (Zeal) that makes a people answer it with shrines and temples; the other purposes one each.
  */
 export function needParts(purpose: string, settlement: Facts, values: PolityView['values']): Record<string, number> {
+  if (purpose === 'faith') {
+    const total = need(purpose, settlement, values), share = BUILD_TUNING.faithBase + values.zeal;
+    return { instability: share > 0 ? total * BUILD_TUNING.faithBase / share : 0, piety: share > 0 ? total * values.zeal / share : 0 };
+  }
   if (purpose === 'farming') {
     const farming = Math.min(1, BUILD_TUNING.irrigationBase * settlement.farmShare);
     return { farming, hardship: Math.min(1 - farming, settlement.hardship * settlement.farmShare) };

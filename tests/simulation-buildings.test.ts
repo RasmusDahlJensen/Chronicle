@@ -5,7 +5,7 @@ import { regionCapacity } from '../src/simulation/bands.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { FARM_METHOD, METHOD_COUNT } from '../src/simulation/food.ts';
 import { beginWonder, construct, startProjects } from '../src/simulation/construction.ts';
-import { bestBuild, bestWonder, buildScore, need } from '../src/simulation/decisions/build.ts';
+import { bestBuild, bestWonder, buildScore, need, needParts } from '../src/simulation/decisions/build.ts';
 import { incomeOf, loseWealth, produceWealth, siteIncome, transferWealth, wealthFlows, wonderBonus } from '../src/simulation/economy.ts';
 import { crosses, seaFrom } from '../src/simulation/perception.ts';
 import { RESOURCE_IDS } from '../shared/atlas.ts';
@@ -117,6 +117,10 @@ test('the Build choice weighs each building\'s need where it is greatest against
   assert.ok(need('food', settlement({ hardship: 0.6 }), values) > need('food', settlement({}), values), 'hard years call for granaries');
   assert.ok(need('faith', settlement({ stability: 0.4 }), values) > need('faith', settlement({}), values), 'unrest calls for shrines and temples');
   assert.ok(need('faith', settlement({}), { ...values, zeal: 0.9 }) > need('faith', settlement({}), { ...values, zeal: 0.1 }), 'pious peoples build more');
+  // Shrines and temples cite the region's instability and the people's piety, not unrest it does not have.
+  const faith = needParts('faith', settlement({ stability: 0.6 }), values);
+  assert.deepEqual(Object.keys(faith), ['instability', 'piety']);
+  assert.ok(Math.abs(faith.instability + faith.piety - need('faith', settlement({ stability: 0.6 }), values)) < 1e-12);
   assert.ok(need('housing', settlement({ urban: 7_900 }), values) > 0.5 && need('housing', settlement({ urban: 2_000 }), values) === 0, 'crowded towns need housing');
   assert.equal(need('defense', settlement({ frontier: 0 }), values), 0, 'no foreign neighbours, no walls');
   const granary = BUILDING_INDEX.get('granary')!, temple = BUILDING_INDEX.get('temple')!;

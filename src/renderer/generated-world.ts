@@ -5,6 +5,7 @@ import { drawAtlasResourceIcon } from './biome-atlas.ts';
 import { createWorldTerrainTexture } from './world-terrain-texture.ts';
 import { buildRiverReaches, riverPathCommands, riverAppearance } from './river-paths.ts';
 import { regionBorderRuns } from './region-borders.ts';
+import { placeLabels, type PlaceLabel } from './labels.ts';
 
 export const WORLD_BIOME_STYLE: Record<WorldBiome, { label: string; color: string }> = {
   ...BIOMES, boreal: { label: 'Boreal forest', color: '#567766' },
@@ -308,7 +309,10 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       // Small at world scale (a region is a few pixels wide), larger when zoomed in.
       const grow = Math.sqrt(m.scale), largest = Math.max(1.4, 2.6 * m.scale);
       // Every visible copy of the wrapped world, like the region borders.
+      // Zoomed in, a civilization's settlements show where it lives: its region squares would only crowd them.
+      const settledShown = villages.length > 0 && m.scale >= 4;
       for (let copy = startCopy; copy <= endCopy; copy++) for (const marker of markers) {
+        if (marker.settled && settledShown) continue;
         const x = left + (copy * world.width + marker.x + 0.5) * m.scale, y = top + (marker.y + 0.5) * m.scale;
         const radius = Math.max(1.4, Math.min(largest, (0.8 + 0.5 * Math.log10(1 + marker.population / 100)) * grow));
         if (x < -radius || x > m.width + radius || y < -radius || y > m.height + radius) continue;
@@ -327,7 +331,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       target.save(); target.fillStyle = villageStyle.fill; target.strokeStyle = villageStyle.stroke; target.lineWidth = 1;
       const base = Math.max(2.5, Math.min(7, m.scale * 0.6)), star = Math.max(3.5, Math.min(8, m.scale * 0.9));
       const shownFrom = [1.5, 1, 0, 0], labelFrom = [Number.POSITIVE_INFINITY, 4, 2, 1.2], growth = [0.7, 1, 1.35, 1.7];
-      const named: { x: number; y: number; name: string; tier: number }[] = [];
+      const named: PlaceLabel[] = [];
       for (let copy = startCopy; copy <= endCopy; copy++) for (const village of villages) {
         if (!village.capital && m.scale < shownFrom[village.tier]) continue;
         const x = left + (copy * world.width + village.x + 0.5) * m.scale, y = top + (village.y + 0.5) * m.scale;
@@ -354,13 +358,14 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
           if (village.features & 8) { target.save(); target.beginPath(); target.arc(x, y - half * 1.6, glyph * 0.9, 0, Math.PI * 2); target.fillStyle = '#d4a017'; target.fill(); target.stroke(); target.restore(); features++; }
           if (village.features & 4) { target.save(); target.fillStyle = '#9a958c'; target.fillRect(x - glyph, y + half * 1.5, glyph * 2, glyph * 2); target.strokeRect(x - glyph, y + half * 1.5, glyph * 2, glyph * 2); target.restore(); features++; }
         }
-        if (village.name && m.scale >= Math.min(labelFrom[village.tier], village.capital ? 2 : Number.POSITIVE_INFINITY)) named.push({ x: x + half + 3, y, name: village.name, tier: village.tier });
+        if (village.name && m.scale >= Math.min(labelFrom[village.tier], village.capital ? 2 : Number.POSITIVE_INFINITY)) named.push({ x: x + half + 3, y, name: village.name, tier: village.tier, capital: village.capital });
       }
-      // Larger places' names on top.
-      named.sort((a, b) => a.tier - b.tier);
+      // Capitals first, then larger places; a name that would overlap one already placed is left out, so the map stays
+      // readable where towns crowd (zooming in brings the rest).
       target.textBaseline = 'middle'; target.lineJoin = 'round';
-      for (const label of named) {
-        target.font = `${label.tier >= 2 ? 600 : 500} ${label.tier >= 2 ? 12 : 11}px system-ui, sans-serif`;
+      const font = (label: PlaceLabel) => `${label.tier >= 2 ? 600 : 500} ${label.tier >= 2 ? 12 : 11}px system-ui, sans-serif`;
+      for (const label of placeLabels(named, label => { target.font = font(label); return target.measureText(label.name).width; })) {
+        target.font = font(label);
         target.lineWidth = 3; target.strokeStyle = 'rgba(244, 239, 224, 0.92)'; target.strokeText(label.name, label.x, label.y);
         target.fillStyle = '#2b1d12'; target.fillText(label.name, label.x, label.y);
         labels++;

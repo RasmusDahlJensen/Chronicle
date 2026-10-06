@@ -183,10 +183,10 @@ export function ruinSettlements(state: SimulationState, region: number, tick: nu
 export function fallCauses(state: SimulationState, group: { region: number; size: number }, fewer: number) {
   const region = group.region;
   const factors = {
-    hardship: state.hardship[region], famine: state.famine[region] ? Math.min(1, state.famineRecent[region] / Math.max(1, group.size) * 10) : 0,
+    hardship: state.hardship[region], famine: state.famine[region] ? Math.min(1, state.famineRecent[region] / Math.max(1, group.size) * SETTLEMENT_TUNING.fallFamineScale) : 0,
     unrest: unrestDepth(state, region),
   };
-  const cited = causes(Object.fromEntries(Object.entries(factors).filter(([, weight]) => weight >= 0.05)));
+  const cited = causes(Object.fromEntries(Object.entries(factors).filter(([, weight]) => weight >= SETTLEMENT_TUNING.fallCause)));
   return cited.length ? cited : causes({ fewerTownspeople: fewer });
 }
 

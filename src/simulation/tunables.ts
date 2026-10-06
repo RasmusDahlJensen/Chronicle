@@ -218,6 +218,9 @@ export const SETTLEMENT_TUNING = {
   meanMonths: 24,
   /** Event importance of reaching each tier (a village is never reached), and of falling a tier. */
   tierImportance: [0, 0.03, 0.12, 0.35], fallImportance: 0.05,
+  /** A settlement that shrinks a tier cites its region's hardship, a famine there now (its deaths over about a year as a
+   *  share of the people, × fallFamineScale) or unrest, each at fallCause or more; else only its fewer townspeople. */
+  fallCause: 0.05, fallFamineScale: 10,
 } as const;
 
 /**
@@ -388,6 +391,9 @@ export const BUILD_TUNING = {
    * share, and is lost at 0.
    */
   roadBase: 0.2, roadOpenness: 0.3, roadReach: 0.8, roadUpkeep: 0.02, roadDecayMonths: 240,
+  /** Laying out a route, a stretch of road that already serves (or is being built) counts this share of its travel
+   *  cost, so new roads branch off the network instead of running beside it. */
+  roadReuse: 0.1,
   batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6,
   decayMonths: 60, recoverMonths: 24,
   /** Work waits, unpaid, while its settlement is below the tier it needs; after waitMonths it is abandoned. */
@@ -502,7 +508,8 @@ export function validateTunables() {
   const se = SETTLEMENT_TUNING;
   if (!(se.tiers.length === 4 && se.tiers[0] === 0 && se.tiers.every((value, at) => at === 0 || value > se.tiers[at - 1]) && se.demote > 0 && se.demote < 1
     && Number.isInteger(se.baseHousing) && se.baseHousing > 0 && se.capitalHousing >= 1 && se.foundAt > 0 && se.foundAt <= 1 && se.keepName >= 0 && se.keepName <= 1
-    && Number.isInteger(se.meanMonths) && se.meanMonths >= 1 && se.tierImportance.length === 4 && [...se.tierImportance, se.fallImportance].every(value => value >= 0 && value <= 1))) problems.push('settlement settings are invalid');
+    && Number.isInteger(se.meanMonths) && se.meanMonths >= 1 && se.tierImportance.length === 4 && [...se.tierImportance, se.fallImportance].every(value => value >= 0 && value <= 1)
+    && se.fallCause >= 0 && se.fallFamineScale > 0)) problems.push('settlement settings are invalid');
   const d = DECISION_TUNING;
   if (!(Number.isInteger(d.months) && d.months >= 1 && d.minScore >= 0 && d.doNothing > d.minScore && d.doNothing <= 1 && Number.isInteger(d.topChoices) && d.topChoices >= 1 && Number.isInteger(d.logSize) && d.logSize >= 1 && Number.isInteger(d.factorCount) && d.factorCount >= 1)) problems.push('decision settings are invalid');
   const reach = REACH_TUNING;
@@ -519,7 +526,7 @@ export function validateTunables() {
   if (!(WEALTH_TUNING.perTownsperson > 0 && WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1 && WEALTH_TUNING.stoneDiscount > 0 && WEALTH_TUNING.stoneDiscount <= 1
     && Object.values(WEALTH_TUNING.siteYield).every(value => value >= 0))) problems.push('wealth settings are invalid');
   const bu = BUILD_TUNING;
-  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
+  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.roadReuse > 0 && bu.roadReuse <= 1 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
   const sh = SHARE_TUNING;
   if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');

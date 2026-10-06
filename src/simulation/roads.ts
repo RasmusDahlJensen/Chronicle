@@ -112,9 +112,6 @@ function serves(road: Road | undefined, edge: RegionEdge, tier: number) {
   return !!road && road.tier >= tier && (!ROAD_TIERS[tier - 1].bridges || edge.riverTier < 1 || road.bridge);
 }
 
-/** A stretch of road that already serves (or is being built) counts this share of its travel cost when routes are laid
- *  out, so new roads branch off the network instead of running beside it. */
-const REUSE = 0.1;
 
 /**
  * The roads a civilization could build now at `tier` (VISION.md "Roads": the capital to its towns and cities along the
@@ -149,7 +146,7 @@ export function roadRoutes(state: SimulationState, civ: Polity, tier: number): R
     for (const edge of regions[region].neighbors) {
       if (state.owner[edge.region] !== civ.id) continue;
       const key = roadKey(n, region, edge.region), travel = edgeTravel(state, region, edge);
-      const through = at + (pending.has(key) || serves(state.roads.get(key), edge, tier) ? REUSE * travel : travel);
+      const through = at + (pending.has(key) || serves(state.roads.get(key), edge, tier) ? BUILD_TUNING.roadReuse * travel : travel);
       if (routeStamp[edge.region] === routeMark && routeCost[edge.region] <= through) continue;
       routeStamp[edge.region] = routeMark; routeCost[edge.region] = through; routeFrom[edge.region] = region;
       routeHeap.push(through, edge.region);
