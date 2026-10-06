@@ -410,6 +410,19 @@ export const ENVIRONMENT_TUNING = {
   famineFade: 11 / 12, famineShare: 0.04, famineMin: 50, famineEnd: 0.01, famineCause: 0.03,
 } as const;
 
+/**
+ * Cultivated land (VISION.md "Cultivated land"; `fields.ts`). A region's fields are farm labour under cultivation: its
+ * farmers would work fieldFactor each (at most the region's farmland); fields below that are cleared at clearRate ×
+ * that a year, fields above it fall fallow by fallowRate of the gap a year, and until cleared the land yields
+ * `uncleared` of its harvest. Farmland is ranked by its labour × 1 ÷ (1 + cells away from the region's best settlement
+ * site ÷ closeCells). The study watches each civilization's famine: its regions' fields shrink when they fall below
+ * (1 − shrinkMargin) of what they were within shrinkYears, and regrow when they are back; watches last watchYears.
+ */
+export const FIELD_TUNING = {
+  fieldFactor: 1, clearRate: 1, fallowRate: 0.25, uncleared: 0.6, closeCells: 4,
+  shrinkYears: 10, shrinkMargin: 0.02, watchYears: 100,
+} as const;
+
 /** Culture values of new cultures (0–1 sliders) and how far a daughter culture's values drift from its parent's. */
 export const CULTURE_TUNING = { valueMin: 0.15, valueSpan: 0.7, mutation: 0.1 } as const;
 
@@ -514,6 +527,9 @@ export function validateTunables() {
   if (!(en.harvestSpread >= 0 && en.harvestMin > 0 && en.harvestMin <= 1 && en.harvestMax >= 1 && en.droughtChance >= 0 && en.droughtChance * en.aridDrought <= 1 && Number.isInteger(en.droughtYears) && en.droughtYears >= 1 && en.droughtYears * 12 <= 255
     && en.droughtSpread >= 0 && en.droughtSpread <= 1 && en.droughtFarmLoss >= 0 && en.droughtFarmLoss < 1 && en.droughtHerdLoss >= 0 && en.droughtHerdLoss < 1
     && en.famineFade > 0 && en.famineFade < 1 && en.famineShare > en.famineEnd && en.famineEnd > 0 && en.famineMin >= 0 && en.famineCause >= 0)) problems.push('environment settings are invalid');
+  const fi = FIELD_TUNING;
+  if (!(fi.fieldFactor >= 1 && fi.clearRate > 0 && fi.clearRate <= 12 && fi.fallowRate > 0 && fi.fallowRate <= 12 && fi.uncleared >= 0 && fi.uncleared <= 1 && fi.closeCells > 0
+    && fi.shrinkYears > 0 && fi.shrinkMargin >= 0 && fi.shrinkMargin < 1 && fi.watchYears >= fi.shrinkYears)) problems.push('field settings are invalid');
   const st2 = STABILITY_TUNING;
   if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   const x = EXPLORE_TUNING;

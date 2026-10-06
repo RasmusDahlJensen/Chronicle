@@ -156,21 +156,29 @@ function storyHealth(rows: SeedResult[]) {
   }
   // M3b.6: harvests, droughts and famine (VISION.md "Environment"); story health: world population rises in every century
   // of the first 1,000 years except after a recorded famine or plague.
-  lines.push('', '| Seed | Droughts begun · touching people by 3,000 | Famines by 1,000 / 3,000 | Famines citing drought · bad harvest · crowding · unrest (strongest cause) | Regions in drought at 1,000 / 2,000 / 3,000 | Irrigated regions at 1,500 / 3,000 | Centuries of the first 1,000 years when world population fell (with a famine recorded) |',
+  lines.push('', '| Seed | Droughts begun · touching people by 3,000 | Famines by 1,000 / 3,000 | Famines citing drought · bad harvest · crowding · unrest (strongest cause) | Regions in drought at 1,000 / 2,000 / 3,000 | Irrigated regions at 1,500 / 3,000 | Centuries of the first 1,000 years when world population fell (and whether recorded famines explain it) |',
     '| --- | --- | --- | --- | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), m = result.report.metrics;
-    const events = (result.report.events ?? []) as { type: string; tick: number; causes: { factor: string }[] }[];
+    const events = (result.report.events ?? []) as { type: string; tick: number; causes: { factor: string }[]; data: Record<string, unknown> }[];
     const famines = events.filter(event => event.type === 'famine'), droughts = events.filter(event => event.type === 'drought');
     const strongest = (factor: string) => famines.filter(event => event.causes[0]?.factor === factor).length;
     const falls: string[] = [];
     for (let year = 100; year <= 1000; year += 100) {
       const before = at(year - 100), now = at(year);
       if (!before || !now || now.population >= before.population) continue;
-      const recorded = famines.some(event => event.tick >= (year - 100) * 12 && event.tick < year * 12);
-      falls.push(`${year}${recorded ? ' (famine)' : ' (no famine)'}`);
+      // Explained by famine when the deaths of the century's recorded famines come to at least half the fall.
+      const deaths = famines.filter(event => event.tick >= (year - 100) * 12 && event.tick < year * 12).reduce((sum, event) => sum + Number(event.data.deaths ?? 0), 0);
+      falls.push(`${year} (${deaths >= (before.population - now.population) / 2 ? 'famine' : 'not famine'}: ${deaths.toLocaleString('en')} famine deaths of a fall of ${(before.population - now.population).toLocaleString('en')})`);
     }
     lines.push(`| ${result.seed} | ${m.droughts} · ${droughts.length} | ${famines.filter(event => event.tick < 1000 * 12).length} / ${famines.length} | ${strongest('drought')} · ${strongest('poorHarvest')} · ${strongest('crowding')} · ${strongest('unrest')} | ${[1000, 2000, 3000].map(year => at(year)?.regionsInDrought ?? '—').join(' / ')} | ${[1500, 3000].map(year => at(year)?.irrigated ?? '—').join(' / ')} | ${falls.join(', ') || 'none'} |`);
+  }
+  // M3b acceptance (VISION.md): at least one civilization's cultivated land shrinks within 10 years after a recorded
+  // famine and later regrows (the regions the famine struck).
+  lines.push('', '| Seed | Cultivated cells (share of farmland) at 1,000 / 2,000 / 3,000 | Civilizations\' famines watched · fields shrank within 10 years · and regrew (M3b: ≥ 1 regrew) |', '| --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = stats.at(-1);
+    lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => { const row = at(year); return row ? `${row.cultivatedCells.toLocaleString('en')} (${Math.round(row.cultivatedShare * 100)}%)` : '—'; }).join(' / ')} | ${last ? `${last.faminesWatched} · ${last.fieldsShrank} · ${last.fieldsRegrew}` : '—'} |`);
   }
   // Story health: the decision mix per century (share of decision steps by chosen action).
   lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Build | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');

@@ -79,6 +79,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' }, roads: RoadMark[] = [];
   // Territories: one pixel per world cell, coloured by the people living in its region (drawn scaled on the overlay).
   let territoryFill: Uint32Array | null = null, territoryImage: HTMLCanvasElement | null = null, territoryCount = 0;
+  // Cultivated land: one pixel per world cell (1 where cultivated), drawn as wheat-coloured furrows over the territories.
+  let fieldCells: Uint8Array | null = null, fieldImage: HTMLCanvasElement | null = null, fieldCount = 0;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
@@ -251,6 +253,15 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
         target.restore();
       }
     }
+    if (fieldCells && fieldCount) {
+      fieldImage ??= paintFields(fieldCells);
+      if (fieldImage) {
+        target.save(); target.imageSmoothingEnabled = false; target.globalAlpha = clamp(0.95 - m.scale * 0.04, 0.5, 0.9);
+        for (let copy = startCopy; copy <= endCopy; copy++) target.drawImage(fieldImage, left + copy * world.width * m.scale, top, world.width * m.scale, world.height * m.scale);
+        target.restore();
+      }
+    }
+    canvas.dataset.fieldCells = String(fieldCells ? fieldCount : 0);
     if (showRegions && regionBorders) {
       target.save(); target.strokeStyle = '#5b3a29'; target.globalAlpha = 0.55; target.lineCap = 'square';
       for (let copy = startCopy; copy <= endCopy; copy++) {
@@ -402,6 +413,20 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     paint.putImageData(pixels, 0, 0);
     return image;
   }
+  /** The cultivated-land image: wheat-coloured cells, every other diagonal darker so fields read as furrows. */
+  function paintFields(cells: Uint8Array) {
+    const { width, height } = world;
+    if (cells.length !== width * height) return null;
+    const image = document.createElement('canvas');
+    image.width = width; image.height = height;
+    const paint = image.getContext('2d');
+    if (!paint) return null;
+    const pixels = paint.createImageData(width, height), packed = new Uint32Array(pixels.data.buffer);
+    const light = (0xd8 | 0xc0 << 8 | 0x6a << 16 | 0xd0 << 24) >>> 0, dark = (0xb8 | 0x98 << 8 | 0x48 << 16 | 0xd8 << 24) >>> 0;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) if (cells[y * width + x]) packed[y * width + x] = (x + y) % 2 ? dark : light;
+    paint.putImageData(pixels, 0, 0);
+    return image;
+  }
   function safe(action: () => void) { try { action(); } catch (cause) { callbacks.onError(cause); } }
   function changed() {
     safe(() => { draw(); callbacks.onView({ zoom, detail: metrics().detail, tiles: visibleTiles() }); });
@@ -519,6 +544,11 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
      */
     setTerritories(fill: Uint32Array | null) {
       territoryFill = fill; territoryImage = null; territoryCount = fill ? fill.reduce((count, value) => count + (value ? 1 : 0), 0) : 0;
+      safe(() => overlay ? drawOverlay() : draw());
+    },
+    /** Cultivated land: 1 per world cell where it is cultivated (row-major), or null to hide it. */
+    setFields(cells: Uint8Array | null) {
+      fieldCells = cells; fieldImage = null; fieldCount = cells ? cells.reduce((count, value) => count + value, 0) : 0;
       safe(() => overlay ? drawOverlay() : draw());
     },
     /** Roads in world cell coordinates; replaces the previous set. */

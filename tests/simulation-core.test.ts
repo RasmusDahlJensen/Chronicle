@@ -119,7 +119,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
     population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }], civList: [],
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
-    roads: { a: [], b: [], tiers: [], bridges: [] }, series: [[0, 30, 1]], inspect: null, wonders: [],
+    roads: { a: [], b: [], tiers: [], bridges: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], inspect: null, wonders: [],
     events: [
       { id: 0, tick: 1, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
       { id: 1, tick: 2, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
@@ -154,6 +154,11 @@ test('observer frames reject events newer than the frame or out of order', () =>
   assert.throws(() => parseObserverFrame({ ...wider, roads: { ...road, b: [3] } }), 'regions of this world');
   assert.throws(() => parseObserverFrame({ ...wider, roads: { a: [0, 0], b: [1, 1], tiers: [1, 1], bridges: [0, 0] } }), 'each edge once');
   assert.throws(() => parseObserverFrame({ ...wider, roads: { ...road, tiers: [5] } }), 'known tiers');
+  // Cultivated land: regions of this world, each once, with a count.
+  assert.equal(parseObserverFrame({ ...wider, fields: { regions: [0, 2], cells: [3, 1] } }).fields.regions.length, 2);
+  assert.throws(() => parseObserverFrame({ ...wider, fields: { regions: [0], cells: [] } }), 'field arrays must line up');
+  assert.throws(() => parseObserverFrame({ ...wider, fields: { regions: [3], cells: [1] } }), 'regions of this world');
+  assert.throws(() => parseObserverFrame({ ...wider, fields: { regions: [1, 1], cells: [1, 2] } }), 'each region once');
   assert.throws(() => parseObserverFrame({ ...frame, civs: 1 }), 'civilization count matches the markers');
   assert.throws(() => parseObserverFrame({ ...frame, polities: 2 }), 'one marker per living polity');
   assert.throws(() => parseObserverFrame({ ...frame, settlementCount: 1 }), 'settlement count matches the settlements');

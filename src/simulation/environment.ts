@@ -1,4 +1,5 @@
 import { regionDroughtShield } from './economy.ts';
+import { checkFamineWatches, fallow } from './fields.ts';
 import type { SimulationState, TickContext } from './state.ts';
 import { ENVIRONMENT_TUNING } from './tunables.ts';
 
@@ -18,16 +19,21 @@ export function environment(state: SimulationState, context: TickContext) {
   for (let region = 0; region < regions; region++) {
     if (state.drought[region] > 0) state.drought[region]--;
     state.famineRecent[region] *= tuning.famineFade;
-    // A famine in a region its people have left (or died out of) ends once the dying is over.
-    if (state.famine[region] && state.groupAt[region] < 0 && state.famineRecent[region] < tuning.famineMin) state.famine[region] = 0;
+    // A famine in a region its people have left (or died out of) ends once the dying is over; their fields fall fallow.
+    if (state.groupAt[region] < 0) {
+      if (state.famine[region] && state.famineRecent[region] < tuning.famineMin) state.famine[region] = 0;
+      if (state.fields[region] > 0) fallow(state, region);
+    }
     if (harvest[region * 12 + month - 1] > 0) {
       rng ??= context.stream(0, HARVEST);
       // A standard normal draw (the sum of three uniforms, scaled), within the bounds.
       const normal = (rng.next() + rng.next() + rng.next() - 1.5) * 2;
       state.weather[region] = Math.max(tuning.harvestMin, Math.min(tuning.harvestMax, 1 + tuning.harvestSpread * normal));
+      // The share the harvest comes in at, whoever farms there (production applies it).
+      state.harvestFactor[region] = harvestYield(state, region);
     }
   }
-  if (month === 1) beginDroughts(state, context);
+  if (month === 1) { beginDroughts(state, context); checkFamineWatches(state); }
 }
 
 /** Each January: droughts begin, each in one region and those beside it it spreads to; an event where it touches people. */

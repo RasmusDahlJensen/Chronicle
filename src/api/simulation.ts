@@ -4,7 +4,7 @@ import { ApiErrorSchema } from '../../shared/http.ts';
 import { parseObserverFrame, parseRegionMap, type ObserverFrame, type SimulationControl } from '../../shared/simulation.ts';
 
 /** Browser client for the simulation's observer routes. Every response is validated before use. */
-const MAX_FRAME_BYTES = 1024 * 1024, MAX_REGION_MAP_BYTES = 4 * 1024 * 1024;
+const MAX_FRAME_BYTES = 1024 * 1024, MAX_REGION_MAP_BYTES = 6 * 1024 * 1024;
 
 function query(settings: WorldSettings, extra: Record<string, string> = {}) {
   return new URLSearchParams({ seed: settings.seed, size: settings.size, ...extra }).toString();

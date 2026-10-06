@@ -1,5 +1,6 @@
 import type { ObserverFrame } from '../../shared/simulation.ts';
-import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
+import { capacity, FARM_METHOD, harvest, METHOD_COUNT, regionYields } from './food.ts';
+import { cultivatedCells } from './fields.ts';
 import { speedOf } from './knowledge.ts';
 import { BUILDINGS } from './buildings.ts';
 import { WONDERS } from './wonders.ts';
@@ -12,7 +13,7 @@ import type { Polity, SimulationState } from './state.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'wonders' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'fields' | 'wonders' | 'series' | 'inspect'>;
 
 /**
  * What an observer may see of the true world (VISION.md "Observer views": the god view). Built on request from the
@@ -51,12 +52,18 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
   }
   const roads = { a: [] as number[], b: [] as number[], tiers: [] as number[], bridges: [] as number[] };
   for (const road of state.roads.values()) { roads.a.push(road.a); roads.b.push(road.b); roads.tiers.push(road.tier); roads.bridges.push(road.bridge ? 1 : 0); }
+  const fields = { regions: [] as number[], cells: [] as number[] };
+  for (let region = 0; region < state.fields.length; region++) {
+    if (!(state.fields[region] > 0)) continue;
+    const cells = Math.min(0xffff, cultivatedCells(state.fieldRanking, region, state.fields[region]));
+    if (cells > 0) { fields.regions.push(region); fields.cells.push(cells); }
+  }
   // At most 500 chart points: thin evenly once a long history exceeds that.
   const step = Math.max(1, Math.ceil(state.series.length / 500));
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
   return {
     population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest, civList,
-    markers: { ids, regions, populations, kinds, eras, lineages }, settlements, roads, series,
+    markers: { ids, regions, populations, kinds, eras, lineages }, settlements, roads, fields, series,
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
@@ -144,6 +151,10 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   return {
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews,
     weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)) },
+    fields: (() => {
+      const land = state.food.labor[region * METHOD_COUNT + FARM_METHOD];
+      return { share: land > 0 ? round(Math.min(1, state.fields[region] / land)) : 0, cells: cultivatedCells(state.fieldRanking, region, state.fields[region]) };
+    })(),
     food: { forage: output(0), hunt: output(1), fish: output(2), herd: output(3), farm: output(4) },
     polity: view,
   };

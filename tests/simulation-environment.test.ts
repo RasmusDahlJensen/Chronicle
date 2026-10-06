@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { announceFamine, recordFamine, reserveShortfall, type FamineOnset } from '../src/simulation/bands.ts';
+import { announceFamine, fedSecurity, recordFamine, reserveShortfall, type FamineOnset } from '../src/simulation/bands.ts';
 import { BUILDING_INDEX, BUILDINGS } from '../src/simulation/buildings.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { buildScore, need } from '../src/simulation/decisions/build.ts';
@@ -31,8 +31,9 @@ function fixture() {
     groups: [{ id: 0, region: 1, size: 10_000, store: 0, specialists: 0, foodSecurity: 0.9 }], regionSettlements: [[], [], [], []], settlements: [], stability: new Float64Array(4).fill(1), unrest: new Uint8Array(4),
     chronicle: new Chronicle(), metrics: { droughts: 0, famines: 0 }, capacity: new Float64Array(4).fill(10_000),
     farmBonus: new Float64Array(4).fill(1), droughtShield: new Float64Array(4), storeBonus: new Float64Array(4).fill(1), spoilageBonus: new Float64Array(4).fill(1),
+    fields: new Float64Array(4), famineWatches: [],
   } as unknown as SimulationState;
-  const tribe = { id: 0, kind: 'band', name: 'Ora', knowledge: learn(learn(startingKnowledge(), TECH_INDEX.get('Pottery')!), TECH_INDEX.get('Agriculture')!) } as unknown as Polity;
+  const tribe = { id: 0, kind: 'band', name: 'Ora', famineTick: -1, knowledge: learn(learn(startingKnowledge(), TECH_INDEX.get('Pottery')!), TECH_INDEX.get('Agriculture')!) } as unknown as Polity;
   state.polities = [tribe];
   return { state, tribe, group: state.groups[0] as PopulationGroup };
 }
@@ -98,18 +99,37 @@ test('famine is recorded once while hunger kills a clear share of a region\'s pe
   state.famineRecent[1] = ENVIRONMENT_TUNING.famineEnd * group.size - 1;
   month();
   assert.equal(state.famine[1], 0, 'the dying fell back: it is over');
-  // With nothing else to blame, the shortfall itself.
-  state.harvestFactor[1] = 1; state.famineRecent[1] = group.size;
+  // Within a year of the last, a famine joins it: no new event.
+  state.famineRecent[1] = group.size; state.tick = 11;
+  month();
+  assert.equal(state.metrics.famines, 1, 'the same famine');
+  state.famine[1] = 0;
+  // A year on, with nothing else to blame: a new famine, citing the shortfall itself.
+  state.harvestFactor[1] = 1; state.famineRecent[1] = group.size; state.tick = 24;
   month();
   state.chronicle.flush(1);
   assert.equal(state.chronicle.events.filter(event => event.type === 'famine').at(-1)!.causes[0].factor, 'shortage');
   // Several regions of one people falling into famine the same month are one event, set in the worst.
   const second = { ...group, id: 1, region: 2, size: 20_000 } as PopulationGroup;
-  state.famine.fill(0); state.famineRecent[1] = group.size; state.famineRecent[2] = second.size;
+  state.famine.fill(0); state.famineRecent[1] = group.size; state.famineRecent[2] = second.size; state.tick = 48;
   recordFamine(state, tribe, group, 10_000, onsets); recordFamine(state, tribe, second, 10_000, onsets); announceFamine(state, tribe, onsets);
   state.chronicle.flush(2);
   const joint = state.chronicle.events.filter(event => event.type === 'famine').at(-1)!;
   assert.deepEqual([joint.region, joint.data.regions, joint.data.more, joint.data.deaths], [2, 2, 1, group.size + second.size]);
+});
+
+test('hunger counts food in store: people eating their fill from their stores do not starve, whatever the land gives', () => {
+  const { group } = fixture();
+  const need = group.size * FOOD_TUNING.unitsPerPersonMonth;
+  group.foodSecurity = 0.75;
+  group.store = 0;
+  assert.equal(fedSecurity(group), 0.75, 'no store: what the land gives');
+  group.store = need / 2;
+  assert.equal(fedSecurity(group), 0.75, 'half a month in store is less than the land gives');
+  group.store = need * 3;
+  assert.equal(fedSecurity(group), 1, 'months in store: nobody goes short');
+  group.foodSecurity = 1.2;
+  assert.equal(fedSecurity(group), 1.2, 'a surplus still counts as one');
 });
 
 test('farmers keep a reserve beyond the next harvest: births slow while their store is short of it, as far as their store can hold one', () => {
@@ -124,6 +144,9 @@ test('farmers keep a reserve beyond the next harvest: births slow while their st
   assert.equal(reserveShortfall(state, tribe, group, 8), reserve / 12, 'at most the reserve\'s share of a year');
   group.store = need * reserve / 2;
   assert.ok(Math.abs(reserveShortfall(state, tribe, group, 8) - reserve / 24) < 1e-12);
+  // Two harvests a year: the reserve is still a share of a year's need.
+  state.food.cycle[1] = 6; group.store = 0;
+  assert.equal(reserveShortfall(state, tribe, group, 8), Math.min(POPULATION_TUNING.reserveMonths, holds - 6) / 12);
 });
 
 test('irrigation raises its region\'s farm yield and is wanted where a river or lake waters farmland', () => {

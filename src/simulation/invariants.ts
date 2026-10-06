@@ -9,6 +9,7 @@ import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
 import type { Polity, RoadWork, Settlement, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
 import { BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING } from './tunables.ts';
+import { FARM_METHOD, METHOD_COUNT } from './food.ts';
 
 /** The least share of its crops a harvest can come in at: the worst weather in drought without irrigation. */
 const lowestHarvest = ENVIRONMENT_TUNING.harvestMin * (1 - ENVIRONMENT_TUNING.droughtFarmLoss);
@@ -71,6 +72,8 @@ export function checkInvariants(state: SimulationState) {
   for (let region = 0; region < regions; region++) {
     if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowestHarvest && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
     if (state.drought[region] > ENVIRONMENT_TUNING.droughtYears * 12 || state.famine[region] > 1 || !(state.famineRecent[region] >= 0)) fail(`region ${region} has drought ${state.drought[region]}, famine ${state.famine[region]} and recent famine deaths ${state.famineRecent[region]}`);
+    // Cultivated land lies within the region's farmland (VISION.md "Cultivated land").
+    if (!(state.fields[region] >= 0 && state.fields[region] <= state.food.labor[region * METHOD_COUNT + FARM_METHOD])) fail(`region ${region} has ${state.fields[region]} fields on ${state.food.labor[region * METHOD_COUNT + FARM_METHOD]} of farmland`);
   }
   // What one region needs only one of (granary, shrine, temple, mine, quarry, harbor), standing or under way.
   for (let region = 0; region < regions; region++) {
@@ -137,9 +140,8 @@ export function checkInvariants(state: SimulationState) {
         fail(`group ${groupId}'s food store ${group.store} is not explained by its flows ${JSON.stringify(flows)}`);
       } else if (!Number.isInteger(group.planted) || group.planted < 0 || group.planted !== flows.plantedBefore + flows.sown - flows.harvested - flows.cropsLost) {
         fail(`group ${groupId}'s crops in the field ${group.planted} are not explained by its flows ${JSON.stringify(flows)}`);
-      } else if (!Number.isInteger(flows.weather) || flows.weather < Math.round(flows.harvested * lowestHarvest) - flows.harvested || flows.weather > Math.round(flows.harvested * ENVIRONMENT_TUNING.harvestMax) - flows.harvested) {
-        // (The harvest's region is not checked: a band may move on after its harvest in the same month.)
-        fail(`group ${groupId}'s harvest gained ${flows.weather} from the weather on ${flows.harvested} harvested, beyond what weather and drought allow`);
+      } else if (!(flows.factor >= lowestHarvest && flows.factor <= ENVIRONMENT_TUNING.harvestMax) || flows.weather !== Math.round(flows.harvested * flows.factor) - flows.harvested) {
+        fail(`group ${groupId}'s harvest gained ${flows.weather} from the weather on ${flows.harvested} harvested at ${flows.factor}, not what that share gives`);
       }
     }
     if (polity.kind === 'civ') {

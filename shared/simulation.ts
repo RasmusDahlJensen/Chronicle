@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 16;
+export const SIMULATION_PROTOCOL_VERSION = 17;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -119,6 +119,11 @@ export const ObserverFrameSchema = Type.Object({
     tiers: Type.Array(Type.Integer({ minimum: 1, maximum: ROAD_TIER_NAMES.length }), { maxItems: 100_000 }),
     bridges: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 100_000 }),
   }, { additionalProperties: false }),
+  /** Cultivated land (VISION.md "Cultivated land"), for regions with any: how many of the region's farmland cells, in
+   *  the region map's `fieldRank` order, its fields cover (a cell is cultivated when its rank is below the count). */
+  fields: Type.Object({
+    regions: Type.Array(id(), { maxItems: 65_535 }), cells: Type.Array(Type.Integer({ minimum: 1, maximum: 65_535 }), { maxItems: 65_535 }),
+  }, { additionalProperties: false }),
   /** The wonders of the world, standing or being built, oldest first: name, city, the civilization that holds it, the year
    *  begun and the year completed (null while being built). */
   wonders: Type.Array(Type.Object({
@@ -135,6 +140,8 @@ export const ObserverFrameSchema = Type.Object({
     weather: Type.Object({
       harvest: Type.Number({ minimum: 0 }), drought: Type.Integer({ minimum: 0 }), famine: Type.Boolean(), irrigation: Type.Number({ minimum: 1 }),
     }, { additionalProperties: false }),
+    /** Its cultivated land: the share of its farmland's labour under cultivation (0–1) and the cells it covers. */
+    fields: Type.Object({ share: Type.Number({ minimum: 0, maximum: 1 }), cells: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
     /** The region's settlements, living and in ruins, main one first: tier, townspeople, housing, founding tick, the
      *  name its ruins bore if resettled under a new one, and its latest chronicle events (the settlement inspector). */
     settlements: Type.Array(Type.Object({
@@ -226,6 +233,9 @@ export const RegionMapSchema = Type.Object({
   width: Type.Integer({ minimum: 512, maximum: 1024 }), height: Type.Integer({ minimum: 256, maximum: 512 }),
   /** Row-major region id + 1 per cell as little-endian uint16, base64; 0 is water. */
   encoding: Type.Literal('region-u16le'), data: Type.String({ minLength: 1, maxLength: 1_400_000, pattern: '^[A-Za-z0-9+/]+={0,2}$' }),
+  /** Row-major rank of each cell within its region's farmland (best farmland nearest the region's best settlement site
+   *  first) as little-endian uint16, base64; 65535 for no farmland. Frames say how many of each region's are cultivated. */
+  fieldRank: Type.String({ minLength: 1, maxLength: 1_400_000, pattern: '^[A-Za-z0-9+/]+={0,2}$' }),
   regions: Type.Array(RegionSummarySchema, { maxItems: 65535 }),
 }, { additionalProperties: false });
 export type RegionMap = Static<typeof RegionMapSchema>;
@@ -276,6 +286,8 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
     if (a >= b || b >= frame.counters.regions || edges.has(key)) throw invalid();
     edges.add(key);
   });
+  // Cultivated land: regions of this world, each once.
+  if (frame.fields.cells.length !== frame.fields.regions.length || new Set(frame.fields.regions).size !== frame.fields.regions.length || frame.fields.regions.some(region => region >= frame.counters.regions)) throw invalid();
   const decision = frame.inspect?.polity?.lastDecision;
   if (decision && (decision.pick >= decision.options.length || decision.options[decision.pick].action !== decision.chosen)) throw invalid();
   if (frame.inspect && frame.inspect.region >= frame.counters.regions) throw invalid();
@@ -283,8 +295,8 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   return frame;
 }
 
-/** Validate the region map and decode its cell index (region id + 1, 0 for water). */
-export function parseRegionMap(value: unknown): { map: RegionMap; cells: Uint16Array } {
+/** Validate the region map and decode its cell index (region id + 1, 0 for water) and each cell's farmland rank. */
+export function parseRegionMap(value: unknown): { map: RegionMap; cells: Uint16Array; fieldRank: Uint16Array } {
   if (!Check(RegionMapSchema, value)) throw invalid();
   const map = value as RegionMap;
   const shape = Object.values(WORLD_SIZES).find(size => size.width === map.width && size.height === map.height);
@@ -303,7 +315,16 @@ export function parseRegionMap(value: unknown): { map: RegionMap; cells: Uint16A
     if (region.id !== index || sizes[index] !== region.cells || cells[region.centroid] !== index + 1) throw invalid();
     if (region.neighbors.some(other => other >= map.regions.length || other === index)) throw invalid();
   }
-  return { map, cells };
+  // Farmland ranks: none on water, and within a region below its cell count.
+  const ranks = atob(map.fieldRank);
+  if (ranks.length !== count * 2) throw invalid();
+  const fieldRank = new Uint16Array(count);
+  for (let cell = 0; cell < count; cell++) {
+    const rank = ranks.charCodeAt(cell * 2) | (ranks.charCodeAt(cell * 2 + 1) << 8);
+    if (rank !== 0xffff && (!cells[cell] || rank >= map.regions[cells[cell] - 1].cells)) throw invalid();
+    fieldRank[cell] = rank;
+  }
+  return { map, cells, fieldRank };
 }
 
 /** M2 facts in the worker's study report (VISION.md M2 acceptance): firsts, where Agriculture began, when a quarter of the world's people lived in polities that knew it. */

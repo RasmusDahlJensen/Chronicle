@@ -5,7 +5,7 @@ import { construct, startRoads } from '../src/simulation/construction.ts';
 import { bestRoad } from '../src/simulation/decisions/build.ts';
 import { upkeepOf, wealthFlows } from '../src/simulation/economy.ts';
 import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
-import { capitalKm, emptyMap, OBSERVED, type PolityView } from '../src/simulation/perception.ts';
+import { capitalKm, emptyMap, KNOWN, OBSERVED, type PolityView } from '../src/simulation/perception.ts';
 import { BRIDGE, edgeKm, edgeTravel, keeperOf, knownRoadTier, ROAD_TIERS, roadCoverage, roadKey, roadRoutes, roadUpkeep, validateRoads } from '../src/simulation/roads.ts';
 import type { Polity, Settlement, SimulationState } from '../src/simulation/state.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
@@ -194,4 +194,31 @@ test('new roads branch off the roads that stand, towns already joined are not of
   assert.equal(keeperOf(state, road), 0, 'the holder of its second region');
   state.owner[1] = -1;
   assert.equal(keeperOf(state, road), -1);
+});
+
+test('a paved road supersedes a dirt road still under way on its edges; coverage counts only peoples who know the Wheel', () => {
+  const { state, civ, sem } = strip();
+  civ.wealth = 1_000_000;
+  startRoads(state, 0, civ, [sem.id], []);
+  month(state, 1);
+  assert.equal(civ.roadWorks[0].tier, 1);
+  civ.knowledge = learn(civ.knowledge, TECH_INDEX.get('Engineering')!);
+  assert.match(startRoads(state, 2, civ, [sem.id], []), /began a paved road to Sem/);
+  assert.deepEqual([civ.roadWorks.map(work => work.tier), state.metrics.roadsAbandoned], [[2], 1], 'the dirt road is given up where the paved one runs');
+  // Engineering without the Wheel: no roads of the Wheel's kind counted.
+  const { state: other, civ: unwheeled } = strip(['Engineering']);
+  assert.deepEqual(roadCoverage(other), { civs: 0, covered: 0 });
+  assert.equal(knownRoadTier(unwheeled.knowledge), 2);
+});
+
+test('travel from the capital counts a road only where the civilization sees both its ends', () => {
+  const { state, civ, sem } = strip();
+  civ.wealth = 1_000_000;
+  startRoads(state, 0, civ, [sem.id], []);
+  for (let tick = 1; tick <= 16; tick++) month(state, tick);
+  const withRoads = capitalKm(state, civ, 4);
+  civ.map.status[3] = KNOWN;
+  // Remembered land: the edges into region 3 count bare, as last seen.
+  assert.equal(capitalKm(state, civ, 3), 400 * (2 * ROAD_TIERS[0].travel) + edgeKm(400, 2));
+  assert.ok(capitalKm(state, civ, 4) > withRoads);
 });

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BUILDING_INDEX, BUILDINGS, buildingKnown, validateBuildings } from '../src/simulation/buildings.ts';
+import { regionCapacity } from '../src/simulation/bands.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
+import { FARM_METHOD, METHOD_COUNT } from '../src/simulation/food.ts';
 import { beginWonder, construct, startProjects } from '../src/simulation/construction.ts';
 import { bestBuild, bestWonder, buildScore, need } from '../src/simulation/decisions/build.ts';
 import { incomeOf, loseWealth, produceWealth, siteIncome, transferWealth, wealthFlows, wonderBonus } from '../src/simulation/economy.ts';
@@ -272,4 +274,43 @@ test('the wonder choice needs a motive, a golden age and a great city', () => {
   assert.ok(bestWonder(view(0.5, 20_000))!.score < 0, 'no golden age, no wonder');
   assert.ok(bestWonder(view(0.95, 2_000))!.score < golden.score, 'a small town is no place for one');
   assert.ok(bestWonder(view(0.95, 20_000, 0.9))!.score > bestWonder(view(0.95, 20_000, 0.1))!.score, 'ambition drives it');
+});
+
+test('work that waits too long for its settlement to grow back to the tier it needs is given up; a wonder\'s end is an event', () => {
+  const { state, civ } = fixture();
+  Object.assign(state, { harbors: new Uint8Array(1), owner: new Int32Array([0]) });
+  const town = foundSettlement(state, createRng(5, 5), civ, 0, true, 0)!;
+  town.tier = 1;
+  startProjects(state, 0, civ, BUILDING_INDEX.get('market')!, [town.id], []);
+  const gardens = WONDER_INDEX.get('hangingGardens')!;
+  beginWonder(state, 0, civ, gardens, town.id, []);
+  civ.wealth = 0;
+  town.tier = 0;
+  for (let tick = 1; tick < BUILD_TUNING.waitMonths; tick++) month(state, tick);
+  assert.deepEqual([civ.projects.length, state.wonders[0].status], [1, 'building'], 'still waiting');
+  month(state, BUILD_TUNING.waitMonths);
+  assert.deepEqual([civ.projects.length, state.metrics.projectsAbandoned, state.wonders[0].status, state.wonders[0].endCause], [0, 1, 'abandoned', 'cityShrank']);
+  state.chronicle.flush(BUILD_TUNING.waitMonths);
+  const ended = state.chronicle.events.find(event => event.type === 'wonderDestroyed')!;
+  assert.deepEqual([ended.data.unfinished, ended.data.shrank, ended.causes[0].factor], [true, true, 'cityShrank']);
+});
+
+test('irrigation built by a river raises its region\'s lasting capacity at once, and only where a river or lake waters the fields', () => {
+  const { state, civ } = fixture();
+  const labor = new Float64Array(METHOD_COUNT); labor[FARM_METHOD] = 10_000;
+  Object.assign(state, {
+    harbors: new Uint8Array(1), owner: new Int32Array([0]), occupant: new Int32Array([0]), gameStock: new Float64Array([1]), capacity: new Float64Array(1), capacityGame: new Float64Array(1),
+    food: { labor, baseYield: Float64Array.from([1, 1, 1, 2.2, 2.6]), farmWater: new Float64Array([1]) },
+  });
+  civ.knowledge = learn(learn(learn(startingKnowledge(), TECH_INDEX.get('Pottery')!), TECH_INDEX.get('Agriculture')!), TECH_INDEX.get('Irrigation')!);
+  const town = foundSettlement(state, createRng(5, 5), civ, 0, true, 0)!;
+  const irrigation = BUILDING_INDEX.get('irrigation')!, definition = BUILDINGS[irrigation];
+  assert.equal(startProjects(state, 0, civ, irrigation, [town.id], []), 'nowhere left to build it', 'no river or lake in the region');
+  Object.assign(state.partition.regions[0], { riverTier: 2 });
+  assert.equal(startProjects(state, 0, civ, irrigation, [town.id], []), 'began irrigation works');
+  const before = regionCapacity(state, 0);
+  civ.wealth = definition.cost;
+  for (let tick = 1; tick <= definition.months; tick++) month(state, tick);
+  assert.equal(state.farmBonus[0], definition.effects.farm);
+  assert.ok(state.capacity[0] > before * 1.05, `capacity ${state.capacity[0]} after ${before}`);
 });

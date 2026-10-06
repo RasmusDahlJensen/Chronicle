@@ -177,6 +177,20 @@ export function ruinSettlements(state: SimulationState, region: number, tick: nu
 }
 
 /**
+ * Why a settlement shrank a tier: the hard years its region remembers, a famine there now, unrest — and, when none of
+ * those weighs, only that it has fewer townspeople.
+ */
+function fallCauses(state: SimulationState, group: { region: number; size: number }, fewer: number) {
+  const region = group.region;
+  const factors = {
+    hardship: state.hardship[region], famine: state.famine[region] ? Math.min(1, state.famineRecent[region] / Math.max(1, group.size) * 10) : 0,
+    unrest: unrestDepth(state, region),
+  };
+  const cited = causes(Object.fromEntries(Object.entries(factors).filter(([, weight]) => weight >= 0.05)));
+  return cited.length ? cited : causes({ fewerTownspeople: fewer });
+}
+
+/**
  * The region's townspeople move into its settlements: the capital first, then the others in founding order, each up
  * to its housing, so the main town is the largest and the newest settlements take the growth (a village becomes a
  * town as its region's townspeople grow). Returns how many find a home there (at most all the housing): the rest
@@ -225,7 +239,7 @@ export function growSettlements(state: SimulationState, context: Pick<TickContex
       state.metrics.tierChanges++;
       state.chronicle.emit({
         type: 'settlementTierChanged', actors: [{ id: civ.id, role: 'civ' }], region, settlement: settlement.id,
-        causes: rising ? causes({ townspeople: mean / threshold }) : causes({ hunger: Math.max(0, 1 - Math.min(1, group.foodSecurity)), unrest: unrestDepth(state, region), fewerTownspeople: 1 - mean / threshold }),
+        causes: rising ? causes({ townspeople: mean / threshold }) : fallCauses(state, group, 1 - mean / threshold),
         importance: rising ? tuning.tierImportance[tier] : tuning.fallImportance,
         data: { name: settlement.name, tier: SETTLEMENT_TIERS[tier], civ: civ.name, urban: mean, rising, falling: !rising },
       });

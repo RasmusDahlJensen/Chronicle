@@ -152,10 +152,11 @@ export function GeneratedWorldLab() {
   const [resources, setResources] = useState(true);
   const [rivers, setRivers] = useState(true);
   const [showRegions, setShowRegions] = useState(false);
+  const [showFields, setShowFields] = useState(true);
   // Territories of the peoples living on the land, coloured by polity (each tribe or civilization), by descent (which
   // starting band) or by era.
   const [peoples, setPeoples] = useState<'polity' | 'descent' | 'era' | 'off'>('polity');
-  const [regions, setRegions] = useState<{ map: RegionMap; cells: Uint16Array } | null>(null);
+  const [regions, setRegions] = useState<{ map: RegionMap; cells: Uint16Array; fieldRank: Uint16Array } | null>(null);
   const [regionError, setRegionError] = useState<string | null>(null);
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
   const shown = useRef<{ key: string; fresh: boolean }>({ key: '', fresh: false });
@@ -272,6 +273,18 @@ export function GeneratedWorldLab() {
       return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), tier: frame.roads.tiers[index], bridge: frame.roads.bridges[index] === 1 };
     }));
   }, [frame, regions, world, canvasRevision]);
+  // Cultivated land: a region's farmland cells ranked below its cultivated count (VISION.md "Cultivated land").
+  const fieldKey = frame && showFields ? `${frame.fields.regions.join(',')}:${frame.fields.cells.join(',')}` : '';
+  useEffect(() => {
+    if (!renderer.current) return;
+    if (!showFields || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setFields(null); return; }
+    const counts = new Uint16Array(regions.map.regions.length);
+    frame.fields.regions.forEach((region, index) => { counts[region] = frame.fields.cells[index]; });
+    const cells = new Uint8Array(regions.cells.length);
+    for (let cell = 0; cell < cells.length; cell++) { const region = regions.cells[cell]; if (region && regions.fieldRank[cell] < counts[region - 1]) cells[cell] = 1; }
+    renderer.current.setFields(cells);
+    // Recomputed only when the cultivated counts change (`fieldKey` follows them), not with every frame.
+  }, [fieldKey, regions, world, showFields, canvasRevision]);
   // Each occupied region filled with its people's colour; bands lighter than settled civilizations.
   useEffect(() => {
     if (!renderer.current) return;
@@ -351,6 +364,7 @@ export function GeneratedWorldLab() {
             <label className="world-resource-toggle"><input type="checkbox" checked={rivers} onChange={event => setRivers(event.target.checked)} /> Rivers</label>
             <p className="atlas-panel-note world-river-note">Larger rivers stand out at world scale. Zoom in to see smaller streams.</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={showRegions} onChange={event => setShowRegions(event.target.checked)} /> Regions</label>
+            <label className="world-resource-toggle"><input type="checkbox" checked={showFields} onChange={event => setShowFields(event.target.checked)} /> Fields</label>
             <p className="atlas-panel-note">{regions ? `${number.format(regions.map.regions.length)} simulation regions of 20,000–60,000 km²; small islands are their own region.` : regionError ?? 'Dividing the land into regions…'}</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={resources} onChange={event => setResources(event.target.checked)} /> Resource sites</label>
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
@@ -419,6 +433,7 @@ export function GeneratedWorldLab() {
                 <div><dt>Neighbours</dt><dd>{cellRegion.neighbors.length}{cellRegion.island ? ' · island' : ''}</dd></div>
                 {inspected && <div><dt>Capacity</dt><dd id="region-capacity">{number.format(inspected.capacity)} people</dd></div>}
                 {inspected && <div><dt>Game stock</dt><dd>{Math.round(inspected.gameStock * 100)}%</dd></div>}
+                {inspected && inspected.fields.cells > 0 && <div><dt>Fields</dt><dd id="region-fields">{Math.round(inspected.fields.share * 100)}% of its farmland cultivated ({number.format(inspected.fields.cells)} cells)</dd></div>}
                 {inspected && <div><dt>Last harvest</dt><dd id="region-harvest">{Math.round(inspected.weather.harvest * 100)}% of the crops{inspected.weather.drought ? ` · drought, ${inspected.weather.drought} months left` : ''}{inspected.weather.famine ? ' · famine' : ''}{inspected.weather.irrigation > 1 ? ` · irrigated (farming ×${inspected.weather.irrigation.toFixed(2)})` : ''}</dd></div>}
               </dl>
               {inspected && <p className="atlas-panel-note">At capacity this land yields about {number.format(inspected.food.forage)} from foraging, {number.format(inspected.food.hunt)} from hunting, {number.format(inspected.food.fish)} from fishing{inspected.food.herd || inspected.food.farm ? `, ${number.format(inspected.food.herd)} from herding and ${number.format(inspected.food.farm)} from farming` : ''} (people fed per year), for the people who live here or, on empty land, for foragers. Capacity is the population whose food equals its need at the current game stock.</p>}

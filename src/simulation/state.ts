@@ -82,6 +82,9 @@ export interface Polity {
   roadWorks: RoadWork[];
   /** Its share of last month's road upkeep left unpaid (0–1): the roads it keeps wear by it. */
   roadsUnpaid: number;
+  /** Tick one of its regions last fell into famine (−1 never): regions falling into famine within a year of it join
+   *  that famine rather than making a new one. */
+  famineTick: number;
 }
 
 export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build'] as const;
@@ -175,6 +178,16 @@ export interface RoadWork {
   spent: number; cost: number; months: number; startedTick: number; causes: { factor: string; weight: number }[];
 }
 
+/** Each region's farmland cells ranked once (`fields.ts` `rankFarmland`). */
+export interface FieldRanking {
+  /** Farmland cells, region by region, best first: region r's are `order[start[r]]` to `order[start[r + 1] − 1]`. */
+  order: Int32Array; start: Int32Array;
+  /** Farm labour (people) along that order, cumulative within each region. */
+  cumulative: Float64Array;
+  /** Per cell: its place in its region's order, or 0xffff (no farmland, or beyond what the contract carries). */
+  rank: Uint16Array;
+}
+
 /** People of one polity, culture and region; integer size with fractional birth and death carries. */
 export interface PopulationGroup {
   id: number; polity: number; culture: number; region: number; size: number; deathTick: number | null;
@@ -247,6 +260,9 @@ export interface CenturyStats {
   roadCoverage: number; roadCivs: number;
   /** Droughts begun and famines recorded so far, regions in drought now and regions with irrigation. */
   droughts: number; famines: number; regionsInDrought: number; irrigated: number;
+  /** Cultivated cells now and their share of all farmland cells; civilizations' famines watched so far, and of those,
+   *  the ones whose fields shrank within 10 years, and regrew after (VISION.md M3b). */
+  cultivatedCells: number; cultivatedShare: number; faminesWatched: number; fieldsShrank: number; fieldsRegrew: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -267,9 +283,9 @@ export interface WealthFlows { before: number; produced: number; construction: n
 export interface FoodFlows {
   before: number; production: number; consumption: number; spoilage: number; carriedIn: number; carriedOut: number;
   plantedBefore: number; sown: number; harvested: number; cropsLost: number;
-  /** What the harvest gained (above 0) or lost (below 0) to the weather and drought, beyond the crops in the field;
-   *  part of production. */
-  weather: number;
+  /** What the harvest gained (above 0) or lost (below 0) to the weather and drought, beyond the crops in the field
+   *  (part of production), and the share of its crops it came in at (`SimulationState.harvestFactor`; 1 without one). */
+  weather: number; factor: number;
 }
 
 export interface Metrics {
@@ -303,6 +319,8 @@ export interface Metrics {
   roadsBegun: number; roadsBuilt: number; roadsAbandoned: number; roadEdgesBuilt: number; bridgesBuilt: number; roadsLost: number; firstBridgeTick: number;
   /** Droughts begun (anywhere), and famines recorded (one for a polity's regions that fall into famine the same month). */
   droughts: number; famines: number;
+  /** Civilizations' famines watched, those whose regions' fields shrank within the years watched, and of those, regrew. */
+  faminesWatched: number; fieldsShrank: number; fieldsRegrew: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -338,6 +356,11 @@ export interface SimulationState {
    *  multiplier and the share of a drought's loss kept away (irrigation), and the food store limit and spoilage
    *  multipliers (a granary). */
   farmBonus: Float64Array; droughtShield: Float64Array; storeBonus: Float64Array; spoilageBonus: Float64Array;
+  /** Per region: cultivated land, as farm labour (people) under cultivation, at most its farmland's (`fields.ts`); and
+   *  the fixed ranking of each region's farmland cells that says which cells the fields cover. */
+  fields: Float64Array; fieldRanking: FieldRanking;
+  /** Civilizations' famines being watched for their regions' fields shrinking and regrowing (VISION.md M3b). */
+  famineWatches: { polity: number; regions: number[]; tick: number; before: number; shrunk: number }[];
   /** Per region: every settlement ever founded there (living or in ruins), in founding order; the first living one is
    *  the region's main settlement. */
   regionSettlements: number[][];

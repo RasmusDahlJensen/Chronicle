@@ -159,6 +159,8 @@ test('bands appear as markers and territories, the world chart grows and a band 
 });
 
 test('farming bands settle into civilizations with villages, specialists, research the inspector explains, and roads', async ({ page }) => {
+  // Fourteen centuries or more of history run in the worker.
+  test.setTimeout(300_000);
   await ready(page);
   const canvas = page.locator('#generated-world-canvas');
   await history(page).getByLabel('Run to year').fill('650');
@@ -187,8 +189,16 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(settlementsHere).toContainText(/(Village|Town|City|Metropolis)(, capital)? of the/);
   await expect(settlementsHere).toContainText(/townspeople of [\d,]+ it can house/);
   await expect(page.locator('#polity-rural')).toHaveText(/^[\d,]+$/);
-  // M3b.6: the region's last harvest (and any drought, famine or irrigation).
+  // M3b.6: the region's last harvest (and any drought, famine or irrigation); M3b.7: its cultivated land.
   await expect(page.locator('#region-harvest')).toContainText(/\d+% of the crops/);
+  await expect(page.locator('#region-fields')).toContainText(/\d+% of its farmland cultivated/);
+  // The Fields layer draws exactly the cultivated cells the frame reports (each region's count of its ranked farmland).
+  const cultivated = frame.fields.cells.reduce((sum: number, cells: number) => sum + cells, 0);
+  expect(cultivated).toBeGreaterThan(0);
+  await expect.poll(async () => Number(await canvas.getAttribute('data-field-cells'))).toBe(cultivated);
+  await page.getByLabel('Fields').uncheck();
+  await expect(canvas).toHaveAttribute('data-field-cells', '0');
+  await page.getByLabel('Fields').check();
   await expect(page.locator('#world-population')).toContainText(/[\d,]+ settlements?/);
   await expect(details.getByRole('region', { name: 'Knowledge' })).toContainText('points a year');
   // M3: a civilization weighs expanding, exploring, uniting, sharing knowledge or doing nothing every six months; the inspector shows the last
@@ -212,11 +222,15 @@ test('farming bands settle into civilizations with villages, specialists, resear
   // Zoomed in on it, settlements are drawn by tier and named (capitals and cities first).
   for (let step = 0; step < 3; step++) await page.getByRole('button', { name: 'Zoom in' }).click();
   await expect.poll(async () => Number(await canvas.getAttribute('data-settlement-labels'))).toBeGreaterThan(0);
-  // M3b.5: once a civilization knows the Wheel it builds roads from its capital to its towns, drawn on the map.
-  await history(page).getByLabel('Run to year').fill('1100');
-  await history(page).getByRole('button', { name: 'Run', exact: true }).click();
-  await expect(history(page)).toHaveAttribute('data-tick', String(1100 * 12), { timeout: 120_000 });
-  const later = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  // M3b.5: once a civilization knows the Wheel it builds roads from its capital to its towns, drawn on the map. (Run
+  // on a century at a time until the first roads stand: when the Wheel comes depends on the whole history.)
+  let later = frame;
+  for (let year = 1200; year <= 2000 && !later.roads.a.length; year += 100) {
+    await history(page).getByLabel('Run to year').fill(String(year));
+    await history(page).getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 120_000 });
+    later = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  }
   expect(later.roads.a.length).toBeGreaterThan(0);
   await expect.poll(async () => Number(await canvas.getAttribute('data-road-marks'))).toBe(later.roads.a.length);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();

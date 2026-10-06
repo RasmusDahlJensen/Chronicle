@@ -141,14 +141,21 @@ test('real resource glyph edges select the site and hidden glyphs do not capture
   for (let index = 0; index < 4; index++) await page.mouse.wheel(0, -180);
   await expect(canvas).toHaveAttribute('data-detail', 'true');
   await expect.poll(async () => Number(await canvas.getAttribute('data-scale'))).toBeGreaterThan(5);
+  // All four wheel steps have landed (each zooms by e^0.54) before the glyph's position is measured.
+  await expect.poll(async () => Number(await canvas.getAttribute('data-zoom'))).toBeGreaterThan(Math.exp(0.54 * 4) - 0.01);
   const enlarged = await point();
   await page.mouse.click(enlarged.x + 6, enlarged.y);
   await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(cellId));
+  // Toggling the layer may scroll the page to the checkbox: the glyph's position is measured again after each toggle.
   await page.getByLabel('Resource sites', { exact: true }).uncheck();
-  await page.mouse.click(enlarged.x + 6, enlarged.y);
+  await canvas.scrollIntoViewIfNeeded();
+  const hidden = await point();
+  await page.mouse.click(hidden.x + 6, hidden.y);
   await expect(page.locator('[data-selected-cell]')).not.toHaveAttribute('data-selected-cell', String(cellId));
   await page.getByLabel('Resource sites', { exact: true }).check();
-  await page.mouse.click(enlarged.x, enlarged.y);
+  await canvas.scrollIntoViewIfNeeded();
+  const shown = await point();
+  await page.mouse.click(shown.x, shown.y);
   await expect.poll(async () => Number(await canvas.getAttribute('data-loaded-tile-count'))).toBeGreaterThan(0);
   expect(Number(await canvas.getAttribute('data-loaded-tile-count'))).toBeLessThanOrEqual(16);
   await page.screenshot({ path: testInfo.outputPath('generated-world-detail.png'), fullPage: true });

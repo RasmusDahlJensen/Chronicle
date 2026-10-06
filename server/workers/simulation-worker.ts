@@ -101,14 +101,16 @@ function frame(cursor: number, inspect: number | null = null): ObserverFrame {
 
 function regions(): RegionMap {
   if (regionMap) return regionMap;
-  const bytes = new Uint8Array(geography.cells * 2);
+  const bytes = new Uint8Array(geography.cells * 2), ranks = new Uint8Array(geography.cells * 2), rank = state.fieldRanking.rank;
   for (let cell = 0; cell < geography.cells; cell++) {
     const value = partition.regionOf[cell] + 1;
     bytes[cell * 2] = value & 0xff; bytes[cell * 2 + 1] = value >> 8;
+    ranks[cell * 2] = rank[cell] & 0xff; ranks[cell * 2 + 1] = rank[cell] >> 8;
   }
   regionMap = {
     protocolVersion: SIMULATION_PROTOCOL_VERSION, worldKey: geography.manifest.worldKey, partitionVersion: REGION_PARTITION_VERSION,
     width: geography.width, height: geography.height, encoding: 'region-u16le', data: Buffer.from(bytes).toString('base64'),
+    fieldRank: Buffer.from(ranks).toString('base64'),
     regions: partition.regions.map(region => ({
       id: region.id, landmass: region.landmass, cells: region.cells.length, areaKm2: Math.round(region.areaKm2), centroid: region.centroid,
       island: region.island, coastal: region.coastal, openLake: region.openLake, riverTier: region.riverTier,
