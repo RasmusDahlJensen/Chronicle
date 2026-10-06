@@ -201,17 +201,17 @@ export const MOBILITY_TUNING = { coastalSailingKm: 300 } as const;
 /**
  * Settlements (VISION.md "Settlements"). A region's townspeople (its specialists) live in its settlements: the capital
  * first, then the others in founding order, each up to its housing (`baseHousing`, × `capitalHousing` for the seat of
- * government, until buildings raise it). When they
+ * government, × its buildings' housing). When they
  * fill `foundAt` of the region's housing, a new settlement is founded on the next free candidate site (or ruins are
  * resettled), once a year; a region's first settlement takes its best site, further ones only a site by water or a
- * resource site. Townspeople are shared among a region's settlements by housing. A settlement's tier rises when its
- * yearly mean urban population reaches the next of `tiers` (village, town, city, metropolis) and falls when it drops
- * below `demote` × its own; resettled ruins keep their old name with chance `keepName`.
+ * resource site. A settlement's tier rises when its mean urban population (an exponential moving average with weight
+ * 1 ÷ `meanMonths` a month, from 0 at founding) reaches the next of `tiers` (village, town, city, metropolis) and falls
+ * when it drops below `demote` × its own; resettled ruins keep their old name with chance `keepName`.
  */
 export const SETTLEMENT_TUNING = {
-  tiers: [0, 4_000, 12_000, 50_000], demote: 0.75, baseHousing: 8_000, capitalHousing: 2, foundAt: 0.9, keepName: 0.5,
-  /** The tier follows the urban population averaged over this many months (a moving average), not one month's. */
-  meanMonths: 12,
+  tiers: [0, 4_000, 12_000, 50_000], demote: 0.6, baseHousing: 8_000, capitalHousing: 2, foundAt: 0.9, keepName: 0.5,
+  /** The tier follows the urban population averaged over about this many months (exponentially), not one month's. */
+  meanMonths: 24,
   /** Event importance of reaching each tier (a village is never reached), and of falling a tier. */
   tierImportance: [0, 0.03, 0.12, 0.35], fallImportance: 0.05,
 } as const;
@@ -330,6 +330,35 @@ export const SHARE_TUNING = {
   years: 40, refusedYears: 20,
 } as const;
 
+/**
+ * Wealth (VISION.md "Wealth"): one currency per civilization. Each townsperson earns `perTownsperson` a year (times
+ * their settlement's buildings' wealth multipliers, less in unrest as output is). Hardship is the memory of hunger
+ * per region: each month it becomes the larger of the month's shortfall of food (1 − food security) and its own value
+ * × `hardshipFade`.
+ */
+export const WEALTH_TUNING = { perTownsperson: 1, hardshipFade: 0.98 } as const;
+
+/**
+ * Building (VISION.md "Buildings" and the Build action). At its decision step a civilization weighs each building type
+ * it knows: for each settlement that could have it, need × size, where size = min(1, townspeople ÷ sizeScale) and the
+ * need follows the building's purpose —
+ *   food: hardship + farmStore × the share of food farmed; faith: (1 − stability) × (faithBase + Zeal);
+ *   learning: (learningBase + Openness); trade: (tradeBase + Openness × tradeOpenness);
+ *   housing: clamp((townspeople ÷ housing − crowdFrom) ÷ (1 − crowdFrom), 0, 1); defense: min(1, foreign neighbours ÷
+ *   frontierScale) × (defenseBase + Militarism).
+ * The type's score is purposeWeight × the mean of its best `batch` settlements' values (batch = ceil(regions ÷
+ * batchRegions), at most batchMax) − cost × (cost of the batch ÷ (income + treasury ÷ treasuryYears)) − upkeepWeight ×
+ * (upkeep after building ÷ income). The best type is the Build option; it is begun in those settlements.
+ * Construction is paid in equal monthly instalments while the treasury allows. Upkeep is due monthly; unpaid, every
+ * building loses 1 ÷ decayMonths of condition a month (paid, it regains 1 ÷ recoverMonths) and is lost at 0.
+ */
+export const BUILD_TUNING = {
+  sizeScale: 8_000, farmStore: 0.2, faithBase: 0.3, learningBase: 0.3, tradeBase: 0.4, tradeOpenness: 0.6, crowdFrom: 0.7, frontierScale: 3, defenseBase: 0.1,
+  purposeWeight: { food: 0.5, faith: 0.35, learning: 0.3, trade: 0.35, housing: 0.6, defense: 0.25 },
+  batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6,
+  decayMonths: 60, recoverMonths: 24,
+} as const;
+
 /** Culture values of new cultures (0–1 sliders) and how far a daughter culture's values drift from its parent's. */
 export const CULTURE_TUNING = { valueMin: 0.15, valueSpan: 0.7, mutation: 0.1 } as const;
 
@@ -423,6 +452,10 @@ export function validateTunables() {
   if (!(Object.values(j).every(value => value >= 0) && j.prestigeScale > 0 && j.foundScore > 0 && j.admitPower > 0)) problems.push('joining settings are invalid');
   const u = UNITE_TUNING;
   if (!(Object.values(u).every(value => value >= 0) && u.sizeScale > 0 && u.admitPower > 0)) problems.push('unification settings are invalid');
+  if (!(WEALTH_TUNING.perTownsperson > 0 && WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1)) problems.push('wealth settings are invalid');
+  const bu = BUILD_TUNING;
+  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths].every(value => value > 0) && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
+    && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
   const sh = SHARE_TUNING;
   if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');
   const st2 = STABILITY_TUNING;

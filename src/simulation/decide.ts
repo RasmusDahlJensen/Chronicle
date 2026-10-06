@@ -3,6 +3,7 @@ import { choose, drivers } from './decisions/choose.ts';
 import { expand, explore, unite } from './expansion.ts';
 import { decisionView } from './perception.ts';
 import { share } from './sharing.ts';
+import { startProjects } from './construction.ts';
 import type { SimulationState, TickContext } from './state.ts';
 import { DECISION_TUNING } from './tunables.ts';
 
@@ -33,6 +34,7 @@ export function decide(state: SimulationState, context: TickContext) {
       const neighbour = view.neighbours.find(entry => entry.civ === chosen.target)!;
       outcome = unite(state, context.tick, context.stream(id, UNITING), polity, state.polities[neighbour.civ], neighbour.border, cited);
     } else if (chosen.action === 'share') outcome = share(state, context.tick, context.stream(id, SHARING), polity, state.polities[chosen.target!], cited);
+    else if (chosen.action === 'build') outcome = startProjects(state, context.tick, polity, chosen.target!, chosen.targets ?? [], cited);
     state.metrics.chosen[chosen.action]++;
     polity.decisions.push({
       tick: context.tick, chosen: chosen.action, outcome,

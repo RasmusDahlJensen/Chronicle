@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 11;
+export const SIMULATION_PROTOCOL_VERSION = 12;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -14,9 +14,9 @@ export const SPEED_MONTHS_PER_SECOND: Record<SimulationSpeed, number> = { month:
 export const MAX_SIMULATION_YEAR = 5000;
 export const MAX_FRAME_EVENTS = 200;
 
-/** Era labels (VISION.md "Eras"), indexed by the era numbers in frames; the simulation's tech data uses this list as its eras. */
 /** Settlement tiers by urban population (VISION.md "Settlements"); a settlement's tier is its index here. */
 export const SETTLEMENT_TIERS = ['village', 'town', 'city', 'metropolis'] as const;
+/** Era labels (VISION.md "Eras"), indexed by the era numbers in frames; the simulation's tech data uses this list as its eras. */
 export const ERA_NAMES = ['Stone', 'Neolithic', 'Bronze', 'Iron', 'Classical', 'Medieval', 'Early modern', 'Industrial', 'Modern', 'Atomic'] as const;
 
 /** The chronicle's event types (VISION.md "The Chronicle"). Append only: ids are stored in event logs. */
@@ -30,7 +30,7 @@ export const EVENT_TYPES = [
   'governmentChange', 'unrest', 'revolt', 'secession', 'civilWar', 'civDestroyed', 'cultureSplit', 'hybridCulture',
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
-  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared',
+  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -119,6 +119,9 @@ export const ObserverFrameSchema = Type.Object({
       urban: Type.Integer({ minimum: 0 }), housing: Type.Integer({ minimum: 0 }), capital: Type.Boolean(), founded: Type.Integer({ minimum: 0 }),
       status: Type.Union([Type.Literal('alive'), Type.Literal('ruined'), Type.Literal('razed')]), formerName: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
       owner: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
+      /** Its standing buildings with their condition (0–1), and those under construction with the share paid. */
+      buildings: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), condition: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 32 }),
+      building: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), progress: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 32 }),
       events: Type.Array(ChronicleEventSchema, { maxItems: 6 }),
     }, { additionalProperties: false }), { maxItems: 16 }),
     food: Type.Object({
@@ -153,14 +156,18 @@ export const ObserverFrameSchema = Type.Object({
       }, { additionalProperties: false })]),
       /** Its last decision step: every option with its score and factors, what it chose and what came of it. */
       lastDecision: Type.Union([Type.Null(), Type.Object({
-        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share')]),
+        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]),
         outcome: Type.String({ maxLength: 80 }),
         options: Type.Array(Type.Object({
-          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share')]), score: Type.Number(),
+          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]), score: Type.Number(),
           /** The region to expand into, or the civilization to unite or share knowledge with; and that people's name. */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
           factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
         }, { additionalProperties: false }), { maxItems: 4 }),
+      }, { additionalProperties: false })]),
+      /** A civilization's treasury, its income and upkeep a year, and its buildings under construction (null for a tribe). */
+      wealth: Type.Union([Type.Null(), Type.Object({
+        treasury: Type.Integer({ minimum: 0 }), income: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }), projects: Type.Integer({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Peoples it shares knowledge with (VISION.md "Sharing knowledge") and the year each exchange ends. */
       exchanges: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), until: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 64 }),

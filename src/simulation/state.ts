@@ -73,9 +73,14 @@ export interface Polity {
   seaTick: number;
   /** Civilizations that turned it away when it asked to unite, and when (it waits before asking again). */
   rebuffed: Map<number, number>;
+  /** A civilization's treasury in whole units of wealth (VISION.md "Wealth"), the fractions of production and upkeep
+   *  not yet counted, and its buildings under construction. */
+  wealth: number; wealthCarry: number; upkeepCarry: number; projects: Project[];
+  /** Whether any of its buildings is worn below full condition (they mend while upkeep is paid). */
+  repairing: boolean;
 }
 
-export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share'] as const;
+export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build'] as const;
 export type Action = typeof ACTIONS[number];
 
 /** One decision step: every option with its score and the factors behind it, and the one chosen. */
@@ -116,7 +121,19 @@ export interface Settlement {
   /** Tick it last fell to ruin (null while it has never been ruined), and the name its ruins bore when they were
    *  resettled under a new one (null otherwise). */
   ruinedTick: number | null; formerName: string | null;
+  /** Its standing buildings (VISION.md "Buildings"), at most one of each type, and what they add up to (derived,
+   *  recomputed whenever they change): multipliers on its townspeople's research and wealth and its region's food
+   *  store and spoilage, stability added to its region, and the upkeep they cost a year. */
+  buildings: Building[];
+  bonus: BuildingBonus;
 }
+export interface BuildingBonus { research: number; wealth: number; store: number; spoilage: number; stability: number; upkeep: number }
+
+/** A standing building: its type (an index into BUILDINGS), condition (0–1, worn by unpaid upkeep) and when it was built. */
+export interface Building { type: number; condition: number; builtTick: number }
+
+/** A building under construction for a civilization: where, what, the wealth spent so far, and why it was begun. */
+export interface Project { settlement: number; type: number; spent: number; startedTick: number; causes: { factor: string; weight: number }[] }
 
 /** People of one polity, culture and region; integer size with fractional birth and death carries. */
 export interface PopulationGroup {
@@ -158,7 +175,7 @@ export interface CenturyStats {
   /** First contacts so far, and the mean number of regions a civilization knows (in sight or remembered). */
   firstContacts: number; civKnownRegions: number;
   /** Decision steps so far by chosen action, expansions, bands absorbed or displaced by them, and expeditions. */
-  chosenExpand: number; chosenExplore: number; chosenNothing: number; chosenUnite: number; chosenShare: number;
+  chosenExpand: number; chosenExplore: number; chosenNothing: number; chosenUnite: number; chosenShare: number; chosenBuild: number;
   /** Civilizations that united with a larger one so far. */
   unions: number;
   expansions: number; absorbed: number; displaced: number; expeditions: number;
@@ -178,6 +195,8 @@ export interface CenturyStats {
   /** Living settlements by tier (villages, towns, cities, metropolises), and the share of living settlements within one
    *  cell of a river, lake, coast or resource site (VISION.md M3b). */
   villages: number; towns: number; cities: number; metropolises: number; settlementsByWater: number;
+  /** Standing buildings, all civilizations' treasuries together, and buildings completed and lost so far. */
+  buildings: number; wealth: number; buildingsCompleted: number; buildingsLost: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -187,7 +206,13 @@ export interface Ledger {
   before: Int32Array;
   /** Food flows per group id this tick: the store's (production includes the harvest) and the crops' in the field. */
   food: Map<number, FoodFlows>;
+  /** Wealth flows per civilization id this tick (VISION.md rule 8). */
+  wealth: Map<number, WealthFlows>;
 }
+
+/** What changed a treasury this tick: production, construction and upkeep, and wealth passed between civilizations
+ *  (a union) or lost (a civilization that dies out). */
+export interface WealthFlows { before: number; produced: number; construction: number; upkeep: number; received: number; given: number; lost: number }
 
 export interface FoodFlows {
   before: number; production: number; consumption: number; spoilage: number; carriedIn: number; carriedOut: number;
@@ -216,6 +241,8 @@ export interface Metrics {
   exchangeOffers: number; exchanges: number; tribeExchanges: number; agricultureInventions: number;
   /** Settlements founded because a region's townspeople outgrew its housing, ruins resettled, and tier changes. */
   settlementsGrown: number; ruinsResettled: number; tierChanges: number;
+  /** Buildings begun, completed, lost to unpaid upkeep, and abandoned unfinished. */
+  buildingsStarted: number; buildingsCompleted: number; buildingsLost: number; projectsAbandoned: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -235,6 +262,8 @@ export interface SimulationState {
   settlements: Settlement[];
   /** Per region: the civilization that owns it (−1 for none). */
   owner: Int32Array;
+  /** Per region: hardship (0–1), the memory of hunger — the worst recent shortfall of food, fading over the years. */
+  hardship: Float64Array;
   /** Per region: every settlement ever founded there (living or in ruins), in founding order; the first living one is
    *  the region's main settlement. */
   regionSettlements: number[][];

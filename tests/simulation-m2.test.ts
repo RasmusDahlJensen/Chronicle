@@ -238,6 +238,12 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
     settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
     state.groups[band.core].specialists += 3;
   }, /townspeople, not its/);
+  // A treasury changes only through recorded flows.
+  tamper(state => {
+    const band = state.polities[state.living[5]];
+    settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
+    band.wealth += 5;
+  }, /treasury changed with no flows recorded/);
   // Knowledge: an exchange held by one side only, an exchange between two tribes, research on a known tech, or more
   // progress from speed-ups than in all. (Knowledge is checked yearly per polity, staggered by id; these tamper with
   // a polity due this month.)

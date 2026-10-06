@@ -56,16 +56,21 @@ test('a region\'s first settlement takes its best site wherever it lies; further
   assert.equal(state.metrics.ruinsResettled, 2);
 });
 
-test('townspeople share a region\'s settlements by housing, at most all of it; the rest stay rural', () => {
+test('townspeople fill the capital first, then the others in founding order, at most all the housing; the rest stay rural', () => {
   const { state, civ } = fixture();
-  foundSettlement(state, createRng(5, 5), civ, 0, true, 0); foundSettlement(state, createRng(5, 6), civ, 0, false, 0);
-  const [capital, town] = livingSettlements(state, 0), housing = regionHousing(state, 0);
-  assert.equal(housing, capital.housing + town.housing);
+  foundSettlement(state, createRng(5, 5), civ, 0, false, 0); foundSettlement(state, createRng(5, 6), civ, 0, true, 0);
+  const [town, capital] = livingSettlements(state, 0), housing = regionHousing(state, 0);
+  assert.equal(housing, capital.housing + town.housing); assert.equal(capital.housing, 2 * town.housing, 'the seat of government houses twice as many');
   assert.equal(house(state, 0, 9_000), 9_000);
-  assert.equal(capital.urban + town.urban, 9_000); assert.equal(capital.urban, 2 * town.urban, 'the seat of government has twice the housing');
+  assert.deepEqual([capital.urban, town.urban], [9_000, 0], 'the capital first, though founded second');
+  assert.equal(house(state, 0, capital.housing + 300), capital.housing + 300);
+  assert.deepEqual([capital.urban, town.urban], [capital.housing, 300], 'the newer settlement takes the growth');
   assert.equal(house(state, 0, housing + 5_000), housing, 'only as many as they can house');
-  assert.equal(capital.urban, capital.housing); assert.equal(town.urban, town.housing);
-  assert.equal(house(state, 0, 7), 7); assert.equal(capital.urban + town.urban, 7, 'whole people, none lost');
+  assert.deepEqual([capital.urban, town.urban], [capital.housing, town.housing]);
+  // The moving average follows month by month; a mid-month rehousing leaves it be.
+  const mean = town.urbanMean;
+  house(state, 0, 0, false);
+  assert.equal(town.urbanMean, mean); assert.equal(town.urban, 0);
 });
 
 test('tiers follow the urban population with a margin, and growth founds settlements with their causes', () => {

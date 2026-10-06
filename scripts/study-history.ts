@@ -85,7 +85,7 @@ console.log(`\n${summary}\nWrote ${values.out}`);
 
 /** The brief's story-health table: per seed and century, plus per-system timing per simulated year. */
 function storyHealth(rows: SeedResult[]) {
-  const lines = ['| Seed | Year | Polities | Tribes | Bands | Civs | Villages | Population | Specialists | Know Agriculture | Leading era | Occupied regions | Most regions in one polity | Largest share | Water-region population share (land share) | Moves | Splits (broke away) | First contacts | Regions a civilization knows | Famine deaths | Events |',
+  const lines = ['| Seed | Year | Polities | Tribes | Bands | Civs | Settlements | Population | Specialists | Know Agriculture | Leading era | Occupied regions | Most regions in one polity | Largest share | Water-region population share (land share) | Moves | Splits (broke away) | First contacts | Regions a civilization knows | Famine deaths | Events |',
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |'];
   for (const result of rows) for (const stats of result.report.stats as Stats[]) {
     if (stats.year > 1000 && stats.year % 500 !== 0) continue;
@@ -131,18 +131,27 @@ function storyHealth(rows: SeedResult[]) {
     const tiers = (year: number) => { const row = at(year); return row ? `${row.villages} · ${row.towns} · ${row.cities} · ${row.metropolises}` : '—'; };
     lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => { const row = at(year); return row ? `${Math.round(row.settlementsByWater * 100)}%` : '—'; }).join(' / ')} | ${tiers(1000)} | ${tiers(1500)} | ${tiers(3000)} | ${m.settlementsGrown} · ${m.ruinsResettled} · ${m.tierChanges} |`);
   }
+  // M3b: wealth and buildings (VISION.md "Buildings", "Wealth").
+  lines.push('', '| Seed | Standing buildings at 1,000 / 2,000 / 3,000 | Completed · lost to unpaid upkeep by 3,000 | Completed by type by 3,000 | Treasuries at 1,000 / 3,000 |', '| --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), m = result.report.metrics;
+    const byType = new Map<string, number>();
+    for (const event of (result.report.events ?? []) as { type: string; data: Record<string, unknown> }[]) if (event.type === 'buildingCompleted') byType.set(String(event.data.building), (byType.get(String(event.data.building)) ?? 0) + 1);
+    lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => at(year)?.buildings ?? '—').join(' / ')} | ${m.buildingsCompleted} · ${m.buildingsLost} | ${[...byType].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(', ') || '—'} | ${[1000, 3000].map(year => at(year)?.wealth.toLocaleString('en') ?? '—').join(' / ')} |`);
+  }
   // Story health: the decision mix per century (share of decision steps by chosen action).
-  lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Build | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[];
     for (let at = 1; at < stats.length; at++) {
       const row = stats[at], previous = stats[at - 1];
       if (row.year > 1000 && row.year % 500 !== 0) continue;
       const expand = row.chosenExpand - previous.chosenExpand, explore = row.chosenExplore - previous.chosenExplore, nothing = row.chosenNothing - previous.chosenNothing;
-      const unite = (row.chosenUnite ?? 0) - (previous.chosenUnite ?? 0), sharing = (row.chosenShare ?? 0) - (previous.chosenShare ?? 0), total = expand + explore + unite + sharing + nothing;
+      const unite = (row.chosenUnite ?? 0) - (previous.chosenUnite ?? 0), sharing = (row.chosenShare ?? 0) - (previous.chosenShare ?? 0), building = (row.chosenBuild ?? 0) - (previous.chosenBuild ?? 0);
+      const total = expand + explore + unite + sharing + building + nothing;
       if (!total) continue;
       const share = (count: number) => `${(count / total * 100).toFixed(1)}%`;
-      lines.push(`| ${result.seed} | ${row.year} | ${total.toLocaleString('en')} | ${share(expand)} | ${share(explore)} | ${share(unite)} | ${share(sharing)} | ${share(nothing)} |`);
+      lines.push(`| ${result.seed} | ${row.year} | ${total.toLocaleString('en')} | ${share(expand)} | ${share(explore)} | ${share(unite)} | ${share(sharing)} | ${share(building)} | ${share(nothing)} |`);
     }
   }
   // M1 acceptance (VISION.md), read from the same run.

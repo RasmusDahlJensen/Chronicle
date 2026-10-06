@@ -49,11 +49,6 @@ function WorldChart({ series }: { series: ObserverFrame['series'] }) {
   </figure>;
 }
 
-/**
- * Observer time controls and the raw chronicle list. The browser polls compact frames and shows only the newest:
- * each request takes a sequence number and an older response never replaces a newer one. A frame from another world,
- * run or reset epoch never mixes into the displayed history.
- */
 /** Living settlements by tier: "1,204 settlements (310 towns, 12 cities)". */
 function settlementSummary(frame: ObserverFrame) {
   const counts = [0, 0, 0, 0];
@@ -62,6 +57,11 @@ function settlementSummary(frame: ObserverFrame) {
   return `${frame.settlementCount.toLocaleString('en')} ${frame.settlementCount === 1 ? 'settlement' : 'settlements'}${parts.length ? ` (${parts.join(', ')})` : ''}`;
 }
 
+/**
+ * Observer time controls and the raw chronicle list. The browser polls compact frames and shows only the newest:
+ * each request takes a sequence number and an older response never replaces a newer one. A frame from another world,
+ * run or reset epoch never mixes into the displayed history.
+ */
 export function SimulationPanel({ settings, startFresh = false, inspect = null, onFrame, onFocusCell }: Props) {
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
   const [events, setEvents] = useState<ChronicleEvent[]>([]);

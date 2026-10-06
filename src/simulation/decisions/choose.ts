@@ -1,20 +1,20 @@
 import type { Candidate, Neighbour, Partner, PolityView } from '../perception.ts';
 import type { Rng } from '../rng.ts';
 import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, UNITE_TUNING } from '../tunables.ts';
+import { bestBuild } from './build.ts';
 
 /** Factors named with a leading × are multipliers (logged, never cited as causes); the rest are contributions to the score. */
 export const MULTIPLIER = '×';
 
 /**
  * The decision step (VISION.md "Personality and the decision model"), M3's form: Expand, Explore, Unite, Share
- * knowledge or Do nothing, weighed from the needs land pressure, hunger and opportunity, what it could learn, and the
+ * knowledge, Build or Do nothing, weighed from the needs land pressure, hunger and opportunity, what it could learn, and the
  * civilization's values. Pure: it sees only the
  * view `perception.ts` builds from the civilization's own state and what it knows (VISION.md "Implementation rule";
  * a Biome rule keeps this folder from importing anything else).
  */
-export type Action = 'expand' | 'explore' | 'nothing' | 'unite' | 'share';
-export interface Factor { factor: string; weight: number }
-export interface Option { action: Action; score: number; target: number | null; label: string | null; factors: Factor[] }
+export type { Action, Factor, Option } from './options.ts';
+import type { Action, Factor, Option } from './options.ts';
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const round = (value: number) => Math.round(value * 1000) / 1000;
@@ -143,7 +143,9 @@ export function options(view: PolityView): Option[] {
   if (unite) all.push(unite);
   const share = bestShare(view);
   if (share) all.push(share);
-  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'nothing'];
+  const build = bestBuild(view);
+  if (build) all.push(build);
+  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }
 

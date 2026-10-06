@@ -1,6 +1,7 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { endPolity, learnFrom, move, newGroup, polityPopulation, refuge, regionCapacity, transferGroup } from './bands.ts';
 import { foundSettlement, house, livingSettlements, setCapital } from './settlements.ts';
+import { transferWealth } from './economy.ts';
 import { newTechs } from './knowledge.ts';
 import { absorbMap, arrive, governable, lookAgain, meet, reveal, UNKNOWN } from './perception.ts';
 import { assess } from './stability.ts';
@@ -151,9 +152,13 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
     state.occupant[region] = large.id; state.owner[region] = large.id;
     for (const settlement of livingSettlements(state, region)) { settlement.owner = large.id; setCapital(settlement, false); }
     // Its old capital is an ordinary town now, with an ordinary town's housing.
-    group.specialists = house(state, region, group.specialists);
+    group.specialists = house(state, region, group.specialists, false);
     arrive(state, large, region, tick);
   }
+  // Its treasury and its works under construction pass to the union (VISION.md rule 8: wealth received and given).
+  transferWealth(state, small, large);
+  large.projects.push(...small.projects); small.projects = [];
+  large.repairing ||= small.repairing;
   lookAgain(small);
   endPolity(state, small, tick);
   state.metrics.unions++;

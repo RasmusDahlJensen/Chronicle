@@ -1,4 +1,5 @@
 import { causes } from './causes.ts';
+import { buildingStability } from './economy.ts';
 import { cultureSimilarity } from './culture.ts';
 import { capitalTravel } from './perception.ts';
 import type { Polity, PopulationGroup, SimulationState, TickContext } from './state.ts';
@@ -17,7 +18,9 @@ export function stabilityOf(state: SimulationState, civ: Polity, group: Populati
   const reach = REACH_TUNING.baseKm * civ.knowledge.multipliers.reach;
   const overextension = Math.min(tuning.overextensionCap, tuning.overextension * (Number.isFinite(kmFromCapital) ? Math.max(0, kmFromCapital / reach - 1) : Number.POSITIVE_INFINITY));
   const foreignRule = group.culture === civ.culture ? 0 : tuning.foreignRule * (1 - cultureSimilarity(state.cultures[group.culture].values, state.cultures[civ.culture].values));
-  return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule)), hunger, overextension, foreignRule };
+  // Shrines and temples steady their region (VISION.md "Buildings").
+  const buildings = buildingStability(state, group.region);
+  return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule + buildings)), hunger, overextension, foreignRule, buildings };
 }
 
 /** Stability system: once a year per civilization (staggered by id), each of its regions; unrest begins and ends. */

@@ -11,6 +11,8 @@ import { stabilityOf } from '../src/simulation/stability.ts';
 import { unrestDepth } from '../src/simulation/pressure.ts';
 import type { JoinOption, JoinView, Neighbour, Partner } from '../src/simulation/perception.ts';
 import { share } from '../src/simulation/sharing.ts';
+import { BUILDING_INDEX, BUILDINGS } from '../src/simulation/buildings.ts';
+import { bonusOf } from '../src/simulation/settlements.ts';
 import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { teacherOf } from '../src/simulation/research.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
@@ -178,6 +180,7 @@ function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] =
   return {
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
     reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
+    build: { wealth: 0, income: 0, upkeep: 0, regions: 4, catalog: [], settlements: [] },
     candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, ...entry })),
     ...overrides,
   };
@@ -204,7 +207,7 @@ test('decision scores: crowding, good land and Expansionism draw a civilization 
   // Do nothing is always weighed; the choice is weighted random among the best options above the minimum.
   const all = options(view({ unknownFrontier: 8 }, [{}]));
   assert.deepEqual(all.map(option => option.action).sort(), ['expand', 'explore', 'nothing']);
-  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0 };
+  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0 };
   for (let draw = 0; draw < 2000; draw++) picks[choose(view({ unknownFrontier: 8 }, [{}]), createRng(5, draw)).chosen.action]++;
   assert.ok(picks.expand > picks.explore && picks.explore > 0 && picks.nothing > 0, JSON.stringify(picks));
 });
@@ -244,9 +247,12 @@ test('joining: kin, a large well-kept civilization and an easy crossing draw a s
 
 test('stability: hunger, distance beyond the capital\'s reach and foreign rule lower it; unrest grows below the threshold', () => {
   const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
-  const state = { cultures: [{ values }, { values: { ...values, tradition: 0.9, openness: 0.1 } }], stability: new Float64Array([1, 0.3, 0]) } as unknown as SimulationState;
+  const state = {
+    cultures: [{ values }, { values: { ...values, tradition: 0.9, openness: 0.1 } }], stability: new Float64Array([1, 0.3, 0]),
+    settlements: [{ status: 'alive', buildings: [] as { type: number }[], bonus: { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0 } }], regionSettlements: [[], [0]],
+  } as unknown as SimulationState;
   const civ = { culture: 0, knowledge: { multipliers: { reach: 1 } } } as unknown as Polity;
-  const group = (foodSecurity: number, culture = 0) => ({ foodSecurity, culture }) as never;
+  const group = (foodSecurity: number, culture = 0, region = 0) => ({ foodSecurity, culture, region }) as never;
   const reach = REACH_TUNING.baseKm;
   const home = stabilityOf(state, civ, group(1.2), reach / 2);
   assert.equal(home.value, STABILITY_TUNING.base, 'fed, near the capital, its own people');
@@ -254,6 +260,10 @@ test('stability: hunger, distance beyond the capital\'s reach and foreign rule l
   assert.ok(stabilityOf(state, civ, group(1.2), reach * 2).value < home.value, 'beyond reach');
   assert.equal(stabilityOf(state, civ, group(1.2), reach * 0.99).overextension, 0, 'within reach costs nothing');
   assert.ok(stabilityOf(state, civ, group(1.2, 1), reach / 2).foreignRule > 0, 'another people under its rule');
+  // A shrine in the region steadies it (M3b.2).
+  state.settlements[0].buildings.push({ type: BUILDING_INDEX.get('shrine')!, condition: 1, builtTick: 0 });
+  state.settlements[0].bonus = bonusOf(state.settlements[0].buildings);
+  assert.equal(stabilityOf(state, civ, group(0.5, 0, 1), reach / 2).value, stabilityOf(state, civ, group(0.5), reach / 2).value + BUILDINGS[BUILDING_INDEX.get('shrine')!].effects.stability!);
   assert.equal(unrestDepth(state, 0), 0);
   assert.ok(unrestDepth(state, 1) > 0 && unrestDepth(state, 1) < unrestDepth(state, 2));
   assert.equal(unrestDepth(state, 2), 1);

@@ -1,10 +1,11 @@
 import { SETTLEMENT_TIERS, type ChronicleEvent } from '../../shared/simulation.ts';
 import { causes } from './causes.ts';
-import { cellNeighbors } from './geography.ts';
+import { nearWater } from './regions.ts';
 import { createName } from './names.ts';
 import { unrestDepth } from './pressure.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, Settlement, SimulationState, TickContext } from './state.ts';
+import { BUILDINGS } from './buildings.ts';
 import { SETTLEMENT_TUNING } from './tunables.ts';
 
 /**
@@ -14,12 +15,32 @@ import { SETTLEMENT_TUNING } from './tunables.ts';
  * (or resettles ruins), and a region whose people die out or leave leaves its settlements in ruins.
  */
 
-// RNG salt within the population system for a civilization's yearly settlement growth (polity streams).
-export const GROWING = 5;
+// RNG salt within the population system for a civilization's yearly settlement growth (a polity stream: even salts
+// are polities', odd ones groups', see bands.ts).
+export const GROWING = 6;
 
-/** A settlement's housing: the base, more for the seat of government (buildings raise it from M3b.2). */
-export function housingOf(settlement: Pick<Settlement, 'capital'>) {
-  return Math.round(SETTLEMENT_TUNING.baseHousing * (settlement.capital ? SETTLEMENT_TUNING.capitalHousing : 1));
+/** A settlement's housing: the base, more for the seat of government, times its buildings' housing (markets, aqueducts). */
+export function housingOf(settlement: Pick<Settlement, 'capital'> & { buildings?: Settlement['buildings'] }) {
+  let factor = settlement.capital ? SETTLEMENT_TUNING.capitalHousing : 1;
+  for (const building of settlement.buildings ?? []) factor *= BUILDINGS[building.type].effects.housing ?? 1;
+  return Math.round(SETTLEMENT_TUNING.baseHousing * factor);
+}
+
+/** What a settlement's buildings add up to (its `bonus`). */
+export function bonusOf(buildings: Settlement['buildings']): Settlement['bonus'] {
+  const bonus = { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0, upkeep: 0 };
+  for (const building of buildings) {
+    const effects = BUILDINGS[building.type].effects;
+    bonus.upkeep += BUILDINGS[building.type].upkeep;
+    bonus.research *= effects.research ?? 1; bonus.wealth *= effects.wealth ?? 1; bonus.store *= effects.storeMonths ?? 1;
+    bonus.spoilage *= effects.spoilage ?? 1; bonus.stability += effects.stability ?? 0;
+  }
+  return bonus;
+}
+
+/** After its buildings change: the settlement's housing and bonus follow; the caller rehouses the region. */
+export function applyBuildings(settlement: Settlement) {
+  settlement.housing = housingOf(settlement); settlement.bonus = bonusOf(settlement.buildings);
 }
 
 /** Make a settlement the capital or not, with the housing that goes with it; the caller rehouses the region. */
@@ -42,14 +63,7 @@ export function regionHousing(state: SimulationState, region: number) {
 }
 
 /** Whether a cell is on or next to a river, lake, coast or resource site (VISION.md M3b: where settlements sit). */
-export function byWater(state: SimulationState, cell: number) {
-  const geography = state.geography, near = new Int32Array(4);
-  if (geography.riverRunoff[cell] > 0 || geography.resource[cell] > 0) return true;
-  for (const other of cellNeighbors(geography, cell, near)) {
-    if (other >= 0 && (geography.marine[other] || geography.lake[other] || geography.riverRunoff[other] > 0 || geography.resource[other] > 0)) return true;
-  }
-  return false;
-}
+export function byWater(state: SimulationState, cell: number) { return nearWater(state.geography, cell); }
 
 /**
  * A settlement of `polity` in `region`: ruins there are resettled first (the best-sited, keeping the old name with
@@ -73,7 +87,7 @@ export function foundSettlement(state: SimulationState, rng: Rng, polity: Polity
   if (ruin) {
     const oldName = ruin.name;
     if (!rng.chance(SETTLEMENT_TUNING.keepName)) ruin.name = createName(rng, state.cultures[polity.culture].language);
-    Object.assign(ruin, { status: 'alive', owner: polity.id, capital, tier: 0, urban: 0, urbanMean: 0, housing: housingOf({ capital }), formerName: ruin.name === oldName ? null : oldName });
+    Object.assign(ruin, { status: 'alive', owner: polity.id, capital, tier: 0, urban: 0, urbanMean: 0, buildings: [], bonus: bonusOf([]), housing: housingOf({ capital }), formerName: ruin.name === oldName ? null : oldName });
     settlement = ruin;
     state.metrics.ruinsResettled++;
     if (announce) announceSettlement(state, polity, settlement, cited);
@@ -83,7 +97,7 @@ export function foundSettlement(state: SimulationState, rng: Rng, polity: Polity
     if (cell === undefined) return null;
     settlement = {
       id: state.settlements.length, name: createName(rng, state.cultures[polity.culture].language), cell, region, owner: polity.id, capital,
-      foundedTick: tick, status: 'alive', tier: 0, urban: 0, urbanMean: 0, housing: housingOf({ capital }), ruinedTick: null, formerName: null,
+      foundedTick: tick, status: 'alive', tier: 0, urban: 0, urbanMean: 0, housing: housingOf({ capital }), ruinedTick: null, formerName: null, buildings: [], bonus: bonusOf([]),
     };
     state.settlements.push(settlement);
     here.push(settlement.id);
@@ -108,36 +122,34 @@ export function announceSettlement(state: SimulationState, polity: Polity, settl
   });
 }
 
-/** A region whose people died out or left: its living settlements fall to ruin. */
+/** A region whose people died out or left: its living settlements fall to ruin, and their buildings with them. */
 export function ruinSettlements(state: SimulationState, region: number, tick: number) {
   for (const id of state.regionSettlements[region]) {
     const settlement = state.settlements[id];
     if (settlement.status !== 'alive') continue;
-    Object.assign(settlement, { status: 'ruined', capital: false, urban: 0, urbanMean: 0, tier: 0, housing: housingOf({ capital: false }), ruinedTick: tick });
+    Object.assign(settlement, { status: 'ruined', capital: false, urban: 0, urbanMean: 0, tier: 0, buildings: [], bonus: bonusOf([]), housing: housingOf({ capital: false }), ruinedTick: tick });
   }
 }
 
 /**
- * The region's townspeople move into its settlements, each taking a share in proportion to its housing (so the seat
- * of government, with more housing, is the largest). Returns how many find a home there (at most all the housing):
- * the rest stay rural. Shares are whole people; the remainder goes to the settlements in founding order.
+ * The region's townspeople move into its settlements: the capital first, then the others in founding order, each up
+ * to its housing, so the main town is the largest and the newest settlements take the growth (a village becomes a
+ * town as its region's townspeople grow). Returns how many find a home there (at most all the housing): the rest
+ * stay rural. Unless `average` is false (a mid-month rehousing), each settlement's moving average takes this month.
  */
-export function house(state: SimulationState, region: number, specialists: number) {
-  let housing = 0;
-  for (const id of state.regionSettlements[region]) { const settlement = state.settlements[id]; if (settlement.status === 'alive') housing += settlement.housing; }
+export function house(state: SimulationState, region: number, specialists: number, average = true) {
+  // (Allocation-free: this runs every month in every civilization region.)
+  const ids = state.regionSettlements[region], settlements = state.settlements;
+  let housing = 0, capital = -1;
+  for (const id of ids) { const settlement = settlements[id]; if (settlement.status !== 'alive') continue; housing += settlement.housing; settlement.urban = 0; if (settlement.capital) capital = id; }
   const urban = Math.min(specialists, housing);
   let left = urban;
-  for (const id of state.regionSettlements[region]) {
-    const settlement = state.settlements[id];
+  if (capital >= 0) { const settlement = settlements[capital]; settlement.urban = Math.min(left, settlement.housing); left -= settlement.urban; }
+  for (const id of ids) {
+    const settlement = settlements[id];
     if (settlement.status !== 'alive') continue;
-    settlement.urban = Math.floor(urban * settlement.housing / housing);
-    left -= settlement.urban;
-  }
-  for (const id of state.regionSettlements[region]) {
-    const settlement = state.settlements[id];
-    if (settlement.status !== 'alive') continue;
-    if (left > 0 && settlement.urban < settlement.housing) { const moving = Math.min(left, settlement.housing - settlement.urban); settlement.urban += moving; left -= moving; }
-    settlement.urbanMean += (settlement.urban - settlement.urbanMean) / SETTLEMENT_TUNING.meanMonths;
+    if (id !== capital) { settlement.urban = Math.min(left, settlement.housing); left -= settlement.urban; }
+    if (average) settlement.urbanMean += (settlement.urban - settlement.urbanMean) / SETTLEMENT_TUNING.meanMonths;
   }
   return urban;
 }

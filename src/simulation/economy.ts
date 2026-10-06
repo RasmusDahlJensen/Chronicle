@@ -1,0 +1,97 @@
+import { unrestDepth } from './pressure.ts';
+import type { Polity, Settlement, SimulationState, WealthFlows } from './state.ts';
+import { STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
+
+/**
+ * Wealth and what buildings do for a region (VISION.md "Wealth", "Buildings"). Townspeople earn wealth for their
+ * civilization, more in market towns; every change in a treasury is a recorded flow (rule 8). Buildings' effects are
+ * read here by the systems they change: housing (`settlements.ts`), research, stability and the food store.
+ */
+
+/** This tick's wealth flows of a civilization, begun with its treasury as it stood when they began. */
+export function wealthFlows(state: SimulationState, civ: Polity): WealthFlows {
+  let flows = state.ledger.wealth.get(civ.id);
+  if (!flows) { flows = { before: civ.wealth, produced: 0, construction: 0, upkeep: 0, received: 0, given: 0, lost: 0 }; state.ledger.wealth.set(civ.id, flows); }
+  return flows;
+}
+
+/** What a settlement's townspeople earn in a year: each earns `perTownsperson`, more with markets, less in unrest. */
+export function settlementIncome(state: SimulationState, settlement: Settlement) {
+  return settlement.urban * WEALTH_TUNING.perTownsperson * settlement.bonus.wealth * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, settlement.region));
+}
+
+/** A civilization's income a year, as it stands this month. */
+export function incomeOf(state: SimulationState, civ: Polity) {
+  let income = 0;
+  for (const groupId of civ.groups) for (const id of state.regionSettlements[state.groups[groupId].region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status === 'alive') income += settlementIncome(state, settlement);
+  }
+  return income;
+}
+
+/** The upkeep a civilization owes a year for its standing buildings. */
+export function upkeepOf(state: SimulationState, civ: Polity) {
+  let upkeep = 0;
+  for (const groupId of civ.groups) for (const id of state.regionSettlements[state.groups[groupId].region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status === 'alive') upkeep += settlement.bonus.upkeep;
+  }
+  return upkeep;
+}
+
+/** Production system, after a civilization's townspeople are housed: a month of their earnings joins the treasury in
+ *  whole units (the fraction waits for next month). */
+export function produceWealth(state: SimulationState, civ: Polity) {
+  civ.wealthCarry += incomeOf(state, civ) / 12;
+  const produced = Math.floor(civ.wealthCarry);
+  if (produced <= 0) return;
+  civ.wealthCarry -= produced;
+  civ.wealth += produced;
+  wealthFlows(state, civ).produced += produced;
+}
+
+/** Wealth passing from one civilization to another (the smaller's treasury when it unites with a larger one). */
+export function transferWealth(state: SimulationState, from: Polity, to: Polity) {
+  const amount = from.wealth;
+  wealthFlows(state, from).given += amount; wealthFlows(state, to).received += amount;
+  from.wealth = 0; to.wealth += amount;
+}
+
+/** A civilization that dies out loses its treasury and its unfinished buildings. */
+export function loseWealth(state: SimulationState, civ: Polity) {
+  if (civ.wealth > 0) { wealthFlows(state, civ).lost += civ.wealth; civ.wealth = 0; }
+  state.metrics.projectsAbandoned += civ.projects.length;
+  civ.projects = [];
+}
+
+/** Research of a region's townspeople, each settlement's times its buildings' research (libraries and the like). */
+export function townsResearch(state: SimulationState, region: number) {
+  let research = 0;
+  for (const id of state.regionSettlements[region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status === 'alive') research += settlement.urban * settlement.bonus.research;
+  }
+  return research;
+}
+
+/** Stability its buildings add to a region (shrines, temples). */
+export function buildingStability(state: SimulationState, region: number) {
+  let stability = 0;
+  for (const id of state.regionSettlements[region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status === 'alive') stability += settlement.bonus.stability;
+  }
+  return stability;
+}
+
+/** The region's food store limit and spoilage, from its best granary: [store months multiplier, spoilage multiplier]. */
+export function storeEffects(state: SimulationState, region: number): [number, number] {
+  let store = 1, spoilage = 1;
+  for (const id of state.regionSettlements[region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status !== 'alive') continue;
+    store = Math.max(store, settlement.bonus.store); spoilage = Math.min(spoilage, settlement.bonus.spoilage);
+  }
+  return [store, spoilage];
+}

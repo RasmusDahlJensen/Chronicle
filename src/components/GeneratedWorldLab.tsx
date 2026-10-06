@@ -31,6 +31,10 @@ function SettlementList({ settlements }: { settlements: NonNullable<ObserverFram
     <ul className="world-settlement-list">{settlements.map(settlement => <li key={settlement.id} data-settlement-tier={settlement.tier} data-settlement-status={settlement.status}>
       <h4>{settlement.capital ? '★ ' : ''}{settlement.name} <span>· {settlement.status === 'alive' ? `${TIER_LABELS[settlement.tier]}${settlement.capital ? ', capital' : ''} of the ${settlement.owner}` : 'ruins'}</span></h4>
       <p className="atlas-panel-note">{settlement.status === 'alive' ? `${number.format(settlement.urban)} townspeople of ${number.format(settlement.housing)} it can house · ` : ''}founded year {simulationDate(settlement.founded).year}{settlement.formerName ? ` · once ${settlement.formerName}` : ''}.</p>
+      {(settlement.buildings.length > 0 || settlement.building.length > 0) && <p className="atlas-panel-note world-settlement-buildings">{[
+        ...settlement.buildings.map(building => building.condition < 0.995 ? `${building.name} (${Math.round(building.condition * 100)}% kept up)` : building.name),
+        ...settlement.building.map(work => `${work.name} being built (${Math.round(work.progress * 100)}% paid)`),
+      ].join(' · ')}</p>}
       {settlement.events.length > 0 && <ol className="world-settlement-history">{settlement.events.map(event => <li key={event.id}>Year {simulationDate(event.tick).year}: {describeEvent(event)}</li>)}</ol>}
     </li>)}</ul>
   </section>;
@@ -61,6 +65,7 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
       <div><dt>{civ ? 'Settled' : 'Here since'}</dt><dd>year {simulationDate(civ && polity.capital ? polity.capital.settled : polity.arrived).year}</dd></div>
       {polity.capital && <div><dt>Capital</dt><dd id="polity-capital">{polity.capital.name}</dd></div>}
     </dl>
+    {polity.wealth && <p className="atlas-panel-note" id="polity-wealth">Treasury {number.format(polity.wealth.treasury)} · income {number.format(Math.round(polity.wealth.income))} a year · upkeep {number.format(polity.wealth.upkeep)} a year{polity.wealth.projects ? ` · ${number.format(polity.wealth.projects)} ${polity.wealth.projects === 1 ? 'building' : 'buildings'} under construction` : ''}.</p>}
     <p className="atlas-panel-note">Food security is expected food over need — for farmers, the coming harvest and other food over the harvest cycle; below 1, or when the store runs out before the harvest, people go hungry and famine deaths rise. Crops sown since the last harvest come in at the next one. Surplus frees specialists, who live in settlements and research; bands have none.</p>
     {civ && <section className="world-polity-decision" aria-label="Decisions">
       <p className="atlas-detail-label">Governance · reach {number.format(polity.reachKm)} km of travel{polity.capitalKm !== null ? ` · this region ${number.format(polity.capitalKm)} km from the capital` : ''}</p>
@@ -87,13 +92,14 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
   </div>;
 }
 
-const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with' } as const;
-const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge' } as const;
+const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build' } as const;
+const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build' } as const;
 
 /** What a decision was aimed at: the region to expand into, or the civilization to unite with. */
 function decisionTarget(step: NonNullable<NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision']>) {
   const option = step.options.find(entry => entry.action === step.chosen);
   if (!option || option.target === null) return '';
+  if (option.action === 'build') return ` a ${option.label ?? '?'}`;
   return option.action === 'unite' || option.action === 'share' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
 }
 

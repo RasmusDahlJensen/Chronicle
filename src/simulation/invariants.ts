@@ -1,3 +1,5 @@
+import { BUILDINGS } from './buildings.ts';
+import { bonusOf, housingOf } from './settlements.ts';
 import { EVENT_TYPES } from '../../shared/simulation.ts';
 import type { RegionPartition } from './regions.ts';
 import { cellNeighbors, type SimulationGeography } from './geography.ts';
@@ -40,10 +42,18 @@ export function checkInvariants(state: SimulationState) {
   const villages = new Int32Array(regions), urban = new Float64Array(regions);
   for (const settlement of state.settlements) {
     if (!state.regionSettlements[settlement.region]?.includes(settlement.id)) fail(`settlement ${settlement.id} is missing from region ${settlement.region}'s list`);
-    if (settlement.status !== 'alive') { if (settlement.capital || settlement.urban !== 0) fail(`settlement ${settlement.id} in ruins is a capital or has people`); continue; }
+    if (settlement.status !== 'alive') { if (settlement.capital || settlement.urban !== 0 || settlement.buildings.length) fail(`settlement ${settlement.id} in ruins is a capital or has people or buildings`); continue; }
     if (state.owner[settlement.region] !== settlement.owner) fail(`settlement ${settlement.id} stands in region ${settlement.region}, which its owner ${settlement.owner} does not hold`);
     if (state.partition.regionOf[settlement.cell] !== settlement.region) fail(`settlement ${settlement.id} is not on a land cell of its region`);
     if (!Number.isInteger(settlement.urban) || settlement.urban < 0 || settlement.urban > settlement.housing || !(settlement.tier >= 0 && settlement.tier <= 3)) fail(`settlement ${settlement.id} houses ${settlement.urban} of ${settlement.housing} (tier ${settlement.tier})`);
+    // Buildings: one of each type, in condition, and the housing they give.
+    if (settlement.housing !== housingOf(settlement)) fail(`settlement ${settlement.id}'s housing is not what its buildings give`);
+    if (settlement.buildings.length) {
+      const bonus = bonusOf(settlement.buildings), held = settlement.bonus;
+      if (bonus.research !== held.research || bonus.wealth !== held.wealth || bonus.store !== held.store || bonus.spoilage !== held.spoilage || bonus.stability !== held.stability || bonus.upkeep !== held.upkeep) fail(`settlement ${settlement.id}'s bonus is not what its buildings give`);
+      if (!state.polities[settlement.owner].repairing && settlement.buildings.some(building => building.condition < 1)) fail(`settlement ${settlement.id} has worn buildings its owner is not mending`);
+    } else if (settlement.bonus.research !== 1 || settlement.bonus.wealth !== 1 || settlement.bonus.store !== 1 || settlement.bonus.spoilage !== 1 || settlement.bonus.stability !== 0 || settlement.bonus.upkeep !== 0) fail(`settlement ${settlement.id} has a bonus without buildings`);
+    if (new Set(settlement.buildings.map(building => building.type)).size !== settlement.buildings.length || settlement.buildings.some(building => !(building.condition > 0 && building.condition <= 1) || !BUILDINGS[building.type])) fail(`settlement ${settlement.id} has invalid buildings`);
     villages[settlement.region]++; urban[settlement.region] += settlement.urban;
     if (settlement.capital && state.polities[settlement.owner]?.capital !== settlement.id) fail(`settlement ${settlement.id} is a capital its owner does not name`);
   }
@@ -95,6 +105,22 @@ export function checkInvariants(state: SimulationState) {
     } else if (polity.capital !== null) fail(`band ${id} has a capital`);
     checkMap(state, polity, fail);
     checkKnowledge(state, polity, fail);
+    // A tribe has no treasury; a civilization's works under construction stand in its own living settlements.
+    if (polity.kind === 'band' && (polity.wealth !== 0 || polity.projects.length)) fail(`tribe ${id} has wealth or works`);
+    if (!(polity.wealthCarry >= 0 && polity.wealthCarry < 1 && polity.upkeepCarry >= 0 && polity.upkeepCarry < 1)) fail(`polity ${id} carries ${polity.wealthCarry} wealth and ${polity.upkeepCarry} upkeep`);
+    for (const project of polity.projects) {
+      const settlement = state.settlements[project.settlement];
+      if (!settlement || !BUILDINGS[project.type] || !Number.isInteger(project.spent) || project.spent < 0 || project.spent >= BUILDINGS[project.type].cost) fail(`polity ${id} has an invalid work ${JSON.stringify(project)}`);
+    }
+    if (polity.kind === 'civ' && !ledger.wealth.has(id) && polity.wealth !== 0) fail(`civilization ${id}'s treasury changed with no flows recorded`);
+  }
+  // Exact wealth accounting (VISION.md rule 8): every treasury is explained by this tick's flows.
+  for (const [id, flows] of ledger.wealth) {
+    const polity = state.polities[id];
+    const values = [flows.before, flows.produced, flows.construction, flows.upkeep, flows.received, flows.given, flows.lost];
+    if (!values.every(value => Number.isInteger(value) && value >= 0)) fail(`civilization ${id} has invalid wealth flows ${JSON.stringify(flows)}`);
+    const expected = flows.before + flows.produced + flows.received - flows.construction - flows.upkeep - flows.given - flows.lost;
+    if (!Number.isInteger(polity.wealth) || polity.wealth < 0 || polity.wealth !== expected) fail(`civilization ${id}'s treasury ${polity.wealth} is not explained by its flows ${JSON.stringify(flows)}`);
   }
   // Transfers close: everyone who left a region arrived in another, and food carried out was carried in somewhere.
   let migratedIn = 0, migratedOut = 0, carriedIn = 0, carriedOut = 0;

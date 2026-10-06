@@ -403,16 +403,26 @@ function seaLinks(geography: SimulationGeography, regionOf: Int32Array, limitKm:
   return [...best.values()].sort((x, y) => x.a - y.a || x.b - y.b);
 }
 
+/** Whether a cell is on or next to a mapped river, a lake, the coast or a resource site: where settlements sit
+ *  (VISION.md M3b). One rule for ranking sites, for founding further settlements and for the acceptance measure. */
+export function nearWater(geography: Pick<SimulationGeography, 'width' | 'cells' | 'riverRunoff' | 'resource' | 'marine' | 'lake'>, cell: number) {
+  if (geography.riverRunoff[cell] > 0 || geography.resource[cell] > 0) return true;
+  const near = new Int32Array(4);
+  for (const other of cellNeighbors(geography, cell, near)) {
+    if (other >= 0 && (geography.marine[other] || geography.lake[other] || geography.riverRunoff[other] > 0 || geography.resource[other] > 0)) return true;
+  }
+  return false;
+}
+
 function settlementSites(geography: SimulationGeography, region: Region, tierOf: (runoff: number) => number) {
   const near = new Int32Array(4);
   const scored = region.cells.map(cell => {
     let score = geography.fertility[cell] / 100;
     let upstream = 0, mouth = false, coast = false, lakeshore = false, relief = 0;
     // On or next to a river, lake, coast or resource site.
-    let water = tierOf(geography.riverRunoff[cell]) >= 1 || geography.resource[cell] > 0;
+    const water = nearWater(geography, cell);
     for (const other of cellNeighbors(geography, cell, near)) {
       if (other < 0) continue;
-      if (geography.marine[other] || geography.lake[other] || geography.resource[other] > 0 || tierOf(geography.riverRunoff[other]) >= 1) water = true;
       if (geography.marine[other]) coast = true;
       if (geography.lake[other] && geography.openLake[geography.lake[other]]) lakeshore = true;
       if (geography.riverRunoff[other] && geography.riverRunoff[other] < geography.riverRunoff[cell]) upstream++;

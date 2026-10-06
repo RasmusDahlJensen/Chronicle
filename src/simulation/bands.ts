@@ -6,12 +6,13 @@ import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
 import { absorbMap, arrive, capitalKm, emptyMap, forgetMap, governable, inheritContacts, joinView, lookAgain } from './perception.ts';
+import { loseWealth, produceWealth, storeEffects } from './economy.ts';
 import { announceSettlement, foundSettlement, growSettlements, house, livingSettlements, ruinSettlements, setCapital } from './settlements.ts';
 import { chooseJoin } from './decisions/join.ts';
 import { landPressure, unrestDepth } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
-import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING } from './tunables.ts';
+import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING } from './tunables.ts';
 
 /**
  * Tribes and settled polities (VISION.md "Food, population and borders"). A polity holds one or more regions with
@@ -24,8 +25,9 @@ import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, JOIN_TUNING, MI
 const yields = new Float64Array(METHOD_COUNT), workers = new Float64Array(METHOD_COUNT);
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
 const UNITS = FOOD_TUNING.unitsPerPersonMonth;
-// RNG salts within the population system: polity streams use no salt (settling), SETTLING_NAMES or JOINING; group
-// streams use DECISION or SPLITTING, so a polity and a group with the same id never share numbers.
+// RNG salts within the population system: polity streams use no salt (settling), SETTLING_NAMES, JOINING or GROWING
+// (settlements.ts, 6) — even salts; group streams use DECISION or SPLITTING — odd ones, so a polity and a group with
+// the same id never share numbers.
 const DECISION = 1, SETTLING_NAMES = 2, SPLITTING = 3, JOINING = 4;
 
 /** A region is near water when it has a coast, open-lake access or a river of tier ≥ river. */
@@ -146,6 +148,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     exchanges: new Map(), exchangeRefused: new Map(), capital: null, settledTick: null,
     map: emptyMap(state.partition.regions.length), met: new Map(),
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
+    wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false,
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -218,7 +221,9 @@ export function produce(state: SimulationState, context: TickContext) {
       const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;
       const farming = knowledge.methods.farm;
       // The store that will still be there to eat before the harvest: part of it perishes on the way.
-      const toHarvest = monthsToHarvest(food, region, context.month), perishing = Math.min(1, POPULATION_TUNING.storeSpoilage * m.spoilage);
+      // Granaries keep more food, and less of it spoils (VISION.md "Buildings").
+      const [granaryStore, granarySpoilage] = polity.kind === 'civ' ? storeEffects(state, region) : [1, 1];
+      const toHarvest = monthsToHarvest(food, region, context.month), perishing = Math.min(1, POPULATION_TUNING.storeSpoilage * m.spoilage * granarySpoilage);
       const output = farming
         ? sow(food.labor, at, yields, group.size - group.specialists, group.size, before / UNITS * Math.max(0, 1 - perishing * toHarvest / 2), toHarvest, workers)
         : harvest(food.labor, at, yields, group.size - group.specialists, workers).output;
@@ -231,15 +236,19 @@ export function produce(state: SimulationState, context: TickContext) {
       const production = Math.round(other * UNITS) + harvestedUnits;
       const consumption = Math.min(need, before + production);
       // The store: part of what is left perishes each month, and nothing beyond the limit keeps.
-      const left = before + production - consumption, limit = Math.round(group.size * POPULATION_TUNING.storeMonths * m.storeMonths * UNITS);
+      const left = before + production - consumption, limit = Math.round(group.size * POPULATION_TUNING.storeMonths * m.storeMonths * granaryStore * UNITS);
       const spoilage = Math.max(left - limit, Math.round(left * perishing));
       group.store = before + production - consumption - spoilage;
       group.foodSecurity = foodSecurity(group, farming, other * UNITS, farmed * UNITS, need, food.cycle[region], monthsToHarvest(food, region, context.month % 12 + 1), consumption);
       group.farmShare = output > 0 ? (farmed + herded) / output : 0;
+      // Hardship: the memory of hunger, which fades over the years (what moves a civilization to build granaries).
+      state.hardship[region] = Math.max(state.hardship[region] * WEALTH_TUNING.hardshipFade, 1 - Math.min(1, group.foodSecurity));
       ledger.food.set(group.id, { before, production, consumption, spoilage, carriedIn: 0, carriedOut: 0, plantedBefore, sown, harvested: harvestedUnits, cropsLost: 0 });
       state.gameStock[region] = clamp(state.gameStock[region] + gameChange(food, region, state.gameStock[region], workers) / 12, FOOD_TUNING.gameFloor, 1);
       harvested[region] = 1;
     }
+    // Townspeople earn wealth for their civilization (VISION.md "Wealth").
+    if (polity.kind === 'civ') produceWealth(state, polity);
   }
   workers.fill(0);
   for (let region = 0; region < harvested.length; region++) {
@@ -373,9 +382,11 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
     state.owner[region] = -1;
     ruinSettlements(state, region, tick);
   }
+  state.hardship[region] = 0;
   if (polity.groups.length) return;
   endPolity(state, polity, tick);
   if (polity.kind === 'civ') {
+    loseWealth(state, polity);
     const capital = polity.capital !== null ? state.settlements[polity.capital] : null;
     state.chronicle.emit({
       type: 'civDestroyed', actors: [{ id: polity.id, role: 'civ' }], region, settlement: capital?.id ?? null,

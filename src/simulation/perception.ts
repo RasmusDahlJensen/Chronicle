@@ -1,4 +1,7 @@
+import { BUILDINGS, buildingKnown } from './buildings.ts';
 import { cultureSimilarity } from './culture.ts';
+import { incomeOf, upkeepOf } from './economy.ts';
+import { livingSettlements } from './settlements.ts';
 import { greatCircleKm } from './geography.ts';
 import { landPressure } from './pressure.ts';
 import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
@@ -183,6 +186,16 @@ export interface PolityView {
   /** Peoples it is in contact with and could share knowledge with (none it shares with now or that refused lately),
    *  and how many exchanges it has now. */
   partners: Partner[]; exchanges: number;
+  /** What it could build, and where (VISION.md "Buildings"; the Build action). */
+  build: {
+    /** Its treasury, income and upkeep a year, and its regions (how widely it builds at once). */
+    wealth: number; income: number; upkeep: number; regions: number;
+    /** The building types it knows: purpose, cost, upkeep, the smallest tier they stand in. */
+    catalog: { type: number; name: string; purpose: string; cost: number; upkeep: number; minTier: number }[];
+    /** Its living settlements: tier, townspeople and housing, its region's hardship (memory of hunger), share of food
+     *  farmed and stability, foreign peoples on the region's borders, and the building types it has or is building. */
+    settlements: { id: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; stability: number; frontier: number; has: number[] }[];
+  };
 }
 
 /** A people in contact (met, within two regions) that a civilization could offer an exchange of knowledge (VISION.md "Sharing knowledge"). */
@@ -293,6 +306,28 @@ export function governable(state: SimulationState, civ: Polity, groups: readonly
   return people > 0 ? fit / people : 0;
 }
 
+/** What a civilization could build and where (the Build action's view): its own settlements and what it knows. */
+function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
+  const catalog: PolityView['build']['catalog'] = [];
+  BUILDINGS.forEach((definition, type) => { if (buildingKnown(civ.knowledge, type)) catalog.push({ type, name: definition.name, purpose: definition.purpose, cost: definition.cost, upkeep: definition.upkeep, minTier: definition.minTier }); });
+  const settlements: PolityView['build']['settlements'] = [];
+  if (catalog.length) for (const groupId of civ.groups) {
+    const group = state.groups[groupId], region = group.region;
+    // Foreign peoples on the region's borders, as it sees them (its neighbours are always in sight).
+    const foreign = new Set<number>();
+    for (const edge of state.partition.regions[region].neighbors) { const view = regionView(state, civ, edge.region); if (view && view.occupant >= 0 && view.occupant !== civ.id) foreign.add(view.occupant); }
+    for (const settlement of livingSettlements(state, region)) {
+      const has = settlement.buildings.map(building => building.type);
+      for (const project of civ.projects) if (project.settlement === settlement.id) has.push(project.type);
+      settlements.push({
+        id: settlement.id, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, hardship: state.hardship[region],
+        farmShare: group.farmShare, stability: state.stability[region], frontier: foreign.size, has,
+      });
+    }
+  }
+  return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements };
+}
+
 /** How ready a people is to accept an exchange: less with strong Tradition and another way of life, less when it would
  *  learn little (VISION.md "Sharing knowledge"). The decision weighs it and `sharing.ts` draws with it. */
 export function willingness(tradition: number, similarity: number, gain: number) {
@@ -388,6 +423,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   }
   partners.sort((a, b) => a.polity - b.polity);
   return {
+    build: buildView(state, polity),
     id: polity.id, tick: state.tick, values: { ...state.cultures[polity.culture].values }, sea, seaTick: polity.seaTick,
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,

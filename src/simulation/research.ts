@@ -7,6 +7,7 @@ import type { Polity, SimulationState, TickContext } from './state.ts';
 import { TECH_INDEX, TECHS, type Affinity } from './techs.ts';
 import { MOBILITY_TUNING, RESEARCH_TUNING, SHARE_TUNING, STABILITY_TUNING } from './tunables.ts';
 import { unrestDepth } from './pressure.ts';
+import { townsResearch } from './economy.ts';
 import { WORLD_BIOMES } from '../../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
 
@@ -139,7 +140,12 @@ export function researchRate(state: SimulationState, polity: Polity) {
   const tuning = RESEARCH_TUNING, contacts = Math.min(polity.contacts.length, tuning.contactCap);
   let people = 0, specialists = 0;
   // Specialists in regions in unrest research less (VISION.md "Stability": lower output and research).
-  for (const id of polity.groups) { const group = state.groups[id]; people += group.size; specialists += group.specialists * (1 - STABILITY_TUNING.researchLoss * unrestDepth(state, group.region)); }
+  // A civilization's specialists are its townspeople, who research more where libraries and the like stand.
+  for (const id of polity.groups) {
+    const group = state.groups[id];
+    people += group.size;
+    specialists += (polity.kind === 'civ' ? townsResearch(state, group.region) : group.specialists) * (1 - STABILITY_TUNING.researchLoss * unrestDepth(state, group.region));
+  }
   return (tuning.basePerPerson * researchPeople(people) * (1 + tuning.contactBonus * contacts) + tuning.specialistResearch * specialists) * polity.knowledge.multipliers.research;
 }
 

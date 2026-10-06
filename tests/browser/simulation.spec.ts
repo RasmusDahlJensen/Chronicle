@@ -207,6 +207,9 @@ test('farming bands settle into civilizations with villages, specialists and res
   await civilizations.getByRole('button').first().click();
   await expect(page.locator('[data-selected-cell]')).toHaveAttribute('data-selected-cell', String(first.capitalCell));
   await expect(page.locator('#polity-capital')).toHaveText(first.capital);
+  // Zoomed in on it, settlements are drawn by tier and named (capitals and cities first).
+  for (let step = 0; step < 3; step++) await page.getByRole('button', { name: 'Zoom in' }).click();
+  await expect.poll(async () => Number(await canvas.getAttribute('data-settlement-labels'))).toBeGreaterThan(0);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

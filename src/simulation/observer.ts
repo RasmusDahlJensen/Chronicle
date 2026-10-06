@@ -1,6 +1,8 @@
 import type { ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { speedOf } from './knowledge.ts';
+import { BUILDINGS } from './buildings.ts';
+import { incomeOf, upkeepOf } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { capitalKm, knownRegionCount } from './perception.ts';
@@ -93,6 +95,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
         return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
+      wealth: polity.kind !== 'civ' ? null : { treasury: polity.wealth, income: round(incomeOf(state, polity), 1), upkeep: upkeepOf(state, polity), projects: polity.projects.length },
       exchanges: [...polity.exchanges].filter(([other, until]) => until > state.tick && state.polities[other].deathTick === null).slice(0, 64)
         .map(([other, until]) => ({ id: other, name: state.polities[other].name, until: Math.floor(until / 12) })),
       research: target < 0 || !speed ? null : {
@@ -107,7 +110,9 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   // One pass back through the chronicle collects each one's latest six events.
   const histories = new Map(shown.map(settlement => [settlement.id, [] as typeof events]));
   let wanting = shown.length;
-  for (let at = events.length - 1; at >= 0 && wanting > 0; at--) {
+  // Nothing about these settlements happened before the oldest was founded.
+  const since = Math.min(...shown.map(settlement => settlement.foundedTick));
+  for (let at = events.length - 1; at >= 0 && wanting > 0 && events[at].tick >= since; at--) {
     const history = events[at].settlement === null ? undefined : histories.get(events[at].settlement!);
     if (!history || history.length >= 6) continue;
     history.push(events[at]);
@@ -119,6 +124,9 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       id: settlement.id, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, capital: settlement.capital,
       founded: settlement.foundedTick, status: settlement.status, formerName: settlement.formerName,
       owner: settlement.status === 'alive' ? state.polities[settlement.owner].name : null, events: history,
+      buildings: settlement.buildings.map(building => ({ name: BUILDINGS[building.type].name, condition: round(building.condition) })),
+      building: settlement.status === 'alive' ? state.polities[settlement.owner].projects.filter(project => project.settlement === settlement.id)
+        .map(project => ({ name: BUILDINGS[project.type].name, progress: round(project.spent / BUILDINGS[project.type].cost) })) : [],
     };
   });
   return {
