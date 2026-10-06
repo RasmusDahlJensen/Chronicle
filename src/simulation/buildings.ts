@@ -7,7 +7,7 @@ import { TECHS } from './techs.ts';
  * to kinds the systems understand, so new buildings never need new code. Mines, quarries and harbors (M3b.3) and
  * wonders (M3b.4) join this list later.
  */
-export const PURPOSES = ['food', 'faith', 'learning', 'trade', 'housing', 'defense', 'mining', 'sea'] as const;
+export const PURPOSES = ['food', 'faith', 'learning', 'trade', 'housing', 'defense', 'mining', 'sea', 'farming'] as const;
 export type Purpose = typeof PURPOSES[number];
 
 export interface BuildingEffects {
@@ -18,6 +18,9 @@ export interface BuildingEffects {
   /** The region's sites it works (VISION.md: mines and quarries are needed before a mineral or stone site yields), and
    *  whether it is a harbor (sea crossings start only from a region with one). */
   works?: 'mineral' | 'stone'; harbor?: boolean;
+  /** A multiplier on its region's farm yield (and so its capacity), and the share of a drought's loss of harvest it
+   *  keeps away there (VISION.md "Irrigation and terraces raise farming output in a region"). */
+  farm?: number; drought?: number;
 }
 export interface BuildingDefinition {
   /** Its id and name, the name with its article ("a granary", "walls") and in the plural ("granaries"), for the
@@ -26,16 +29,16 @@ export interface BuildingDefinition {
   /** Wealth to build, months it takes, wealth a year to keep up. */
   cost: number; months: number; upkeep: number;
   /** The smallest tier of settlement it may stand in (0 village … 3 metropolis); whether it needs the sea next to the
-   *  settlement; whether one serves its whole region (no second in the same region); whether it is built of stone
-   *  (cheaper where the civilization quarries stone). */
-  minTier: number; coast: boolean; perRegion: boolean; stone: boolean;
+   *  settlement, or a river or lake in its region; whether one serves its whole region (no second in the same region);
+   *  whether it is built of stone (cheaper where the civilization quarries stone). */
+  minTier: number; coast: boolean; water: boolean; perRegion: boolean; stone: boolean;
   effects: BuildingEffects;
 }
 
 const building = (id: string, purpose: Purpose, cost: number, months: number, upkeep: number, minTier: number, effects: BuildingEffects,
-  place: { coast?: boolean; perRegion?: boolean; stone?: boolean; one?: string; many?: string } = {}): BuildingDefinition => ({
+  place: { coast?: boolean; water?: boolean; perRegion?: boolean; stone?: boolean; one?: string; many?: string } = {}): BuildingDefinition => ({
   id, name: id, one: place.one ?? `${/^[aeiou]/.test(id) ? 'an' : 'a'} ${id}`, many: place.many ?? (id.endsWith('y') ? `${id.slice(0, -1)}ies` : `${id}s`), purpose, cost, months, upkeep, minTier,
-  coast: place.coast ?? false, perRegion: place.perRegion ?? false, stone: place.stone ?? false, effects,
+  coast: place.coast ?? false, water: place.water ?? false, perRegion: place.perRegion ?? false, stone: place.stone ?? false, effects,
 });
 
 export const BUILDINGS: readonly BuildingDefinition[] = [
@@ -47,6 +50,8 @@ export const BUILDINGS: readonly BuildingDefinition[] = [
   building('temple', 'faith', 6_000, 36, 120, 1, { stability: 0.06 }, { stone: true, perRegion: true }),
   // Bronze (Mining): works the region's mineral sites.
   building('mine', 'mining', 10_000, 36, 200, 0, { works: 'mineral' }, { perRegion: true }),
+  // Bronze (Irrigation): the region's fields, watered from its river or lake.
+  building('irrigation', 'farming', 8_000, 36, 160, 0, { farm: 1.2, drought: 0.5 }, { water: true, perRegion: true, one: 'irrigation works', many: 'irrigation works' }),
   building('library', 'learning', 8_000, 36, 160, 1, { research: 1.25 }),
   // Iron (Currency).
   building('market', 'trade', 6_000, 24, 120, 1, { wealth: 1.5, housing: 1.25 }),
@@ -78,9 +83,9 @@ export function validateBuildings() {
     if (!(definition.cost > 0 && Number.isInteger(definition.cost) && Number.isInteger(definition.months) && definition.months >= 1 && definition.upkeep >= 0 && Number.isInteger(definition.upkeep))) problems.push(`${definition.id} has invalid cost, time or upkeep`);
     if (!(Number.isInteger(definition.minTier) && definition.minTier >= 0 && definition.minTier <= 3)) problems.push(`${definition.id} has tier ${definition.minTier}`);
     const effects = definition.effects;
-    for (const key of ['housing', 'research', 'wealth', 'storeMonths'] as const) if (effects[key] !== undefined && !(effects[key]! >= 1)) problems.push(`${definition.id} ${key} must be at least 1`);
+    for (const key of ['housing', 'research', 'wealth', 'storeMonths', 'farm'] as const) if (effects[key] !== undefined && !(effects[key]! >= 1)) problems.push(`${definition.id} ${key} must be at least 1`);
     if (effects.spoilage !== undefined && !(effects.spoilage > 0 && effects.spoilage <= 1)) problems.push(`${definition.id} spoilage must be in (0, 1]`);
-    for (const key of ['stability', 'defense'] as const) if (effects[key] !== undefined && !(effects[key]! >= 0 && effects[key]! <= 1)) problems.push(`${definition.id} ${key} must be in [0, 1]`);
+    for (const key of ['stability', 'defense', 'drought'] as const) if (effects[key] !== undefined && !(effects[key]! >= 0 && effects[key]! <= 1)) problems.push(`${definition.id} ${key} must be in [0, 1]`);
   });
   if (problems.length) throw new Error(`Invalid building data: ${problems.join('; ')}.`);
 }

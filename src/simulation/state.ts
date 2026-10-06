@@ -143,16 +143,19 @@ export interface Wonder {
   id: number; type: number; settlement: number; builder: number; begunTick: number; builtTick: number | null;
   status: 'building' | 'standing' | 'destroyed' | 'abandoned'; spent: number; cost: number; condition: number;
   /** When it was destroyed or abandoned, and why (VISION.md "Data model": destroyed year and cause). */
-  endedTick: number | null; endCause: 'cityRuined' | 'unpaidUpkeep' | null;
+  endedTick: number | null; endCause: 'cityRuined' | 'unpaidUpkeep' | 'cityShrank' | null;
+  /** Months it has waited, under way, for its city to grow back to the tier it needs. */
+  waited: number;
   causes: { factor: string; weight: number }[];
 }
-export interface BuildingBonus { research: number; wealth: number; store: number; spoilage: number; stability: number; upkeep: number; mine: boolean; quarry: boolean; harbor: boolean }
+export interface BuildingBonus { research: number; wealth: number; store: number; spoilage: number; stability: number; upkeep: number; mine: boolean; quarry: boolean; harbor: boolean; farm: number; drought: number }
 
 /** A standing building: its type (an index into BUILDINGS), condition (0–1, worn by unpaid upkeep) and when it was built. */
 export interface Building { type: number; condition: number; builtTick: number }
 
-/** A building under construction for a civilization: where, what, the wealth spent so far, and why it was begun. */
-export interface Project { settlement: number; type: number; spent: number; cost: number; startedTick: number; causes: { factor: string; weight: number }[] }
+/** A building under construction for a civilization: where, what, the wealth spent so far, why it was begun, and the
+ *  months it has waited (unpaid) for its settlement to grow back to the building's tier. */
+export interface Project { settlement: number; type: number; spent: number; cost: number; startedTick: number; causes: { factor: string; weight: number }[]; waited: number }
 
 /**
  * A road on the land edge between two regions (VISION.md "Infrastructure edge"), keyed in `SimulationState.roads` by
@@ -242,6 +245,8 @@ export interface CenturyStats {
    *  their capital (−1 when there are none), and how many such civilizations there are. */
   roadEdges: number; pavedEdges: number; bridges: number; roadKm: number; roadsBuilt: number; roadsLost: number;
   roadCoverage: number; roadCivs: number;
+  /** Droughts begun and famines recorded so far, regions in drought now and regions with irrigation. */
+  droughts: number; famines: number; regionsInDrought: number; irrigated: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -262,6 +267,9 @@ export interface WealthFlows { before: number; produced: number; construction: n
 export interface FoodFlows {
   before: number; production: number; consumption: number; spoilage: number; carriedIn: number; carriedOut: number;
   plantedBefore: number; sown: number; harvested: number; cropsLost: number;
+  /** What the harvest gained (above 0) or lost (below 0) to the weather and drought, beyond the crops in the field;
+   *  part of production. */
+  weather: number;
 }
 
 export interface Metrics {
@@ -293,6 +301,8 @@ export interface Metrics {
   /** Roads begun, completed and abandoned (routes); road edges built or improved, bridges built, road edges lost; the
    *  tick the first bridge was built (−1 none yet). */
   roadsBegun: number; roadsBuilt: number; roadsAbandoned: number; roadEdgesBuilt: number; bridgesBuilt: number; roadsLost: number; firstBridgeTick: number;
+  /** Droughts begun (anywhere), and famines recorded (one for a polity's regions that fall into famine the same month). */
+  droughts: number; famines: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -320,6 +330,14 @@ export interface SimulationState {
   wonders: Wonder[];
   /** Standing roads by `roadKey` of their edge, in the order first built. */
   roads: Map<number, Road>;
+  /** Per region (VISION.md "Environment"): the weather of its latest harvest (a factor around 1), the factor its last
+   *  harvest came in at (the weather times any drought's share, as applied), months of drought left (0: none), famine
+   *  deaths over about the last year (a fading sum) and whether it is in a famine now. */
+  weather: Float64Array; harvestFactor: Float64Array; drought: Uint8Array; famineRecent: Float64Array; famine: Uint8Array;
+  /** Per region, derived from its living settlements' buildings (recomputed whenever they change): the farm yield
+   *  multiplier and the share of a drought's loss kept away (irrigation), and the food store limit and spoilage
+   *  multipliers (a granary). */
+  farmBonus: Float64Array; droughtShield: Float64Array; storeBonus: Float64Array; spoilageBonus: Float64Array;
   /** Per region: every settlement ever founded there (living or in ruins), in founding order; the first living one is
    *  the region's main settlement. */
   regionSettlements: number[][];

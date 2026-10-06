@@ -15,14 +15,18 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
 /** What a need is called when it is cited as a cause, by the purpose that answers it. */
-export const NEED_OF: Record<string, string> = { food: 'hardship', faith: 'unrest', learning: 'learning', trade: 'commerce', housing: 'crowding', defense: 'frontier', mining: 'deposits', sea: 'seaReach' };
+export const NEED_OF: Record<string, string> = { food: 'hardship', faith: 'unrest', learning: 'learning', trade: 'commerce', housing: 'crowding', defense: 'frontier', mining: 'deposits', sea: 'seaReach', farming: 'farming' };
 
 /**
  * The needs a building of this purpose answers in one settlement, by name (each 0–1 before its size, summing to at
  * most 1), given the civilization's values: what the decision cites. Food has two: hard years (hardship) and farmers'
- * storage; the other purposes one each.
+ * storage; so has farming: the fields themselves and hard years; the other purposes one each.
  */
 export function needParts(purpose: string, settlement: Facts, values: PolityView['values']): Record<string, number> {
+  if (purpose === 'farming') {
+    const farming = Math.min(1, BUILD_TUNING.irrigationBase * settlement.farmShare);
+    return { farming, hardship: Math.min(1 - farming, settlement.hardship * settlement.farmShare) };
+  }
   if (purpose !== 'food') return { [NEED_OF[purpose] ?? purpose]: need(purpose, settlement, values) };
   const hardship = clamp01(settlement.hardship), storage = Math.min(1 - hardship, BUILD_TUNING.farmStore * settlement.farmShare);
   return { hardship, storage };
@@ -39,6 +43,7 @@ export function need(purpose: string, settlement: Facts, values: PolityView['val
     case 'housing': return settlement.housing > 0 ? clamp01((settlement.urban / settlement.housing - tuning.crowdFrom) / (1 - tuning.crowdFrom)) : 0;
     case 'defense': return clamp01(settlement.frontier / tuning.frontierScale) * clamp01(tuning.defenseBase + values.militarism);
     case 'sea': return settlement.coast ? clamp01(settlement.seaLinks / tuning.seaScale) * clamp01(tuning.seaBase + (values.openness + values.expansionism) / 2) : 0;
+    case 'farming': return clamp01(settlement.farmShare * (tuning.irrigationBase + settlement.hardship));
     default: return 0;
   }
 }
@@ -46,8 +51,16 @@ export function need(purpose: string, settlement: Facts, values: PolityView['val
 /** What a mine or quarry would earn in this settlement's region, as a need (0–1); other buildings need their purpose. */
 function needFor(kind: Kind, settlement: Facts, values: PolityView['values']) {
   if (kind.works) return clamp01((kind.works === 'mineral' ? settlement.mineYield : settlement.quarryYield) / BUILD_TUNING.mineScale);
-  if (kind.coast && !settlement.coast) return 0;
+  if ((kind.coast && !settlement.coast) || (kind.water && !settlement.water)) return 0;
   return need(kind.purpose, settlement, values);
+}
+
+/** How much a settlement's size counts for this building: mines and quarries are worth their sites whatever its size,
+ *  irrigation serves the region's farmers, other buildings its townspeople. */
+function sizeFor(kind: Kind, settlement: Facts) {
+  if (kind.works) return 1;
+  if (kind.purpose === 'farming') return Math.min(1, settlement.farmers / BUILD_TUNING.farmScale);
+  return Math.min(1, settlement.urban / BUILD_TUNING.sizeScale);
 }
 
 /** One building type's option: where it is needed most (at most a batch of settlements), and its score. */
@@ -56,8 +69,7 @@ export function buildScore(view: PolityView, kind: Kind): Option & { targets: nu
   const batch = Math.min(tuning.batchMax, Math.max(1, Math.ceil(build.regions / tuning.batchRegions)));
   const regions = new Set<number>();
   const ranked = build.settlements.filter(settlement => settlement.tier >= kind.minTier && !settlement.has.includes(kind.type))
-    // Mines and quarries are worth what their sites give, whatever the settlement's size; other buildings serve townspeople.
-    .map(settlement => ({ settlement, value: needFor(kind, settlement, view.values) * (kind.works ? 1 : Math.min(1, settlement.urban / tuning.sizeScale)) }))
+    .map(settlement => ({ settlement, value: needFor(kind, settlement, view.values) * sizeFor(kind, settlement) }))
     .filter(entry => entry.value > 0).sort((a, b) => b.value - a.value || a.settlement.id - b.settlement.id)
     // One a region needs only one of: the best settlement in each region.
     .filter(entry => !kind.perRegion || (!regions.has(entry.settlement.region) && regions.add(entry.settlement.region) !== undefined)).slice(0, batch);
@@ -67,7 +79,7 @@ export function buildScore(view: PolityView, kind: Kind): Option & { targets: nu
   // Each need's share of the benefit (what a completed building will cite): food splits into hard years and storage.
   const parts = new Map<string, number>();
   for (const { settlement } of ranked) {
-    const size = kind.works ? 1 : Math.min(1, settlement.urban / tuning.sizeScale);
+    const size = sizeFor(kind, settlement);
     if (kind.works) parts.set(NEED_OF[kind.purpose], (parts.get(NEED_OF[kind.purpose]) ?? 0) + needFor(kind, settlement, view.values));
     else for (const [name, value] of Object.entries(needParts(kind.purpose, settlement, view.values))) parts.set(name, (parts.get(name) ?? 0) + value * size);
   }

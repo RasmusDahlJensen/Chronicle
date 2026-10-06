@@ -269,7 +269,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
         const style = ROAD_STYLE[tier - 1];
         target.beginPath(); target.strokeStyle = style.color; target.lineWidth = style.width * thin; target.setLineDash(style.dash);
         let drawn = false;
-        for (let copy = startCopy; copy <= endCopy; copy++) for (const road of roads) {
+        // One copy more on each side: a road drawn from its first end may cross the world's seam into view.
+        for (let copy = startCopy - 1; copy <= endCopy + 1; copy++) for (const road of roads) {
           if (road.tier !== tier) continue;
           const dx = wrap(road.x2 - road.x1 + world.width / 2, world.width) - world.width / 2;
           const x1 = left + (copy * world.width + road.x1 + 0.5) * m.scale, y1 = top + (road.y1 + 0.5) * m.scale;

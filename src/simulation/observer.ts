@@ -3,7 +3,7 @@ import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { speedOf } from './knowledge.ts';
 import { BUILDINGS } from './buildings.ts';
 import { WONDERS } from './wonders.ts';
-import { incomeOf, upkeepOf } from './economy.ts';
+import { incomeOf, regionFarm, upkeepOf } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { capitalKm, knownRegionCount } from './perception.ts';
@@ -71,7 +71,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   const occupant = state.occupant[region];
   const polity = occupant >= 0 ? state.polities[occupant] : null, group = state.groupAt[region] >= 0 ? state.groups[state.groupAt[region]] : null;
   // The land as its occupant would work it (unclaimed land: the starting methods only).
-  const yields = regionYields(state.food, state.gameStock[region], new Float64Array(METHOD_COUNT), region, polity?.knowledge);
+  const yields = regionYields(state.food, state.gameStock[region], new Float64Array(METHOD_COUNT), region, polity?.knowledge, regionFarm(state, region));
   const at = region * METHOD_COUNT, labor = state.food.labor;
   // A fresh solve at the current game stock: the simulation's cached value is only kept up to date where people live,
   // and the observer must never write simulation state.
@@ -143,6 +143,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   });
   return {
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews,
+    weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)) },
     food: { forage: output(0), hunt: output(1), fish: output(2), herd: output(3), farm: output(4) },
     polity: view,
   };

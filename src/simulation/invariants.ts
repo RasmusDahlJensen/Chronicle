@@ -8,7 +8,10 @@ import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
 import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
 import type { Polity, RoadWork, Settlement, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
-import { REGION_TUNING } from './tunables.ts';
+import { BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING } from './tunables.ts';
+
+/** The least share of its crops a harvest can come in at: the worst weather in drought without irrigation. */
+const lowestHarvest = ENVIRONMENT_TUNING.harvestMin * (1 - ENVIRONMENT_TUNING.droughtFarmLoss);
 
 /** Thrown when a tick leaves the world in an impossible state; the scenario and tick are in the message. */
 export class InvariantError extends Error {}
@@ -42,6 +45,7 @@ export function checkInvariants(state: SimulationState) {
   // Settlements (VISION.md "Settlements"): each living one stands on a land cell of a region its owner holds, listed in
   // that region's index, housing at most its housing; the urban of a region add up to its townspeople (checked below).
   const villages = new Int32Array(regions), urban = new Float64Array(regions), harbors = new Int32Array(regions);
+  const farm = new Float64Array(regions).fill(1), shield = new Float64Array(regions), store = new Float64Array(regions).fill(1), spoilage = new Float64Array(regions).fill(1);
   for (const settlement of state.settlements) {
     if (!state.regionSettlements[settlement.region]?.includes(settlement.id)) fail(`settlement ${settlement.id} is missing from region ${settlement.region}'s list`);
     if (settlement.status !== 'alive') { if (settlement.capital || settlement.urban !== 0 || settlement.buildings.length) fail(`settlement ${settlement.id} in ruins is a capital or has people or buildings`); continue; }
@@ -51,12 +55,23 @@ export function checkInvariants(state: SimulationState) {
     // Buildings: one of each type, in condition, and the housing and bonus they give (yearly per settlement, staggered).
     if ((state.tick + settlement.id) % 12 === 0) checkBuildings(state, settlement, fail);
     villages[settlement.region]++; urban[settlement.region] += settlement.urban; if (settlement.bonus.harbor) harbors[settlement.region]++;
+    const at = settlement.region, bonus = settlement.bonus;
+    farm[at] = Math.max(farm[at], bonus.farm); shield[at] = Math.max(shield[at], bonus.drought); store[at] = Math.max(store[at], bonus.store); spoilage[at] = Math.min(spoilage[at], bonus.spoilage);
     if (settlement.capital && state.polities[settlement.owner]?.capital !== settlement.id) fail(`settlement ${settlement.id} is a capital its owner does not name`);
   }
   let indexed = 0;
   for (const list of state.regionSettlements) indexed += list.length;
   for (let region = 0; region < regions; region++) if (state.harbors[region] !== harbors[region] || harbors[region] > 1) fail(`region ${region} counts ${state.harbors[region]} harbors, not its ${harbors[region]} (at most one)`);
   checkRoads(state, fail);
+  // Each region's building effects are what its living settlements' buildings give (`refreshRegionBonus`).
+  for (let region = 0; region < regions; region++) {
+    if (state.farmBonus[region] !== farm[region] || state.droughtShield[region] !== shield[region] || state.storeBonus[region] !== store[region] || state.spoilageBonus[region] !== spoilage[region]) fail(`region ${region}'s building effects are not what its settlements' buildings give`);
+  }
+  // The environment: weather and harvests within their bounds, droughts no longer than they last, famine as a flag.
+  for (let region = 0; region < regions; region++) {
+    if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowestHarvest && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
+    if (state.drought[region] > ENVIRONMENT_TUNING.droughtYears * 12 || state.famine[region] > 1 || !(state.famineRecent[region] >= 0)) fail(`region ${region} has drought ${state.drought[region]}, famine ${state.famine[region]} and recent famine deaths ${state.famineRecent[region]}`);
+  }
   // What one region needs only one of (granary, shrine, temple, mine, quarry, harbor), standing or under way.
   for (let region = 0; region < regions; region++) {
     const list = state.regionSettlements[region];
@@ -76,7 +91,7 @@ export function checkInvariants(state: SimulationState) {
   const active = new Set<number>();
   for (const wonder of state.wonders) {
     const settlement = state.settlements[wonder.settlement];
-    if (!WONDERS[wonder.type] || !settlement || !Number.isInteger(wonder.spent) || wonder.spent < 0 || wonder.spent > wonder.cost) fail(`wonder ${wonder.id} is invalid`);
+    if (!WONDERS[wonder.type] || !settlement || !Number.isInteger(wonder.spent) || wonder.spent < 0 || wonder.spent > wonder.cost || !Number.isInteger(wonder.waited) || wonder.waited < 0 || wonder.waited > BUILD_TUNING.waitMonths) fail(`wonder ${wonder.id} is invalid`);
     if (wonder.status !== 'building' && wonder.status !== 'standing') { if (wonder.endedTick === null || wonder.endCause === null) fail(`wonder ${wonder.id} ended without a date or cause`); continue; }
     if (wonder.endedTick !== null || wonder.endCause !== null) fail(`wonder ${wonder.id} has ended but still ${wonder.status === 'building' ? 'is being built' : 'stands'}`);
     if (active.has(wonder.type)) fail(`two of wonder type ${wonder.type} stand or are being built`);
@@ -122,6 +137,9 @@ export function checkInvariants(state: SimulationState) {
         fail(`group ${groupId}'s food store ${group.store} is not explained by its flows ${JSON.stringify(flows)}`);
       } else if (!Number.isInteger(group.planted) || group.planted < 0 || group.planted !== flows.plantedBefore + flows.sown - flows.harvested - flows.cropsLost) {
         fail(`group ${groupId}'s crops in the field ${group.planted} are not explained by its flows ${JSON.stringify(flows)}`);
+      } else if (!Number.isInteger(flows.weather) || flows.weather < Math.round(flows.harvested * lowestHarvest) - flows.harvested || flows.weather > Math.round(flows.harvested * ENVIRONMENT_TUNING.harvestMax) - flows.harvested) {
+        // (The harvest's region is not checked: a band may move on after its harvest in the same month.)
+        fail(`group ${groupId}'s harvest gained ${flows.weather} from the weather on ${flows.harvested} harvested, beyond what weather and drought allow`);
       }
     }
     if (polity.kind === 'civ') {
@@ -139,7 +157,8 @@ export function checkInvariants(state: SimulationState) {
     if (!(polity.wealthCarry >= 0 && polity.wealthCarry < 1 && polity.upkeepCarry >= 0 && polity.upkeepCarry < 1)) fail(`polity ${id} carries ${polity.wealthCarry} wealth and ${polity.upkeepCarry} upkeep`);
     for (const project of polity.projects) {
       const settlement = state.settlements[project.settlement];
-      if (!settlement || !BUILDINGS[project.type] || !Number.isInteger(project.cost) || project.cost <= 0 || project.cost > BUILDINGS[project.type].cost || !Number.isInteger(project.spent) || project.spent < 0 || project.spent >= project.cost) fail(`polity ${id} has an invalid work ${JSON.stringify(project)}`);
+      if (!settlement || !BUILDINGS[project.type] || !Number.isInteger(project.cost) || project.cost <= 0 || project.cost > BUILDINGS[project.type].cost || !Number.isInteger(project.spent) || project.spent < 0 || project.spent >= project.cost
+        || !Number.isInteger(project.waited) || project.waited < 0 || project.waited >= BUILD_TUNING.waitMonths) fail(`polity ${id} has an invalid work ${JSON.stringify(project)}`);
     }
     if (polity.kind === 'civ' && !ledger.wealth.has(id) && polity.wealth !== 0) fail(`civilization ${id}'s treasury changed with no flows recorded`);
   }
@@ -202,13 +221,9 @@ function checkRoadWork(state: SimulationState, id: number, work: RoadWork, fail:
  *  bonus they give. */
 function checkBuildings(state: SimulationState, settlement: Settlement, fail: (message: string) => never) {
   if (settlement.housing !== housingOf(settlement)) fail(`settlement ${settlement.id}'s housing is not what its buildings give`);
-  if (settlement.buildings.length) {
-    const bonus = bonusOf(settlement.buildings), held = settlement.bonus;
-    if (bonus.research !== held.research || bonus.wealth !== held.wealth || bonus.store !== held.store || bonus.spoilage !== held.spoilage || bonus.stability !== held.stability || bonus.upkeep !== held.upkeep
-      || bonus.mine !== held.mine || bonus.quarry !== held.quarry || bonus.harbor !== held.harbor) fail(`settlement ${settlement.id}'s bonus is not what its buildings give`);
-    if (!state.polities[settlement.owner].repairing && settlement.buildings.some(building => building.condition < 1)) fail(`settlement ${settlement.id} has worn buildings its owner is not mending`);
-  } else if (settlement.bonus.research !== 1 || settlement.bonus.wealth !== 1 || settlement.bonus.store !== 1 || settlement.bonus.spoilage !== 1 || settlement.bonus.stability !== 0 || settlement.bonus.upkeep !== 0
-    || settlement.bonus.mine || settlement.bonus.quarry || settlement.bonus.harbor) fail(`settlement ${settlement.id} has a bonus without buildings`);
+  const bonus = bonusOf(settlement.buildings), held = settlement.bonus;
+  if ((Object.keys(bonus) as (keyof typeof bonus)[]).some(key => bonus[key] !== held[key])) fail(`settlement ${settlement.id}'s bonus is not what its buildings give`);
+  if (!state.polities[settlement.owner].repairing && settlement.buildings.some(building => building.condition < 1)) fail(`settlement ${settlement.id} has worn buildings its owner is not mending`);
   if (new Set(settlement.buildings.map(building => building.type)).size !== settlement.buildings.length || settlement.buildings.some(building => !(building.condition > 0 && building.condition <= 1) || !BUILDINGS[building.type])) fail(`settlement ${settlement.id} has invalid buildings`);
 }
 

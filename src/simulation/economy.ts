@@ -150,16 +150,14 @@ export function buildingStability(state: SimulationState, region: number) {
   return stability;
 }
 
-/** The region's food store limit multiplier, from its granary (one serves the region). */
-export function regionStore(state: SimulationState, region: number) {
-  let store = 1;
-  for (const id of state.regionSettlements[region]) { const settlement = state.settlements[id]; if (settlement.status === 'alive') store = Math.max(store, settlement.bonus.store); }
-  return store;
-}
+/** The region's food store limit multiplier, from its granary (one serves the region; `refreshRegionBonus`). */
+export const regionStore = (state: SimulationState, region: number) => state.storeBonus[region];
+
+/** The region's farm yield multiplier, from its irrigation (one serves the region). */
+export const regionFarm = (state: SimulationState, region: number) => state.farmBonus[region];
+
+/** The share of a drought's loss its irrigation keeps away from the region (0 without). */
+export const regionDroughtShield = (state: SimulationState, region: number) => state.droughtShield[region];
 
 /** The region's food spoilage multiplier, from its granary. */
-export function regionSpoilage(state: SimulationState, region: number) {
-  let spoilage = 1;
-  for (const id of state.regionSettlements[region]) { const settlement = state.settlements[id]; if (settlement.status === 'alive') spoilage = Math.min(spoilage, settlement.bonus.spoilage); }
-  return spoilage;
-}
+export const regionSpoilage = (state: SimulationState, region: number) => state.spoilageBonus[region];

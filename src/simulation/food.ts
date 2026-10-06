@@ -93,9 +93,10 @@ export function farmingPotential(model: FoodModel, region: number) {
 /**
  * Effective yields in a region for a polity: game stock scales hunting (and foraging partly), known techs multiply
  * each method, and herding and farming yield nothing until a tech makes them available. Without `knowledge` only
- * the starting methods count (the observer's view of unclaimed land).
+ * the starting methods count (the observer's view of unclaimed land). `farm` multiplies the farm yield (the region's
+ * irrigation).
  */
-export function regionYields(model: FoodModel, gameStock: number, into: Float64Array, region = -1, knowledge?: Knowledge) {
+export function regionYields(model: FoodModel, gameStock: number, into: Float64Array, region = -1, knowledge?: Knowledge, farm = 1) {
   for (let method = 0; method < METHOD_COUNT; method++) into[method] = model.baseYield[method];
   into[HUNT] *= gameStock;
   into[FORAGE] *= FOOD_TUNING.forageGameFloor + (1 - FOOD_TUNING.forageGameFloor) * gameStock;
@@ -103,7 +104,7 @@ export function regionYields(model: FoodModel, gameStock: number, into: Float64A
   const m = knowledge.multipliers;
   into[FORAGE] *= m.forageYield; into[HUNT] *= m.huntYield; into[FISH] *= m.fishYield;
   into[HERD] = knowledge.methods.herd ? into[HERD] * m.herdYield : 0;
-  into[FARM] = knowledge.methods.farm ? into[FARM] * m.farmYield * (region >= 0 ? model.farmWater[region] : 1) : 0;
+  into[FARM] = knowledge.methods.farm ? into[FARM] * m.farmYield * farm * (region >= 0 ? model.farmWater[region] : 1) : 0;
   return into;
 }
 

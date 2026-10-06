@@ -1,8 +1,9 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
+import { regionCapacity } from './bands.ts';
 import { BUILDINGS } from './buildings.ts';
 import { buildingCost, wealthFlows } from './economy.ts';
-import { bySea, hasHarbor, lookAgain } from './perception.ts';
-import { applyBuildings, endWonder, house } from './settlements.ts';
+import { bySea, hasHarbor, lookAgain, riverOrLake } from './perception.ts';
+import { applyBuildings, endWonder, house, refreshRegionBonus } from './settlements.ts';
 import { WONDERS } from './wonders.ts';
 import { edgeBetween, keeperOf, knownRoadTier, ROAD_TIERS, roadKey, roadRoutes, roadUpkeep } from './roads.ts';
 import type { Polity, Settlement, SimulationState, TickContext } from './state.ts';
@@ -36,11 +37,15 @@ function roadDues(state: SimulationState) {
   return dues;
 }
 
-/** A building's housing and bonus change its settlement; its region's townspeople move accordingly. */
+/** A building's housing and bonus change its settlement; its region's townspeople move accordingly, and its land's
+ *  capacity follows its irrigation. */
 function rehouse(state: SimulationState, settlement: Settlement) {
+  const farm = state.farmBonus[settlement.region];
   applyBuildings(settlement);
+  refreshRegionBonus(state, settlement.region);
   const group = state.groups[state.groupAt[settlement.region]];
   group.specialists = house(state, settlement.region, group.specialists, false);
+  if (state.farmBonus[settlement.region] !== farm) regionCapacity(state, settlement.region);
 }
 
 function payUpkeep(state: SimulationState, civ: Polity, roads: number) {
@@ -103,8 +108,13 @@ function buildWonders(state: SimulationState, tick: number, civ: Polity) {
     if (wonder.status !== 'building') continue;
     const settlement = state.settlements[wonder.settlement];
     const definition = WONDERS[wonder.type];
-    // Work waits while its city is smaller than the wonder needs.
-    if (settlement.status !== 'alive' || settlement.owner !== civ.id || settlement.tier < definition.minTier) continue;
+    if (settlement.status !== 'alive' || settlement.owner !== civ.id) continue;
+    // Work waits while its city is smaller than the wonder needs, and is given up after waiting too long.
+    if (settlement.tier < definition.minTier) {
+      if (++wonder.waited >= BUILD_TUNING.waitMonths) endWonder(state, wonder, tick, 'stalled');
+      continue;
+    }
+    wonder.waited = 0;
     const instalment = Math.min(wonder.cost - wonder.spent, Math.ceil(wonder.cost / definition.months), civ.wealth);
     if (instalment > 0) { const flows = wealthFlows(state, civ); civ.wealth -= instalment; wonder.spent += instalment; flows.construction += instalment; }
     if (wonder.spent < wonder.cost) continue;
@@ -125,7 +135,7 @@ export function beginWonder(state: SimulationState, tick: number, civ: Polity, t
   if (state.wonders.some(wonder => wonder.type === type && (wonder.status === 'building' || wonder.status === 'standing'))) return `${definition.name} is being built or stands elsewhere`;
   if (settlement.wonder !== null || state.wonders.some(wonder => wonder.settlement === at && wonder.status === 'building')) return `${settlement.name} already has a wonder`;
   if (settlement.tier < definition.minTier) return `${settlement.name} is too small for it`;
-  state.wonders.push({ id: state.wonders.length, type, settlement: at, builder: civ.id, begunTick: tick, builtTick: null, status: 'building', spent: 0, cost: definition.cost, condition: 1, endedTick: null, endCause: null, causes: cited });
+  state.wonders.push({ id: state.wonders.length, type, settlement: at, builder: civ.id, begunTick: tick, builtTick: null, status: 'building', spent: 0, cost: definition.cost, condition: 1, endedTick: null, endCause: null, causes: cited, waited: 0 });
   state.metrics.wondersBegun++;
   state.chronicle.emit({
     type: 'wonderBegun', actors: [{ id: civ.id, role: 'civ' }], region: settlement.region, settlement: at, causes: cited, importance: 0.3,
@@ -141,8 +151,12 @@ function build(state: SimulationState, tick: number, civ: Polity) {
     const settlement = state.settlements[project.settlement], definition = BUILDINGS[project.type];
     // A settlement lost or fallen to ruin takes the work with it.
     if (settlement.status !== 'alive' || settlement.owner !== civ.id || settlement.buildings.some(building => building.type === project.type)) { state.metrics.projectsAbandoned++; continue; }
-    // Work waits (unpaid) while the settlement is smaller than the building needs.
-    if (settlement.tier < definition.minTier) { remaining.push(project); continue; }
+    // Work waits (unpaid) while the settlement is smaller than the building needs, and is given up after waiting too long.
+    if (settlement.tier < definition.minTier) {
+      if (++project.waited >= BUILD_TUNING.waitMonths) state.metrics.projectsAbandoned++; else remaining.push(project);
+      continue;
+    }
+    project.waited = 0;
     const instalment = Math.min(project.cost - project.spent, Math.ceil(project.cost / definition.months), civ.wealth);
     if (instalment > 0) { const flows = wealthFlows(state, civ); civ.wealth -= instalment; project.spent += instalment; flows.construction += instalment; }
     if (project.spent < project.cost) { remaining.push(project); continue; }
@@ -170,11 +184,11 @@ export function startProjects(state: SimulationState, tick: number, civ: Polity,
   for (const id of settlements) {
     const settlement = state.settlements[id];
     if (settlement.status !== 'alive' || settlement.owner !== civ.id || settlement.tier < definition.minTier || settlement.buildings.some(building => building.type === type) || civ.projects.some(project => project.settlement === id && project.type === type)) continue;
-    if (definition.coast && !bySea(state, settlement.cell)) continue;
+    if ((definition.coast && !bySea(state, settlement.cell)) || (definition.water && !riverOrLake(state, settlement.region))) continue;
     // One a region needs only one of: not if any settlement there has it or is building it.
     if (definition.perRegion && state.regionSettlements[settlement.region].some(other => state.settlements[other].status === 'alive'
       && (state.settlements[other].buildings.some(building => building.type === type) || civ.projects.some(project => project.settlement === other && project.type === type)))) continue;
-    civ.projects.push({ settlement: id, type, spent: 0, cost, startedTick: tick, causes: cited });
+    civ.projects.push({ settlement: id, type, spent: 0, cost, startedTick: tick, causes: cited, waited: 0 });
     started++;
   }
   state.metrics.buildingsStarted += started;
@@ -219,9 +233,10 @@ function buildRoads(state: SimulationState, tick: number, civ: Polity) {
 /**
  * Monthly, after upkeep: each road mends while its keeper pays in full and wears by the share it left unpaid; a road
  * no civilization keeps wears at the full rate (VISION.md: "the roads of a collapsed empire crumble over decades").
- * A road worn away is lost: an event.
+ * Roads worn away are lost: one event a month for each keeper's (and for the unkept), however many stretches.
  */
 function wearRoads(state: SimulationState) {
+  let lost: Map<number, { region: number; roads: number; unpaid: number }> | null = null;
   for (const [key, road] of state.roads) {
     const keeper = keeperOf(state, road), unpaid = keeper >= 0 ? state.polities[keeper].roadsUnpaid : 1;
     if (unpaid > 0) road.condition -= unpaid / BUILD_TUNING.roadDecayMonths;
@@ -229,12 +244,15 @@ function wearRoads(state: SimulationState) {
     if (road.condition > 0) continue;
     state.roads.delete(key);
     state.metrics.roadsLost++;
-    state.chronicle.emit({
-      type: 'infrastructureDestroyed', actors: keeper >= 0 ? [{ id: keeper, role: 'civ' }] : [], region: road.a, settlement: null,
-      causes: [{ factor: keeper >= 0 ? 'unpaidUpkeep' : 'unkept', weight: Math.max(0.001, Math.round(unpaid * 1000) / 1000) }], importance: 0.02,
-      data: { kind: ROAD_TIERS[road.tier - 1].name, to: road.b, civ: keeper >= 0 ? state.polities[keeper].name : '', unpaid: keeper >= 0, unkept: keeper < 0 },
-    });
+    lost ??= new Map();
+    const entry = lost.get(keeper);
+    if (entry) entry.roads++; else lost.set(keeper, { region: road.a, roads: 1, unpaid });
   }
+  if (lost) for (const [keeper, entry] of lost) state.chronicle.emit({
+    type: 'infrastructureDestroyed', actors: keeper >= 0 ? [{ id: keeper, role: 'civ' }] : [], region: entry.region, settlement: null,
+    causes: [{ factor: keeper >= 0 ? 'unpaidUpkeep' : 'unkept', weight: Math.max(0.001, Math.round(entry.unpaid * 1000) / 1000) }], importance: Math.min(0.3, 0.02 + 0.005 * entry.roads),
+    data: { civ: keeper >= 0 ? state.polities[keeper].name : '', roads: entry.roads, one: entry.roads === 1, many: entry.roads > 1, unpaid: keeper >= 0, unkept: keeper < 0 },
+  });
 }
 
 /** The Build action carried out for roads: a road begun to each chosen town or city its roads do not yet reach. */
@@ -242,10 +260,17 @@ export function startRoads(state: SimulationState, tick: number, civ: Polity, ta
   const tier = knownRoadTier(civ.knowledge);
   if (!tier || civ.capital === null) return 'it knows no roads';
   const definition = ROAD_TIERS[tier - 1], begun: string[] = [];
+  // Roads of a lower tier still under way are superseded where the new roads run (the work spent on them is lost).
+  const superseded = (edges: [number, number][]) => {
+    const keys = new Set(edges.map(([a, b]) => `${a},${b}`)), before = civ.roadWorks.length;
+    civ.roadWorks = civ.roadWorks.filter(work => work.tier >= tier || !work.edges.some(([a, b]) => keys.has(`${a},${b}`)));
+    state.metrics.roadsAbandoned += before - civ.roadWorks.length;
+  };
   for (const id of targets) {
     // Searched again for each: the roads just begun claim their edges.
     const route = roadRoutes(state, civ, tier).find(entry => entry.settlement === id);
     if (!route) continue;
+    superseded(route.edges);
     civ.roadWorks.push({
       from: civ.capital, to: id, path: route.path, tier, edges: route.edges, bridges: route.bridges,
       spent: 0, cost: Math.max(1, route.cost), months: Math.max(1, route.months), startedTick: tick, causes: cited,

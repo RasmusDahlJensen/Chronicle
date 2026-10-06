@@ -217,14 +217,14 @@ export interface PolityView {
     wealth: number; income: number; upkeep: number; regions: number;
     /** The building types it knows: purpose, cost (as it would pay), upkeep, the smallest tier they stand in, whether
      *  they need the sea beside the settlement, and which sites they work. */
-    catalog: { type: number; name: string; one: string; many: string; purpose: string; cost: number; upkeep: number; minTier: number; coast: boolean; perRegion: boolean; works: '' | 'mineral' | 'stone' }[];
+    catalog: { type: number; name: string; one: string; many: string; purpose: string; cost: number; upkeep: number; minTier: number; coast: boolean; water: boolean; perRegion: boolean; works: '' | 'mineral' | 'stone' }[];
     /** Its living settlements: tier, townspeople and housing, its region's hardship (memory of hunger), share of food
-     *  farmed and stability, foreign peoples on the region's borders, the building types it has or is building (for
+     *  farmed (and the rural people that share stands for) and stability, foreign peoples on the region's borders, the building types it has or is building (for
      *  those one region needs only one of, anywhere in the region); whether the sea is beside it, the sea crossings its
      *  knowledge would reach from there, and the wealth a year its region's usable mineral and stone sites would give. */
     settlements: {
-      id: number; region: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; stability: number; frontier: number; has: number[];
-      coast: boolean; seaLinks: number; mineYield: number; quarryYield: number; wonder: boolean;
+      id: number; region: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; farmers: number; stability: number; frontier: number; has: number[];
+      coast: boolean; water: boolean; seaLinks: number; mineYield: number; quarryYield: number; wonder: boolean;
     }[];
     /** The wonders it could begin (it knows how, none stands or is being built anywhere, and it builds none now): their
      *  motive, cost, upkeep, the smallest tier of their city and whether it needs the sea; and its realm's mean stability. */
@@ -309,8 +309,9 @@ function travelFromCapital(state: SimulationState, polity: Polity) {
     if (at > cost[region]) continue;
     // Its own land relays at the crossings' cost; known land it does not hold relays at a premium.
     const factor = own.has(region) ? 1 : tuning.foreignRelay;
-    // Roads lower the cost of the edges they lie on (VISION.md "Roads": governance reach grows with roads).
-    for (const edge of regions[region].neighbors) if (map.status[edge.region] !== UNKNOWN) reach(edge.region, at + factor * edgeTravel(state, region, edge));
+    // Roads lower the cost of the edges they lie on (VISION.md "Roads": governance reach grows with roads), where it
+    // sees both ends: roads in land it only remembers are as it last saw them, which it does not keep.
+    for (const edge of regions[region].neighbors) if (map.status[edge.region] !== UNKNOWN) reach(edge.region, at + factor * edgeTravel(state, region, edge, map.status[region] === OBSERVED && map.status[edge.region] === OBSERVED));
     const sea = seaFrom(state, polity, region);
     if (sea > 0) for (const link of regions[region].sea) if (crosses(sea, link.km) && map.status[link.region] !== UNKNOWN) reach(link.region, at + factor * seaKm(link.km));
   }
@@ -355,7 +356,7 @@ export function governable(state: SimulationState, civ: Polity, groups: readonly
 function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
   const catalog: PolityView['build']['catalog'] = [];
   BUILDINGS.forEach((definition, type) => {
-    if (buildingKnown(civ.knowledge, type)) catalog.push({ type, name: definition.name, one: definition.one, many: definition.many, purpose: definition.purpose, cost: buildingCost(state, civ, type), upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast, perRegion: definition.perRegion, works: definition.effects.works ?? '' });
+    if (buildingKnown(civ.knowledge, type)) catalog.push({ type, name: definition.name, one: definition.one, many: definition.many, purpose: definition.purpose, cost: buildingCost(state, civ, type), upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast, water: definition.water, perRegion: definition.perRegion, works: definition.effects.works ?? '' });
   });
   const settlements: PolityView['build']['settlements'] = [];
   if (catalog.length) for (const groupId of civ.groups) {
@@ -378,8 +379,8 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
       for (const project of civ.projects) if (project.settlement === settlement.id) has.push(project.type);
       settlements.push({
         id: settlement.id, region, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, hardship: state.hardship[region],
-        farmShare: group.farmShare, stability: state.stability[region], frontier: foreign.size, has,
-        coast: bySea(state, settlement.cell), seaLinks, mineYield, quarryYield, wonder: settlement.wonder !== null || state.wonders.some(wonder => wonder.settlement === settlement.id && wonder.status === 'building'),
+        farmShare: group.farmShare, farmers: Math.round((group.size - group.specialists) * group.farmShare), stability: state.stability[region], frontier: foreign.size, has,
+        coast: bySea(state, settlement.cell), water: riverOrLake(state, region), seaLinks, mineYield, quarryYield, wonder: settlement.wonder !== null || state.wonders.some(wonder => wonder.settlement === settlement.id && wonder.status === 'building'),
       });
     }
   }
@@ -400,6 +401,9 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
   }
   return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1, roads };
 }
+
+/** Whether a region has a river or a lake (where irrigation may water its fields). */
+export const riverOrLake = (state: SimulationState, region: number) => state.partition.regions[region].riverTier >= 1 || state.partition.regions[region].openLake;
 
 /** Whether the sea lies beside a cell (where a harbor may stand). */
 const seaNear = new Int32Array(4);

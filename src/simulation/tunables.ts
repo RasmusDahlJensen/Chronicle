@@ -88,6 +88,10 @@ export const POPULATION_TUNING = {
   famineDeaths: 1.5,
   /** Months of food a band can store before Pottery, and the share of the store that perishes each month. */
   storeMonths: 1, storeSpoilage: 0.25,
+  /** Farmers keep a reserve for bad harvests (VISION.md: food security counts stored food): up to this many months
+   *  beyond what lasts until the next harvest, as far as their store holds. While their store is short of it, births
+   *  count food security as lower by the shortfall (a share of a harvest cycle's need); deaths follow hunger alone. */
+  reserveMonths: 3,
 } as const;
 
 /** Band movement and fission (VISION.md "Band movement and fission"); every trigger is graded. */
@@ -361,7 +365,10 @@ export const WEALTH_TUNING = {
  */
 export const BUILD_TUNING = {
   sizeScale: 8_000, farmStore: 0.2, faithBase: 0.3, learningBase: 0.3, tradeBase: 0.4, tradeOpenness: 0.6, crowdFrom: 0.7, frontierScale: 3, defenseBase: 0.1,
-  purposeWeight: { food: 0.5, faith: 0.35, learning: 0.3, trade: 0.35, housing: 0.6, defense: 0.25, mining: 0.4, sea: 0.35, roads: 0.5 },
+  purposeWeight: { food: 0.5, faith: 0.35, learning: 0.3, trade: 0.35, housing: 0.6, defense: 0.25, mining: 0.4, sea: 0.35, farming: 0.4, roads: 0.5 },
+  /** farming (irrigation): the share of food farmed or herded × (irrigationBase + hardship), at most 1, sized by the
+   *  region's farmers (min(1, farmers ÷ farmScale)) instead of its townspeople. */
+  irrigationBase: 0.3, farmScale: 10_000,
   /** mining: min(1, wealth a year the region's unworked usable sites would give ÷ mineScale); sea (a coastal settlement):
    *  min(1, sea crossings within its civilization's reach ÷ seaScale) × (seaBase + (Openness + Expansionism) ÷ 2). */
   mineScale: 3_000, seaScale: 3, seaBase: 0.2,
@@ -383,6 +390,24 @@ export const BUILD_TUNING = {
   roadBase: 0.2, roadOpenness: 0.3, roadReach: 0.8, roadUpkeep: 0.02, roadDecayMonths: 240,
   batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6,
   decayMonths: 60, recoverMonths: 24,
+  /** Work waits, unpaid, while its settlement is below the tier it needs; after waitMonths it is abandoned. */
+  waitMonths: 240,
+} as const;
+
+/**
+ * The environment (VISION.md "Environment": yield variance and droughts). Each harvest comes in at its crops × the
+ * weather, drawn at the harvest month: 1 + harvestSpread × a standard normal draw, within [harvestMin, harvestMax].
+ * Each January a region not in drought begins one with chance droughtChance a year (× aridDrought where the land is
+ * arid), lasting 1 to droughtYears years, and it spreads to each neighbour with chance droughtSpread. In drought a
+ * harvest keeps 1 − droughtFarmLoss of its crops and herds give 1 − droughtHerdLoss of their yield (less of a loss
+ * where irrigation stands). A region is in famine once its famine deaths over about a year (a sum fading by
+ * famineFade a month) reach famineShare of its people (and at least famineMin); the famine ends below famineEnd. A
+ * famine cites what brought it where that weighs at least famineCause; else the shortage itself.
+ */
+export const ENVIRONMENT_TUNING = {
+  harvestSpread: 0.05, harvestMin: 0.8, harvestMax: 1.2,
+  droughtChance: 0.0004, aridDrought: 4, droughtYears: 3, droughtSpread: 0.5, droughtFarmLoss: 0.4, droughtHerdLoss: 0.25,
+  famineFade: 11 / 12, famineShare: 0.04, famineMin: 50, famineEnd: 0.01, famineCause: 0.03,
 } as const;
 
 /** Culture values of new cultures (0–1 sliders) and how far a daughter culture's values drift from its parent's. */
@@ -421,7 +446,7 @@ export function validateTunables() {
   if (!(Number.isInteger(f.unitsPerPersonMonth) && f.unitsPerPersonMonth >= 1)) problems.push('food units must be whole');
   const p = POPULATION_TUNING;
   if (!(p.birthRate > 0 && p.deathRate > 0 && p.birthSlope >= 0 && p.birthSlope < p.birthRate && p.securitySpan > 0 && p.famineDeaths >= 0)) problems.push('population rates must be positive');
-  if (!(p.storeMonths >= 0 && p.storeSpoilage >= 0 && p.storeSpoilage <= 1)) problems.push('store limits must be non-negative and spoilage at most 1');
+  if (!(p.storeMonths >= 0 && p.storeSpoilage >= 0 && p.storeSpoilage <= 1 && p.reserveMonths >= 0)) problems.push('store limits must be non-negative and spoilage at most 1');
   const b = BAND_TUNING;
   if (!(b.splitSize > 1 && b.splitShare > 0 && b.splitShare < 1 && b.splitFrom > 0 && b.splitRate >= 0)) problems.push('band split settings are invalid');
   if (!(b.pressureFrom >= 0 && b.pressureFull > b.pressureFrom && b.moveRate >= 0 && b.moveCost >= 0)) problems.push('band movement settings are invalid');
@@ -481,10 +506,14 @@ export function validateTunables() {
   if (!(WEALTH_TUNING.perTownsperson > 0 && WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1 && WEALTH_TUNING.stoneDiscount > 0 && WEALTH_TUNING.stoneDiscount <= 1
     && Object.values(WEALTH_TUNING.siteYield).every(value => value >= 0))) problems.push('wealth settings are invalid');
   const bu = BUILD_TUNING;
-  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity].every(value => value > 0) && bu.seaBase >= 0 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
+  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
   const sh = SHARE_TUNING;
   if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');
+  const en = ENVIRONMENT_TUNING;
+  if (!(en.harvestSpread >= 0 && en.harvestMin > 0 && en.harvestMin <= 1 && en.harvestMax >= 1 && en.droughtChance >= 0 && en.droughtChance * en.aridDrought <= 1 && Number.isInteger(en.droughtYears) && en.droughtYears >= 1 && en.droughtYears * 12 <= 255
+    && en.droughtSpread >= 0 && en.droughtSpread <= 1 && en.droughtFarmLoss >= 0 && en.droughtFarmLoss < 1 && en.droughtHerdLoss >= 0 && en.droughtHerdLoss < 1
+    && en.famineFade > 0 && en.famineFade < 1 && en.famineShare > en.famineEnd && en.famineEnd > 0 && en.famineMin >= 0 && en.famineCause >= 0)) problems.push('environment settings are invalid');
   const st2 = STABILITY_TUNING;
   if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   const x = EXPLORE_TUNING;

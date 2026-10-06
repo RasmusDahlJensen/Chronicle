@@ -66,7 +66,7 @@ export function expand(state: SimulationState, context: Pick<TickContext, 'tick'
   const carried = Math.floor(source.store * settlers / source.size);
   const flows = state.ledger.food.get(source.id);
   if (flows) flows.carriedOut += carried;
-  state.ledger.food.set(group.id, { before: 0, production: 0, consumption: 0, spoilage: 0, carriedIn: carried, carriedOut: 0, plantedBefore: 0, sown: 0, harvested: 0, cropsLost: 0 });
+  state.ledger.food.set(group.id, { before: 0, production: 0, consumption: 0, spoilage: 0, carriedIn: carried, carriedOut: 0, plantedBefore: 0, sown: 0, harvested: 0, cropsLost: 0, weather: 0 });
   source.store -= carried; group.store = carried;
   source.size -= settlers;
   group.foodSecurity = source.foodSecurity; group.culture = source.culture;

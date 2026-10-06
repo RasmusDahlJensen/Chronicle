@@ -187,6 +187,8 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(settlementsHere).toContainText(/(Village|Town|City|Metropolis)(, capital)? of the/);
   await expect(settlementsHere).toContainText(/townspeople of [\d,]+ it can house/);
   await expect(page.locator('#polity-rural')).toHaveText(/^[\d,]+$/);
+  // M3b.6: the region's last harvest (and any drought, famine or irrigation).
+  await expect(page.locator('#region-harvest')).toContainText(/\d+% of the crops/);
   await expect(page.locator('#world-population')).toContainText(/[\d,]+ settlements?/);
   await expect(details.getByRole('region', { name: 'Knowledge' })).toContainText('points a year');
   // M3: a civilization weighs expanding, exploring, uniting, sharing knowledge or doing nothing every six months; the inspector shows the last
@@ -194,7 +196,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(details.getByRole('region', { name: 'Decisions' })).toContainText('reach');
   // M3.3: each civilization region has a stability, with what lowers it.
   await expect(page.locator('#polity-stability')).toContainText(/Stability here [01]\.\d\d/);
-  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing|Unite with|Share knowledge with/);
+  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing|Unite with|Share knowledge with|Build/);
   // Do nothing is always weighed; Expand only when it knows land next to its own that nobody holds.
   const weighed = details.getByRole('list', { name: 'Options weighed' });
   await expect(weighed).toContainText('Do nothing');

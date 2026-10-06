@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 15;
+export const SIMULATION_PROTOCOL_VERSION = 16;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -130,6 +130,11 @@ export const ObserverFrameSchema = Type.Object({
   /** Details of the region the observer asked about, or null. */
   inspect: Type.Union([Type.Null(), Type.Object({
     region: id(), capacity: Type.Number({ minimum: 0 }), gameStock: Type.Number({ minimum: 0, maximum: 1 }),
+    /** The region's weather (VISION.md "Environment"): the share of its crops its last harvest came in at, months of
+     *  drought left (0: none), whether it is in famine, and its irrigation's farm yield multiplier (1: none). */
+    weather: Type.Object({
+      harvest: Type.Number({ minimum: 0 }), drought: Type.Integer({ minimum: 0 }), famine: Type.Boolean(), irrigation: Type.Number({ minimum: 1 }),
+    }, { additionalProperties: false }),
     /** The region's settlements, living and in ruins, main one first: tier, townspeople, housing, founding tick, the
      *  name its ruins bore if resettled under a new one, and its latest chronicle events (the settlement inspector). */
     settlements: Type.Array(Type.Object({

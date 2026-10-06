@@ -279,8 +279,25 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
   tamper(state => {
     const band = state.polities[state.living[6]];
     settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
-    for (let copy = 0; copy < 2; copy++) state.wonders.push({ id: copy, type: 0, settlement: band.capital!, builder: band.id, begunTick: state.tick, builtTick: null, status: 'building', spent: 0, cost: WONDERS[0].cost, condition: 1, endedTick: null, endCause: null, causes: [] });
+    for (let copy = 0; copy < 2; copy++) state.wonders.push({ id: copy, type: 0, settlement: band.capital!, builder: band.id, begunTick: state.tick, builtTick: null, status: 'building', spent: 0, cost: WONDERS[0].cost, condition: 1, endedTick: null, endCause: null, causes: [], waited: 0 });
   }, /two of wonder type 0/);
+  // A road work's edges lie on its way; unpaid road upkeep is a share; an ended wonder keeps its cause.
+  const civilization = (state: State, at: number) => {
+    const band = state.polities[state.living[at]];
+    settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
+    return band;
+  };
+  tamper(state => {
+    const civ = civilization(state, 7), { a, b } = edgeWhere(state, false);
+    civ.roadWorks.push({ from: civ.capital!, to: civ.capital!, path: [a, b], tier: 1, edges: [[a, b + 1]], bridges: 0, spent: 0, cost: 10, months: 2, startedTick: state.tick, causes: [] });
+  }, /whose edges are not on its path/);
+  tamper(state => { civilization(state, 8).roadsUnpaid = 2; }, /left 2 of its road upkeep unpaid/);
+  tamper(state => {
+    const civ = civilization(state, 9);
+    state.wonders.push({ id: 0, type: 0, settlement: civ.capital!, builder: civ.id, begunTick: state.tick, builtTick: null, status: 'abandoned', spent: 0, cost: WONDERS[0].cost, condition: 1, endedTick: state.tick, endCause: null, causes: [], waited: 0 });
+  }, /ended without a date or cause/);
+  // A harvest gains or loses to the weather only within what weather and drought allow.
+  tamper(state => { const flows = state.ledger.food.get(state.groups[state.polities[state.living[10]].core].id)!; flows.harvested += 100; flows.plantedBefore += 100; flows.weather = 60; flows.production += 60; state.groups[state.polities[state.living[10]].core].store += 60; }, /beyond what weather and drought allow/);
 });
 
 /** A stand-in for a random stream whose chances always fail (the band never agrees to join). */
@@ -359,8 +376,13 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
   const treasury = small.wealth + large.wealth, works = small.projects.length + large.projects.length, passed = small.wealth;
   const given = state.ledger.wealth.get(small.id)?.given ?? 0, received = state.ledger.wealth.get(large.id)?.received ?? 0;
   small.repairing = true;
+  // A road under way passes too (its target and way are the union's land now).
+  small.roadWorks.push({ from: small.capital!, to: small.capital!, path: regions.slice(0, 1).concat(regions.slice(0, 1)), tier: 1, edges: [], bridges: 0, spent: 0, cost: 1, months: 1, startedTick: state.tick, causes: [] });
+  const roads = small.roadWorks.length + large.roadWorks.length;
   assert.match(unite(state, state.tick, accepting, small, large, regions[0], [{ factor: 'test', weight: 1 }]), /united/);
   assert.equal(large.wealth, treasury); assert.equal(small.wealth, 0); assert.equal(large.projects.length, works); assert.ok(large.repairing);
+  assert.deepEqual([large.roadWorks.length, small.roadWorks.length], [roads, 0]);
+  large.roadWorks.pop();
   assert.equal(state.ledger.wealth.get(small.id)!.given - given, passed); assert.equal(state.ledger.wealth.get(large.id)!.received - received, passed);
   assert.notEqual(small.deathTick, null);
   assert.equal(large.groups.length, before + regions.length);

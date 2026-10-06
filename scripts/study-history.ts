@@ -154,6 +154,24 @@ function storyHealth(rows: SeedResult[]) {
     const coverage = (row: Stats | undefined) => !row ? '—' : row.roadCoverage < 0 ? 'none (0)' : `${Math.round(row.roadCoverage * 100)}% (${row.roadCivs})`;
     lines.push(`| ${result.seed} | ${[1500, 2000, 3000].map(year => coverage(at(year))).join(' / ')} | ${first('Wheel')} · ${first('Engineering')} · ${m.firstBridgeTick >= 0 ? Math.floor(m.firstBridgeTick / 12) : '—'} | ${[1500, 2000, 3000].map(year => { const row = at(year); return row ? `${row.roadEdges} · ${row.pavedEdges} · ${row.bridges}` : '—'; }).join(' / ')} | ${[1500, 3000].map(year => at(year)?.roadKm.toLocaleString('en') ?? '—').join(' / ')} | ${m.roadsBuilt} · ${m.roadsLost} |`);
   }
+  // M3b.6: harvests, droughts and famine (VISION.md "Environment"); story health: world population rises in every century
+  // of the first 1,000 years except after a recorded famine or plague.
+  lines.push('', '| Seed | Droughts begun · touching people by 3,000 | Famines by 1,000 / 3,000 | Famines citing drought · bad harvest · crowding · unrest (strongest cause) | Regions in drought at 1,000 / 2,000 / 3,000 | Irrigated regions at 1,500 / 3,000 | Centuries of the first 1,000 years when world population fell (with a famine recorded) |',
+    '| --- | --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), m = result.report.metrics;
+    const events = (result.report.events ?? []) as { type: string; tick: number; causes: { factor: string }[] }[];
+    const famines = events.filter(event => event.type === 'famine'), droughts = events.filter(event => event.type === 'drought');
+    const strongest = (factor: string) => famines.filter(event => event.causes[0]?.factor === factor).length;
+    const falls: string[] = [];
+    for (let year = 100; year <= 1000; year += 100) {
+      const before = at(year - 100), now = at(year);
+      if (!before || !now || now.population >= before.population) continue;
+      const recorded = famines.some(event => event.tick >= (year - 100) * 12 && event.tick < year * 12);
+      falls.push(`${year}${recorded ? ' (famine)' : ' (no famine)'}`);
+    }
+    lines.push(`| ${result.seed} | ${m.droughts} · ${droughts.length} | ${famines.filter(event => event.tick < 1000 * 12).length} / ${famines.length} | ${strongest('drought')} · ${strongest('poorHarvest')} · ${strongest('crowding')} · ${strongest('unrest')} | ${[1000, 2000, 3000].map(year => at(year)?.regionsInDrought ?? '—').join(' / ')} | ${[1500, 3000].map(year => at(year)?.irrigated ?? '—').join(' / ')} | ${falls.join(', ') || 'none'} |`);
+  }
   // Story health: the decision mix per century (share of decision steps by chosen action).
   lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Build | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const result of rows) {

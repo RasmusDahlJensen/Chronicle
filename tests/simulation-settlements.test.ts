@@ -21,6 +21,7 @@ function fixture() {
     cultures: [{ language: createLanguage(createRng(1, 1)) }], settlements: [], regionSettlements: [[]], chronicle: new Chronicle(),
     groups: [{ id: 0, region: 0, specialists: 0, foodSecurity: 1 }], unrest: new Uint8Array(1), stability: new Float64Array(1).fill(1),
     metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, projectsAbandoned: 0 }, wonders: [],
+    farmBonus: new Float64Array(1).fill(1), droughtShield: new Float64Array(1), storeBonus: new Float64Array(1).fill(1), spoilageBonus: new Float64Array(1).fill(1),
   } as unknown as SimulationState;
   const civ = { id: 0, name: 'Ora', culture: 0, capital: null, groups: [0], projects: [] } as unknown as Polity;
   state.polities = [civ];

@@ -6,7 +6,7 @@ import { bestRoad } from '../src/simulation/decisions/build.ts';
 import { upkeepOf, wealthFlows } from '../src/simulation/economy.ts';
 import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { capitalKm, emptyMap, OBSERVED, type PolityView } from '../src/simulation/perception.ts';
-import { BRIDGE, edgeKm, edgeTravel, knownRoadTier, ROAD_TIERS, roadCoverage, roadKey, roadRoutes, roadUpkeep, validateRoads } from '../src/simulation/roads.ts';
+import { BRIDGE, edgeKm, edgeTravel, keeperOf, knownRoadTier, ROAD_TIERS, roadCoverage, roadKey, roadRoutes, roadUpkeep, validateRoads } from '../src/simulation/roads.ts';
 import type { Polity, Settlement, SimulationState } from '../src/simulation/state.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
 import { BUILD_TUNING, REACH_TUNING } from '../src/simulation/tunables.ts';
@@ -58,6 +58,7 @@ const month = (state: SimulationState, tick: number) => { state.tick = tick; sta
 
 test('a road runs from the capital to each town along the cheapest route through its own land, and is paid for and built', () => {
   const { state, civ, tal, sem } = strip();
+  assert.deepEqual(roadCoverage(state), { civs: 1, covered: 0 }, 'the capital alone does not count');
   const routes = roadRoutes(state, civ, 1);
   assert.deepEqual(routes.map(route => [route.settlement, route.path, route.edges.length, route.bridges]), [[tal.id, [0, 1, 2], 2, 0], [sem.id, [0, 1, 2, 3, 4], 4, 0]], 'towns only; no bridges before Engineering');
   assert.equal(routes[1].cost, 4 * ROAD_TIERS[0].perKm * 400);
@@ -79,7 +80,7 @@ test('a road runs from the capital to each town along the cheapest route through
   assert.ok(after < before, `${after} < ${before}`);
   assert.equal(after, 400 * (3 * ROAD_TIERS[0].travel + ROAD_TIERS[0].travel + REACH_TUNING.riverCrossing[2]));
   assert.equal(roadRoutes(state, civ, 1).length, 0, 'every town is served');
-  assert.deepEqual(roadCoverage(state), { civs: 1, covered: 1 });
+  assert.deepEqual(roadCoverage(state), { civs: 1, covered: 1 }, 'both towns besides the capital');
   // Upkeep: a share of what each road cost, owed by the civilization that holds its regions.
   assert.equal(upkeepOf(state, civ), 4 * roadUpkeep(1, state.partition.regions[0].neighbors[0], false));
 });
@@ -121,8 +122,9 @@ test('roads nobody pays for wear away over the years, and so do roads nobody kee
   for (; state.roads.size && tick < 9 + BUILD_TUNING.roadDecayMonths + 24; tick++) month(state, tick);
   assert.equal(state.roads.size, 0);
   const lost = state.chronicle.events.filter(event => event.type === 'infrastructureDestroyed');
-  assert.equal(lost.length, 2);
-  assert.ok(lost.every(event => event.causes[0].factor === 'unpaidUpkeep' && event.data.unpaid === true && event.actors[0].id === civ.id));
+  assert.equal(lost.length, 1, 'roads lost the same month are one event');
+  assert.deepEqual([lost[0].causes[0].factor, lost[0].data.unpaid, lost[0].data.roads, lost[0].actors[0].id], ['unpaidUpkeep', true, 2, civ.id]);
+  assert.equal(state.metrics.roadsLost, 2);
   // Kept by no one (the land is no civilization's): they crumble at the full rate.
   civ.wealth = 1_000_000;
   startRoads(state, tick, civ, [tal.id], []);
@@ -131,7 +133,8 @@ test('roads nobody pays for wear away over the years, and so do roads nobody kee
   state.owner.fill(-1); state.living = [];
   for (let at = 0; at < BUILD_TUNING.roadDecayMonths + 5; at++) month(state, tick + 9 + at);
   assert.equal(state.roads.size, 0);
-  assert.ok(state.chronicle.events.filter(event => event.type === 'infrastructureDestroyed').slice(2).every(event => event.causes[0].factor === 'unkept' && event.data.unkept === true));
+  const unkept = state.chronicle.events.filter(event => event.type === 'infrastructureDestroyed').slice(1);
+  assert.deepEqual(unkept.map(event => [event.causes[0].factor, event.data.unkept, event.actors.length]), [['unkept', true, 0]]);
 });
 
 test('a road work ends when the land on its way is lost', () => {
@@ -162,4 +165,33 @@ test('the road choice favours far and large towns, scales with the batch, and ne
   const batch = bestRoad(view([route(1, 500), route(2, 3_000), route(3, 2_000)], 1, 16))!;
   assert.deepEqual(batch.targets, [2, 3]);
   assert.equal(batch.label, 'roads to 2 towns');
+});
+
+test('new roads branch off the roads that stand, towns already joined are not offered again, and a road is kept by who holds its ends', () => {
+  // A fork: from the capital's region 0 a road runs to 1–2; region 5 lies beside 1 (and beside 0, at a much longer edge).
+  const { state, civ, tal } = strip();
+  const regions = state.partition.regions as unknown as { id: number; neighbors: { region: number; travelKm: number; riverTier: number }[] }[];
+  regions.push({ id: 5, neighbors: [{ region: 1, travelKm: 400, riverTier: 0 }, { region: 0, travelKm: 700, riverTier: 0 }], sea: [], centroid: 5 } as never);
+  regions[1].neighbors.push({ region: 5, travelKm: 400, riverTier: 0 }); regions[0].neighbors.push({ region: 5, travelKm: 700, riverTier: 0 });
+  for (const key of ['owner', 'occupant'] as const) state[key] = Int32Array.from([...state[key], 0]);
+  state.regionSettlements.push([]); state.groups.push({ id: 5, region: 5, size: 10_000, specialists: 0 } as never); civ.groups.push(5);
+  const fifth = { ...tal, id: state.settlements.length, name: 'Ori', region: 5, cell: 5 };
+  state.settlements.push(fifth); state.regionSettlements[5].push(fifth.id);
+  civ.wealth = 1_000_000;
+  startRoads(state, 0, civ, [tal.id], []);
+  for (let tick = 1; tick <= 8; tick++) month(state, tick);
+  const n = 6;
+  assert.ok(state.roads.has(roadKey(n, 0, 1)) && state.roads.has(roadKey(n, 1, 2)));
+  // Without roads the direct way 0–5 (700) is cheaper than 0–1–5 (800); with the road to 1 standing, the new road
+  // branches off it: only 1–5 is built.
+  const [toOri] = roadRoutes(state, civ, 1).filter(route => route.settlement === fifth.id);
+  assert.deepEqual(toOri.edges, [[1, 5]]);
+  assert.ok(!roadRoutes(state, civ, 1).some(route => route.settlement === tal.id), 'Tal is joined already');
+  // The keeper: who holds the road's first region, else its second; nobody when neither is a civilization's.
+  const road = state.roads.get(roadKey(n, 0, 1))!;
+  assert.equal(keeperOf(state, road), 0);
+  state.owner[0] = -1;
+  assert.equal(keeperOf(state, road), 0, 'the holder of its second region');
+  state.owner[1] = -1;
+  assert.equal(keeperOf(state, road), -1);
 });

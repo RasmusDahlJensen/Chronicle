@@ -30,7 +30,7 @@ export function housingOf(settlement: Pick<Settlement, 'capital'> & { buildings?
 
 /** What a settlement's buildings add up to (its `bonus`). */
 export function bonusOf(buildings: Settlement['buildings']): Settlement['bonus'] {
-  const bonus = { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0, upkeep: 0, mine: false, quarry: false, harbor: false };
+  const bonus = { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0, upkeep: 0, mine: false, quarry: false, harbor: false, farm: 1, drought: 0 };
   for (const building of buildings) {
     const effects = BUILDINGS[building.type].effects;
     bonus.upkeep += BUILDINGS[building.type].upkeep;
@@ -39,8 +39,23 @@ export function bonusOf(buildings: Settlement['buildings']): Settlement['bonus']
     if (effects.harbor) bonus.harbor = true;
     bonus.research *= effects.research ?? 1; bonus.wealth *= effects.wealth ?? 1; bonus.store *= effects.storeMonths ?? 1;
     bonus.spoilage *= effects.spoilage ?? 1; bonus.stability += effects.stability ?? 0;
+    bonus.farm *= effects.farm ?? 1; bonus.drought = Math.max(bonus.drought, effects.drought ?? 0);
   }
   return bonus;
+}
+
+/** A region's building effects (`SimulationState.farmBonus` and the rest) from its living settlements' bonuses: the
+ *  best of each, since one irrigation and one granary serve the region. Call whenever a settlement's buildings change
+ *  or it falls to ruin. */
+export function refreshRegionBonus(state: SimulationState, region: number) {
+  let farm = 1, drought = 0, store = 1, spoilage = 1;
+  for (const id of state.regionSettlements[region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status !== 'alive') continue;
+    farm = Math.max(farm, settlement.bonus.farm); drought = Math.max(drought, settlement.bonus.drought);
+    store = Math.max(store, settlement.bonus.store); spoilage = Math.min(spoilage, settlement.bonus.spoilage);
+  }
+  state.farmBonus[region] = farm; state.droughtShield[region] = drought; state.storeBonus[region] = store; state.spoilageBonus[region] = spoilage;
 }
 
 /** After its buildings change: the settlement's housing and bonus follow; the caller rehouses the region. */
@@ -128,19 +143,20 @@ export function announceSettlement(state: SimulationState, polity: Polity, settl
 }
 
 /**
- * A wonder ends: one under way is abandoned, one standing destroyed (its city fallen to ruin, or worn away by unpaid
- * upkeep); either is a major event with its cause, which the wonder keeps. Another may be built elsewhere.
+ * A wonder ends: one under way is abandoned (its city fallen to ruin, or shrunk too small for it for too long), one
+ * standing destroyed (its city fallen to ruin, or worn away by unpaid upkeep); either is a major event with its cause,
+ * which the wonder keeps. Another may be built elsewhere.
  */
-export function endWonder(state: SimulationState, wonder: Wonder, tick: number, cause: 'abandoned' | 'neglected') {
+export function endWonder(state: SimulationState, wonder: Wonder, tick: number, cause: 'abandoned' | 'neglected' | 'stalled') {
   const settlement = state.settlements[wonder.settlement], definition = WONDERS[wonder.type], unfinished = wonder.status === 'building';
-  wonder.endedTick = tick; wonder.endCause = cause === 'abandoned' ? 'cityRuined' : 'unpaidUpkeep';
+  wonder.endedTick = tick; wonder.endCause = cause === 'abandoned' ? 'cityRuined' : cause === 'neglected' ? 'unpaidUpkeep' : 'cityShrank';
   if (unfinished) { wonder.status = 'abandoned'; state.metrics.wondersAbandoned++; }
   else { wonder.status = 'destroyed'; settlement.wonder = null; state.metrics.wondersDestroyed++; }
   const owner = state.polities[settlement.owner];
   state.chronicle.emit({
     type: 'wonderDestroyed', actors: [{ id: owner.id, role: 'civ' }], region: settlement.region, settlement: settlement.id,
     causes: [{ factor: wonder.endCause, weight: 1 }], importance: unfinished ? 0.3 : 0.5,
-    data: { wonder: definition.name, name: settlement.name, civ: owner.name, unfinished, standing: !unfinished, abandoned: cause === 'abandoned', neglected: cause === 'neglected' },
+    data: { wonder: definition.name, name: settlement.name, civ: owner.name, unfinished, standing: !unfinished, abandoned: cause === 'abandoned', neglected: cause === 'neglected', shrank: cause === 'stalled' },
   });
 }
 
@@ -157,6 +173,7 @@ export function ruinSettlements(state: SimulationState, region: number, tick: nu
     for (const wonder of state.wonders) if (wonder.settlement === settlement.id && (wonder.status === 'building' || wonder.status === 'standing')) endWonder(state, wonder, tick, 'abandoned');
     Object.assign(settlement, { status: 'ruined', capital: false, urban: 0, urbanMean: 0, tier: 0, buildings: [], bonus: bonusOf([]), wonder: null, housing: housingOf({ capital: false }), ruinedTick: tick });
   }
+  refreshRegionBonus(state, region);
 }
 
 /**
