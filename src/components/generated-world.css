@@ -153,3 +153,9 @@
 .world-decision-options { margin: .2rem 0 .6rem; padding-left: 1.1rem; font-size: .66rem; display: grid; gap: .2rem; }
 .world-decision-options li span:first-child { font-weight: 600; margin-right: .4rem; }
 .world-decision-options li span:last-child { color: var(--atlas-muted); }
+.world-settlements { margin-top: .6rem; padding-top: .6rem; border-top: 1px solid #e3dcc8; }
+.world-settlement-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.world-settlement-list h4 { margin: 0; font-size: .78rem; }
+.world-settlement-list h4 span { font-weight: 400; color: var(--atlas-muted); }
+.world-settlement-list li[data-settlement-status="ruined"] h4 { color: var(--atlas-muted); }
+.world-settlement-history { margin: .15rem 0 0; padding-left: 1.1rem; font-size: .64rem; line-height: 1.5; color: #4c574d; }

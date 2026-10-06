@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 10;
+export const SIMULATION_PROTOCOL_VERSION = 11;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -15,6 +15,8 @@ export const MAX_SIMULATION_YEAR = 5000;
 export const MAX_FRAME_EVENTS = 200;
 
 /** Era labels (VISION.md "Eras"), indexed by the era numbers in frames; the simulation's tech data uses this list as its eras. */
+/** Settlement tiers by urban population (VISION.md "Settlements"); a settlement's tier is its index here. */
+export const SETTLEMENT_TIERS = ['village', 'town', 'city', 'metropolis'] as const;
 export const ERA_NAMES = ['Stone', 'Neolithic', 'Bronze', 'Iron', 'Classical', 'Medieval', 'Early modern', 'Industrial', 'Modern', 'Atomic'] as const;
 
 /** The chronicle's event types (VISION.md "The Chronicle"). Append only: ids are stored in event logs. */
@@ -97,16 +99,28 @@ export const ObserverFrameSchema = Type.Object({
     eras: Type.Array(Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), { maxItems: 20_000 }),
     lineages: Type.Array(Type.Integer({ minimum: 0, maximum: 999 }), { maxItems: 20_000 }),
   }, { additionalProperties: false }),
-  /** Living settlements as parallel arrays (id, cell, owner, capital 0/1), for village marks. */
+  /** Living settlements as parallel arrays (id, cell, owner, capital 0/1, tier index into SETTLEMENT_TIERS, and the
+   *  name of a town or larger, or of a capital, else ''), for settlement marks and labels. */
   settlements: Type.Object({
     ids: Type.Array(id(), { maxItems: 50_000 }), cells: Type.Array(id(), { maxItems: 50_000 }),
     owners: Type.Array(id(), { maxItems: 50_000 }), capitals: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 50_000 }),
+    tiers: Type.Array(Type.Integer({ minimum: 0, maximum: SETTLEMENT_TIERS.length - 1 }), { maxItems: 50_000 }),
+    names: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 50_000 }),
   }, { additionalProperties: false }),
   /** [year, world population, living polities] every SERIES_YEARS, for the world chart. */
   series: Type.Array(Type.Tuple([Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 })]), { maxItems: 1_000 }),
   /** Details of the region the observer asked about, or null. */
   inspect: Type.Union([Type.Null(), Type.Object({
     region: id(), capacity: Type.Number({ minimum: 0 }), gameStock: Type.Number({ minimum: 0, maximum: 1 }),
+    /** The region's settlements, living and in ruins, main one first: tier, townspeople, housing, founding tick, the
+     *  name its ruins bore if resettled under a new one, and its latest chronicle events (the settlement inspector). */
+    settlements: Type.Array(Type.Object({
+      id: id(), name: Type.String({ maxLength: 40 }), tier: Type.Integer({ minimum: 0, maximum: SETTLEMENT_TIERS.length - 1 }),
+      urban: Type.Integer({ minimum: 0 }), housing: Type.Integer({ minimum: 0 }), capital: Type.Boolean(), founded: Type.Integer({ minimum: 0 }),
+      status: Type.Union([Type.Literal('alive'), Type.Literal('ruined'), Type.Literal('razed')]), formerName: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
+      owner: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
+      events: Type.Array(ChronicleEventSchema, { maxItems: 6 }),
+    }, { additionalProperties: false }), { maxItems: 16 }),
     food: Type.Object({
       forage: Type.Number({ minimum: 0 }), hunt: Type.Number({ minimum: 0 }), fish: Type.Number({ minimum: 0 }),
       herd: Type.Number({ minimum: 0 }), farm: Type.Number({ minimum: 0 }),
@@ -194,7 +208,7 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   if ([regions, populations, kinds, eras, lineages].some(array => array.length !== ids.length)) throw invalid();
   if (lineages.some(lineage => lineage >= frame.lineages.length)) throw invalid();
   const settlements = frame.settlements;
-  if ([settlements.cells, settlements.owners, settlements.capitals].some(array => array.length !== settlements.ids.length)) throw invalid();
+  if ([settlements.cells, settlements.owners, settlements.capitals, settlements.tiers, settlements.names].some(array => array.length !== settlements.ids.length)) throw invalid();
   // One marker per region; all of a polity's markers agree on its kind.
   const civs = new Set<number>(), polities = new Set(ids), kindOf = new Map<number, number>();
   if (new Set(regions).size !== regions.length) throw invalid();

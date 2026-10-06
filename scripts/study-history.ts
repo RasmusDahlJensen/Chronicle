@@ -123,6 +123,14 @@ function storyHealth(rows: SeedResult[]) {
     const show = (years: number[], value: (row: Stats) => string | number) => years.map(year => { const row = at(year); return row ? value(row) : '—'; }).join(' / ');
     lines.push(`| ${result.seed} | ${show([1000, 3000], row => row.agricultureInventions)} | ${show([700, 1000], row => `${Math.round(row.agricultureShare * 100)}%`)} | ${show([1000, 2000, 3000], row => row.civEras)} | ${show([1000, 2000, 3000], row => `${row.civTechsMin}–${row.civTechsMax}`)} | ${show([1000, 3000], row => `${row.exchanges} (${row.tribeExchanges}) of ${row.exchangeOffers}`)} |`);
   }
+  // M3b acceptance (VISION.md): settlements by water or a resource site, and the tiers they reach.
+  lines.push('', '| Seed | Settlements by water or a site at 1,000 / 2,000 / 3,000 (M3b: ≥ 80%) | Villages · towns · cities · metropolises at 1,000 | at 1,500 | at 3,000 | Founded by growth · ruins resettled · tier changes |',
+    '| --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), m = result.report.metrics;
+    const tiers = (year: number) => { const row = at(year); return row ? `${row.villages} · ${row.towns} · ${row.cities} · ${row.metropolises}` : '—'; };
+    lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => { const row = at(year); return row ? `${Math.round(row.settlementsByWater * 100)}%` : '—'; }).join(' / ')} | ${tiers(1000)} | ${tiers(1500)} | ${tiers(3000)} | ${m.settlementsGrown} · ${m.ruinsResettled} · ${m.tierChanges} |`);
+  }
   // Story health: the decision mix per century (share of decision steps by chosen action).
   lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const result of rows) {

@@ -35,14 +35,21 @@ export function checkInvariants(state: SimulationState) {
   const { ledger } = state;
   const now = new Int32Array(regions);
   const seen = new Int32Array(regions).fill(-1);
-  // Living villages: each stands in a region its owner holds, one per region.
-  const villages = new Int32Array(regions);
+  // Settlements (VISION.md "Settlements"): each living one stands on a land cell of a region its owner holds, listed in
+  // that region's index, housing at most its housing; the urban of a region add up to its townspeople (checked below).
+  const villages = new Int32Array(regions), urban = new Float64Array(regions);
   for (const settlement of state.settlements) {
-    if (settlement.status !== 'alive') continue;
+    if (!state.regionSettlements[settlement.region]?.includes(settlement.id)) fail(`settlement ${settlement.id} is missing from region ${settlement.region}'s list`);
+    if (settlement.status !== 'alive') { if (settlement.capital || settlement.urban !== 0) fail(`settlement ${settlement.id} in ruins is a capital or has people`); continue; }
     if (state.owner[settlement.region] !== settlement.owner) fail(`settlement ${settlement.id} stands in region ${settlement.region}, which its owner ${settlement.owner} does not hold`);
-    if (++villages[settlement.region] > 1) fail(`region ${settlement.region} has more than one living village`);
+    if (state.partition.regionOf[settlement.cell] !== settlement.region) fail(`settlement ${settlement.id} is not on a land cell of its region`);
+    if (!Number.isInteger(settlement.urban) || settlement.urban < 0 || settlement.urban > settlement.housing || !(settlement.tier >= 0 && settlement.tier <= 3)) fail(`settlement ${settlement.id} houses ${settlement.urban} of ${settlement.housing} (tier ${settlement.tier})`);
+    villages[settlement.region]++; urban[settlement.region] += settlement.urban;
     if (settlement.capital && state.polities[settlement.owner]?.capital !== settlement.id) fail(`settlement ${settlement.id} is a capital its owner does not name`);
   }
+  let indexed = 0;
+  for (const list of state.regionSettlements) indexed += list.length;
+  if (indexed !== state.settlements.length) fail(`the region index lists ${indexed} settlements of ${state.settlements.length}`);
   for (const id of state.living) {
     const polity = state.polities[id];
     if (!polity || polity.deathTick !== null) fail(`live polity list names ${id}`);
@@ -70,7 +77,8 @@ export function checkInvariants(state: SimulationState) {
       }
       if (!Number.isInteger(group.specialists) || group.specialists < 0 || group.specialists > group.size) fail(`group ${groupId} has ${group.specialists} specialists of ${group.size}`);
       if (polity.kind === 'band' && group.specialists > 0) fail(`band ${groupId} has specialists`);
-      if (polity.kind === 'civ' && (state.owner[region] !== id || villages[region] !== 1)) fail(`civilization ${id} does not own region ${region}, where its people live, or has no village there`);
+      if (polity.kind === 'civ' && (state.owner[region] !== id || villages[region] < 1)) fail(`civilization ${id} does not own region ${region}, where its people live, or has no village there`);
+      if (polity.kind === 'civ' && urban[region] !== group.specialists) fail(`region ${region}'s settlements house ${urban[region]} townspeople, not its ${group.specialists} specialists`);
       const flows = ledger.food.get(group.id);
       if (!flows) fail(`group ${groupId} has no food flows this tick`);
       else if (group.store !== flows.before + flows.production - flows.consumption - flows.spoilage + flows.carriedIn - flows.carriedOut) {

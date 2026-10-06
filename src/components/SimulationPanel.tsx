@@ -54,6 +54,14 @@ function WorldChart({ series }: { series: ObserverFrame['series'] }) {
  * each request takes a sequence number and an older response never replaces a newer one. A frame from another world,
  * run or reset epoch never mixes into the displayed history.
  */
+/** Living settlements by tier: "1,204 settlements (310 towns, 12 cities)". */
+function settlementSummary(frame: ObserverFrame) {
+  const counts = [0, 0, 0, 0];
+  for (const tier of frame.settlements.tiers) counts[tier]++;
+  const parts = ([[1, 'town', 'towns'], [2, 'city', 'cities'], [3, 'metropolis', 'metropolises']] as const).filter(([tier]) => counts[tier] > 0).map(([tier, one, many]) => `${counts[tier].toLocaleString('en')} ${counts[tier] === 1 ? one : many}`);
+  return `${frame.settlementCount.toLocaleString('en')} ${frame.settlementCount === 1 ? 'settlement' : 'settlements'}${parts.length ? ` (${parts.join(', ')})` : ''}`;
+}
+
 export function SimulationPanel({ settings, startFresh = false, inspect = null, onFrame, onFocusCell }: Props) {
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
@@ -165,7 +173,7 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
       <button type="button" className="world-history-reset" disabled={!frame} onClick={() => void send({ action: 'reset' })}>Reset to year 0</button>
     </div>
     {error && <p className="atlas-error" role="alert">{error}</p>}
-    {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {(frame.polities - frame.civs).toLocaleString('en')} {frame.polities - frame.civs === 1 ? 'tribe' : 'tribes'} ({bands.toLocaleString('en')} {bands === 1 ? 'band' : 'bands'}) and {frame.civs.toLocaleString('en')} {frame.civs === 1 ? 'civilization' : 'civilizations'} · {frame.settlementCount.toLocaleString('en')} {frame.settlementCount === 1 ? 'village' : 'villages'} · {frame.specialists.toLocaleString('en')} specialists · most advanced: {ERA_NAMES[frame.leadingEra]} era</p>}
+    {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {(frame.polities - frame.civs).toLocaleString('en')} {frame.polities - frame.civs === 1 ? 'tribe' : 'tribes'} ({bands.toLocaleString('en')} {bands === 1 ? 'band' : 'bands'}) and {frame.civs.toLocaleString('en')} {frame.civs === 1 ? 'civilization' : 'civilizations'} · {settlementSummary(frame)} · {frame.specialists.toLocaleString('en')} townspeople · most advanced: {ERA_NAMES[frame.leadingEra]} era</p>}
     {frame && <WorldChart series={frame.series} />}
     {frame && frame.civList.length > 0 && <details className="world-civ-list" open>
       <summary>Civilizations <span>{frame.civs.toLocaleString('en')}{frame.civs > frame.civList.length ? `, the largest ${frame.civList.length}` : ''} · regions · people</span></summary>

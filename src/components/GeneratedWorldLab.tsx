@@ -13,6 +13,7 @@ import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
 import { fetchRegionMap } from '../api/simulation.ts';
+import { describeEvent } from '../observer/events.ts';
 import { ERA_NAMES, RIVER_TIERS, simulationDate, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
 import { cssColor, ERA_COLORS, eraColor, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
 import './generated-world.css';
@@ -21,6 +22,20 @@ const number = new Intl.NumberFormat('en');
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
 const layerLabels: Record<WorldLayer, string> = { biomes: 'Biomes', temperature: 'Temperature', moisture: 'Moisture', fertility: 'Fertility' };
 const soilLabels: Record<FertilityFacts['soil'], string> = { none: 'None', rocky: 'Rocky', shallow: 'Shallow', sandy: 'Sandy', alluvial: 'Alluvial', waterlogged: 'Waterlogged', cold: 'Cold', loamy: 'Loamy' };
+const TIER_LABELS = ['Village', 'Town', 'City', 'Metropolis'] as const;
+
+/** The settlement inspector (VISION.md "Observer views"): the region's settlements, their tier, townspeople and housing, and their history. */
+function SettlementList({ settlements }: { settlements: NonNullable<ObserverFrame['inspect']>['settlements'] }) {
+  return <section className="world-settlements" aria-label="Settlements here">
+    <p className="atlas-detail-label">Settlements here</p>
+    <ul className="world-settlement-list">{settlements.map(settlement => <li key={settlement.id} data-settlement-tier={settlement.tier} data-settlement-status={settlement.status}>
+      <h4>{settlement.capital ? '★ ' : ''}{settlement.name} <span>· {settlement.status === 'alive' ? `${TIER_LABELS[settlement.tier]}${settlement.capital ? ', capital' : ''} of the ${settlement.owner}` : 'ruins'}</span></h4>
+      <p className="atlas-panel-note">{settlement.status === 'alive' ? `${number.format(settlement.urban)} townspeople of ${number.format(settlement.housing)} it can house · ` : ''}founded year {simulationDate(settlement.founded).year}{settlement.formerName ? ` · once ${settlement.formerName}` : ''}.</p>
+      {settlement.events.length > 0 && <ol className="world-settlement-history">{settlement.events.map(event => <li key={event.id}>Year {simulationDate(event.tick).year}: {describeEvent(event)}</li>)}</ol>}
+    </li>)}</ul>
+  </section>;
+}
+
 /** A band or civilization in the inspected region: people, food, specialists and knowledge (VISION.md M2 inspection). */
 function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFrame['inspect']>['polity']> }) {
   const civ = polity.kind === 'civ', research = polity.research;
@@ -32,7 +47,7 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
       <div><dt>Regions</dt><dd id="polity-regions">{number.format(polity.regions)}</dd></div>
       <div><dt>People in all its regions</dt><dd id="polity-total">{number.format(polity.totalPopulation)}</dd></div>
     </dl>
-    <p className="atlas-detail-label">{civ ? 'Its village here' : 'Its band here'}</p>
+    <p className="atlas-detail-label">{civ ? 'Its people here' : 'Its band here'}</p>
     <dl className="world-water-facts">
       <div><dt>Population</dt><dd id="band-population">{number.format(polity.population)}</dd></div>
       <div><dt>Births this year</dt><dd>{polity.birthsThisYear} <span>(last year {polity.birthsLastYear})</span></dd></div>
@@ -41,7 +56,8 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
       <div><dt>Food store</dt><dd>{polity.foodStoreMonths.toFixed(2)} months</dd></div>
       {polity.cropsMonths > 0 && <div><dt>Crops in the field</dt><dd id="polity-crops">{polity.cropsMonths.toFixed(2)} months</dd></div>}
       <div><dt>Farmed or herded</dt><dd>{Math.round(polity.farmShare * 100)}% of food</dd></div>
-      <div><dt>Specialists</dt><dd id="polity-specialists">{number.format(polity.specialists)}</dd></div>
+      <div><dt>{civ ? 'Townspeople (specialists)' : 'Specialists'}</dt><dd id="polity-specialists">{number.format(polity.specialists)}</dd></div>
+      {civ && <div><dt>Rural</dt><dd id="polity-rural">{number.format(polity.population - polity.specialists)}</dd></div>}
       <div><dt>{civ ? 'Settled' : 'Here since'}</dt><dd>year {simulationDate(civ && polity.capital ? polity.capital.settled : polity.arrived).year}</dd></div>
       {polity.capital && <div><dt>Capital</dt><dd id="polity-capital">{polity.capital.name}</dd></div>}
     </dl>
@@ -232,7 +248,9 @@ export function GeneratedWorldLab() {
       const centroid = regions.map.regions[region]?.centroid ?? 0;
       return { x: centroid % world.width, y: Math.floor(centroid / world.width), population: populations[index], color: ERA_COLORS[eras[index]] ?? ERA_COLORS[0], settled: kinds[index] === 1 };
     }));
-    renderer.current.setSettlements(frame.settlements.cells.map((cell, index) => ({ x: cell % world.width, y: Math.floor(cell / world.width), capital: frame.settlements.capitals[index] === 1 })),
+    renderer.current.setSettlements(frame.settlements.cells.map((cell, index) => ({
+      x: cell % world.width, y: Math.floor(cell / world.width), capital: frame.settlements.capitals[index] === 1, tier: frame.settlements.tiers[index], name: frame.settlements.names[index],
+    })),
       { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE });
   }, [frame, regions, world, canvasRevision]);
   // Each occupied region filled with its people's colour; bands lighter than settled civilizations.
@@ -385,6 +403,7 @@ export function GeneratedWorldLab() {
               </dl>
               {inspected && <p className="atlas-panel-note">At capacity this land yields about {number.format(inspected.food.forage)} from foraging, {number.format(inspected.food.hunt)} from hunting, {number.format(inspected.food.fish)} from fishing{inspected.food.herd || inspected.food.farm ? `, ${number.format(inspected.food.herd)} from herding and ${number.format(inspected.food.farm)} from farming` : ''} (people fed per year), for the people who live here or, on empty land, for foragers. Capacity is the population whose food equals its need at the current game stock.</p>}
               {inspected?.polity ? <PolityDetail polity={inspected.polity} /> : inspected && <p className="atlas-panel-note">No one lives here.</p>}
+              {inspected && inspected.settlements.length > 0 && <SettlementList settlements={inspected.settlements} />}
             </section>}
             <FertilityDetail facts={cell.fertility} expanded={layer === 'fertility'} />
             <section className="world-cell-water" aria-label="Selected cell water">

@@ -14,8 +14,8 @@ import { decisionView } from '../src/simulation/perception.ts';
 import { assess } from '../src/simulation/stability.ts';
 import { edgeKm } from '../src/simulation/perception.ts';
 import { STABILITY_TUNING } from '../src/simulation/tunables.ts';
-import type { Rng } from '../src/simulation/rng.ts';
-import { polityPopulation, refuge } from '../src/simulation/bands.ts';
+import { createRng, type Rng } from '../src/simulation/rng.ts';
+import { polityPopulation, refuge, settle } from '../src/simulation/bands.ts';
 
 async function chronicleWorld() {
   const bundle = encodeGeneratedWorld(await generateWorld({ seed: 'Chronicle', size: 'large' }));
@@ -175,8 +175,8 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   assert.ok(m.absorbed > 0, 'expanding civilizations take in tribes\' bands');
   // Civilizations remember land beyond their sight, from their own travels and from their neighbours (M3).
   assert.ok(civs.filter(id => state.polities[id].map.snapshots.size > 0).length * 2 > civs.length, 'most civilizations know land they cannot see');
-  // Whole tribes settled: civilizations of many regions, a village in each (the invariants check one living village per
-  // region they hold and the capital in the heartland every month).
+  // Whole tribes settled: civilizations of many regions, a settlement in each (the invariants check at least one living
+  // settlement per region they hold and the capital in the heartland every month).
   assert.ok(settled.some(event => (event.data.regions as number) >= 10), 'tribes of ten or more regions settled as one');
   assert.ok(civs.some(id => state.polities[id].groups.length >= 10));
   // A civilization that loses its capital village moves the capital to its new heartland; one that loses every village
@@ -232,6 +232,12 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
     band.kind = 'civ'; for (const group of band.groups) state.owner[state.groups[group].region] = band.id;
   }, /has no village there/);
   tamper(state => { state.groups[state.polities[state.living[3]].core].planted += 100; }, /crops in the field/);
+  // A civilization's townspeople must all live in its settlements there, within their housing.
+  tamper(state => {
+    const band = state.polities[state.living[4]];
+    settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
+    state.groups[band.core].specialists += 3;
+  }, /townspeople, not its/);
   // Knowledge: an exchange held by one side only, an exchange between two tribes, research on a known tech, or more
   // progress from speed-ups than in all. (Knowledge is checked yearly per polity, staggered by id; these tamper with
   // a polity due this month.)
@@ -279,13 +285,15 @@ function exerciseExpansion(state: ReturnType<typeof createSimulation>) {
   assert.equal(state.owner[blocked.target], blocked.civ); assert.equal(state.groups[band].polity, blocked.civ);
   source.size = kept;
   // The band will not join and has land to go to: it moves on, and settlers found a village.
-  const tribe = tribeAt(replaceable.target), moving = state.groupAt[replaceable.target], villages = state.settlements.length;
+  const tribe = tribeAt(replaceable.target), moving = state.groupAt[replaceable.target];
   assert.equal(expand(state, { tick: state.tick }, refusing, state.polities[replaceable.civ], replaceable.target, replaceable.from, [{ factor: 'test', weight: 1 }]), 'expanded');
   assert.equal(state.metrics.displaced, displaced + 1);
   assert.equal(state.groups[moving].polity, tribe.id, 'the band is still its tribe\'s');
   assert.notEqual(state.groups[moving].region, replaceable.target);
   assert.equal(state.owner[replaceable.target], replaceable.civ);
-  assert.equal(state.settlements.length, villages + 1);
+  // One settlement of the civilization now stands there: newly founded, or the region's ruins resettled.
+  const living = state.regionSettlements[replaceable.target].map(id => state.settlements[id]).filter(settlement => settlement.status === 'alive');
+  assert.ok(living.length === 1 && living[0].owner === replaceable.civ);
   return true;
 }
 

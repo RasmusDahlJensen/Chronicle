@@ -102,10 +102,20 @@ export interface MapKnowledge {
 }
 export interface RegionSnapshot { occupant: number; owner: number; tick: number }
 
-/** A named place (VISION.md "Settlements"); until M3b only a village with a cell, region, owner and capital flag. */
+/**
+ * A named place on one of its region's candidate sites (VISION.md "Settlements"). Its urban population is its share of
+ * the region's townspeople (specialists), at most its housing; its tier (an index into SETTLEMENT_TIERS) follows its
+ * urban population. Never deleted: a settlement whose people die out or leave falls to ruin and may be resettled.
+ */
 export interface Settlement {
   id: number; name: string; cell: number; region: number; owner: number; capital: boolean; foundedTick: number;
   status: 'alive' | 'ruined' | 'razed';
+  tier: number; urban: number; housing: number;
+  /** Its urban population averaged over about a year (a monthly moving average), which its tier follows. */
+  urbanMean: number;
+  /** Tick it last fell to ruin (null while it has never been ruined), and the name its ruins bore when they were
+   *  resettled under a new one (null otherwise). */
+  ruinedTick: number | null; formerName: string | null;
 }
 
 /** People of one polity, culture and region; integer size with fractional birth and death carries. */
@@ -165,6 +175,9 @@ export interface CenturyStats {
    *  so far (independent inventions); the number of eras the living civilizations are in, and the fewest and most techs
    *  any of them knows. */
   exchangeOffers: number; exchanges: number; tribeExchanges: number; agricultureInventions: number; civEras: number; civTechsMin: number; civTechsMax: number;
+  /** Living settlements by tier (villages, towns, cities, metropolises), and the share of living settlements within one
+   *  cell of a river, lake, coast or resource site (VISION.md M3b). */
+  villages: number; towns: number; cities: number; metropolises: number; settlementsByWater: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -201,6 +214,8 @@ export interface Metrics {
   /** Knowledge exchanges offered and agreed (and of those, with tribes), and Agriculture learned with no help from a
    *  sharing partner. */
   exchangeOffers: number; exchanges: number; tribeExchanges: number; agricultureInventions: number;
+  /** Settlements founded because a region's townspeople outgrew its housing, ruins resettled, and tier changes. */
+  settlementsGrown: number; ruinsResettled: number; tierChanges: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -220,6 +235,9 @@ export interface SimulationState {
   settlements: Settlement[];
   /** Per region: the civilization that owns it (−1 for none). */
   owner: Int32Array;
+  /** Per region: every settlement ever founded there (living or in ruins), in founding order; the first living one is
+   *  the region's main settlement. */
+  regionSettlements: number[][];
   /** Per region: stability (0–1; 1 where no civilization rules) and whether it is in unrest (VISION.md "Stability"). */
   stability: Float64Array; unrest: Uint8Array;
   firsts: FirstDiscovery[];

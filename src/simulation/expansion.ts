@@ -1,5 +1,6 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
-import { endPolity, foundVillage, learnFrom, move, newGroup, polityPopulation, refuge, regionCapacity, transferGroup } from './bands.ts';
+import { endPolity, learnFrom, move, newGroup, polityPopulation, refuge, regionCapacity, transferGroup } from './bands.ts';
+import { foundSettlement, house, livingSettlements, setCapital } from './settlements.ts';
 import { newTechs } from './knowledge.ts';
 import { absorbMap, arrive, governable, lookAgain, meet, reveal, UNKNOWN } from './perception.ts';
 import { assess } from './stability.ts';
@@ -77,7 +78,7 @@ export function expand(state: SimulationState, context: Pick<TickContext, 'tick'
     type: 'expansion', actors: [{ id: civ.id, role: 'civ' }], region: target, causes: cited, importance: 0.06,
     data: { name: civ.name, from, population: settlers },
   });
-  foundVillage(state, rng, civ, target, false, tick, cited);
+  foundSettlement(state, rng, civ, target, false, tick, cited);
   return 'expanded';
 }
 
@@ -148,7 +149,9 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
     small.groups.splice(small.groups.indexOf(id), 1);
     large.groups.push(id); group.polity = large.id;
     state.occupant[region] = large.id; state.owner[region] = large.id;
-    for (const settlement of state.settlements) if (settlement.region === region && settlement.owner === small.id && settlement.status === 'alive') { settlement.owner = large.id; settlement.capital = false; }
+    for (const settlement of livingSettlements(state, region)) { settlement.owner = large.id; setCapital(settlement, false); }
+    // Its old capital is an ordinary town now, with an ordinary town's housing.
+    group.specialists = house(state, region, group.specialists);
     arrive(state, large, region, tick);
   }
   lookAgain(small);

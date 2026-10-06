@@ -38,10 +38,12 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     const polity = state.polities[id], capital = state.settlements[polity.capital!];
     return { id, name: polity.name, regions: polity.groups.length, population: people, era: polity.knowledge.era, capital: capital.name, capitalCell: capital.cell };
   });
-  const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[] };
+  const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[], tiers: [] as number[], names: [] as string[] };
   for (const settlement of state.settlements) {
     if (settlement.status !== 'alive') continue;
     settlements.ids.push(settlement.id); settlements.cells.push(settlement.cell); settlements.owners.push(settlement.owner); settlements.capitals.push(settlement.capital ? 1 : 0);
+    // Names only for the places a map labels: towns and larger, and capitals.
+    settlements.tiers.push(settlement.tier); settlements.names.push(settlement.tier > 0 || settlement.capital ? settlement.name : '');
   }
   // At most 500 chart points: thin evenly once a long history exceeds that.
   const step = Math.max(1, Math.ceil(state.series.length / 500));
@@ -100,8 +102,27 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       },
     };
   }
+  // The settlement inspector: the region's settlements, main one first, with their latest events.
+  const events = state.chronicle.events, shown = state.regionSettlements[region].map(id => state.settlements[id]).sort((a, b) => Number(b.status === 'alive') - Number(a.status === 'alive')).slice(0, 16);
+  // One pass back through the chronicle collects each one's latest six events.
+  const histories = new Map(shown.map(settlement => [settlement.id, [] as typeof events]));
+  let wanting = shown.length;
+  for (let at = events.length - 1; at >= 0 && wanting > 0; at--) {
+    const history = events[at].settlement === null ? undefined : histories.get(events[at].settlement!);
+    if (!history || history.length >= 6) continue;
+    history.push(events[at]);
+    if (history.length === 6) wanting--;
+  }
+  const settlementViews = shown.map(settlement => {
+    const history = histories.get(settlement.id)!;
+    return {
+      id: settlement.id, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, capital: settlement.capital,
+      founded: settlement.foundedTick, status: settlement.status, formerName: settlement.formerName,
+      owner: settlement.status === 'alive' ? state.polities[settlement.owner].name : null, events: history,
+    };
+  });
   return {
-    region, capacity: Math.round(people), gameStock: round(state.gameStock[region]),
+    region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews,
     food: { forage: output(0), hunt: output(1), fish: output(2), herd: output(3), farm: output(4) },
     polity: view,
   };

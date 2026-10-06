@@ -408,8 +408,11 @@ function settlementSites(geography: SimulationGeography, region: Region, tierOf:
   const scored = region.cells.map(cell => {
     let score = geography.fertility[cell] / 100;
     let upstream = 0, mouth = false, coast = false, lakeshore = false, relief = 0;
+    // On or next to a river, lake, coast or resource site.
+    let water = tierOf(geography.riverRunoff[cell]) >= 1 || geography.resource[cell] > 0;
     for (const other of cellNeighbors(geography, cell, near)) {
       if (other < 0) continue;
+      if (geography.marine[other] || geography.lake[other] || geography.resource[other] > 0 || tierOf(geography.riverRunoff[other]) >= 1) water = true;
       if (geography.marine[other]) coast = true;
       if (geography.lake[other] && geography.openLake[geography.lake[other]]) lakeshore = true;
       if (geography.riverRunoff[other] && geography.riverRunoff[other] < geography.riverRunoff[cell]) upstream++;
@@ -420,7 +423,7 @@ function settlementSites(geography: SimulationGeography, region: Region, tierOf:
     const weights = REGION_TUNING.siteScore;
     score += tier * weights.riverTier + (mouth ? weights.mouth : 0) + (upstream >= 2 ? weights.confluence : 0)
       + (coast ? weights.coast : 0) + (lakeshore ? weights.lakeshore : 0) + (geography.resource[cell] ? weights.resource : 0);
-    score += Math.min(weights.reliefCap, relief / weights.reliefScaleM);
+    score += Math.min(weights.reliefCap, relief / weights.reliefScaleM) + (water ? weights.water : 0);
     return { cell, score };
   });
   scored.sort((a, b) => b.score - a.score || a.cell - b.cell);

@@ -118,7 +118,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
     tick: 5, playing: false, speed: 'year', epoch: 0, runTo: null, eventCount: 2, counters: { regions: 1, landmasses: 1 },
     population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }], civList: [],
-    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0] }, settlements: { ids: [], cells: [], owners: [], capitals: [] },
+    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [] },
     series: [[0, 30, 1]], inspect: null,
     events: [
       { id: 0, tick: 1, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
@@ -134,7 +134,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
   assert.throws(() => parseObserverFrame({ ...frame, markers: { ...frame.markers, lineages: [1] } }), 'lineages are named');
   assert.throws(() => parseObserverFrame({ ...frame, largest: [{ ...frame.largest[0], regions: 2 }] }), 'the legend counts the polity\'s regions');
   assert.throws(() => parseObserverFrame({ ...frame, largest: [{ ...frame.largest[0], id: 1 }] }), 'the legend names living polities');
-  const civFrame = { ...frame, civs: 1, largest: [], markers: { ...frame.markers, kinds: [1] }, settlements: { ids: [0], cells: [3], owners: [0], capitals: [1] }, settlementCount: 1 };
+  const civFrame = { ...frame, civs: 1, largest: [], markers: { ...frame.markers, kinds: [1] }, settlements: { ids: [0], cells: [3], owners: [0], capitals: [1], tiers: [1], names: ['Kesh'] }, settlementCount: 1 };
   const listed = { id: 0, name: 'Vaeli', regions: 1, population: 30, era: 0, capital: 'Kesh', capitalCell: 3 };
   assert.equal(parseObserverFrame({ ...civFrame, civList: [listed] }).civList.length, 1);
   assert.throws(() => parseObserverFrame({ ...civFrame, civList: [] }), 'every civilization is listed while there are at most 100');
@@ -143,7 +143,9 @@ test('observer frames reject events newer than the frame or out of order', () =>
   const two = { ids: [0, 0], populations: [30, 30], eras: [0, 0], lineages: [0, 0] };
   assert.throws(() => parseObserverFrame({ ...frame, largest: [], markers: { ...two, regions: [0, 0], kinds: [0, 0] } }), 'one band per region');
   assert.throws(() => parseObserverFrame({ ...frame, civs: 1, largest: [], markers: { ...two, regions: [0, 1], kinds: [0, 1] } }), 'a polity is a tribe or a civilization in all its regions');
-  assert.throws(() => parseObserverFrame({ ...frame, settlements: { ids: [0], cells: [5], owners: [], capitals: [1] } }), 'settlement arrays must line up');
+  assert.throws(() => parseObserverFrame({ ...frame, settlements: { ids: [0], cells: [5], owners: [], capitals: [1], tiers: [0], names: [''] } }), 'settlement arrays must line up');
+  assert.throws(() => parseObserverFrame({ ...civFrame, settlements: { ...civFrame.settlements, tiers: [] } }), 'every settlement has a tier');
+  assert.throws(() => parseObserverFrame({ ...civFrame, settlements: { ...civFrame.settlements, tiers: [4] } }), 'tiers are village to metropolis');
   assert.throws(() => parseObserverFrame({ ...frame, civs: 1 }), 'civilization count matches the markers');
   assert.throws(() => parseObserverFrame({ ...frame, polities: 2 }), 'one marker per living polity');
   assert.throws(() => parseObserverFrame({ ...frame, settlementCount: 1 }), 'settlement count matches the settlements');

@@ -6,6 +6,7 @@ import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
 import { absorbMap, arrive, capitalKm, emptyMap, forgetMap, governable, inheritContacts, joinView, lookAgain } from './perception.ts';
+import { announceSettlement, foundSettlement, growSettlements, house, livingSettlements, ruinSettlements, setCapital } from './settlements.ts';
 import { chooseJoin } from './decisions/join.ts';
 import { landPressure, unrestDepth } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
@@ -212,6 +213,8 @@ export function produce(state: SimulationState, context: TickContext) {
       // polities have them. The cap grows with storage and farming knowledge.
       const cap = Math.min(SPECIALIST_TUNING.baseCap * m.specialistCap, SPECIALIST_TUNING.maxShare);
       group.specialists = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (group.foodSecurity - 1), 0, 1));
+      // Townspeople live in the region's settlements; there are only as many as they can house (VISION.md "Settlements").
+      if (polity.kind === 'civ') group.specialists = house(state, region, group.specialists);
       const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;
       const farming = knowledge.methods.farm;
       // The store that will still be there to eat before the harvest: part of it perishes on the way.
@@ -304,7 +307,7 @@ export function populate(state: SimulationState, context: TickContext) {
     if (polity.deathTick !== null) continue;
     // Once every group has had its month, so a collapse within one month moves the capital at most once.
     rehome(state, polity);
-    if (polity.kind !== 'band') { if (due(id)) migrate(state, polity); continue; }
+    if (polity.kind !== 'band') { if (due(id)) { migrate(state, polity); growSettlements(state, context, polity); } continue; }
     // The tribe settles (or prepares to join a civilization) before its bands move on.
     if (due(id) && considerSettling(state, context, polity, joining)) continue;
     for (const groupId of polity.groups.slice()) if (due(groupId)) decide(state, context, polity, state.groups[groupId]);
@@ -356,7 +359,7 @@ function migrate(state: SimulationState, polity: Polity) {
 }
 
 /** A group that dies out frees its region; its last stored food and crops are recorded as lost, and a civilization's
- *  village there falls to ruin. The polity ends with its last group. */
+ *  settlements there fall to ruin. The polity ends with its last group. */
 function removeGroup(state: SimulationState, polity: Polity, group: PopulationGroup, tick: number) {
   const flows = state.ledger.food.get(group.id);
   if (flows) { flows.spoilage += group.store; flows.cropsLost += group.planted; }
@@ -368,9 +371,7 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
   lookAgain(polity);
   if (state.owner[region] === polity.id) {
     state.owner[region] = -1;
-    for (const settlement of state.settlements) if (settlement.region === region && settlement.owner === polity.id && settlement.status === 'alive') {
-      settlement.status = 'ruined'; settlement.capital = false;
-    }
+    ruinSettlements(state, region, tick);
   }
   if (polity.groups.length) return;
   endPolity(state, polity, tick);
@@ -402,7 +403,7 @@ export function learnFrom(into: Polity, from: Polity, tick: number) {
  * A group passes from one polity to another where it lives (a tribe's band absorbed by a civilization, a tribe
  * joining one): the people, their culture, food and crops stay, and so does what they know — their new polity learns
  * it (VISION.md "Paths, not a timeline": merging), so herders taken in by farmers go on herding. Only their polity
- * changes. A civilization founds a village there. The former polity ends with its last group.
+ * changes. A civilization founds a settlement there (or resettles ruins). The former polity ends with its last group.
  */
 export function transferGroup(state: SimulationState, rng: Rng, group: PopulationGroup, from: Polity, to: Polity, tick: number, cited: ChronicleEvent['causes'] = []) {
   learnFrom(to, from, tick);
@@ -411,7 +412,7 @@ export function transferGroup(state: SimulationState, rng: Rng, group: Populatio
   to.groups.push(group.id); group.polity = to.id;
   state.occupant[group.region] = to.id;
   arrive(state, to, group.region, tick);
-  if (to.kind === 'civ') { state.owner[group.region] = to.id; foundVillage(state, rng, to, group.region, false, tick, cited); }
+  if (to.kind === 'civ') { state.owner[group.region] = to.id; foundSettlement(state, rng, to, group.region, false, tick, cited); }
   if (!from.groups.length) endPolity(state, from, tick);
   else rehome(state, from);
 }
@@ -423,9 +424,10 @@ export function rehome(state: SimulationState, polity: Polity) {
     polity.core = polity.groups.reduce((best, id) => state.groups[id].size > state.groups[best].size ? id : best, polity.groups[0]);
   }
   if (polity.kind !== 'civ' || polity.capital === null || state.settlements[polity.capital].status === 'alive') return;
-  const next = state.settlements.find(settlement => settlement.owner === polity.id && settlement.status === 'alive' && settlement.region === coreRegion(state, polity));
-  if (!next) return;
-  next.capital = true; polity.capital = next.id;
+  // The new heartland's main settlement becomes the capital.
+  const next = livingSettlements(state, coreRegion(state, polity))[0];
+  if (!next || next.owner !== polity.id) return;
+  setCapital(next, true); polity.capital = next.id;
   state.chronicle.emit({
     type: 'capitalMoved', actors: [{ id: polity.id, role: 'civ' }], region: next.region, settlement: next.id,
     causes: causes({ capitalLost: 1 }), importance: 0.3, data: { name: next.name, civ: polity.name },
@@ -616,7 +618,7 @@ function split(state: SimulationState, context: TickContext, tribe: Polity, grou
 
 /**
  * A tribe settles (VISION.md "Settling", changed at the M2 review): the whole tribe becomes one civilization that owns
- * every region its bands live in, with a named village in each; the heartland's village is its capital.
+ * every region its bands live in, with a named village in each (or ruins there resettled); the heartland's is its capital.
  */
 export function settle(state: SimulationState, context: Pick<TickContext, 'tick' | 'stream'>, tribe: Polity, factors: Record<string, number>) {
   const rng = context.stream(tribe.id, SETTLING_NAMES);
@@ -629,35 +631,12 @@ export function settle(state: SimulationState, context: Pick<TickContext, 'tick'
   const villages: Settlement[] = [];
   for (const region of regions) {
     state.owner[region] = tribe.id;
-    villages.push(foundVillage(state, rng, tribe, region, region === heartland, context.tick, cited, false));
+    villages.push(foundSettlement(state, rng, tribe, region, region === heartland, context.tick, cited, false)!);
   }
   state.chronicle.emit({
     type: 'settled', actors: [{ id: tribe.id, role: 'polity' }], region: heartland, causes: cited, importance: 0.35,
     data: { name: tribe.name, population: polityPopulation(state, tribe), capital: villages[0].name, culture: culture.name, regions: regions.length },
   });
-  for (const village of villages) announceVillage(state, tribe, village, cited);
+  for (const village of villages) announceSettlement(state, tribe, village, cited);
 }
 
-/**
- * A named village of `polity` on its region's best site (VISION.md "Settlements"; until M3b only a village), the
- * capital when `capital`. Announced at once unless the caller announces it after its own event.
- */
-export function foundVillage(state: SimulationState, rng: Rng, polity: Polity, region: number, capital: boolean, tick: number,
-  cited: ChronicleEvent['causes'] = [], announce = true): Settlement {
-  const entry = state.partition.regions[region];
-  const settlement: Settlement = {
-    id: state.settlements.length, name: createName(rng, state.cultures[polity.culture].language), cell: entry.settlementSites[0] ?? entry.centroid,
-    region, owner: polity.id, capital, foundedTick: tick, status: 'alive',
-  };
-  state.settlements.push(settlement);
-  if (capital) polity.capital = settlement.id;
-  if (announce) announceVillage(state, polity, settlement, cited);
-  return settlement;
-}
-
-function announceVillage(state: SimulationState, polity: Polity, settlement: Settlement, cited: ChronicleEvent['causes']) {
-  state.chronicle.emit({
-    type: 'settlementFounded', actors: [{ id: polity.id, role: 'civ' }], region: settlement.region, settlement: settlement.id, causes: cited,
-    importance: settlement.capital ? 0.2 : 0.04, data: { name: settlement.name, civ: polity.name, capital: settlement.capital },
-  });
-}

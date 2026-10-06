@@ -137,7 +137,7 @@ All polities share one technology graph defined in data, but each progresses thr
 
 - **invention:** a people researches the tech itself
 - **inheritance:** a breakaway keeps what its parent knew
-- **merging:** a tribe that joins a civilization, a band a civilization takes in, or a civilization that unites with another, brings its knowledge; the united people knows what either knew. (The clause on bands taken in is an agent default added after the M3 review, pending the user's review: without it, herders taken in by farmers who could not herd starved. See the M3.5 brief.)
+- **merging:** a tribe that joins a civilization, a band a civilization takes in, or a civilization that unites with another, brings its knowledge; the united people knows what either knew. (The clause on bands taken in was added after the M3 review as an agent default, because without it herders taken in by farmers who could not herd starved; the user approved it with M3.5 on 6 October 2026. See the M3.5 brief.)
 - **catch-up:** a tech of an earlier era than the most advanced era the polity knows of (its own, or that of a people it has met) is researched a little faster: 25% per era behind, at most twice as fast (data). Knowing that something can be done makes it easier, never free.
 - **sharing:** while a people it knows shares its knowledge with it, the polity researches the techs that people knows several times faster (Openness raises this) and weighs them more. From M5, trade agreements and alliances also share knowledge.
 

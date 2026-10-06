@@ -15,8 +15,9 @@ export type WorldLayer = 'biomes' | 'temperature' | 'moisture' | 'fertility';
 export interface WorldCoordinate { x: number; y: number }
 /** A polity marker: bands are circles, settled civilizations squares, coloured by era. */
 export interface BandMarker { x: number; y: number; population: number; color: string; settled?: boolean }
-/** A settlement (village) mark at its cell; capitals are drawn as stars at every zoom. */
-export interface SettlementMark { x: number; y: number; capital: boolean }
+/** A settlement mark at its cell, by tier (0 village, 1 town, 2 city, 3 metropolis); capitals are stars. `name` is
+ *  empty for places the map does not label. */
+export interface SettlementMark { x: number; y: number; capital: boolean; tier: number; name: string }
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
   onSelect: (cell: WorldCoordinate | null) => void;
@@ -268,15 +269,20 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
       target.restore();
     }
-    // Villages on their own cells, above the markers once a region is a few pixels across; capitals as stars at
-    // every zoom, so the political map shows where each civilization is governed from.
-    let capitalMarks = 0;
+    // Settlements on their own cells, by tier: villages (small diamonds) once a region is a few pixels across, towns
+    // (larger diamonds) a little sooner, cities and metropolises (rings) at every zoom; capitals as stars, larger with
+    // their tier, so the political map shows where each civilization is governed from. Names follow as the map zooms:
+    // metropolises and cities first, then towns and capitals.
+    let capitalMarks = 0, labels = 0;
     if (villages.length) {
       target.save(); target.fillStyle = villageStyle.fill; target.strokeStyle = villageStyle.stroke; target.lineWidth = 1;
-      const size = Math.max(2.5, Math.min(7, m.scale * 0.6)), star = Math.max(3.5, Math.min(8, m.scale * 0.9));
+      const base = Math.max(2.5, Math.min(7, m.scale * 0.6)), star = Math.max(3.5, Math.min(8, m.scale * 0.9));
+      const shownFrom = [1.5, 1, 0, 0], labelFrom = [Number.POSITIVE_INFINITY, 4, 2, 1.2], growth = [0.7, 1, 1.35, 1.7];
+      const named: { x: number; y: number; name: string; tier: number }[] = [];
       for (let copy = startCopy; copy <= endCopy; copy++) for (const village of villages) {
-        if (!village.capital && m.scale < 1.5) continue;
-        const x = left + (copy * world.width + village.x + 0.5) * m.scale, y = top + (village.y + 0.5) * m.scale, half = (village.capital ? star : size * 0.7) / 2;
+        if (!village.capital && m.scale < shownFrom[village.tier]) continue;
+        const x = left + (copy * world.width + village.x + 0.5) * m.scale, y = top + (village.y + 0.5) * m.scale;
+        const half = (village.capital ? star * (0.85 + 0.15 * village.tier) : base * growth[village.tier]) / 2;
         if (x < -half || x > m.width + half || y < -half || y > m.height + half) continue;
         target.beginPath();
         if (village.capital) {
@@ -285,12 +291,26 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
             if (point) target.lineTo(x + radius * Math.cos(angle), y + radius * Math.sin(angle)); else target.moveTo(x + radius * Math.cos(angle), y + radius * Math.sin(angle));
           }
           capitalMarks++;
+        } else if (village.tier >= 2) {
+          target.arc(x, y, half, 0, Math.PI * 2);
+          if (village.tier === 3) { target.moveTo(x + half * 0.5, y); target.arc(x, y, half * 0.5, 0, Math.PI * 2); }
         } else { target.moveTo(x, y - half * 1.3); target.lineTo(x + half, y); target.lineTo(x, y + half * 1.3); target.lineTo(x - half, y); }
         target.closePath(); target.fill(); target.stroke();
+        if (village.name && m.scale >= Math.min(labelFrom[village.tier], village.capital ? 2 : Number.POSITIVE_INFINITY)) named.push({ x: x + half + 3, y, name: village.name, tier: village.tier });
+      }
+      // Larger places' names on top.
+      named.sort((a, b) => a.tier - b.tier);
+      target.textBaseline = 'middle'; target.lineJoin = 'round';
+      for (const label of named) {
+        target.font = `${label.tier >= 2 ? 600 : 500} ${label.tier >= 2 ? 12 : 11}px system-ui, sans-serif`;
+        target.lineWidth = 3; target.strokeStyle = 'rgba(244, 239, 224, 0.92)'; target.strokeText(label.name, label.x, label.y);
+        target.fillStyle = '#2b1d12'; target.fillText(label.name, label.x, label.y);
+        labels++;
       }
       target.restore();
     }
     canvas.dataset.capitalMarks = String(capitalMarks);
+    canvas.dataset.settlementLabels = String(labels);
     // Keep the selected cell's outline above the marks.
     if (overlay && selection && (markers.length || villages.length || showRegions)) {
       const offsetX = wrap(selection.x + 0.5 - centerX + world.width / 2, world.width) - world.width / 2;

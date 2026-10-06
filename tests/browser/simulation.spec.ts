@@ -182,6 +182,12 @@ test('farming bands settle into civilizations with villages, specialists and res
   await expect(page.locator('#polity-capital')).not.toBeEmpty();
   await expect(page.locator('#polity-specialists')).toHaveText(/^[\d,]+$/);
   await expect(page.locator('#polity-known')).toContainText('Agriculture');
+  // M3b: the region's settlements with their tier, townspeople and housing, and the rural/urban split.
+  const settlementsHere = page.getByRole('region', { name: 'Settlements here' });
+  await expect(settlementsHere).toContainText(/(Village|Town|City|Metropolis)(, capital)? of the/);
+  await expect(settlementsHere).toContainText(/townspeople of [\d,]+ it can house/);
+  await expect(page.locator('#polity-rural')).toHaveText(/^[\d,]+$/);
+  await expect(page.locator('#world-population')).toContainText(/[\d,]+ settlements?/);
   await expect(details.getByRole('region', { name: 'Knowledge' })).toContainText('points a year');
   // M3: a civilization weighs expanding, exploring, uniting, sharing knowledge or doing nothing every six months; the inspector shows the last
   // step with its options and their reasons, and its governance reach.

@@ -26,8 +26,10 @@ export const REGION_TUNING = {
   settlementSites: 5,
   /** Defensibility (0–1) = min(1, relief share × mean neighbour relief ÷ reliefScale + cover share × rough cover). */
   defensibility: { reliefScaleM: 400, relief: 0.6, cover: 0.4, mountainCover: 1, forestCover: 0.4 },
-  /** Settlement site score: fertility + river tier × riverTier + mouth + confluence + coast + lakeshore + resource + relief (capped). */
-  siteScore: { riverTier: 0.5, mouth: 1, confluence: 0.8, coast: 0.6, lakeshore: 0.6, resource: 0.4, reliefScaleM: 1000, reliefCap: 0.3 },
+  /** Settlement site score: fertility + river tier × riverTier + mouth + confluence + coast + lakeshore + resource + relief (capped)
+   *  + water when the cell is on or next to a river (stream or larger), a lake, the coast or a resource site (VISION.md M3b:
+   *  settlements sit by water or a site wherever the region has such a place). */
+  siteScore: { riverTier: 0.5, mouth: 1, confluence: 0.8, coast: 0.6, lakeshore: 0.6, resource: 0.4, reliefScaleM: 1000, reliefCap: 0.3, water: 1.5 },
 } as const;
 
 export const CLOCK_TUNING = {
@@ -195,6 +197,24 @@ export const SETTLE_TUNING = {
 } as const;
 
 export const MOBILITY_TUNING = { coastalSailingKm: 300 } as const;
+
+/**
+ * Settlements (VISION.md "Settlements"). A region's townspeople (its specialists) live in its settlements: the capital
+ * first, then the others in founding order, each up to its housing (`baseHousing`, × `capitalHousing` for the seat of
+ * government, until buildings raise it). When they
+ * fill `foundAt` of the region's housing, a new settlement is founded on the next free candidate site (or ruins are
+ * resettled), once a year; a region's first settlement takes its best site, further ones only a site by water or a
+ * resource site. Townspeople are shared among a region's settlements by housing. A settlement's tier rises when its
+ * yearly mean urban population reaches the next of `tiers` (village, town, city, metropolis) and falls when it drops
+ * below `demote` × its own; resettled ruins keep their old name with chance `keepName`.
+ */
+export const SETTLEMENT_TUNING = {
+  tiers: [0, 4_000, 12_000, 50_000], demote: 0.75, baseHousing: 8_000, capitalHousing: 2, foundAt: 0.9, keepName: 0.5,
+  /** The tier follows the urban population averaged over this many months (a moving average), not one month's. */
+  meanMonths: 12,
+  /** Event importance of reaching each tier (a village is never reached), and of falling a tier. */
+  tierImportance: [0, 0.03, 0.12, 0.35], fallImportance: 0.05,
+} as const;
 
 /**
  * The decision step (VISION.md "Decision step"): every `months` per civilization, staggered by id. Scores are 0–1;
@@ -386,6 +406,10 @@ export function validateTunables() {
   const st = SETTLE_TUNING;
   if (!(st.fromYears >= 0 && st.spanYears > 0 && st.baseShare >= 0 && st.baseShare <= 1 && st.rate > 0 && st.rate <= 1 && st.farmingPower > 0 && st.scalePeople >= 0 && st.scalePower > 0 && st.scaleFloor > 0 && st.scaleFloor <= 1)) problems.push('settling settings are invalid');
   if (!(MOBILITY_TUNING.coastalSailingKm > 0)) problems.push('the coastal sailing reach must be positive');
+  const se = SETTLEMENT_TUNING;
+  if (!(se.tiers.length === 4 && se.tiers[0] === 0 && se.tiers.every((value, at) => at === 0 || value > se.tiers[at - 1]) && se.demote > 0 && se.demote < 1
+    && Number.isInteger(se.baseHousing) && se.baseHousing > 0 && se.capitalHousing >= 1 && se.foundAt > 0 && se.foundAt <= 1 && se.keepName >= 0 && se.keepName <= 1
+    && Number.isInteger(se.meanMonths) && se.meanMonths >= 1 && se.tierImportance.length === 4 && [...se.tierImportance, se.fallImportance].every(value => value >= 0 && value <= 1))) problems.push('settlement settings are invalid');
   const d = DECISION_TUNING;
   if (!(Number.isInteger(d.months) && d.months >= 1 && d.minScore >= 0 && d.doNothing > d.minScore && d.doNothing <= 1 && Number.isInteger(d.topChoices) && d.topChoices >= 1 && Number.isInteger(d.logSize) && d.logSize >= 1 && Number.isInteger(d.factorCount) && d.factorCount >= 1)) problems.push('decision settings are invalid');
   const reach = REACH_TUNING;
