@@ -5,8 +5,8 @@ import { inheritKnowledge, learn, mergeKnowledge, newTechs, startingKnowledge, t
 import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
-import { absorbMap, arrive, capitalKm, crosses, emptyMap, forgetMap, governable, inheritContacts, joinView, lookAgain, seaFrom } from './perception.ts';
-import { loseWealth, produceWealth, storeEffects } from './economy.ts';
+import { absorbMap, arrive, capitalKm, crosses, emptyMap, forgetMap, governable, hasHarbor, inheritContacts, joinView, lookAgain, seaFrom } from './perception.ts';
+import { loseWealth, produceWealth, regionSpoilage, regionStore } from './economy.ts';
 import { announceSettlement, foundSettlement, growSettlements, house, livingSettlements, ruinSettlements, setCapital } from './settlements.ts';
 import { chooseJoin } from './decisions/join.ts';
 import { landPressure, unrestDepth } from './pressure.ts';
@@ -223,7 +223,7 @@ export function produce(state: SimulationState, context: TickContext) {
       const farming = knowledge.methods.farm;
       // The store that will still be there to eat before the harvest: part of it perishes on the way.
       // Granaries keep more food, and less of it spoils (VISION.md "Buildings").
-      const [granaryStore, granarySpoilage] = polity.kind === 'civ' ? storeEffects(state, region) : [1, 1];
+      const civ = polity.kind === 'civ', granaryStore = civ ? regionStore(state, region) : 1, granarySpoilage = civ ? regionSpoilage(state, region) : 1;
       const toHarvest = monthsToHarvest(food, region, context.month), perishing = Math.min(1, POPULATION_TUNING.storeSpoilage * m.spoilage * granarySpoilage);
       const output = farming
         ? sow(food.labor, at, yields, group.size - group.specialists, group.size, before / UNITS * Math.max(0, 1 - perishing * toHarvest / 2), toHarvest, workers)
@@ -405,10 +405,10 @@ export function endPolity(state: SimulationState, polity: Polity, tick: number) 
 }
 
 /** `into` comes to know whatever `from` knew (a joining tribe, a uniting civilization); a new sea reach is fresh. */
-export function learnFrom(into: Polity, from: Polity, tick: number) {
+export function learnFrom(state: SimulationState, into: Polity, from: Polity, tick: number) {
   const sea = into.knowledge.sea;
   into.knowledge = mergeKnowledge(into.knowledge, from.knowledge);
-  if (into.knowledge.sea > sea) { into.seaTick = tick; lookAgain(into); }
+  if (into.knowledge.sea > sea) { if (hasHarbor(state, into)) into.seaTick = tick; lookAgain(into); }
 }
 
 /**
@@ -418,7 +418,7 @@ export function learnFrom(into: Polity, from: Polity, tick: number) {
  * changes. A civilization founds a settlement there (or resettles ruins). The former polity ends with its last group.
  */
 export function transferGroup(state: SimulationState, rng: Rng, group: PopulationGroup, from: Polity, to: Polity, tick: number, cited: ChronicleEvent['causes'] = []) {
-  learnFrom(to, from, tick);
+  learnFrom(state, to, from, tick);
   from.groups.splice(from.groups.indexOf(group.id), 1);
   lookAgain(from);
   to.groups.push(group.id); group.polity = to.id;
@@ -553,6 +553,8 @@ export function move(state: SimulationState, context: Pick<TickContext, 'tick'>,
   if (flows) flows.cropsLost += group.planted;
   group.planted = 0;
   state.occupant[from] = -1; state.groupAt[from] = -1; state.overCapacity[from] = 0;
+  // The people carry the memory of their hard years with them; the land they leave forgets.
+  state.hardship[to] = Math.max(state.hardship[to], state.hardship[from]); state.hardship[from] = 0;
   state.occupant[to] = tribe.id; state.groupAt[to] = group.id;
   group.region = to; group.arrivedTick = context.tick;
   arrive(state, tribe, to, context.tick);

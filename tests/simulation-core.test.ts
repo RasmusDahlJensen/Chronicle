@@ -119,7 +119,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
     population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }], civList: [],
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
-    series: [[0, 30, 1]], inspect: null,
+    series: [[0, 30, 1]], inspect: null, wonders: [],
     events: [
       { id: 0, tick: 1, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
       { id: 1, tick: 2, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },

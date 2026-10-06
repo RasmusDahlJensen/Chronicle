@@ -20,7 +20,9 @@ export interface BuildingEffects {
   works?: 'mineral' | 'stone'; harbor?: boolean;
 }
 export interface BuildingDefinition {
-  id: string; name: string; purpose: Purpose;
+  /** Its id and name, the name with its article ("a granary", "walls") and in the plural ("granaries"), for the
+   *  chronicle and the decision log. */
+  id: string; name: string; one: string; many: string; purpose: Purpose;
   /** Wealth to build, months it takes, wealth a year to keep up. */
   cost: number; months: number; upkeep: number;
   /** The smallest tier of settlement it may stand in (0 village … 3 metropolis); whether it needs the sea next to the
@@ -31,16 +33,18 @@ export interface BuildingDefinition {
 }
 
 const building = (id: string, purpose: Purpose, cost: number, months: number, upkeep: number, minTier: number, effects: BuildingEffects,
-  place: { coast?: boolean; perRegion?: boolean; stone?: boolean } = {}): BuildingDefinition =>
-  ({ id, name: id, purpose, cost, months, upkeep, minTier, coast: place.coast ?? false, perRegion: place.perRegion ?? false, stone: place.stone ?? false, effects });
+  place: { coast?: boolean; perRegion?: boolean; stone?: boolean; one?: string; many?: string } = {}): BuildingDefinition => ({
+  id, name: id, one: place.one ?? `${/^[aeiou]/.test(id) ? 'an' : 'a'} ${id}`, many: place.many ?? (id.endsWith('y') ? `${id.slice(0, -1)}ies` : `${id}s`), purpose, cost, months, upkeep, minTier,
+  coast: place.coast ?? false, perRegion: place.perRegion ?? false, stone: place.stone ?? false, effects,
+});
 
 export const BUILDINGS: readonly BuildingDefinition[] = [
-  // Neolithic (Masonry).
-  building('granary', 'food', 2_000, 12, 40, 0, { storeMonths: 1.5, spoilage: 0.8 }),
-  building('walls', 'defense', 4_000, 24, 80, 1, { defense: 0.5 }, { stone: true }),
-  building('shrine', 'faith', 1_500, 12, 30, 0, { stability: 0.03 }),
+  // Neolithic (Masonry). A region's granary, shrine and temple serve the whole region (their effects are the region's).
+  building('granary', 'food', 2_000, 12, 40, 0, { storeMonths: 1.5, spoilage: 0.8 }, { perRegion: true }),
+  building('walls', 'defense', 4_000, 24, 80, 1, { defense: 0.5 }, { stone: true, one: 'walls', many: 'walls' }),
+  building('shrine', 'faith', 1_500, 12, 30, 0, { stability: 0.03 }, { perRegion: true }),
   // Bronze (Writing; Organized religion also unlocks the temple).
-  building('temple', 'faith', 6_000, 36, 120, 1, { stability: 0.06 }, { stone: true }),
+  building('temple', 'faith', 6_000, 36, 120, 1, { stability: 0.06 }, { stone: true, perRegion: true }),
   // Bronze (Mining): works the region's mineral sites.
   building('mine', 'mining', 10_000, 36, 200, 0, { works: 'mineral' }, { perRegion: true }),
   building('library', 'learning', 8_000, 36, 160, 1, { research: 1.25 }),
@@ -53,7 +57,7 @@ export const BUILDINGS: readonly BuildingDefinition[] = [
   building('aqueduct', 'housing', 30_000, 60, 600, 1, { housing: 2.5 }, { stone: true }),
   // Medieval (Astronomy) and Early modern (Printing).
   building('observatory', 'learning', 25_000, 48, 500, 2, { research: 1.15 }),
-  building('university', 'learning', 40_000, 60, 800, 2, { research: 1.4 }),
+  building('university', 'learning', 40_000, 60, 800, 2, { research: 1.4 }, { one: 'a university' }),
 ];
 export const BUILDING_INDEX = new Map(BUILDINGS.map((definition, index) => [definition.id, index]));
 

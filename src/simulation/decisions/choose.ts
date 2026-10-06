@@ -1,7 +1,7 @@
 import type { Candidate, Neighbour, Partner, PolityView } from '../perception.ts';
 import type { Rng } from '../rng.ts';
 import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, UNITE_TUNING } from '../tunables.ts';
-import { bestBuild } from './build.ts';
+import { bestBuild, bestWonder } from './build.ts';
 
 /** Factors named with a leading × are multipliers (logged, never cited as causes); the rest are contributions to the score. */
 export const MULTIPLIER = '×';
@@ -145,6 +145,8 @@ export function options(view: PolityView): Option[] {
   if (share) all.push(share);
   const build = bestBuild(view);
   if (build) all.push(build);
+  const wonder = bestWonder(view);
+  if (wonder) all.push(wonder);
   const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }

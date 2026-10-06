@@ -20,9 +20,10 @@ function fixture() {
     tick: 0, geography, partition: { regions: [{ id: 0, centroid: 3, settlementSites: [4, 1, 0, 2, 5] }], regionOf },
     cultures: [{ language: createLanguage(createRng(1, 1)) }], settlements: [], regionSettlements: [[]], chronicle: new Chronicle(),
     groups: [{ id: 0, region: 0, specialists: 0, foodSecurity: 1 }], unrest: new Uint8Array(1), stability: new Float64Array(1).fill(1),
-    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0 },
+    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, projectsAbandoned: 0 }, wonders: [],
   } as unknown as SimulationState;
-  const civ = { id: 0, name: 'Ora', culture: 0, capital: null, groups: [0] } as unknown as Polity;
+  const civ = { id: 0, name: 'Ora', culture: 0, capital: null, groups: [0], projects: [] } as unknown as Polity;
+  state.polities = [civ];
   return { state, civ };
 }
 const always = { chance: () => true } as unknown as Rng;

@@ -4,8 +4,9 @@ import { nearWater } from './regions.ts';
 import { createName } from './names.ts';
 import { unrestDepth } from './pressure.ts';
 import type { Rng } from './rng.ts';
-import type { Polity, Settlement, SimulationState, TickContext } from './state.ts';
+import type { Polity, Settlement, SimulationState, TickContext, Wonder } from './state.ts';
 import { BUILDINGS } from './buildings.ts';
+import { WONDERS } from './wonders.ts';
 import { SETTLEMENT_TUNING } from './tunables.ts';
 
 /**
@@ -20,9 +21,10 @@ import { SETTLEMENT_TUNING } from './tunables.ts';
 export const GROWING = 6;
 
 /** A settlement's housing: the base, more for the seat of government, times its buildings' housing (markets, aqueducts). */
-export function housingOf(settlement: Pick<Settlement, 'capital'> & { buildings?: Settlement['buildings'] }) {
+export function housingOf(settlement: Pick<Settlement, 'capital'> & { buildings?: Settlement['buildings']; wonder?: number | null }) {
   let factor = settlement.capital ? SETTLEMENT_TUNING.capitalHousing : 1;
   for (const building of settlement.buildings ?? []) factor *= BUILDINGS[building.type].effects.housing ?? 1;
+  if (settlement.wonder !== undefined && settlement.wonder !== null) factor *= WONDERS[settlement.wonder].effects.housing ?? 1;
   return Math.round(SETTLEMENT_TUNING.baseHousing * factor);
 }
 
@@ -90,7 +92,7 @@ export function foundSettlement(state: SimulationState, rng: Rng, polity: Polity
   if (ruin) {
     const oldName = ruin.name;
     if (!rng.chance(SETTLEMENT_TUNING.keepName)) ruin.name = createName(rng, state.cultures[polity.culture].language);
-    Object.assign(ruin, { status: 'alive', owner: polity.id, capital, tier: 0, urban: 0, urbanMean: 0, buildings: [], bonus: bonusOf([]), housing: housingOf({ capital }), formerName: ruin.name === oldName ? null : oldName });
+    Object.assign(ruin, { status: 'alive', owner: polity.id, capital, tier: 0, urban: 0, urbanMean: 0, buildings: [], bonus: bonusOf([]), wonder: null, housing: housingOf({ capital }), formerName: ruin.name === oldName ? null : oldName });
     settlement = ruin;
     state.metrics.ruinsResettled++;
     if (announce) announceSettlement(state, polity, settlement, cited);
@@ -100,7 +102,7 @@ export function foundSettlement(state: SimulationState, rng: Rng, polity: Polity
     if (cell === undefined) return null;
     settlement = {
       id: state.settlements.length, name: createName(rng, state.cultures[polity.culture].language), cell, region, owner: polity.id, capital,
-      foundedTick: tick, status: 'alive', tier: 0, urban: 0, urbanMean: 0, housing: housingOf({ capital }), ruinedTick: null, formerName: null, buildings: [], bonus: bonusOf([]),
+      foundedTick: tick, status: 'alive', tier: 0, urban: 0, urbanMean: 0, housing: housingOf({ capital }), ruinedTick: null, formerName: null, buildings: [], bonus: bonusOf([]), wonder: null,
     };
     state.settlements.push(settlement);
     here.push(settlement.id);
@@ -125,13 +127,35 @@ export function announceSettlement(state: SimulationState, polity: Polity, settl
   });
 }
 
+/**
+ * A wonder ends: one under way is abandoned; one standing is destroyed (its city fallen to ruin, or worn away by unpaid
+ * upkeep), an event with its cause. Another may be built elsewhere.
+ */
+export function endWonder(state: SimulationState, wonder: Wonder, tick: number, cause: 'abandoned' | 'neglected') {
+  const settlement = state.settlements[wonder.settlement], definition = WONDERS[wonder.type];
+  wonder.endedTick = tick;
+  if (wonder.status === 'building') { wonder.status = 'abandoned'; state.metrics.wondersAbandoned++; return; }
+  wonder.status = 'destroyed'; settlement.wonder = null; state.metrics.wondersDestroyed++;
+  const owner = state.polities[settlement.owner];
+  state.chronicle.emit({
+    type: 'wonderDestroyed', actors: [{ id: owner.id, role: 'civ' }], region: settlement.region, settlement: settlement.id,
+    causes: [{ factor: cause === 'abandoned' ? 'cityRuined' : 'unpaidUpkeep', weight: 1 }], importance: 0.5,
+    data: { wonder: definition.name, name: settlement.name, civ: owner.name, abandoned: cause === 'abandoned', neglected: cause === 'neglected' },
+  });
+}
+
 /** A region whose people died out or left: its living settlements fall to ruin, and their buildings with them. */
 export function ruinSettlements(state: SimulationState, region: number, tick: number) {
   for (const id of state.regionSettlements[region]) {
     const settlement = state.settlements[id];
     if (settlement.status !== 'alive') continue;
     if (settlement.bonus.harbor) state.harbors[region]--;
-    Object.assign(settlement, { status: 'ruined', capital: false, urban: 0, urbanMean: 0, tier: 0, buildings: [], bonus: bonusOf([]), housing: housingOf({ capital: false }), ruinedTick: tick });
+    // Works under way there are abandoned with it, and a wonder there falls with it.
+    const owner = state.polities[settlement.owner], before = owner.projects.length;
+    owner.projects = owner.projects.filter(project => project.settlement !== settlement.id);
+    state.metrics.projectsAbandoned += before - owner.projects.length;
+    for (const wonder of state.wonders) if (wonder.settlement === settlement.id && (wonder.status === 'building' || wonder.status === 'standing')) endWonder(state, wonder, tick, 'abandoned');
+    Object.assign(settlement, { status: 'ruined', capital: false, urban: 0, urbanMean: 0, tier: 0, buildings: [], bonus: bonusOf([]), wonder: null, housing: housingOf({ capital: false }), ruinedTick: tick });
   }
 }
 

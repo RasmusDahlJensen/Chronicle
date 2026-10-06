@@ -3,7 +3,7 @@ import { endPolity, learnFrom, move, newGroup, polityPopulation, refuge, regionC
 import { foundSettlement, house, livingSettlements, setCapital } from './settlements.ts';
 import { transferWealth } from './economy.ts';
 import { newTechs } from './knowledge.ts';
-import { absorbMap, arrive, crosses, governable, lookAgain, meet, reveal, seaFrom, UNKNOWN } from './perception.ts';
+import { absorbMap, arrive, crosses, governable, hasHarbor, lookAgain, meet, reveal, seaFrom, UNKNOWN } from './perception.ts';
 import { assess } from './stability.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
@@ -107,7 +107,9 @@ export function explore(state: SimulationState, tick: number, rng: Rng, civ: Pol
   if (start < 0) return 'no unknown land within reach';
   let revealed = 0, met = 0, at = start;
   const visited = new Set([start]);
-  for (let step = 0; step < EXPLORE_TUNING.range[civ.knowledge.sea]; step++) {
+  // Expeditions range further with sea reach only once the civilization has a harbor to sail from.
+  const range = EXPLORE_TUNING.range[hasHarbor(state, civ) ? civ.knowledge.sea : 0];
+  for (let step = 0; step < range; step++) {
     const options = next(at).filter(region => !visited.has(region));
     if (!options.length) break;
     const scores = options.map(region => 1 + unknownAround(region) + (map.status[region] === UNKNOWN ? 2 : 0));
@@ -145,7 +147,7 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
   });
   absorbMap(state, large, small, tick);
   // The united people knows what either knew (VISION.md "Paths, not a timeline": merging).
-  learnFrom(large, small, tick);
+  learnFrom(state, large, small, tick);
   for (const id of small.groups.slice()) {
     const group = state.groups[id], region = group.region;
     small.groups.splice(small.groups.indexOf(id), 1);

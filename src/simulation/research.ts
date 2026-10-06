@@ -1,13 +1,13 @@
 import { coreRegion, landPressure } from './bands.ts';
 import { blockedExtraction } from './deposits.ts';
-import { crosses, observe, seaFrom, shareSurroundings } from './perception.ts';
+import { crosses, hasHarbor, observe, seaFrom, shareSurroundings } from './perception.ts';
 import { farmingPotential } from './food.ts';
 import { advance, chooseTarget, knows, learn, remaining, speedOf, type ResearchContext } from './knowledge.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
 import { TECH_INDEX, TECHS, type Affinity } from './techs.ts';
 import { RESEARCH_TUNING, SHARE_TUNING, STABILITY_TUNING } from './tunables.ts';
 import { unrestDepth } from './pressure.ts';
-import { townsResearch } from './economy.ts';
+import { townsResearch, wonderBonus } from './economy.ts';
 import { WORLD_BIOMES } from '../../shared/generated-world.ts';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
 
@@ -147,7 +147,8 @@ export function researchRate(state: SimulationState, polity: Polity) {
     people += group.size;
     specialists += (polity.kind === 'civ' ? townsResearch(state, group.region) : group.specialists) * (1 - STABILITY_TUNING.researchLoss * unrestDepth(state, group.region));
   }
-  return (tuning.basePerPerson * researchPeople(people) * (1 + tuning.contactBonus * contacts) + tuning.specialistResearch * specialists) * polity.knowledge.multipliers.research;
+  const wonders = polity.kind === 'civ' ? wonderBonus(state, polity).research : 1;
+  return (tuning.basePerPerson * researchPeople(people) * (1 + tuning.contactBonus * contacts) + tuning.specialistResearch * specialists) * polity.knowledge.multipliers.research * wonders;
 }
 
 /** What the polity's choice of research sees: the conditions of all its land, its need for food (people-weighted), its culture. */
@@ -203,7 +204,8 @@ export function research(state: SimulationState, context: TickContext) {
     const taught = before.taught[tech] / total, caught = before.caught[tech] / total;
     const sea = before.sea;
     polity.knowledge = learn(polity.knowledge, tech);
-    if (polity.knowledge.sea > sea) polity.seaTick = context.tick;
+    // A fresh sea reach makes exploring attractive, once there is a harbor to sail from.
+    if (polity.knowledge.sea > sea && hasHarbor(state, polity)) polity.seaTick = context.tick;
     if (tech === AGRICULTURE && before.taught[tech] === 0) state.metrics.agricultureInventions++;
     const first = !state.firsts.some(entry => entry.tech === tech);
     const place = discoveryRegion(state, polity, tech);

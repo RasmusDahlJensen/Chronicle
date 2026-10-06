@@ -1,4 +1,5 @@
 import { BUILDINGS } from './buildings.ts';
+import { WONDERS } from './wonders.ts';
 import { bonusOf, housingOf } from './settlements.ts';
 import { EVENT_TYPES } from '../../shared/simulation.ts';
 import type { RegionPartition } from './regions.ts';
@@ -53,8 +54,36 @@ export function checkInvariants(state: SimulationState) {
   }
   let indexed = 0;
   for (const list of state.regionSettlements) indexed += list.length;
-  for (let region = 0; region < regions; region++) if (state.harbors[region] !== harbors[region]) fail(`region ${region} counts ${state.harbors[region]} harbors, not its ${harbors[region]}`);
+  for (let region = 0; region < regions; region++) if (state.harbors[region] !== harbors[region] || harbors[region] > 1) fail(`region ${region} counts ${state.harbors[region]} harbors, not its ${harbors[region]} (at most one)`);
+  // What one region needs only one of (granary, shrine, temple, mine, quarry, harbor), standing or under way.
+  for (let region = 0; region < regions; region++) {
+    const list = state.regionSettlements[region];
+    // (Yearly per region, staggered.)
+    if (list.length < 2 || (state.tick + region) % 12 !== 0) continue;
+    const seen = new Set<number>();
+    for (const id of list) {
+      const settlement = state.settlements[id];
+      if (settlement.status !== 'alive') continue;
+      const types = [...settlement.buildings.map(building => building.type), ...state.polities[settlement.owner].projects.filter(project => project.settlement === id).map(project => project.type)];
+      for (const type of types) if (BUILDINGS[type].perRegion) { if (seen.has(type)) fail(`region ${region} has two of ${BUILDINGS[type].name}`); seen.add(type); }
+    }
+  }
   if (indexed !== state.settlements.length) fail(`the region index lists ${indexed} settlements of ${state.settlements.length}`);
+  // Wonders (VISION.md "Wonders"): each type unique while it stands or is being built, standing in a living settlement
+  // that names it, worn only while its owner mends it.
+  const active = new Set<number>();
+  for (const wonder of state.wonders) {
+    const settlement = state.settlements[wonder.settlement];
+    if (!WONDERS[wonder.type] || !settlement || !Number.isInteger(wonder.spent) || wonder.spent < 0 || wonder.spent > wonder.cost) fail(`wonder ${wonder.id} is invalid`);
+    if (wonder.status !== 'building' && wonder.status !== 'standing') { if (wonder.endedTick === null) fail(`wonder ${wonder.id} ended without a date`); continue; }
+    if (active.has(wonder.type)) fail(`two of wonder type ${wonder.type} stand or are being built`);
+    active.add(wonder.type);
+    if (settlement.status !== 'alive') fail(`wonder ${wonder.id} is in settlement ${settlement.id}, which is not alive`);
+    if (wonder.status === 'standing' && (settlement.wonder !== wonder.type || !(wonder.condition > 0 && wonder.condition <= 1) || wonder.spent !== wonder.cost)) fail(`standing wonder ${wonder.id} is not in place`);
+    if (wonder.status === 'standing' && wonder.condition < 1 && !state.polities[settlement.owner].repairing) fail(`wonder ${wonder.id} is worn and its owner is not mending it`);
+    if (wonder.status === 'building' && wonder.spent >= wonder.cost) fail(`wonder ${wonder.id} is paid for but not standing`);
+  }
+  for (const settlement of state.settlements) if (settlement.wonder !== null && !state.wonders.some(wonder => wonder.settlement === settlement.id && wonder.type === settlement.wonder && wonder.status === 'standing')) fail(`settlement ${settlement.id} names a wonder that does not stand there`);
   for (const id of state.living) {
     const polity = state.polities[id];
     if (!polity || polity.deathTick !== null) fail(`live polity list names ${id}`);

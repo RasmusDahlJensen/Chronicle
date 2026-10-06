@@ -1,4 +1,5 @@
 import { BUILDINGS, buildingKnown } from './buildings.ts';
+import { WONDERS, wonderKnown } from './wonders.ts';
 import { cultureSimilarity } from './culture.ts';
 import { buildingCost, incomeOf, siteIncome, upkeepOf } from './economy.ts';
 import { livingSettlements } from './settlements.ts';
@@ -68,6 +69,12 @@ export function seeRegion(polity: Polity, region: number) {
  */
 export function seaFrom(state: SimulationState, polity: Polity, region: number): number {
   return polity.knowledge.sea > 0 && state.harbors[region] > 0 && state.owner[region] === polity.id ? polity.knowledge.sea : 0;
+}
+
+/** Whether the polity holds a region with a standing harbor (it can sail once its knowledge allows). */
+export function hasHarbor(state: SimulationState, polity: Polity) {
+  for (const id of polity.groups) if (state.harbors[state.groups[id].region] > 0) return true;
+  return false;
 }
 
 /** Whether a sea crossing of `km` is within a sea reach (1: coastal crossings up to the coastal sailing distance; 2: any). */
@@ -208,15 +215,19 @@ export interface PolityView {
     wealth: number; income: number; upkeep: number; regions: number;
     /** The building types it knows: purpose, cost (as it would pay), upkeep, the smallest tier they stand in, whether
      *  they need the sea beside the settlement, and which sites they work. */
-    catalog: { type: number; name: string; purpose: string; cost: number; upkeep: number; minTier: number; coast: boolean; works: '' | 'mineral' | 'stone' }[];
+    catalog: { type: number; name: string; one: string; many: string; purpose: string; cost: number; upkeep: number; minTier: number; coast: boolean; perRegion: boolean; works: '' | 'mineral' | 'stone' }[];
     /** Its living settlements: tier, townspeople and housing, its region's hardship (memory of hunger), share of food
      *  farmed and stability, foreign peoples on the region's borders, the building types it has or is building (for
      *  those one region needs only one of, anywhere in the region); whether the sea is beside it, the sea crossings its
      *  knowledge would reach from there, and the wealth a year its region's usable mineral and stone sites would give. */
     settlements: {
-      id: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; stability: number; frontier: number; has: number[];
-      coast: boolean; seaLinks: number; mineYield: number; quarryYield: number;
+      id: number; region: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; stability: number; frontier: number; has: number[];
+      coast: boolean; seaLinks: number; mineYield: number; quarryYield: number; wonder: boolean;
     }[];
+    /** The wonders it could begin (it knows how, none stands or is being built anywhere, and it builds none now): their
+     *  motive, cost, upkeep, the smallest tier of their city and whether it needs the sea; and its realm's mean stability. */
+    wonders: { type: number; name: string; motive: string; cost: number; upkeep: number; minTier: number; coast: boolean }[];
+    stability: number;
   };
 }
 
@@ -333,7 +344,7 @@ export function governable(state: SimulationState, civ: Polity, groups: readonly
 function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
   const catalog: PolityView['build']['catalog'] = [];
   BUILDINGS.forEach((definition, type) => {
-    if (buildingKnown(civ.knowledge, type)) catalog.push({ type, name: definition.name, purpose: definition.purpose, cost: buildingCost(state, civ, type), upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast, works: definition.effects.works ?? '' });
+    if (buildingKnown(civ.knowledge, type)) catalog.push({ type, name: definition.name, one: definition.one, many: definition.many, purpose: definition.purpose, cost: buildingCost(state, civ, type), upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast, perRegion: definition.perRegion, works: definition.effects.works ?? '' });
   });
   const settlements: PolityView['build']['settlements'] = [];
   if (catalog.length) for (const groupId of civ.groups) {
@@ -355,19 +366,28 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
       const has = [...regionHas, ...settlement.buildings.map(building => building.type)];
       for (const project of civ.projects) if (project.settlement === settlement.id) has.push(project.type);
       settlements.push({
-        id: settlement.id, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, hardship: state.hardship[region],
+        id: settlement.id, region, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, hardship: state.hardship[region],
         farmShare: group.farmShare, stability: state.stability[region], frontier: foreign.size, has,
-        coast: bySea(state, settlement.cell), seaLinks, mineYield, quarryYield,
+        coast: bySea(state, settlement.cell), seaLinks, mineYield, quarryYield, wonder: settlement.wonder !== null || state.wonders.some(wonder => wonder.settlement === settlement.id && wonder.status === 'building'),
       });
     }
   }
-  return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements };
+  // Wonders: one at a time, each unique in the world while it stands or is being built (VISION.md "Wonders").
+  const wonders: PolityView['build']['wonders'] = [];
+  const building = state.wonders.some(wonder => wonder.status === 'building' && state.settlements[wonder.settlement].owner === civ.id);
+  if (!building) WONDERS.forEach((definition, type) => {
+    if (!wonderKnown(civ.knowledge, type) || state.wonders.some(wonder => wonder.type === type && (wonder.status === 'building' || wonder.status === 'standing'))) return;
+    wonders.push({ type, name: definition.name, motive: definition.motive, cost: definition.cost, upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast });
+  });
+  let stable = 0;
+  for (const groupId of civ.groups) stable += state.stability[state.groups[groupId].region];
+  return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1 };
 }
 
 /** Whether the sea lies beside a cell (where a harbor may stand). */
-function bySea(state: SimulationState, cell: number) {
-  const near = new Int32Array(4);
-  for (const other of cellNeighbors(state.geography, cell, near)) if (other >= 0 && state.geography.marine[other]) return true;
+const seaNear = new Int32Array(4);
+export function bySea(state: SimulationState, cell: number) {
+  for (const other of cellNeighbors(state.geography, cell, seaNear)) if (other >= 0 && state.geography.marine[other]) return true;
   return false;
 }
 

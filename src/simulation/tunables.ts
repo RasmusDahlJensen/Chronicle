@@ -209,7 +209,7 @@ export const MOBILITY_TUNING = { coastalSailingKm: 300 } as const;
  * when it drops below `demote` × its own; resettled ruins keep their old name with chance `keepName`.
  */
 export const SETTLEMENT_TUNING = {
-  tiers: [0, 4_000, 12_000, 50_000], demote: 0.6, baseHousing: 8_000, capitalHousing: 2, foundAt: 0.9, keepName: 0.5,
+  tiers: [0, 4_000, 12_000, 40_000], demote: 0.6, baseHousing: 8_000, capitalHousing: 2, foundAt: 0.9, keepName: 0.5,
   /** The tier follows the urban population averaged over about this many months (exponentially), not one month's. */
   meanMonths: 24,
   /** Event importance of reaching each tier (a village is never reached), and of falling a tier. */
@@ -365,6 +365,13 @@ export const BUILD_TUNING = {
   /** mining: min(1, wealth a year the region's unworked usable sites would give ÷ mineScale); sea (a coastal settlement):
    *  min(1, sea crossings within its civilization's reach ÷ seaScale) × (seaBase + (Openness + Expansionism) ÷ 2). */
   mineScale: 3_000, seaScale: 3, seaBase: 0.2,
+  /**
+   * Wonders (VISION.md "Wonders": a large surplus and a motive): need = the culture's value for its motive (piety: Zeal,
+   * ambition: Expansionism, learning: Openness) × golden age (clamp((the realm's mean stability − goldenFrom) ÷
+   * (1 − goldenFrom), 0, 1)) × greatness (min(1, its largest fitting city's townspeople ÷ wonderCity)); the score is
+   * wonderWeight × need − the cost and upkeep burdens as for buildings.
+   */
+  wonderWeight: 0.6, goldenFrom: 0.6, wonderCity: 20_000,
   batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6,
   decayMonths: 60, recoverMonths: 24,
 } as const;
@@ -465,7 +472,7 @@ export function validateTunables() {
   if (!(WEALTH_TUNING.perTownsperson > 0 && WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1 && WEALTH_TUNING.stoneDiscount > 0 && WEALTH_TUNING.stoneDiscount <= 1
     && Object.values(WEALTH_TUNING.siteYield).every(value => value >= 0))) problems.push('wealth settings are invalid');
   const bu = BUILD_TUNING;
-  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale].every(value => value > 0) && bu.seaBase >= 0 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
+  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity].every(value => value > 0) && bu.seaBase >= 0 && bu.wonderWeight >= 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
   const sh = SHARE_TUNING;
   if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');

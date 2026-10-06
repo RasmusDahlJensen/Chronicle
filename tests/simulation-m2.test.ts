@@ -333,7 +333,13 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
   assert.equal(small.deathTick, null);
   assert.ok(!decisionView(state, small).neighbours.some(entry => entry.civ === large.id), 'it does not ask the same civilization again for a while');
   const regions = small.groups.map(id => state.groups[id].region), before = large.groups.length;
+  // Its treasury, its works under way and its worn buildings pass to the union, recorded as wealth given and received.
+  const treasury = small.wealth + large.wealth, works = small.projects.length + large.projects.length, passed = small.wealth;
+  const given = state.ledger.wealth.get(small.id)?.given ?? 0, received = state.ledger.wealth.get(large.id)?.received ?? 0;
+  small.repairing = true;
   assert.match(unite(state, state.tick, accepting, small, large, regions[0], [{ factor: 'test', weight: 1 }]), /united/);
+  assert.equal(large.wealth, treasury); assert.equal(small.wealth, 0); assert.equal(large.projects.length, works); assert.ok(large.repairing);
+  assert.equal(state.ledger.wealth.get(small.id)!.given - given, passed); assert.equal(state.ledger.wealth.get(large.id)!.received - received, passed);
   assert.notEqual(small.deathTick, null);
   assert.equal(large.groups.length, before + regions.length);
   for (const region of regions) {

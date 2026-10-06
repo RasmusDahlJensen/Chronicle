@@ -6,6 +6,7 @@ import {
 } from '../../shared/simulation.ts';
 import { validateTechData } from '../../src/simulation/deposits.ts';
 import { validateBuildings } from '../../src/simulation/buildings.ts';
+import { validateWonders } from '../../src/simulation/wonders.ts';
 import { decodeGeography } from '../../src/simulation/geography.ts';
 import { checkPartition } from '../../src/simulation/invariants.ts';
 import { partitionRegions, partitionStats, REGION_PARTITION_VERSION } from '../../src/simulation/regions.ts';
@@ -25,6 +26,7 @@ const started = performance.now();
 validateTunables();
 validateTechData();
 validateBuildings();
+validateWonders();
 const geography = decodeGeography(init.manifest, init.tiles);
 const partition = partitionRegions(geography);
 checkPartition(geography, partition);

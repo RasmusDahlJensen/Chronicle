@@ -296,12 +296,13 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
           if (village.tier === 3) { target.moveTo(x + half * 0.5, y); target.arc(x, y, half * 0.5, 0, Math.PI * 2); }
         } else { target.moveTo(x, y - half * 1.3); target.lineTo(x + half, y); target.lineTo(x, y + half * 1.3); target.lineTo(x - half, y); }
         target.closePath(); target.fill(); target.stroke();
-        // At detail zoom, what stands there: a harbor (a blue ring below right), a mine (a dark triangle below left), a
-        // quarry (a grey square below).
+        // At detail zoom, what stands there: a harbor (a blue disc below right), a mine (a dark triangle below left), a
+        // quarry (a grey square below), a wonder (a gold disc above).
         if (village.features && m.scale >= 4) {
           const glyph = Math.max(2, half * 0.55);
           if (village.features & 1) { target.save(); target.beginPath(); target.arc(x + half * 1.1, y + half * 1.1, glyph, 0, Math.PI * 2); target.fillStyle = '#2f6f9f'; target.fill(); target.stroke(); target.restore(); features++; }
           if (village.features & 2) { target.save(); target.beginPath(); target.moveTo(x - half * 1.1, y + half * 1.1 - glyph); target.lineTo(x - half * 1.1 + glyph, y + half * 1.1 + glyph * 0.8); target.lineTo(x - half * 1.1 - glyph, y + half * 1.1 + glyph * 0.8); target.closePath(); target.fillStyle = '#3b2f2a'; target.fill(); target.stroke(); target.restore(); features++; }
+          if (village.features & 8) { target.save(); target.beginPath(); target.arc(x, y - half * 1.6, glyph * 0.9, 0, Math.PI * 2); target.fillStyle = '#d4a017'; target.fill(); target.stroke(); target.restore(); features++; }
           if (village.features & 4) { target.save(); target.fillStyle = '#9a958c'; target.fillRect(x - glyph, y + half * 1.5, glyph * 2, glyph * 2); target.strokeRect(x - glyph, y + half * 1.5, glyph * 2, glyph * 2); target.restore(); features++; }
         }
         if (village.name && m.scale >= Math.min(labelFrom[village.tier], village.capital ? 2 : Number.POSITIVE_INFINITY)) named.push({ x: x + half + 3, y, name: village.name, tier: village.tier });

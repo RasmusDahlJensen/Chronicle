@@ -139,6 +139,12 @@ function storyHealth(rows: SeedResult[]) {
     for (const event of (result.report.events ?? []) as { type: string; data: Record<string, unknown> }[]) if (event.type === 'buildingCompleted') byType.set(String(event.data.building), (byType.get(String(event.data.building)) ?? 0) + 1);
     lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => at(year)?.buildings ?? '—').join(' / ')} | ${m.buildingsCompleted} · ${m.buildingsLost} | ${[...byType].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(', ') || '—'} | ${[1000, 3000].map(year => at(year)?.wealth.toLocaleString('en') ?? '—').join(' / ')} |`);
   }
+  // M3b acceptance (VISION.md): at least one wonder completed by year 2,500 in most seeds.
+  lines.push('', '| Seed | Wonders completed by 2,500 (M3b: ≥ 1 in most seeds) | Wonders completed, by year | Destroyed · abandoned by 3,000 |', '| --- | ---: | --- | --- |');
+  for (const result of rows) {
+    const done = ((result.report.events ?? []) as { type: string; tick: number; data: Record<string, unknown> }[]).filter(event => event.type === 'wonderCompleted');
+    lines.push(`| ${result.seed} | ${done.filter(event => event.tick <= 2500 * 12).length} | ${done.map(event => `${event.data.wonder} ${Math.floor(event.tick / 12)} (${event.data.civ})`).join(', ') || '—'} | ${result.report.metrics.wondersDestroyed} · ${result.report.metrics.wondersAbandoned} |`);
+  }
   // Story health: the decision mix per century (share of decision steps by chosen action).
   lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Build | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const result of rows) {

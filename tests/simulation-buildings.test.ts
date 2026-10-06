@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BUILDING_INDEX, BUILDINGS, buildingKnown, validateBuildings } from '../src/simulation/buildings.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
-import { construct, startProjects } from '../src/simulation/construction.ts';
-import { bestBuild, buildScore, need } from '../src/simulation/decisions/build.ts';
+import { beginWonder, construct, startProjects } from '../src/simulation/construction.ts';
+import { bestBuild, bestWonder, buildScore, need } from '../src/simulation/decisions/build.ts';
 import { incomeOf, loseWealth, produceWealth, siteIncome, transferWealth, wealthFlows } from '../src/simulation/economy.ts';
 import { crosses, seaFrom } from '../src/simulation/perception.ts';
 import { RESOURCE_IDS } from '../shared/atlas.ts';
@@ -11,7 +11,8 @@ import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { createLanguage } from '../src/simulation/names.ts';
 import type { PolityView } from '../src/simulation/perception.ts';
 import { createRng } from '../src/simulation/rng.ts';
-import { applyBuildings, foundSettlement, house, ruinSettlements } from '../src/simulation/settlements.ts';
+import { applyBuildings, foundSettlement, house, housingOf, ruinSettlements } from '../src/simulation/settlements.ts';
+import { WONDER_INDEX, WONDERS } from '../src/simulation/wonders.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
 import { TECH_INDEX } from '../src/simulation/techs.ts';
 import { BUILD_TUNING, SETTLEMENT_TUNING, WEALTH_TUNING } from '../src/simulation/tunables.ts';
@@ -35,8 +36,8 @@ function fixture() {
     partition: { regions: [{ id: 0, centroid: 0, settlementSites: [0, 1, 2, 3, 4], neighbors: [] }], regionOf: new Int32Array(cells) },
     cultures: [{ language: createLanguage(createRng(1, 1)) }], settlements: [], regionSettlements: [[]], chronicle: new Chronicle(),
     groups: [{ id: 0, region: 0, specialists: 0, foodSecurity: 1, size: 100_000 }], groupAt: new Int32Array([0]), unrest: new Uint8Array(1), stability: new Float64Array(1).fill(1),
-    living: [0], ledger: { wealth: new Map() },
-    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0 },
+    living: [0], ledger: { wealth: new Map() }, wonders: [],
+    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0 },
   } as unknown as SimulationState;
   const civ = { id: 0, kind: 'civ', name: 'Ora', culture: 0, capital: null, groups: [0], wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [] } as unknown as Polity;
   state.polities = [civ];
@@ -65,6 +66,7 @@ test('a building is paid in instalments, completed with the causes that began it
   const market = BUILDING_INDEX.get('market')!, definition = BUILDINGS[market];
   civ.wealth = definition.cost;
   assert.equal(startProjects(state, 0, civ, market, [town.id], [{ factor: 'commerce', weight: 0.2 }]), 'began a market');
+  town.tier = 1;
   assert.equal(startProjects(state, 0, civ, market, [town.id], []), 'nowhere left to build it', 'not twice in one place');
   for (let tick = 1; tick <= definition.months; tick++) month(state, tick);
   state.chronicle.flush(definition.months);
@@ -103,8 +105,8 @@ test('unpaid upkeep wears buildings down until they are lost, an event citing it
 });
 
 test('the Build choice weighs each building\'s need where it is greatest against its cost and upkeep', () => {
-  const settlement = (entry: Partial<PolityView['build']['settlements'][number]>) => ({ id: 1, name: 'Kesh', tier: 1, urban: 8_000, housing: 8_000, hardship: 0, farmShare: 1, stability: 0.9, frontier: 0, has: [] as number[],
-    coast: false, seaLinks: 0, mineYield: 0, quarryYield: 0, ...entry });
+  const settlement = (entry: Partial<PolityView['build']['settlements'][number]>) => ({ id: 1, region: 0, name: 'Kesh', tier: 1, urban: 8_000, housing: 8_000, hardship: 0, farmShare: 1, stability: 0.9, frontier: 0, has: [] as number[],
+    coast: false, seaLinks: 0, mineYield: 0, quarryYield: 0, wonder: false, ...entry });
   const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
   assert.ok(need('food', settlement({ hardship: 0.6 }), values) > need('food', settlement({}), values), 'hard years call for granaries');
   assert.ok(need('faith', settlement({ stability: 0.4 }), values) > need('faith', settlement({}), values), 'unrest calls for shrines and temples');
@@ -112,13 +114,16 @@ test('the Build choice weighs each building\'s need where it is greatest against
   assert.ok(need('housing', settlement({ urban: 7_900 }), values) > 0.5 && need('housing', settlement({ urban: 2_000 }), values) === 0, 'crowded towns need housing');
   assert.equal(need('defense', settlement({ frontier: 0 }), values), 0, 'no foreign neighbours, no walls');
   const granary = BUILDING_INDEX.get('granary')!, temple = BUILDING_INDEX.get('temple')!;
-  const kind = (type: number) => ({ type, name: BUILDINGS[type].name, purpose: BUILDINGS[type].purpose, cost: BUILDINGS[type].cost, upkeep: BUILDINGS[type].upkeep, minTier: BUILDINGS[type].minTier, coast: BUILDINGS[type].coast, works: BUILDINGS[type].effects.works ?? '' as const });
+  const kind = (type: number) => ({ type, name: BUILDINGS[type].name, one: BUILDINGS[type].one, many: BUILDINGS[type].many, purpose: BUILDINGS[type].purpose, cost: BUILDINGS[type].cost, upkeep: BUILDINGS[type].upkeep, minTier: BUILDINGS[type].minTier, coast: BUILDINGS[type].coast, perRegion: BUILDINGS[type].perRegion, works: BUILDINGS[type].effects.works ?? '' as const });
   const kinds = [granary, temple].map(kind);
-  const view = (settlements: ReturnType<typeof settlement>[], wealth = 100_000, income = 50_000) => ({ values, build: { wealth, income, upkeep: 0, regions: 1, catalog: kinds, settlements } }) as unknown as PolityView;
+  const view = (settlements: ReturnType<typeof settlement>[], wealth = 100_000, income = 50_000) => ({ values, build: { wealth, income, upkeep: 0, regions: 1, catalog: kinds, settlements, wonders: [], stability: 0.9 } }) as unknown as PolityView;
   const hungry = view([settlement({ id: 1, hardship: 0.8 }), settlement({ id: 2, hardship: 0.1, name: 'Tal' })]);
   const option = bestBuild(hungry)!;
   assert.equal(option.target, granary); assert.deepEqual(option.targets, [1], 'the hungriest settlement first, one at a time for a civilization of one region');
-  assert.equal(option.factors[0].factor, 'hardship');
+  assert.equal(option.factors[0].factor, 'hardship'); assert.equal(option.label, 'a granary at Kesh');
+  // Without hard years, a granary is wanted for farmers' storage, and says so.
+  const calm = bestBuild(view([settlement({ hardship: 0 })]))!;
+  assert.equal(calm.target, granary); assert.deepEqual(calm.factors.filter(entry => entry.weight > 0).map(entry => entry.factor), ['storage']);
   assert.equal(buildScore(view([settlement({ has: [granary] })]), kinds[0]).score, Number.NEGATIVE_INFINITY, 'nothing to build where it stands');
   assert.equal(buildScore(view([settlement({ tier: 0 })]), kinds[1]).score, Number.NEGATIVE_INFINITY, 'a temple needs a town');
   assert.ok(buildScore(view([settlement({ hardship: 0.8 })], 0, 100), kinds[0]).score < option.score, 'a poor civilization weighs the cost more');
@@ -128,6 +133,10 @@ test('the Build choice weighs each building\'s need where it is greatest against
   assert.equal(buildScore(view([settlement({})]), mine).score, Number.NEGATIVE_INFINITY, 'no usable deposits, no mine');
   const rich = buildScore(view([settlement({ tier: 0, urban: 500, mineYield: 4_000 })]), mine);
   assert.ok(rich.score > 0 && rich.factors[0].factor === 'deposits', 'gold in a small village is worth a mine');
+  // A large civilization begins several at once, but never two in one region (one mine works all its sites).
+  const wide = { ...view([settlement({ id: 1, mineYield: 4_000 }), settlement({ id: 2, mineYield: 4_000 }), settlement({ id: 3, region: 5, mineYield: 3_000 })]) };
+  wide.build.regions = 40;
+  assert.deepEqual(buildScore(wide, mine).targets, [1, 3], 'the best settlement in each region');
   assert.equal(buildScore(view([settlement({ seaLinks: 3 })]), harbor).score, Number.NEGATIVE_INFINITY, 'inland');
   assert.ok(buildScore(view([settlement({ coast: true, seaLinks: 3 })]), harbor).score > buildScore(view([settlement({ coast: true, seaLinks: 1 })]), harbor).score, 'more crossings in reach');
 });
@@ -153,4 +162,44 @@ test('a mine works its region\'s mineral sites for wealth, once the civilization
   state.owner[0] = -1;
   assert.equal(seaFrom(state, civ, 0), 0, 'not its land');
   assert.ok(crosses(1, 300) && !crosses(1, 301) && crosses(2, 5_000) && !crosses(0, 10));
+});
+
+test('a wonder is begun with a motive, paid for over years, unique in the world, and lost when its city falls', () => {
+  const { state, civ } = fixture();
+  Object.assign(state, { harbors: new Uint8Array(1), owner: new Int32Array([0]) });
+  const city = foundSettlement(state, createRng(5, 5), civ, 0, true, 0)!;
+  const gardens = WONDER_INDEX.get('hangingGardens')!, definition = WONDERS[gardens];
+  assert.match(beginWonder(state, 0, civ, gardens, city.id, [{ factor: 'ambition', weight: 0.1 }]), /began the Hanging Gardens/);
+  assert.match(beginWonder(state, 0, civ, gardens, city.id, []), /being built or stands elsewhere/, 'unique in the world');
+  civ.wealth = definition.cost;
+  for (let tick = 1; tick <= definition.months; tick++) month(state, tick);
+  state.chronicle.flush(definition.months);
+  const done = state.chronicle.events.find(event => event.type === 'wonderCompleted')!;
+  assert.ok(done && done.causes[0].factor === 'ambition'); assert.equal(state.wonders[0].status, 'standing');
+  assert.equal(city.wonder, gardens); assert.equal(city.housing, Math.round(housingOf({ capital: true }) * definition.effects.housing!), 'its city houses more');
+  // Its city falls to ruin: the wonder is destroyed, an event, and may be built again elsewhere.
+  ruinSettlements(state, 0, 400);
+  state.chronicle.flush(400);
+  const lost = state.chronicle.events.find(event => event.type === 'wonderDestroyed')!;
+  assert.ok(lost && lost.causes[0].factor === 'cityRuined'); assert.equal(state.wonders[0].status, 'destroyed'); assert.equal(state.metrics.wondersDestroyed, 1);
+  const again = foundSettlement(state, createRng(5, 6), civ, 0, true, 401)!;
+  assert.match(beginWonder(state, 401, civ, gardens, again.id, []), /began/);
+});
+
+test('the wonder choice needs a motive, a golden age and a great city', () => {
+  const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
+  const gardens = WONDER_INDEX.get('hangingGardens')!, definition = WONDERS[gardens];
+  const view = (stability: number, urban: number, expansionism = 0.5) => ({
+    values: { ...values, expansionism },
+    build: {
+      wealth: 50_000_000, income: 2_000_000, upkeep: 0, regions: 10, catalog: [], stability,
+      settlements: [{ id: 1, region: 0, name: 'Kesh', tier: 2, urban, housing: 20_000, hardship: 0, farmShare: 1, stability, frontier: 0, has: [], coast: false, seaLinks: 0, mineYield: 0, quarryYield: 0, wonder: false }],
+      wonders: [{ type: gardens, name: definition.name, motive: definition.motive, cost: definition.cost, upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast }],
+    },
+  }) as unknown as PolityView;
+  const golden = bestWonder(view(0.95, 20_000))!;
+  assert.ok(golden.wonder && golden.target === gardens && golden.label === 'the Hanging Gardens at Kesh' && golden.score > 0);
+  assert.ok(bestWonder(view(0.5, 20_000))!.score < 0, 'no golden age, no wonder');
+  assert.ok(bestWonder(view(0.95, 2_000))!.score < golden.score, 'a small town is no place for one');
+  assert.ok(bestWonder(view(0.95, 20_000, 0.9))!.score > bestWonder(view(0.95, 20_000, 0.1))!.score, 'ambition drives it');
 });

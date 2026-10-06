@@ -126,6 +126,18 @@ export interface Settlement {
    *  store and spoilage, stability added to its region, and the upkeep they cost a year. */
   buildings: Building[];
   bonus: BuildingBonus;
+  /** The type (an index into WONDERS) of the wonder standing there, if any. */
+  wonder: number | null;
+}
+
+/**
+ * A wonder (VISION.md "Wonders"): begun by a civilization in one of its settlements, paid from its owner's treasury
+ * until built, then standing (kept up by its owner, worn by unpaid upkeep) until destroyed; never deleted.
+ */
+export interface Wonder {
+  id: number; type: number; settlement: number; builder: number; begunTick: number; builtTick: number | null;
+  status: 'building' | 'standing' | 'destroyed' | 'abandoned'; spent: number; cost: number; condition: number; endedTick: number | null;
+  causes: { factor: string; weight: number }[];
 }
 export interface BuildingBonus { research: number; wealth: number; store: number; spoilage: number; stability: number; upkeep: number; mine: boolean; quarry: boolean; harbor: boolean }
 
@@ -197,6 +209,8 @@ export interface CenturyStats {
   villages: number; towns: number; cities: number; metropolises: number; settlementsByWater: number;
   /** Standing buildings, all civilizations' treasuries together, and buildings completed and lost so far. */
   buildings: number; wealth: number; buildingsCompleted: number; buildingsLost: number;
+  /** Wonders standing now, and completed so far. */
+  wonders: number; wondersCompleted: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -241,8 +255,10 @@ export interface Metrics {
   exchangeOffers: number; exchanges: number; tribeExchanges: number; agricultureInventions: number;
   /** Settlements founded because a region's townspeople outgrew its housing, ruins resettled, and tier changes. */
   settlementsGrown: number; ruinsResettled: number; tierChanges: number;
-  /** Buildings begun, completed, lost to unpaid upkeep, and abandoned unfinished. */
+  /** Buildings begun, completed, lost to unpaid upkeep, and abandoned unfinished; wonders begun, completed, destroyed
+   *  and abandoned. */
   buildingsStarted: number; buildingsCompleted: number; buildingsLost: number; projectsAbandoned: number;
+  wondersBegun: number; wondersCompleted: number; wondersDestroyed: number; wondersAbandoned: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -266,6 +282,8 @@ export interface SimulationState {
   hardship: Float64Array;
   /** Per region: standing harbors in its living settlements (VISION.md: sea crossings start only from a region with one). */
   harbors: Uint8Array;
+  /** Every wonder ever begun, in order. */
+  wonders: Wonder[];
   /** Per region: every settlement ever founded there (living or in ruins), in founding order; the first living one is
    *  the region's main settlement. */
   regionSettlements: number[][];

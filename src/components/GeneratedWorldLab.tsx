@@ -31,6 +31,7 @@ function SettlementList({ settlements }: { settlements: NonNullable<ObserverFram
     <ul className="world-settlement-list">{settlements.map(settlement => <li key={settlement.id} data-settlement-tier={settlement.tier} data-settlement-status={settlement.status}>
       <h4>{settlement.capital ? '★ ' : ''}{settlement.name} <span>· {settlement.status === 'alive' ? `${TIER_LABELS[settlement.tier]}${settlement.capital ? ', capital' : ''} of the ${settlement.owner}` : 'ruins'}</span></h4>
       <p className="atlas-panel-note">{settlement.status === 'alive' ? `${number.format(settlement.urban)} townspeople of ${number.format(settlement.housing)} it can house · ` : ''}founded year {simulationDate(settlement.founded).year}{settlement.formerName ? ` · once ${settlement.formerName}` : ''}.</p>
+      {settlement.wonder && <p className="atlas-panel-note world-settlement-wonder">{settlement.wonder.standing ? `Home of ${settlement.wonder.name}.` : `${settlement.wonder.name[0].toUpperCase()}${settlement.wonder.name.slice(1)} is being built here (${Math.round(settlement.wonder.progress * 100)}% paid).`}</p>}
       {(settlement.buildings.length > 0 || settlement.building.length > 0) && <p className="atlas-panel-note world-settlement-buildings">{[
         ...settlement.buildings.map(building => building.condition < 0.995 ? `${building.name} (${Math.round(building.condition * 100)}% kept up)` : building.name),
         ...settlement.building.map(work => `${work.name} being built (${Math.round(work.progress * 100)}% paid)`),
@@ -99,7 +100,7 @@ const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothin
 function decisionTarget(step: NonNullable<NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision']>) {
   const option = step.options.find(entry => entry.action === step.chosen);
   if (!option || option.target === null) return '';
-  if (option.action === 'build') return ` a ${option.label ?? '?'}`;
+  if (option.action === 'build') return ` ${option.label ?? '?'}`;
   return option.action === 'unite' || option.action === 'share' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
 }
 

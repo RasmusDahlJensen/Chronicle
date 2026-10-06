@@ -1,6 +1,7 @@
 import { RESOURCE_IDS, type Resource } from '../../shared/atlas.ts';
 import { BUILDINGS } from './buildings.ts';
 import { depositState } from './deposits.ts';
+import { WONDERS } from './wonders.ts';
 import { unrestDepth } from './pressure.ts';
 import type { Polity, Settlement, SimulationState, WealthFlows } from './state.ts';
 import { STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
@@ -37,18 +38,37 @@ export function siteIncome(state: SimulationState, civ: Polity, region: number, 
   return income * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, region));
 }
 
-/** A civilization's income a year, as it stands this month: its townspeople's earnings and its worked sites. */
+/** What the wonders standing in a civilization's settlements do for it, civilization-wide (VISION.md "Wonders"). */
+export function wonderBonus(state: SimulationState, civ: Polity) {
+  let research = 1, wealth = 1, stability = 0;
+  for (const wonder of state.wonders) {
+    if (wonder.status !== 'standing' || state.settlements[wonder.settlement].owner !== civ.id) continue;
+    const effects = WONDERS[wonder.type].effects;
+    research *= effects.research ?? 1; wealth *= effects.wealth ?? 1; stability += effects.stability ?? 0;
+  }
+  return { research, wealth, stability };
+}
+
+/** A civilization's income a year, as it stands this month: its townspeople's earnings and its worked sites, more
+ *  with a wonder that raises wealth. */
 export function incomeOf(state: SimulationState, civ: Polity) {
+  return townsIncome(state, civ) * wonderBonus(state, civ).wealth;
+}
+
+function townsIncome(state: SimulationState, civ: Polity) {
   let income = 0;
   for (const groupId of civ.groups) {
     const region = state.groups[groupId].region;
+    let mine = false, quarry = false;
     for (const id of state.regionSettlements[region]) {
       const settlement = state.settlements[id];
       if (settlement.status !== 'alive') continue;
       income += settlementIncome(state, settlement);
-      if (settlement.bonus.mine) income += siteIncome(state, civ, region, 'mineral');
-      if (settlement.bonus.quarry) income += siteIncome(state, civ, region, 'stone');
+      mine ||= settlement.bonus.mine; quarry ||= settlement.bonus.quarry;
     }
+    // A region's sites are worked once, by its mine and its quarry.
+    if (mine) income += siteIncome(state, civ, region, 'mineral');
+    if (quarry) income += siteIncome(state, civ, region, 'stone');
   }
   return income;
 }
@@ -71,9 +91,10 @@ export function buildingCost(state: SimulationState, civ: Polity, type: number) 
   return definition.stone && quarriesStone(state, civ) ? Math.round(definition.cost * WEALTH_TUNING.stoneDiscount) : definition.cost;
 }
 
-/** The upkeep a civilization owes a year for its standing buildings. */
+/** The upkeep a civilization owes a year for its standing buildings and wonders. */
 export function upkeepOf(state: SimulationState, civ: Polity) {
   let upkeep = 0;
+  for (const wonder of state.wonders) if (wonder.status === 'standing' && state.settlements[wonder.settlement].owner === civ.id) upkeep += WONDERS[wonder.type].upkeep;
   for (const groupId of civ.groups) for (const id of state.regionSettlements[state.groups[groupId].region]) {
     const settlement = state.settlements[id];
     if (settlement.status === 'alive') upkeep += settlement.bonus.upkeep;
@@ -87,15 +108,16 @@ export function produceWealth(state: SimulationState, civ: Polity) {
   civ.wealthCarry += incomeOf(state, civ) / 12;
   const produced = Math.floor(civ.wealthCarry);
   if (produced <= 0) return;
+  const flows = wealthFlows(state, civ);
   civ.wealthCarry -= produced;
   civ.wealth += produced;
-  wealthFlows(state, civ).produced += produced;
+  flows.produced += produced;
 }
 
 /** Wealth passing from one civilization to another (the smaller's treasury when it unites with a larger one). */
 export function transferWealth(state: SimulationState, from: Polity, to: Polity) {
-  const amount = from.wealth;
-  wealthFlows(state, from).given += amount; wealthFlows(state, to).received += amount;
+  const amount = from.wealth, given = wealthFlows(state, from), received = wealthFlows(state, to);
+  given.given += amount; received.received += amount;
   from.wealth = 0; to.wealth += amount;
 }
 
@@ -126,13 +148,16 @@ export function buildingStability(state: SimulationState, region: number) {
   return stability;
 }
 
-/** The region's food store limit and spoilage, from its best granary: [store months multiplier, spoilage multiplier]. */
-export function storeEffects(state: SimulationState, region: number): [number, number] {
-  let store = 1, spoilage = 1;
-  for (const id of state.regionSettlements[region]) {
-    const settlement = state.settlements[id];
-    if (settlement.status !== 'alive') continue;
-    store = Math.max(store, settlement.bonus.store); spoilage = Math.min(spoilage, settlement.bonus.spoilage);
-  }
-  return [store, spoilage];
+/** The region's food store limit multiplier, from its granary (one serves the region). */
+export function regionStore(state: SimulationState, region: number) {
+  let store = 1;
+  for (const id of state.regionSettlements[region]) { const settlement = state.settlements[id]; if (settlement.status === 'alive') store = Math.max(store, settlement.bonus.store); }
+  return store;
+}
+
+/** The region's food spoilage multiplier, from its granary. */
+export function regionSpoilage(state: SimulationState, region: number) {
+  let spoilage = 1;
+  for (const id of state.regionSettlements[region]) { const settlement = state.settlements[id]; if (settlement.status === 'alive') spoilage = Math.min(spoilage, settlement.bonus.spoilage); }
+  return spoilage;
 }

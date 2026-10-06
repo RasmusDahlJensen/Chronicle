@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 13;
+export const SIMULATION_PROTOCOL_VERSION = 14;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -106,9 +106,15 @@ export const ObserverFrameSchema = Type.Object({
     owners: Type.Array(id(), { maxItems: 50_000 }), capitals: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 50_000 }),
     tiers: Type.Array(Type.Integer({ minimum: 0, maximum: SETTLEMENT_TIERS.length - 1 }), { maxItems: 50_000 }),
     names: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 50_000 }),
-    /** What stands there that the map draws at detail zoom: 1 harbor, 2 mine, 4 quarry (a bitmask). */
-    features: Type.Array(Type.Integer({ minimum: 0, maximum: 7 }), { maxItems: 50_000 }),
+    /** What stands there that the map draws at detail zoom: 1 harbor, 2 mine, 4 quarry, 8 a wonder (a bitmask). */
+    features: Type.Array(Type.Integer({ minimum: 0, maximum: 15 }), { maxItems: 50_000 }),
   }, { additionalProperties: false }),
+  /** The wonders of the world, standing or being built, oldest first: name, city, the civilization that holds it, the year
+   *  begun and the year completed (null while being built). */
+  wonders: Type.Array(Type.Object({
+    name: Type.String({ maxLength: 40 }), city: Type.String({ maxLength: 40 }), civ: Type.String({ maxLength: 40 }),
+    begun: Type.Integer({ minimum: 0 }), built: Type.Union([Type.Null(), Type.Integer({ minimum: 0 })]),
+  }, { additionalProperties: false }), { maxItems: 32 }),
   /** [year, world population, living polities] every SERIES_YEARS, for the world chart. */
   series: Type.Array(Type.Tuple([Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 })]), { maxItems: 1_000 }),
   /** Details of the region the observer asked about, or null. */
@@ -124,6 +130,8 @@ export const ObserverFrameSchema = Type.Object({
       /** Its standing buildings with their condition (0–1), and those under construction with the share paid. */
       buildings: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), condition: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 32 }),
       building: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), progress: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 32 }),
+      /** The wonder standing there, or being built there (with the share paid), if any. */
+      wonder: Type.Union([Type.Null(), Type.Object({ name: Type.String({ maxLength: 40 }), standing: Type.Boolean(), progress: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false })]),
       events: Type.Array(ChronicleEventSchema, { maxItems: 6 }),
     }, { additionalProperties: false }), { maxItems: 16 }),
     food: Type.Object({
@@ -162,7 +170,8 @@ export const ObserverFrameSchema = Type.Object({
         outcome: Type.String({ maxLength: 80 }),
         options: Type.Array(Type.Object({
           action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]), score: Type.Number(),
-          /** The region to expand into, or the civilization to unite or share knowledge with; and that people's name. */
+          /** The region to expand into, the civilization to unite or share knowledge with (and that people's name), or for
+           *  Build the building type (and what is built where, as the label). */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
           factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
         }, { additionalProperties: false }), { maxItems: 4 }),

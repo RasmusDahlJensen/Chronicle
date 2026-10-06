@@ -2,6 +2,7 @@ import type { ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { speedOf } from './knowledge.ts';
 import { BUILDINGS } from './buildings.ts';
+import { WONDERS } from './wonders.ts';
 import { incomeOf, upkeepOf } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
@@ -11,7 +12,7 @@ import type { Polity, SimulationState } from './state.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'wonders' | 'series' | 'inspect'>;
 
 /**
  * What an observer may see of the true world (VISION.md "Observer views": the god view). Built on request from the
@@ -46,14 +47,18 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     settlements.ids.push(settlement.id); settlements.cells.push(settlement.cell); settlements.owners.push(settlement.owner); settlements.capitals.push(settlement.capital ? 1 : 0);
     // Names only for the places a map labels: towns and larger, and capitals.
     settlements.tiers.push(settlement.tier); settlements.names.push(settlement.tier > 0 || settlement.capital ? settlement.name : '');
-    settlements.features.push((settlement.bonus.harbor ? 1 : 0) | (settlement.bonus.mine ? 2 : 0) | (settlement.bonus.quarry ? 4 : 0));
+    settlements.features.push((settlement.bonus.harbor ? 1 : 0) | (settlement.bonus.mine ? 2 : 0) | (settlement.bonus.quarry ? 4 : 0) | (settlement.wonder !== null ? 8 : 0));
   }
   // At most 500 chart points: thin evenly once a long history exceeds that.
   const step = Math.max(1, Math.ceil(state.series.length / 500));
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
   return {
     population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest, civList,
-    markers: { ids, regions, populations, kinds, eras, lineages }, settlements, series, inspect: inspect === null ? null : inspectRegion(state, inspect),
+    markers: { ids, regions, populations, kinds, eras, lineages }, settlements, series,
+    wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
+      const settlement = state.settlements[wonder.settlement];
+      return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
+    }), inspect: inspect === null ? null : inspectRegion(state, inspect),
   };
 }
 
@@ -127,7 +132,11 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
       owner: settlement.status === 'alive' ? state.polities[settlement.owner].name : null, events: history,
       buildings: settlement.buildings.map(building => ({ name: BUILDINGS[building.type].name, condition: round(building.condition) })),
       building: settlement.status === 'alive' ? state.polities[settlement.owner].projects.filter(project => project.settlement === settlement.id)
-        .map(project => ({ name: BUILDINGS[project.type].name, progress: round(project.spent / BUILDINGS[project.type].cost) })) : [],
+        .map(project => ({ name: BUILDINGS[project.type].name, progress: round(project.spent / project.cost) })) : [],
+      wonder: (() => {
+        const wonder = state.wonders.find(entry => entry.settlement === settlement.id && (entry.status === 'standing' || entry.status === 'building'));
+        return wonder ? { name: WONDERS[wonder.type].name, standing: wonder.status === 'standing', progress: round(wonder.spent / wonder.cost) } : null;
+      })(),
     };
   });
   return {

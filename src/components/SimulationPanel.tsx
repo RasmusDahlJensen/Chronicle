@@ -184,6 +184,13 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
           <span className="world-civ-size">{civ.regions.toLocaleString('en')} · {civ.population.toLocaleString('en')}</span>
         </button></li>)}</ol>
     </details>}
+    {frame && frame.wonders.length > 0 && <details className="world-civ-list" open>
+      <summary>Wonders of the world <span>{frame.wonders.filter(wonder => wonder.built !== null).length.toLocaleString('en')} standing</span></summary>
+      <ol aria-label="Wonders of the world">{frame.wonders.map(wonder => <li key={wonder.name} className="world-wonder">
+        <span className="world-civ-name">{wonder.name[0].toUpperCase() + wonder.name.slice(1)}</span> <span className="world-civ-era">at {wonder.city}, the {wonder.civ}</span>
+        <span className="world-civ-size">{wonder.built === null ? `being built since ${wonder.begun}` : `built ${wonder.built}`}</span>
+      </li>)}</ol>
+    </details>}
     <p className="atlas-panel-note">{restarted ? 'This world’s simulation started again at year 0: Chronicle restarted or the simulation was stopped. ' : ''}Until saving exists, restarting Chronicle or choosing another seed starts the simulation again at year 0.</p>
     <div className="world-history-events">
       <h3>Chronicle <span>{frame ? `${frame.eventCount.toLocaleString('en')} events` : ''}</span></h3>
