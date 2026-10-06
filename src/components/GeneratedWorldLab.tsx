@@ -66,14 +66,14 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
       <div><dt>{civ ? 'Settled' : 'Here since'}</dt><dd>year {simulationDate(civ && polity.capital ? polity.capital.settled : polity.arrived).year}</dd></div>
       {polity.capital && <div><dt>Capital</dt><dd id="polity-capital">{polity.capital.name}</dd></div>}
     </dl>
-    {polity.wealth && <p className="atlas-panel-note" id="polity-wealth">Treasury {number.format(polity.wealth.treasury)} · income {number.format(Math.round(polity.wealth.income))} a year · upkeep {number.format(polity.wealth.upkeep)} a year{polity.wealth.projects ? ` · ${number.format(polity.wealth.projects)} ${polity.wealth.projects === 1 ? 'building' : 'buildings'} under construction` : ''}.</p>}
+    {polity.wealth && <p className="atlas-panel-note" id="polity-wealth">Treasury {number.format(polity.wealth.treasury)} · income {number.format(Math.round(polity.wealth.income))} a year · upkeep {number.format(polity.wealth.upkeep)} a year{polity.wealth.projects ? ` · ${number.format(polity.wealth.projects)} ${polity.wealth.projects === 1 ? 'building' : 'buildings'} under construction` : ''}{polity.wealth.roadWorks ? ` · ${number.format(polity.wealth.roadWorks)} ${polity.wealth.roadWorks === 1 ? 'road' : 'roads'} under construction` : ''}.</p>}
     <p className="atlas-panel-note">Food security is expected food over need — for farmers, the coming harvest and other food over the harvest cycle; below 1, or when the store runs out before the harvest, people go hungry and famine deaths rise. Crops sown since the last harvest come in at the next one. Surplus frees specialists, who live in settlements and research; bands have none.</p>
     {civ && <section className="world-polity-decision" aria-label="Decisions">
       <p className="atlas-detail-label">Governance · reach {number.format(polity.reachKm)} km of travel{polity.capitalKm !== null ? ` · this region ${number.format(polity.capitalKm)} km from the capital` : ''}</p>
       {polity.stability && <p className="atlas-panel-note" id="polity-stability">Stability here {polity.stability.value.toFixed(2)}{polity.stability.unrest ? ' · in unrest (lower output and research)' : ''}{[['hunger', polity.stability.hunger], ['overextension', polity.stability.overextension], ['foreign rule', polity.stability.foreignRule]].filter(([, weight]) => (weight as number) > 0.005).map(([factor, weight]) => ` · ${factor} −${(weight as number).toFixed(2)}`).join('')}.</p>}
       {polity.lastDecision ? <>
         <h4 id="polity-decision">{DECISION_LABELS[polity.lastDecision.chosen]}{decisionTarget(polity.lastDecision)} <span>year {simulationDate(polity.lastDecision.tick).year} · {polity.lastDecision.outcome}</span></h4>
-        <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map(option => <li key={option.action}>
+        <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map((option, index) => <li key={index}>
           <span>{ACTION_NAMES[option.action]} {option.score.toFixed(2)}</span>
           <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
         </li>)}</ol>
@@ -96,9 +96,9 @@ function PolityDetail({ polity }: { polity: NonNullable<NonNullable<ObserverFram
 const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build' } as const;
 const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build' } as const;
 
-/** What a decision was aimed at: the region to expand into, or the civilization to unite with. */
+/** What a decision was aimed at: the region to expand into, the civilization to unite or share with, or what to build. */
 function decisionTarget(step: NonNullable<NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision']>) {
-  const option = step.options.find(entry => entry.action === step.chosen);
+  const option = step.options[step.pick];
   if (!option || option.target === null) return '';
   if (option.action === 'build') return ` ${option.label ?? '?'}`;
   return option.action === 'unite' || option.action === 'share' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
@@ -249,7 +249,7 @@ export function GeneratedWorldLab() {
   // Polity markers sit at their region's centre cell, coloured by era; villages on their own cells.
   useEffect(() => {
     if (!renderer.current) return;
-    if (!frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setBands([]); renderer.current.setSettlements([], { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE }); return; }
+    if (!frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setBands([]); renderer.current.setSettlements([], { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE }); renderer.current.setRoads([]); return; }
     const { regions: at, populations, kinds, eras } = frame.markers;
     renderer.current.setBands(at.map((region, index) => {
       const centroid = regions.map.regions[region]?.centroid ?? 0;
@@ -260,6 +260,17 @@ export function GeneratedWorldLab() {
       features: frame.settlements.features[index],
     })),
       { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE });
+    // Roads join the regions' main places: a capital, else the largest settlement, else the region's centre.
+    const anchor = new Map<number, { cell: number; rank: number }>();
+    frame.settlements.cells.forEach((cell, index) => {
+      const region = regions.cells[cell] - 1, rank = frame.settlements.capitals[index] * 10 + frame.settlements.tiers[index], held = anchor.get(region);
+      if (region >= 0 && (!held || rank > held.rank)) anchor.set(region, { cell, rank });
+    });
+    const place = (region: number) => anchor.get(region)?.cell ?? regions.map.regions[region]?.centroid ?? 0;
+    renderer.current.setRoads(frame.roads.a.map((a, index) => {
+      const from = place(a), to = place(frame.roads.b[index]);
+      return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), tier: frame.roads.tiers[index], bridge: frame.roads.bridges[index] === 1 };
+    }));
   }, [frame, regions, world, canvasRevision]);
   // Each occupied region filled with its people's colour; bands lighter than settled civilizations.
   useEffect(() => {

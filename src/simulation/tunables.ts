@@ -361,7 +361,7 @@ export const WEALTH_TUNING = {
  */
 export const BUILD_TUNING = {
   sizeScale: 8_000, farmStore: 0.2, faithBase: 0.3, learningBase: 0.3, tradeBase: 0.4, tradeOpenness: 0.6, crowdFrom: 0.7, frontierScale: 3, defenseBase: 0.1,
-  purposeWeight: { food: 0.5, faith: 0.35, learning: 0.3, trade: 0.35, housing: 0.6, defense: 0.25, mining: 0.4, sea: 0.35 },
+  purposeWeight: { food: 0.5, faith: 0.35, learning: 0.3, trade: 0.35, housing: 0.6, defense: 0.25, mining: 0.4, sea: 0.35, roads: 0.5 },
   /** mining: min(1, wealth a year the region's unworked usable sites would give ÷ mineScale); sea (a coastal settlement):
    *  min(1, sea crossings within its civilization's reach ÷ seaScale) × (seaBase + (Openness + Expansionism) ÷ 2). */
   mineScale: 3_000, seaScale: 3, seaBase: 0.2,
@@ -372,6 +372,15 @@ export const BUILD_TUNING = {
    * wonderWeight × need − the cost and upkeep burdens as for buildings.
    */
   wonderWeight: 0.6, goldenFrom: 0.6, wonderCity: 20_000,
+  /**
+   * Roads (VISION.md "Roads"): for each of its regions with a town or city its roads do not yet reach at the best tier
+   * it knows, the need is connection (roadBase + roadOpenness × Openness) + remoteness (roadReach × min(1, travel-km
+   * from the capital ÷ governance reach)), at most 1, × size; the score is purposeWeight.roads × the mean of the best
+   * batch − the cost and upkeep burdens as for buildings. A road's upkeep is roadUpkeep of what it cost to build a
+   * year; unpaid (or kept by no civilization) it loses 1 ÷ roadDecayMonths of its condition a month, times the unpaid
+   * share, and is lost at 0.
+   */
+  roadBase: 0.2, roadOpenness: 0.3, roadReach: 0.8, roadUpkeep: 0.02, roadDecayMonths: 240,
   batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6,
   decayMonths: 60, recoverMonths: 24,
 } as const;
@@ -472,7 +481,7 @@ export function validateTunables() {
   if (!(WEALTH_TUNING.perTownsperson > 0 && WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1 && WEALTH_TUNING.stoneDiscount > 0 && WEALTH_TUNING.stoneDiscount <= 1
     && Object.values(WEALTH_TUNING.siteYield).every(value => value >= 0))) problems.push('wealth settings are invalid');
   const bu = BUILD_TUNING;
-  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity].every(value => value > 0) && bu.seaBase >= 0 && bu.wonderWeight >= 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
+  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity].every(value => value > 0) && bu.seaBase >= 0 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
   const sh = SHARE_TUNING;
   if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');

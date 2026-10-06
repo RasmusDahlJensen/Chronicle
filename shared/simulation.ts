@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 14;
+export const SIMULATION_PROTOCOL_VERSION = 15;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -16,6 +16,8 @@ export const MAX_FRAME_EVENTS = 200;
 
 /** Settlement tiers by urban population (VISION.md "Settlements"); a settlement's tier is its index here. */
 export const SETTLEMENT_TIERS = ['village', 'town', 'city', 'metropolis'] as const;
+/** Road tiers by number − 1 (VISION.md "Roads"): road (the Wheel), paved road (Engineering), railway, highway. */
+export const ROAD_TIER_NAMES = ['road', 'paved road', 'railway', 'highway'] as const;
 /** Era labels (VISION.md "Eras"), indexed by the era numbers in frames; the simulation's tech data uses this list as its eras. */
 export const ERA_NAMES = ['Stone', 'Neolithic', 'Bronze', 'Iron', 'Classical', 'Medieval', 'Early modern', 'Industrial', 'Modern', 'Atomic'] as const;
 
@@ -109,6 +111,14 @@ export const ObserverFrameSchema = Type.Object({
     /** What stands there that the map draws at detail zoom: 1 harbor, 2 mine, 4 quarry, 8 a wonder (a bitmask). */
     features: Type.Array(Type.Integer({ minimum: 0, maximum: 15 }), { maxItems: 50_000 }),
   }, { additionalProperties: false }),
+  /** Standing roads as parallel arrays, in the order first built: the two regions of the land edge it lies on (the
+   *  lower id first), its tier (an index into ROAD_TIER_NAMES plus one: 1 road, 2 paved road, 3 railway, 4 highway) and
+   *  whether a bridge carries it over the river there (0/1); for the map's roads and bridges. */
+  roads: Type.Object({
+    a: Type.Array(id(), { maxItems: 100_000 }), b: Type.Array(id(), { maxItems: 100_000 }),
+    tiers: Type.Array(Type.Integer({ minimum: 1, maximum: ROAD_TIER_NAMES.length }), { maxItems: 100_000 }),
+    bridges: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 100_000 }),
+  }, { additionalProperties: false }),
   /** The wonders of the world, standing or being built, oldest first: name, city, the civilization that holds it, the year
    *  begun and the year completed (null while being built). */
   wonders: Type.Array(Type.Object({
@@ -164,21 +174,24 @@ export const ObserverFrameSchema = Type.Object({
         value: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Boolean(),
         hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }),
       }, { additionalProperties: false })]),
-      /** Its last decision step: every option with its score and factors, what it chose and what came of it. */
+      /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
+       *  action, and its index among the options: the chosen option is always among the best three) and what came of it. */
       lastDecision: Type.Union([Type.Null(), Type.Object({
         tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]),
+        pick: Type.Integer({ minimum: 0, maximum: 3 }),
         outcome: Type.String({ maxLength: 80 }),
         options: Type.Array(Type.Object({
           action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]), score: Type.Number(),
           /** The region to expand into, the civilization to unite or share knowledge with (and that people's name), or for
-           *  Build the building type (and what is built where, as the label). */
+           *  Build the building type, the wonder type or the road tier (and what is built where, as the label). */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
           factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
         }, { additionalProperties: false }), { maxItems: 4 }),
       }, { additionalProperties: false })]),
-      /** A civilization's treasury, its income and upkeep a year, and its buildings under construction (null for a tribe). */
+      /** A civilization's treasury, its income and upkeep a year, and its buildings and roads under construction (null for a tribe). */
       wealth: Type.Union([Type.Null(), Type.Object({
         treasury: Type.Integer({ minimum: 0 }), income: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }), projects: Type.Integer({ minimum: 0 }),
+        roadWorks: Type.Integer({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Peoples it shares knowledge with (VISION.md "Sharing knowledge") and the year each exchange ends. */
       exchanges: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), until: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 64 }),
@@ -250,6 +263,16 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
     if (held !== entry.regions || people !== entry.population || (entry.kind === 'civ') !== civs.has(entry.id)) throw invalid();
   }
   if (settlements.ids.length !== frame.settlementCount || eras.some(era => era > frame.leadingEra)) throw invalid();
+  // Each road lies on an edge between two regions of this world, named once, lower id first.
+  const roads = frame.roads, edges = new Set<string>();
+  if ([roads.b, roads.tiers, roads.bridges].some(array => array.length !== roads.a.length)) throw invalid();
+  roads.a.forEach((a, index) => {
+    const b = roads.b[index], key = `${a},${b}`;
+    if (a >= b || b >= frame.counters.regions || edges.has(key)) throw invalid();
+    edges.add(key);
+  });
+  const decision = frame.inspect?.polity?.lastDecision;
+  if (decision && (decision.pick >= decision.options.length || decision.options[decision.pick].action !== decision.chosen)) throw invalid();
   if (frame.inspect && frame.inspect.region >= frame.counters.regions) throw invalid();
   if (frame.series.some(([year], at) => year * 12 > frame.tick || (at > 0 && year <= frame.series[at - 1][0]))) throw invalid();
   return frame;

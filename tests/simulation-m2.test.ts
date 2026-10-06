@@ -16,6 +16,8 @@ import { edgeKm } from '../src/simulation/perception.ts';
 import { STABILITY_TUNING } from '../src/simulation/tunables.ts';
 import { createRng, type Rng } from '../src/simulation/rng.ts';
 import { polityPopulation, refuge, settle } from '../src/simulation/bands.ts';
+import { edgeBetween, roadKey, roadUpkeep } from '../src/simulation/roads.ts';
+import { WONDERS } from '../src/simulation/wonders.ts';
 
 async function chronicleWorld() {
   const bundle = encodeGeneratedWorld(await generateWorld({ seed: 'Chronicle', size: 'large' }));
@@ -259,6 +261,26 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
   tamper(state => tribeExchange(state, false), /only civilizations offer it/);
   tamper(state => { const knowledge = due(state).knowledge; knowledge.progress[TECH_INDEX.get('Fire')!] = 5; }, /which it knows/);
   tamper(state => { const knowledge = due(state).knowledge, pottery = TECH_INDEX.get('Pottery')!; knowledge.progress[pottery] = 10; knowledge.taught[pottery] = 8; knowledge.caught[pottery] = 4; }, /less than its speed-ups gave/);
+  // Roads lie on land edges, bridge only rivers and only on a tier that bridges them, and owe what they cost to keep.
+  type State = ReturnType<typeof createSimulation>;
+  const lay = (state: State, a: number, b: number, tier: number, bridge: boolean, upkeep?: number) => {
+    const edge = edgeBetween(state, a, b);
+    state.roads.set(roadKey(state.partition.regions.length, a, b), { a: Math.min(a, b), b: Math.max(a, b), tier, bridge, condition: 1, builder: 0, builtTick: 0, upkeep: upkeep ?? (edge ? roadUpkeep(tier, edge, bridge) : 0) });
+  };
+  const edgeWhere = (state: State, river: boolean) => {
+    for (const region of state.partition.regions) for (const edge of region.neighbors) if (edge.region > region.id && (edge.riverTier >= 1) === river) return { a: region.id, b: edge.region };
+    throw new Error('no such edge');
+  };
+  tamper(state => { const far = state.partition.regions.find(region => region.id > 0 && !state.partition.regions[0].neighbors.some(edge => edge.region === region.id))!; lay(state, 0, far.id, 1, false); }, /does not lie on a land edge/);
+  tamper(state => { const { a, b } = edgeWhere(state, false); lay(state, a, b, 2, true); }, /has a bridge with no river or on a/);
+  tamper(state => { const { a, b } = edgeWhere(state, true); lay(state, a, b, 1, true); }, /has a bridge with no river or on a road/);
+  tamper(state => { const { a, b } = edgeWhere(state, false); lay(state, a, b, 1, false, 1); }, /upkeep 1 is not what it costs/);
+  // A wonder is unique in the world while it stands or is being built.
+  tamper(state => {
+    const band = state.polities[state.living[6]];
+    settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
+    for (let copy = 0; copy < 2; copy++) state.wonders.push({ id: copy, type: 0, settlement: band.capital!, builder: band.id, begunTick: state.tick, builtTick: null, status: 'building', spent: 0, cost: WONDERS[0].cost, condition: 1, endedTick: null, endCause: null, causes: [] });
+  }, /two of wonder type 0/);
 });
 
 /** A stand-in for a random stream whose chances always fail (the band never agrees to join). */

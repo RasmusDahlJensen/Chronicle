@@ -4,6 +4,8 @@ import { cultureSimilarity } from './culture.ts';
 import { buildingCost, incomeOf, siteIncome, upkeepOf } from './economy.ts';
 import { livingSettlements } from './settlements.ts';
 import { cellNeighbors, greatCircleKm } from './geography.ts';
+import { CostHeap } from './heap.ts';
+import { edgeKm, edgeTravel, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
 import { landPressure } from './pressure.ts';
 import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
 import { MOBILITY_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
@@ -228,6 +230,14 @@ export interface PolityView {
      *  motive, cost, upkeep, the smallest tier of their city and whether it needs the sea; and its realm's mean stability. */
     wonders: { type: number; name: string; motive: string; cost: number; upkeep: number; minTier: number; coast: boolean }[];
     stability: number;
+    /** Roads (VISION.md "Roads"): the best tier it knows (0 none) and its names, and for each of its regions with a
+     *  town or city that its roads do not yet reach from its capital at that tier, the road it could build there
+     *  (`roads.ts` `roadRoutes`): the largest such settlement, its townspeople, its travel-km from the capital now, and
+     *  the road's cost, upkeep a year added, edges and bridges. */
+    roads: {
+      tier: number; one: string; many: string;
+      routes: { settlement: number; name: string; urban: number; km: number; cost: number; upkeep: number; edges: number; bridges: number }[];
+    };
   };
 }
 
@@ -265,13 +275,13 @@ export interface Candidate {
 
 const medianOf = (values: number[]) => { values.sort((a, b) => a - b); return values[Math.floor(values.length / 2)]; };
 
-/** Travel cost of a land edge (river crossings cost extra) or a sea crossing. */
-export const edgeKm = (travelKm: number, riverTier: number) => travelKm * (1 + REACH_TUNING.riverCrossing[riverTier]);
+/** Travel cost of a bare land edge (river crossings cost extra; `roads.ts`) or a sea crossing. */
+export { edgeKm };
 export const seaKm = (km: number) => km * REACH_TUNING.seaFactor;
 
-// Reused across views: travel cost per region (by stamp), and a binary heap of [cost, region].
+// Reused across views: travel cost per region (by stamp), and a heap of (cost, region).
 let costStamp = new Int32Array(0), costMark = 0, cost = new Float64Array(0);
-const heap: number[] = [];
+const heap = new CostHeap();
 
 /**
  * Travel cost from the polity's capital (its heartland for a tribe) to its own regions and the known land next to
@@ -290,16 +300,17 @@ function travelFromCapital(state: SimulationState, polity: Polity) {
   const reach = (region: number, through: number) => {
     if (through > limit || (costStamp[region] === costMark && cost[region] <= through)) return;
     costStamp[region] = costMark; cost[region] = through;
-    push(through, region);
+    heap.push(through, region);
   };
-  heap.length = 0;
+  heap.clear();
   reach(origin, 0);
-  while (heap.length) {
-    const [at, region] = pop();
+  while (heap.size) {
+    const [at, region] = heap.pop();
     if (at > cost[region]) continue;
     // Its own land relays at the crossings' cost; known land it does not hold relays at a premium.
     const factor = own.has(region) ? 1 : tuning.foreignRelay;
-    for (const edge of regions[region].neighbors) if (map.status[edge.region] !== UNKNOWN) reach(edge.region, at + factor * edgeKm(edge.travelKm, edge.riverTier));
+    // Roads lower the cost of the edges they lie on (VISION.md "Roads": governance reach grows with roads).
+    for (const edge of regions[region].neighbors) if (map.status[edge.region] !== UNKNOWN) reach(edge.region, at + factor * edgeTravel(state, region, edge));
     const sea = seaFrom(state, polity, region);
     if (sea > 0) for (const link of regions[region].sea) if (crosses(sea, link.km) && map.status[link.region] !== UNKNOWN) reach(link.region, at + factor * seaKm(link.km));
   }
@@ -381,7 +392,13 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
   });
   let stable = 0;
   for (const groupId of civ.groups) stable += state.stability[state.groups[groupId].region];
-  return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1 };
+  const tier = knownRoadTier(civ.knowledge);
+  const roads: PolityView['build']['roads'] = { tier, one: tier ? ROAD_TIERS[tier - 1].one : '', many: tier ? ROAD_TIERS[tier - 1].many : '', routes: [] };
+  for (const route of roadRoutes(state, civ, tier)) {
+    const settlement = state.settlements[route.settlement];
+    roads.routes.push({ settlement: route.settlement, name: settlement.name, urban: settlement.urban, km: route.km, cost: route.cost, upkeep: route.upkeep, edges: route.edges.length, bridges: route.bridges });
+  }
+  return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1, roads };
 }
 
 /** Whether the sea lies beside a cell (where a harbor may stand). */
@@ -547,39 +564,6 @@ export function joinView(state: SimulationState, tribe: Polity): JoinView {
     option.crossingKm = medianOf(shared.get(option.civ)!);
   }
   return { tribe: tribe.id, people, values: { ...culture.values }, options: [...found.values()].sort((a, b) => a.civ - b.civ) };
-}
-
-function push(at: number, region: number) {
-  heap.push(at, region);
-  let child = heap.length / 2 - 1;
-  while (child > 0) {
-    const parent = (child - 1) >> 1;
-    if (heap[parent * 2] <= heap[child * 2]) break;
-    [heap[parent * 2], heap[child * 2]] = [heap[child * 2], heap[parent * 2]];
-    [heap[parent * 2 + 1], heap[child * 2 + 1]] = [heap[child * 2 + 1], heap[parent * 2 + 1]];
-    child = parent;
-  }
-}
-
-function pop(): [number, number] {
-  const top: [number, number] = [heap[0], heap[1]];
-  const lastRegion = heap.pop()!, lastCost = heap.pop()!;
-  if (heap.length) {
-    heap[0] = lastCost; heap[1] = lastRegion;
-    let parent = 0;
-    const size = heap.length / 2;
-    for (;;) {
-      const left = parent * 2 + 1, right = left + 1;
-      let smallest = parent;
-      if (left < size && heap[left * 2] < heap[smallest * 2]) smallest = left;
-      if (right < size && heap[right * 2] < heap[smallest * 2]) smallest = right;
-      if (smallest === parent) break;
-      [heap[parent * 2], heap[smallest * 2]] = [heap[smallest * 2], heap[parent * 2]];
-      [heap[parent * 2 + 1], heap[smallest * 2 + 1]] = [heap[smallest * 2 + 1], heap[parent * 2 + 1]];
-      parent = smallest;
-    }
-  }
-  return top;
 }
 
 /** A region an expedition passes: remembered as it is now (unless in sight). */

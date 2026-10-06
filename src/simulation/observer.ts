@@ -12,7 +12,7 @@ import type { Polity, SimulationState } from './state.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'wonders' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'wonders' | 'series' | 'inspect'>;
 
 /**
  * What an observer may see of the true world (VISION.md "Observer views": the god view). Built on request from the
@@ -49,12 +49,14 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     settlements.tiers.push(settlement.tier); settlements.names.push(settlement.tier > 0 || settlement.capital ? settlement.name : '');
     settlements.features.push((settlement.bonus.harbor ? 1 : 0) | (settlement.bonus.mine ? 2 : 0) | (settlement.bonus.quarry ? 4 : 0) | (settlement.wonder !== null ? 8 : 0));
   }
+  const roads = { a: [] as number[], b: [] as number[], tiers: [] as number[], bridges: [] as number[] };
+  for (const road of state.roads.values()) { roads.a.push(road.a); roads.b.push(road.b); roads.tiers.push(road.tier); roads.bridges.push(road.bridge ? 1 : 0); }
   // At most 500 chart points: thin evenly once a long history exceeds that.
   const step = Math.max(1, Math.ceil(state.series.length / 500));
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
   return {
     population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest, civList,
-    markers: { ids, regions, populations, kinds, eras, lineages }, settlements, series,
+    markers: { ids, regions, populations, kinds, eras, lineages }, settlements, roads, series,
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
@@ -101,7 +103,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
         return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
-      wealth: polity.kind !== 'civ' ? null : { treasury: polity.wealth, income: round(incomeOf(state, polity), 1), upkeep: upkeepOf(state, polity), projects: polity.projects.length },
+      wealth: polity.kind !== 'civ' ? null : { treasury: polity.wealth, income: round(incomeOf(state, polity), 1), upkeep: upkeepOf(state, polity), projects: polity.projects.length, roadWorks: polity.roadWorks.length },
       exchanges: [...polity.exchanges].filter(([other, until]) => until > state.tick && state.polities[other].deathTick === null).slice(0, 64)
         .map(([other, until]) => ({ id: other, name: state.polities[other].name, until: Math.floor(until / 12) })),
       research: target < 0 || !speed ? null : {
@@ -151,7 +153,7 @@ function lastDecision(polity: Polity): NonNullable<NonNullable<ObserverFrame['in
   const step = polity.decisions.at(-1);
   if (!step) return null;
   return {
-    tick: step.tick, chosen: step.chosen, outcome: step.outcome.slice(0, 80),
+    tick: step.tick, chosen: step.chosen, pick: step.pick, outcome: step.outcome.slice(0, 80),
     options: step.options.slice(0, 4).map(option => ({
       action: option.action, score: option.score, target: option.target, label: option.label,
       factors: option.factors.filter(entry => entry.weight !== 0).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).slice(0, 8),

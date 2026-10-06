@@ -158,7 +158,7 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });
 
-test('farming bands settle into civilizations with villages, specialists and research the inspector explains', async ({ page }) => {
+test('farming bands settle into civilizations with villages, specialists, research the inspector explains, and roads', async ({ page }) => {
   await ready(page);
   const canvas = page.locator('#generated-world-canvas');
   await history(page).getByLabel('Run to year').fill('650');
@@ -210,6 +210,13 @@ test('farming bands settle into civilizations with villages, specialists and res
   // Zoomed in on it, settlements are drawn by tier and named (capitals and cities first).
   for (let step = 0; step < 3; step++) await page.getByRole('button', { name: 'Zoom in' }).click();
   await expect.poll(async () => Number(await canvas.getAttribute('data-settlement-labels'))).toBeGreaterThan(0);
+  // M3b.5: once a civilization knows the Wheel it builds roads from its capital to its towns, drawn on the map.
+  await history(page).getByLabel('Run to year').fill('1100');
+  await history(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(history(page)).toHaveAttribute('data-tick', String(1100 * 12), { timeout: 120_000 });
+  const later = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  expect(later.roads.a.length).toBeGreaterThan(0);
+  await expect.poll(async () => Number(await canvas.getAttribute('data-road-marks'))).toBe(later.roads.a.length);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

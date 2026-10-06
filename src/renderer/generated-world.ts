@@ -18,6 +18,14 @@ export interface BandMarker { x: number; y: number; population: number; color: s
 /** A settlement mark at its cell, by tier (0 village, 1 town, 2 city, 3 metropolis); capitals are stars. `name` is
  *  empty for places the map does not label. */
 export interface SettlementMark { x: number; y: number; capital: boolean; tier: number; name: string; features?: number }
+/** A road between two places in world cell coordinates (the main settlements, or centres, of the regions it joins), by
+ *  tier (1 road, 2 paved road, 3 railway, 4 highway), and whether a bridge carries it over a river. */
+export interface RoadMark { x1: number; y1: number; x2: number; y2: number; tier: number; bridge: boolean }
+/** Road lines by tier: colour, width in pixels and dash. */
+export const ROAD_STYLE: readonly { color: string; width: number; dash: number[] }[] = [
+  { color: '#8a6a43', width: 1.1, dash: [3, 2] }, { color: '#5e4630', width: 1.7, dash: [] },
+  { color: '#2d2a28', width: 2, dash: [5, 2] }, { color: '#9b3b2e', width: 2.4, dash: [] },
+];
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
   onSelect: (cell: WorldCoordinate | null) => void;
@@ -68,7 +76,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let resources = true;
   let rivers = true;
   let regionCells: Uint16Array | null = null, regionBorders: Path2D | null = null, regionBorderCount = 0, showRegions = false;
-  let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' };
+  let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' }, roads: RoadMark[] = [];
   // Territories: one pixel per world cell, coloured by the people living in its region (drawn scaled on the overlay).
   let territoryFill: Uint32Array | null = null, territoryImage: HTMLCanvasElement | null = null, territoryCount = 0;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
@@ -251,6 +259,34 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
       target.restore();
     }
+    // Roads between the places they join, under the markers: dashed tracks, solid paved roads; bridges as small light
+    // squares at the crossing from detail zoom. Each road takes the shorter way round the wrapped world.
+    let bridgeMarks = 0;
+    if (roads.length) {
+      target.save(); target.lineCap = 'round'; target.globalAlpha = 0.9;
+      const thin = m.scale < 2 ? 0.7 : 1, crossings: { x: number; y: number }[] = [];
+      for (let tier = 1; tier <= ROAD_STYLE.length; tier++) {
+        const style = ROAD_STYLE[tier - 1];
+        target.beginPath(); target.strokeStyle = style.color; target.lineWidth = style.width * thin; target.setLineDash(style.dash);
+        let drawn = false;
+        for (let copy = startCopy; copy <= endCopy; copy++) for (const road of roads) {
+          if (road.tier !== tier) continue;
+          const dx = wrap(road.x2 - road.x1 + world.width / 2, world.width) - world.width / 2;
+          const x1 = left + (copy * world.width + road.x1 + 0.5) * m.scale, y1 = top + (road.y1 + 0.5) * m.scale;
+          const x2 = x1 + dx * m.scale, y2 = top + (road.y2 + 0.5) * m.scale;
+          if (Math.max(x1, x2) < -4 || Math.min(x1, x2) > m.width + 4 || Math.max(y1, y2) < -4 || Math.min(y1, y2) > m.height + 4) continue;
+          target.moveTo(x1, y1); target.lineTo(x2, y2); drawn = true;
+          if (road.bridge && m.scale >= 3) crossings.push({ x: (x1 + x2) / 2, y: (y1 + y2) / 2 });
+        }
+        if (drawn) target.stroke();
+      }
+      target.setLineDash([]); target.fillStyle = '#f2ead8'; target.strokeStyle = '#3d3024'; target.lineWidth = 1;
+      const size = Math.max(3, Math.min(6, m.scale * 0.5));
+      for (const crossing of crossings) { target.fillRect(crossing.x - size / 2, crossing.y - size / 2, size, size); target.strokeRect(crossing.x - size / 2, crossing.y - size / 2, size, size); bridgeMarks++; }
+      target.restore();
+    }
+    canvas.dataset.roadMarks = String(roads.length);
+    canvas.dataset.bridgeMarks = String(bridgeMarks);
     // Polity markers at their region's centre. Populations run from a few dozen foragers to a million farmers, so size
     // follows the logarithm of population, and no marker grows wider than about half a region. Over territories they
     // appear once a region is large enough on screen to hold one.
@@ -484,6 +520,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       territoryFill = fill; territoryImage = null; territoryCount = fill ? fill.reduce((count, value) => count + (value ? 1 : 0), 0) : 0;
       safe(() => overlay ? drawOverlay() : draw());
     },
+    /** Roads in world cell coordinates; replaces the previous set. */
+    setRoads(next: RoadMark[]) { roads = next; safe(() => overlay ? drawOverlay() : draw()); },
     /** Settlement marks in world cell coordinates, in the observer's palette; replaces the previous set. */
     setSettlements(next: SettlementMark[], style: { fill: string; stroke: string }) { villages = next; villageStyle = style; safe(() => overlay ? drawOverlay() : draw()); },
     /** Region index from the simulation (region id + 1, 0 for water); null clears it. */

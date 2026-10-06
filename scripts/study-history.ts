@@ -145,6 +145,15 @@ function storyHealth(rows: SeedResult[]) {
     const done = ((result.report.events ?? []) as { type: string; tick: number; data: Record<string, unknown> }[]).filter(event => event.type === 'wonderCompleted');
     lines.push(`| ${result.seed} | ${done.filter(event => event.tick <= 2500 * 12).length} | ${done.map(event => `${event.data.wonder} ${Math.floor(event.tick / 12)} (${event.data.civ})`).join(', ') || '—'} | ${result.report.metrics.wondersDestroyed} · ${result.report.metrics.wondersAbandoned} |`);
   }
+  // M3b acceptance (VISION.md): roads from capitals to their towns and cities, and bridges after Engineering.
+  lines.push('', '| Seed | Road coverage at 1,500 / 2,000 / 3,000: share (civilizations counted) (M3b: ≥ 80% at 1,500) | Wheel · Engineering · first bridge (M3b: bridge ≤ 200 years after Engineering) | Road edges · paved or better · bridges at 1,500 / 2,000 / 3,000 | Road km at 1,500 / 3,000 | Roads built · road edges lost by 3,000 |',
+    '| --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), m = result.report.metrics;
+    const first = (tech: string) => { const entry = result.report.knowledge.firsts.find(found => found.tech === tech); return entry ? String(Math.floor(entry.year)) : '—'; };
+    const coverage = (row: Stats | undefined) => !row ? '—' : row.roadCoverage < 0 ? 'none (0)' : `${Math.round(row.roadCoverage * 100)}% (${row.roadCivs})`;
+    lines.push(`| ${result.seed} | ${[1500, 2000, 3000].map(year => coverage(at(year))).join(' / ')} | ${first('Wheel')} · ${first('Engineering')} · ${m.firstBridgeTick >= 0 ? Math.floor(m.firstBridgeTick / 12) : '—'} | ${[1500, 2000, 3000].map(year => { const row = at(year); return row ? `${row.roadEdges} · ${row.pavedEdges} · ${row.bridges}` : '—'; }).join(' / ')} | ${[1500, 3000].map(year => at(year)?.roadKm.toLocaleString('en') ?? '—').join(' / ')} | ${m.roadsBuilt} · ${m.roadsLost} |`);
+  }
   // Story health: the decision mix per century (share of decision steps by chosen action).
   lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Build | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const result of rows) {

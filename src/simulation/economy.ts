@@ -2,6 +2,7 @@ import { RESOURCE_IDS, type Resource } from '../../shared/atlas.ts';
 import { BUILDINGS } from './buildings.ts';
 import { depositState } from './deposits.ts';
 import { WONDERS } from './wonders.ts';
+import { roadUpkeepOf } from './roads.ts';
 import { unrestDepth } from './pressure.ts';
 import type { Polity, Settlement, SimulationState, WealthFlows } from './state.ts';
 import { STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
@@ -91,9 +92,9 @@ export function buildingCost(state: SimulationState, civ: Polity, type: number) 
   return definition.stone && quarriesStone(state, civ) ? Math.round(definition.cost * WEALTH_TUNING.stoneDiscount) : definition.cost;
 }
 
-/** The upkeep a civilization owes a year for its standing buildings and wonders. */
+/** The upkeep a civilization owes a year for its standing buildings and wonders and the roads it keeps. */
 export function upkeepOf(state: SimulationState, civ: Polity) {
-  let upkeep = 0;
+  let upkeep = roadUpkeepOf(state, civ);
   for (const wonder of state.wonders) if (wonder.status === 'standing' && state.settlements[wonder.settlement].owner === civ.id) upkeep += WONDERS[wonder.type].upkeep;
   for (const groupId of civ.groups) for (const id of state.regionSettlements[state.groups[groupId].region]) {
     const settlement = state.settlements[id];
@@ -121,11 +122,12 @@ export function transferWealth(state: SimulationState, from: Polity, to: Polity)
   from.wealth = 0; to.wealth += amount;
 }
 
-/** A civilization that dies out loses its treasury and its unfinished buildings. */
+/** A civilization that dies out loses its treasury and its unfinished buildings and roads. */
 export function loseWealth(state: SimulationState, civ: Polity) {
   if (civ.wealth > 0) { wealthFlows(state, civ).lost += civ.wealth; civ.wealth = 0; }
   state.metrics.projectsAbandoned += civ.projects.length;
-  civ.projects = [];
+  state.metrics.roadsAbandoned += civ.roadWorks.length;
+  civ.projects = []; civ.roadWorks = [];
 }
 
 /** Research of a region's townspeople, each settlement's times its buildings' research (libraries and the like). */

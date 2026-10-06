@@ -5,7 +5,8 @@ import { EVENT_TYPES } from '../../shared/simulation.ts';
 import type { RegionPartition } from './regions.ts';
 import { cellNeighbors, type SimulationGeography } from './geography.ts';
 import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
-import type { Polity, Settlement, SimulationState } from './state.ts';
+import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
+import type { Polity, RoadWork, Settlement, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
 import { REGION_TUNING } from './tunables.ts';
 
@@ -55,6 +56,7 @@ export function checkInvariants(state: SimulationState) {
   let indexed = 0;
   for (const list of state.regionSettlements) indexed += list.length;
   for (let region = 0; region < regions; region++) if (state.harbors[region] !== harbors[region] || harbors[region] > 1) fail(`region ${region} counts ${state.harbors[region]} harbors, not its ${harbors[region]} (at most one)`);
+  checkRoads(state, fail);
   // What one region needs only one of (granary, shrine, temple, mine, quarry, harbor), standing or under way.
   for (let region = 0; region < regions; region++) {
     const list = state.regionSettlements[region];
@@ -75,7 +77,8 @@ export function checkInvariants(state: SimulationState) {
   for (const wonder of state.wonders) {
     const settlement = state.settlements[wonder.settlement];
     if (!WONDERS[wonder.type] || !settlement || !Number.isInteger(wonder.spent) || wonder.spent < 0 || wonder.spent > wonder.cost) fail(`wonder ${wonder.id} is invalid`);
-    if (wonder.status !== 'building' && wonder.status !== 'standing') { if (wonder.endedTick === null) fail(`wonder ${wonder.id} ended without a date`); continue; }
+    if (wonder.status !== 'building' && wonder.status !== 'standing') { if (wonder.endedTick === null || wonder.endCause === null) fail(`wonder ${wonder.id} ended without a date or cause`); continue; }
+    if (wonder.endedTick !== null || wonder.endCause !== null) fail(`wonder ${wonder.id} has ended but still ${wonder.status === 'building' ? 'is being built' : 'stands'}`);
     if (active.has(wonder.type)) fail(`two of wonder type ${wonder.type} stand or are being built`);
     active.add(wonder.type);
     if (settlement.status !== 'alive') fail(`wonder ${wonder.id} is in settlement ${settlement.id}, which is not alive`);
@@ -130,7 +133,9 @@ export function checkInvariants(state: SimulationState) {
     checkMap(state, polity, fail);
     checkKnowledge(state, polity, fail);
     // A tribe has no treasury; a civilization's works under construction stand in its own living settlements.
-    if (polity.kind === 'band' && (polity.wealth !== 0 || polity.projects.length)) fail(`tribe ${id} has wealth or works`);
+    if (polity.kind === 'band' && (polity.wealth !== 0 || polity.projects.length || polity.roadWorks.length)) fail(`tribe ${id} has wealth or works`);
+    if (!(polity.roadsUnpaid >= 0 && polity.roadsUnpaid <= 1)) fail(`polity ${id} left ${polity.roadsUnpaid} of its road upkeep unpaid`);
+    for (const work of polity.roadWorks) checkRoadWork(state, id, work, fail);
     if (!(polity.wealthCarry >= 0 && polity.wealthCarry < 1 && polity.upkeepCarry >= 0 && polity.upkeepCarry < 1)) fail(`polity ${id} carries ${polity.wealthCarry} wealth and ${polity.upkeepCarry} upkeep`);
     for (const project of polity.projects) {
       const settlement = state.settlements[project.settlement];
@@ -164,6 +169,33 @@ export function checkInvariants(state: SimulationState) {
     const game = state.gameStock[region];
     if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);
   }
+}
+
+/** Every road lies on a real land edge under its key, with a known tier, a bridge only over a river and only where its
+ *  tier bridges rivers, a condition in (0, 1] and the upkeep its tier, length and bridge give. */
+function checkRoads(state: SimulationState, fail: (message: string) => never) {
+  const n = state.partition.regions.length;
+  for (const [key, road] of state.roads) {
+    const edge = road.a < road.b && road.b < n ? edgeBetween(state, road.a, road.b) : undefined;
+    if (!edge || key !== roadKey(n, road.a, road.b)) fail(`road ${key} does not lie on a land edge (${road.a}–${road.b})`);
+    if (!(Number.isInteger(road.tier) && road.tier >= 1 && road.tier <= ROAD_TIERS.length)) fail(`road ${key} has tier ${road.tier}`);
+    if (road.bridge && !(edge.riverTier >= 1 && ROAD_TIERS[road.tier - 1].bridges)) fail(`road ${key} has a bridge with no river or on a ${ROAD_TIERS[road.tier - 1].name}`);
+    if (!(road.condition > 0 && road.condition <= 1)) fail(`road ${key} has condition ${road.condition}`);
+    if (road.upkeep !== roadUpkeep(road.tier, edge, road.bridge)) fail(`road ${key}'s upkeep ${road.upkeep} is not what it costs to keep`);
+    if (!state.polities[road.builder]) fail(`road ${key} was built by no polity`);
+  }
+}
+
+/** A road under construction: a path of land edges from its start, edges on that path, and exact payment. */
+function checkRoadWork(state: SimulationState, id: number, work: RoadWork, fail: (message: string) => never) {
+  const path = work.path, onPath = new Set<string>();
+  for (let at = 1; at < path.length; at++) {
+    if (!edgeBetween(state, path[at - 1], path[at])) fail(`civilization ${id}'s road work steps off the land at ${path[at - 1]}–${path[at]}`);
+    onPath.add(`${Math.min(path[at - 1], path[at])},${Math.max(path[at - 1], path[at])}`);
+  }
+  if (path.length < 2 || !work.edges.length || work.edges.some(([a, b]) => a >= b || !onPath.has(`${a},${b}`)) || new Set(work.edges.map(edge => edge.join())).size !== work.edges.length) fail(`civilization ${id} has a road work whose edges are not on its path ${JSON.stringify(work)}`);
+  if (!(Number.isInteger(work.tier) && work.tier >= 1 && work.tier <= ROAD_TIERS.length && state.settlements[work.to] && state.settlements[work.from])) fail(`civilization ${id} has an invalid road work ${JSON.stringify(work)}`);
+  if (!(Number.isInteger(work.cost) && work.cost > 0 && Number.isInteger(work.spent) && work.spent >= 0 && work.spent < work.cost && Number.isInteger(work.months) && work.months >= 1)) fail(`civilization ${id}'s road work is paid ${work.spent} of ${work.cost} over ${work.months} months`);
 }
 
 /** A living settlement's buildings: one of each type, in condition, mended while upkeep is paid, and the housing and

@@ -149,7 +149,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     exchanges: new Map(), exchangeRefused: new Map(), capital: null, settledTick: null,
     map: emptyMap(state.partition.regions.length), met: new Map(),
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
-    wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false,
+    wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0,
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.

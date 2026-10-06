@@ -18,7 +18,7 @@ export function stabilityOf(state: SimulationState, civ: Polity, group: Populati
   const reach = REACH_TUNING.baseKm * civ.knowledge.multipliers.reach;
   const overextension = Math.min(tuning.overextensionCap, tuning.overextension * (Number.isFinite(kmFromCapital) ? Math.max(0, kmFromCapital / reach - 1) : Number.POSITIVE_INFINITY));
   const foreignRule = group.culture === civ.culture ? 0 : tuning.foreignRule * (1 - cultureSimilarity(state.cultures[group.culture].values, state.cultures[civ.culture].values));
-  // Shrines and temples steady their region (VISION.md "Buildings").
+  // Shrines and temples steady their region, and some wonders the whole realm (VISION.md "Buildings", "Wonders").
   const buildings = buildingStability(state, group.region) + wonderBonus(state, civ).stability;
   return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule + buildings)), hunger, overextension, foreignRule, buildings };
 }

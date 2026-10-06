@@ -78,14 +78,19 @@ export interface Polity {
   wealth: number; wealthCarry: number; upkeepCarry: number; projects: Project[];
   /** Whether any of its buildings is worn below full condition (they mend while upkeep is paid). */
   repairing: boolean;
+  /** Its roads under construction (VISION.md "Roads"). */
+  roadWorks: RoadWork[];
+  /** Its share of last month's road upkeep left unpaid (0–1): the roads it keeps wear by it. */
+  roadsUnpaid: number;
 }
 
 export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build'] as const;
 export type Action = typeof ACTIONS[number];
 
-/** One decision step: every option with its score and the factors behind it, and the one chosen. */
+/** One decision step: every option with its score and the factors behind it, best first, and the one chosen (its
+ *  action and its index among the options: Build can be weighed as a building, a wonder and roads at once). */
 export interface DecisionRecord {
-  tick: number; chosen: Action;
+  tick: number; chosen: Action; pick: number;
   options: { action: Action; score: number; target: number | null; label: string | null; factors: { factor: string; weight: number }[] }[];
   /** What came of it: done, or why not (for example a target taken by someone else first). */
   outcome: string;
@@ -136,7 +141,9 @@ export interface Settlement {
  */
 export interface Wonder {
   id: number; type: number; settlement: number; builder: number; begunTick: number; builtTick: number | null;
-  status: 'building' | 'standing' | 'destroyed' | 'abandoned'; spent: number; cost: number; condition: number; endedTick: number | null;
+  status: 'building' | 'standing' | 'destroyed' | 'abandoned'; spent: number; cost: number; condition: number;
+  /** When it was destroyed or abandoned, and why (VISION.md "Data model": destroyed year and cause). */
+  endedTick: number | null; endCause: 'cityRuined' | 'unpaidUpkeep' | null;
   causes: { factor: string; weight: number }[];
 }
 export interface BuildingBonus { research: number; wealth: number; store: number; spoilage: number; stability: number; upkeep: number; mine: boolean; quarry: boolean; harbor: boolean }
@@ -146,6 +153,24 @@ export interface Building { type: number; condition: number; builtTick: number }
 
 /** A building under construction for a civilization: where, what, the wealth spent so far, and why it was begun. */
 export interface Project { settlement: number; type: number; spent: number; cost: number; startedTick: number; causes: { factor: string; weight: number }[] }
+
+/**
+ * A road on the land edge between two regions (VISION.md "Infrastructure edge"), keyed in `SimulationState.roads` by
+ * `roadKey`: `a` < `b`, its tier (an index into ROAD_TIERS plus one: 1 road, 2 paved road, 3 railway, 4 highway),
+ * whether a bridge carries it over the river there, its condition (0–1, worn by unpaid upkeep), who built its present
+ * tier and when, and its upkeep a year (derived from its tier, length and bridge).
+ */
+export interface Road { a: number; b: number; tier: number; bridge: boolean; condition: number; builder: number; builtTick: number; upkeep: number }
+
+/**
+ * A road under construction for a civilization: from its capital to one of its towns or cities along `path` (regions,
+ * capital's first), at `tier`; the edges it builds or improves (as region pairs, each `a` < `b`), the bridges among
+ * them, the wealth spent so far of its cost, the months it takes, and why it was begun.
+ */
+export interface RoadWork {
+  from: number; to: number; path: number[]; tier: number; edges: [number, number][]; bridges: number;
+  spent: number; cost: number; months: number; startedTick: number; causes: { factor: string; weight: number }[];
+}
 
 /** People of one polity, culture and region; integer size with fractional birth and death carries. */
 export interface PopulationGroup {
@@ -211,6 +236,12 @@ export interface CenturyStats {
   buildings: number; wealth: number; buildingsCompleted: number; buildingsLost: number;
   /** Wonders standing now, and completed so far. */
   wonders: number; wondersCompleted: number;
+  /** Road edges standing now (and of those paved or better, and bridged), their travel-km, roads completed (routes)
+   *  and road edges lost so far; and VISION.md M3b's road coverage: of the civilizations with at least 5 regions that
+   *  know the Wheel and have a town or city, the share whose roads reach at least half of their towns and cities from
+   *  their capital (−1 when there are none), and how many such civilizations there are. */
+  roadEdges: number; pavedEdges: number; bridges: number; roadKm: number; roadsBuilt: number; roadsLost: number;
+  roadCoverage: number; roadCivs: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -259,6 +290,9 @@ export interface Metrics {
    *  and abandoned. */
   buildingsStarted: number; buildingsCompleted: number; buildingsLost: number; projectsAbandoned: number;
   wondersBegun: number; wondersCompleted: number; wondersDestroyed: number; wondersAbandoned: number;
+  /** Roads begun, completed and abandoned (routes); road edges built or improved, bridges built, road edges lost; the
+   *  tick the first bridge was built (−1 none yet). */
+  roadsBegun: number; roadsBuilt: number; roadsAbandoned: number; roadEdgesBuilt: number; bridgesBuilt: number; roadsLost: number; firstBridgeTick: number;
 }
 
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
@@ -284,6 +318,8 @@ export interface SimulationState {
   harbors: Uint8Array;
   /** Every wonder ever begun, in order. */
   wonders: Wonder[];
+  /** Standing roads by `roadKey` of their edge, in the order first built. */
+  roads: Map<number, Road>;
   /** Per region: every settlement ever founded there (living or in ruins), in founding order; the first living one is
    *  the region's main settlement. */
   regionSettlements: number[][];

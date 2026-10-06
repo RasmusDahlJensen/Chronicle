@@ -128,19 +128,19 @@ export function announceSettlement(state: SimulationState, polity: Polity, settl
 }
 
 /**
- * A wonder ends: one under way is abandoned; one standing is destroyed (its city fallen to ruin, or worn away by unpaid
- * upkeep), an event with its cause. Another may be built elsewhere.
+ * A wonder ends: one under way is abandoned, one standing destroyed (its city fallen to ruin, or worn away by unpaid
+ * upkeep); either is a major event with its cause, which the wonder keeps. Another may be built elsewhere.
  */
 export function endWonder(state: SimulationState, wonder: Wonder, tick: number, cause: 'abandoned' | 'neglected') {
-  const settlement = state.settlements[wonder.settlement], definition = WONDERS[wonder.type];
-  wonder.endedTick = tick;
-  if (wonder.status === 'building') { wonder.status = 'abandoned'; state.metrics.wondersAbandoned++; return; }
-  wonder.status = 'destroyed'; settlement.wonder = null; state.metrics.wondersDestroyed++;
+  const settlement = state.settlements[wonder.settlement], definition = WONDERS[wonder.type], unfinished = wonder.status === 'building';
+  wonder.endedTick = tick; wonder.endCause = cause === 'abandoned' ? 'cityRuined' : 'unpaidUpkeep';
+  if (unfinished) { wonder.status = 'abandoned'; state.metrics.wondersAbandoned++; }
+  else { wonder.status = 'destroyed'; settlement.wonder = null; state.metrics.wondersDestroyed++; }
   const owner = state.polities[settlement.owner];
   state.chronicle.emit({
     type: 'wonderDestroyed', actors: [{ id: owner.id, role: 'civ' }], region: settlement.region, settlement: settlement.id,
-    causes: [{ factor: cause === 'abandoned' ? 'cityRuined' : 'unpaidUpkeep', weight: 1 }], importance: 0.5,
-    data: { wonder: definition.name, name: settlement.name, civ: owner.name, abandoned: cause === 'abandoned', neglected: cause === 'neglected' },
+    causes: [{ factor: wonder.endCause, weight: 1 }], importance: unfinished ? 0.3 : 0.5,
+    data: { wonder: definition.name, name: settlement.name, civ: owner.name, unfinished, standing: !unfinished, abandoned: cause === 'abandoned', neglected: cause === 'neglected' },
   });
 }
 

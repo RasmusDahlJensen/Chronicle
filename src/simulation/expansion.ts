@@ -146,8 +146,6 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
     importance: 0.4, data: { name: small.name, civ: large.name, regions, population: people, kin: small.lineage === large.lineage, into: large.groups.length, techs, learned: techs > 0 },
   });
   absorbMap(state, large, small, tick);
-  // The united people knows what either knew (VISION.md "Paths, not a timeline": merging).
-  learnFrom(state, large, small, tick);
   for (const id of small.groups.slice()) {
     const group = state.groups[id], region = group.region;
     small.groups.splice(small.groups.indexOf(id), 1);
@@ -158,9 +156,13 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
     group.specialists = house(state, region, group.specialists, false);
     arrive(state, large, region, tick);
   }
+  // The united people knows what either knew (VISION.md "Paths, not a timeline": merging); learned once the regions
+  // have passed, so a sea reach it gains is fresh where the harbors it brings stand.
+  learnFrom(state, large, small, tick);
   // Its treasury and its works under construction pass to the union (VISION.md rule 8: wealth received and given).
   transferWealth(state, small, large);
   large.projects.push(...small.projects); small.projects = [];
+  large.roadWorks.push(...small.roadWorks); small.roadWorks = [];
   large.repairing ||= small.repairing;
   lookAgain(small);
   endPolity(state, small, tick);

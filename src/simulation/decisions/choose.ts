@@ -1,20 +1,18 @@
 import type { Candidate, Neighbour, Partner, PolityView } from '../perception.ts';
 import type { Rng } from '../rng.ts';
 import { DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, UNITE_TUNING } from '../tunables.ts';
-import { bestBuild, bestWonder } from './build.ts';
-
-/** Factors named with a leading × are multipliers (logged, never cited as causes); the rest are contributions to the score. */
-export const MULTIPLIER = '×';
+import { bestBuild, bestRoad, bestWonder } from './build.ts';
 
 /**
  * The decision step (VISION.md "Personality and the decision model"), M3's form: Expand, Explore, Unite, Share
- * knowledge, Build or Do nothing, weighed from the needs land pressure, hunger and opportunity, what it could learn, and the
- * civilization's values. Pure: it sees only the
- * view `perception.ts` builds from the civilization's own state and what it knows (VISION.md "Implementation rule";
- * a Biome rule keeps this folder from importing anything else).
+ * knowledge, Build (a building, a wonder or roads) or Do nothing, weighed from the needs land pressure, hunger and
+ * opportunity, what it could learn, and the civilization's values. Pure: it sees only the view `perception.ts` builds
+ * from the civilization's own state and what it knows (VISION.md "Implementation rule"; a Biome rule keeps this folder
+ * from importing anything else).
  */
 export type { Action, Factor, Option } from './options.ts';
-import type { Action, Factor, Option } from './options.ts';
+export { MULTIPLIER } from './options.ts';
+import { MULTIPLIER, type Action, type Factor, type Option } from './options.ts';
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 const round = (value: number) => Math.round(value * 1000) / 1000;
@@ -147,6 +145,8 @@ export function options(view: PolityView): Option[] {
   if (build) all.push(build);
   const wonder = bestWonder(view);
   if (wonder) all.push(wonder);
+  const road = bestRoad(view);
+  if (road) all.push(road);
   const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }

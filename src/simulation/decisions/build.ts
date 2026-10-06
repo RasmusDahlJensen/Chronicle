@@ -1,6 +1,6 @@
 import type { PolityView } from '../perception.ts';
 import { BUILD_TUNING } from '../tunables.ts';
-import type { Option } from './options.ts';
+import { MULTIPLIER, type Option } from './options.ts';
 
 /**
  * The Build action (VISION.md "Buildings": "Polities choose what to build through the Build action of the decision
@@ -108,13 +108,48 @@ export function bestWonder(view: PolityView): (Option & { targets: number[] }) |
       .sort((a, b) => b.urban - a.urban || a.id - b.id)[0];
     if (!city) continue;
     const motive = view.values[MOTIVE_VALUE[wonder.motive] ?? 'zeal'], greatness = Math.min(1, city.urban / tuning.wonderCity);
-    const parts = { [wonder.motive]: tuning.wonderWeight * motive * golden * greatness };
+    // The motive is what it cites; the golden age and the city's greatness scale it (multipliers, never causes).
+    const drive = tuning.wonderWeight * motive * golden * greatness;
     const cost = tuning.cost * wonder.cost / (income + build.wealth / tuning.treasuryYears), upkeep = tuning.upkeepWeight * (build.upkeep + wonder.upkeep) / income;
     const option = {
-      action: 'build' as const, score: parts[wonder.motive] - cost - upkeep, target: wonder.type, label: `${wonder.name} at ${city.name}`, targets: [city.id], wonder: true,
-      factors: [{ factor: wonder.motive, weight: round(parts[wonder.motive]) }, { factor: 'goldenAge', weight: round(golden) }, { factor: 'cost', weight: -round(cost) }, { factor: 'upkeep', weight: -round(upkeep) }],
+      action: 'build' as const, score: drive - cost - upkeep, target: wonder.type, label: `${wonder.name} at ${city.name}`, targets: [city.id], wonder: true,
+      factors: [
+        { factor: wonder.motive, weight: round(drive) }, { factor: `${MULTIPLIER}goldenAge`, weight: round(golden) }, { factor: `${MULTIPLIER}greatness`, weight: round(greatness) },
+        { factor: 'cost', weight: -round(cost) }, { factor: 'upkeep', weight: -round(upkeep) },
+      ],
     };
     if (!best || option.score > best.score) best = option;
   }
   return best;
+}
+
+/**
+ * The roads it would build now (VISION.md "Roads": the capital to its towns and cities, along the cheapest route): the
+ * towns and cities its roads do not yet reach at the best tier it knows, the largest and farthest first (at most a
+ * batch, as for buildings). Each needs connection (more for an open people) and more the farther it lies from the
+ * capital, against the cost and upkeep.
+ */
+export function bestRoad(view: PolityView): (Option & { targets: number[] }) | null {
+  const tuning = BUILD_TUNING, build = view.build, roads = build.roads;
+  if (!roads.tier || !roads.routes.length) return null;
+  const batch = Math.min(tuning.batchMax, Math.max(1, Math.ceil(build.regions / tuning.batchRegions)));
+  const connection = tuning.roadBase + tuning.roadOpenness * view.values.openness;
+  const ranked = roads.routes.map(route => {
+    const remoteness = tuning.roadReach * Math.min(1, route.km / Math.max(1, view.reachKm)), size = Math.min(1, route.urban / tuning.sizeScale);
+    const need = Math.min(1, connection + remoteness);
+    // Each part's share of the need, as cited.
+    return { route, value: need * size, connection: need * size * connection / (connection + remoteness || 1), remoteness: need * size * remoteness / (connection + remoteness || 1) };
+  }).sort((a, b) => b.value - a.value || a.route.settlement - b.route.settlement).slice(0, batch);
+  const weight = tuning.purposeWeight.roads, income = Math.max(1, build.income), count = ranked.length;
+  const mean = (key: 'value' | 'connection' | 'remoteness') => ranked.reduce((sum, entry) => sum + entry[key], 0) / count;
+  const cost = tuning.cost * ranked.reduce((sum, entry) => sum + entry.route.cost, 0) / (income + build.wealth / tuning.treasuryYears);
+  const upkeep = tuning.upkeepWeight * (build.upkeep + ranked.reduce((sum, entry) => sum + entry.route.upkeep, 0)) / income;
+  return {
+    action: 'build', road: true, score: weight * mean('value') - cost - upkeep, target: roads.tier, targets: ranked.map(entry => entry.route.settlement),
+    label: count === 1 ? `${roads.one} to ${ranked[0].route.name}` : `${roads.many} to ${count} towns`,
+    factors: [
+      { factor: 'connection', weight: round(weight * mean('connection')) }, { factor: 'remoteness', weight: round(weight * mean('remoteness')) },
+      { factor: 'cost', weight: -round(cost) }, { factor: 'upkeep', weight: -round(upkeep) },
+    ],
+  };
 }
