@@ -151,7 +151,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     exchanges: new Map(), exchangeRefused: new Map(), capital: null, settledTick: null,
     map: emptyMap(state.partition.regions.length), met: new Map(),
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
-    wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0,
+    wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -220,7 +220,11 @@ export function produce(state: SimulationState, context: TickContext) {
       // Surplus frees specialists (VISION.md "Specialists and townspeople"); they live in settlements, so only settled
       // polities have them. The cap grows with storage and farming knowledge.
       const cap = Math.min(SPECIALIST_TUNING.baseCap * m.specialistCap, SPECIALIST_TUNING.maxShare);
-      group.specialists = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (fedSecurity(group) - 1), 0, 1));
+      // People move to and from the towns over months, not all at once: the townspeople close a share of the gap to
+      // what the surplus frees each month (at least one person).
+      const freed = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (fedSecurity(group) - 1), 0, 1));
+      const gap = freed - group.specialists;
+      group.specialists = gap === 0 || polity.kind === 'band' ? freed : Math.min(group.size, group.specialists + Math.sign(gap) * Math.max(1, Math.floor(Math.abs(gap) * SPECIALIST_TUNING.adjust)));
       // Townspeople live in the region's settlements; there are only as many as they can house (VISION.md "Settlements").
       if (polity.kind === 'civ') { group.specialists = house(state, region, group.specialists); towns += regionIncome(state, polity, region); }
       const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;

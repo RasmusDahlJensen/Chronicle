@@ -132,7 +132,9 @@ function buildWonders(state: SimulationState, tick: number, civ: Polity) {
 export function beginWonder(state: SimulationState, tick: number, civ: Polity, type: number, at: number, cited: ChronicleEvent['causes']): string {
   const settlement = state.settlements[at], definition = WONDERS[type];
   if (settlement.status !== 'alive' || settlement.owner !== civ.id) return 'the city is gone';
-  if (state.wonders.some(wonder => wonder.type === type && (wonder.status === 'building' || wonder.status === 'standing'))) return `${definition.name} is being built or stands elsewhere`;
+  const elsewhere = state.wonders.find(wonder => wonder.type === type && (wonder.status === 'building' || wonder.status === 'standing'));
+  // Word of a wonder far away reaches those who set out to build its like: they know of it from now on.
+  if (elsewhere) { if (!civ.heardWonders.includes(elsewhere.id)) civ.heardWonders.push(elsewhere.id); return `${definition.name} is being built or stands elsewhere`; }
   if (settlement.wonder !== null || state.wonders.some(wonder => wonder.settlement === at && wonder.status === 'building')) return `${settlement.name} already has a wonder`;
   if (settlement.tier < definition.minTier) return `${settlement.name} is too small for it`;
   state.wonders.push({ id: state.wonders.length, type, settlement: at, builder: civ.id, begunTick: tick, builtTick: null, status: 'building', spent: 0, cost: definition.cost, condition: 1, endedTick: null, endCause: null, causes: cited, waited: 0 });

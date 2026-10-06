@@ -89,6 +89,11 @@ test('tiers follow the urban population with a margin, and growth founds settlem
   state.groups[0].specialists = house(state, 0, capital.housing);
   capital.urbanMean = town + 1;
   growSettlements(state, stream, civ);
+  assert.deepEqual([capital.tier, capital.tierYears], [0, 1], 'one year past the line is not yet a town');
+  // Past the line year after year, it becomes one.
+  capital.tierYears = SETTLEMENT_TUNING.tierYears - 1;
+  growSettlements(state, stream, civ);
+  assert.equal(capital.tierYears, 0);
   state.chronicle.flush(120);
   const recent = state.chronicle.events.slice(before);
   const [rise] = recent.filter(event => event.type === 'settlementTierChanged');

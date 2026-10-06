@@ -21,7 +21,7 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, SERIES_YEARS } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 14;
+export const SIMULATION_RULES_VERSION = 15;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
@@ -244,10 +244,11 @@ export function stateHash(state: SimulationState) {
     add(polity.wealth); add(polity.wealthCarry * 1e6); add(polity.upkeepCarry * 1e6); add(polity.repairing ? 1 : 0);
     for (const project of polity.projects) { add(project.settlement); add(project.type); add(project.spent); add(project.waited); }
     add(polity.roadsUnpaid * 1e6);
+    for (const id of polity.heardWonders) add(id);
     for (const work of polity.roadWorks) { add(work.to); add(work.tier); add(work.spent); add(work.cost); for (const [a, b] of work.edges) { add(a); add(b); } }
     for (const step of polity.decisions) { add(step.tick); add(ACTIONS.indexOf(step.chosen)); add(step.pick); add(step.outcome.length); add(step.options.length); for (const option of step.options) { add(option.score * 1000); add(option.target ?? -1); } }
   }
-  for (const settlement of state.settlements) { add(settlement.cell); add(settlement.owner); add(settlement.status === 'alive' ? 1 : 0); add(settlement.capital ? 1 : 0); add(settlement.tier); add(settlement.urban); add(settlement.housing); add(settlement.urbanMean * 1000); for (const building of settlement.buildings) { add(building.type); add(building.condition * 1e6); } }
+  for (const settlement of state.settlements) { add(settlement.cell); add(settlement.owner); add(settlement.status === 'alive' ? 1 : 0); add(settlement.capital ? 1 : 0); add(settlement.tier); add(settlement.urban); add(settlement.housing); add(settlement.urbanMean * 1000); add(settlement.tierYears); for (const building of settlement.buildings) { add(building.type); add(building.condition * 1e6); } }
   for (const value of state.owner) add(value);
   for (let region = 0; region < state.stability.length; region++) { add(state.stability[region] * 1e6); add(state.unrest[region]); }
   // The capacity cache warm-starts later solves, so it is part of what determines history.

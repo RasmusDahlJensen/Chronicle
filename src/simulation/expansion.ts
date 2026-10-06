@@ -163,6 +163,7 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
   transferWealth(state, small, large);
   large.projects.push(...small.projects); small.projects = [];
   large.roadWorks.push(...small.roadWorks); small.roadWorks = [];
+  for (const id of small.heardWonders) if (!large.heardWonders.includes(id)) large.heardWonders.push(id);
   large.repairing ||= small.repairing;
   lookAgain(small);
   endPolity(state, small, tick);

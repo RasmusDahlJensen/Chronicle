@@ -80,6 +80,8 @@ export interface Polity {
   repairing: boolean;
   /** Its roads under construction (VISION.md "Roads"). */
   roadWorks: RoadWork[];
+  /** Wonders (ids) it has heard of only by trying to build the same type (see `perception.ts` `knowsOfWonder`). */
+  heardWonders: number[];
   /** Its share of last month's road upkeep left unpaid (0–1): the roads it keeps wear by it. */
   roadsUnpaid: number;
 }
@@ -121,8 +123,9 @@ export interface Settlement {
   id: number; name: string; cell: number; region: number; owner: number; capital: boolean; foundedTick: number;
   status: 'alive' | 'ruined' | 'razed';
   tier: number; urban: number; housing: number;
-  /** Its urban population averaged over about a year (a monthly moving average), which its tier follows. */
-  urbanMean: number;
+  /** Its urban population averaged over about a year (a monthly moving average), which its tier follows; and the years
+   *  in a row that average has called for another tier (it changes tier only once that has lasted). */
+  urbanMean: number; tierYears: number;
   /** Tick it last fell to ruin (null while it has never been ruined), and the name its ruins bore when they were
    *  resettled under a new one (null otherwise). */
   ruinedTick: number | null; formerName: string | null;

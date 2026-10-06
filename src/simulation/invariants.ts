@@ -8,7 +8,7 @@ import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
 import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
 import type { Polity, RoadWork, Settlement, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
-import { BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING } from './tunables.ts';
+import { BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING, SETTLEMENT_TUNING } from './tunables.ts';
 import { fieldLand } from './fields.ts';
 
 /** The least share of its crops a harvest can come in at: the worst weather in drought without irrigation. */
@@ -52,7 +52,8 @@ export function checkInvariants(state: SimulationState) {
     if (settlement.status !== 'alive') { if (settlement.capital || settlement.urban !== 0 || settlement.buildings.length) fail(`settlement ${settlement.id} in ruins is a capital or has people or buildings`); continue; }
     if (state.owner[settlement.region] !== settlement.owner) fail(`settlement ${settlement.id} stands in region ${settlement.region}, which its owner ${settlement.owner} does not hold`);
     if (state.partition.regionOf[settlement.cell] !== settlement.region) fail(`settlement ${settlement.id} is not on a land cell of its region`);
-    if (!Number.isInteger(settlement.urban) || settlement.urban < 0 || settlement.urban > settlement.housing || !(settlement.tier >= 0 && settlement.tier <= 3)) fail(`settlement ${settlement.id} houses ${settlement.urban} of ${settlement.housing} (tier ${settlement.tier})`);
+    if (!Number.isInteger(settlement.urban) || settlement.urban < 0 || settlement.urban > settlement.housing || !(settlement.tier >= 0 && settlement.tier <= 3)
+      || !Number.isInteger(settlement.tierYears) || settlement.tierYears < 0 || settlement.tierYears >= SETTLEMENT_TUNING.tierYears) fail(`settlement ${settlement.id} houses ${settlement.urban} of ${settlement.housing} (tier ${settlement.tier}, ${settlement.tierYears} years past it)`);
     // Buildings: one of each type, in condition, and the housing and bonus they give (yearly per settlement, staggered).
     if ((state.tick + settlement.id) % 12 === 0) checkBuildings(state, settlement, fail);
     villages[settlement.region]++; urban[settlement.region] += settlement.urban; if (settlement.bonus.harbor) harbors[settlement.region]++;

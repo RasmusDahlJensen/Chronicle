@@ -107,7 +107,7 @@ export function foundSettlement(state: SimulationState, rng: Rng, polity: Polity
   if (ruin) {
     const oldName = ruin.name;
     if (!rng.chance(SETTLEMENT_TUNING.keepName)) ruin.name = createName(rng, state.cultures[polity.culture].language);
-    Object.assign(ruin, { status: 'alive', owner: polity.id, capital, tier: 0, urban: 0, urbanMean: 0, buildings: [], bonus: bonusOf([]), wonder: null, housing: housingOf({ capital }), formerName: ruin.name === oldName ? null : oldName });
+    Object.assign(ruin, { status: 'alive', owner: polity.id, capital, tier: 0, urban: 0, urbanMean: 0, tierYears: 0, buildings: [], bonus: bonusOf([]), wonder: null, housing: housingOf({ capital }), formerName: ruin.name === oldName ? null : oldName });
     settlement = ruin;
     state.metrics.ruinsResettled++;
     if (announce) announceSettlement(state, polity, settlement, cited);
@@ -117,7 +117,7 @@ export function foundSettlement(state: SimulationState, rng: Rng, polity: Polity
     if (cell === undefined) return null;
     settlement = {
       id: state.settlements.length, name: createName(rng, state.cultures[polity.culture].language), cell, region, owner: polity.id, capital,
-      foundedTick: tick, status: 'alive', tier: 0, urban: 0, urbanMean: 0, housing: housingOf({ capital }), ruinedTick: null, formerName: null, buildings: [], bonus: bonusOf([]), wonder: null,
+      foundedTick: tick, status: 'alive', tier: 0, urban: 0, urbanMean: 0, tierYears: 0, housing: housingOf({ capital }), ruinedTick: null, formerName: null, buildings: [], bonus: bonusOf([]), wonder: null,
     };
     state.settlements.push(settlement);
     here.push(settlement.id);
@@ -171,7 +171,7 @@ export function ruinSettlements(state: SimulationState, region: number, tick: nu
     owner.projects = owner.projects.filter(project => project.settlement !== settlement.id);
     state.metrics.projectsAbandoned += before - owner.projects.length;
     for (const wonder of state.wonders) if (wonder.settlement === settlement.id && (wonder.status === 'building' || wonder.status === 'standing')) endWonder(state, wonder, tick, 'abandoned');
-    Object.assign(settlement, { status: 'ruined', capital: false, urban: 0, urbanMean: 0, tier: 0, buildings: [], bonus: bonusOf([]), wonder: null, housing: housingOf({ capital: false }), ruinedTick: tick });
+    Object.assign(settlement, { status: 'ruined', capital: false, urban: 0, urbanMean: 0, tierYears: 0, tier: 0, buildings: [], bonus: bonusOf([]), wonder: null, housing: housingOf({ capital: false }), ruinedTick: tick });
   }
   refreshRegionBonus(state, region);
 }
@@ -191,23 +191,35 @@ export function fallCauses(state: SimulationState, group: { region: number; size
 }
 
 /**
- * The region's townspeople move into its settlements: the capital first, then the others in founding order, each up
- * to its housing, so the main town is the largest and the newest settlements take the growth (a village becomes a
- * town as its region's townspeople grow). Returns how many find a home there (at most all the housing): the rest
- * stay rural. Unless `average` is false (a mid-month rehousing), each settlement's moving average takes this month.
+ * The region's townspeople move into its settlements. Growth fills them in order — the capital first, then the others
+ * in founding order, each up to its housing — so the main town is the largest and the newest settlements take the
+ * growth (a village becomes a town as its region's townspeople grow). A decline is shared: every settlement keeps the
+ * same share of the townspeople it had, so a lean decade thins all its towns a little instead of emptying the last
+ * one. Returns how many find a home there (at most all the housing): the rest stay rural. Unless `average` is false (a
+ * mid-month rehousing), each settlement's moving average takes this month.
  */
 export function house(state: SimulationState, region: number, specialists: number, average = true) {
   // (Allocation-free: this runs every month in every civilization region.)
   const ids = state.regionSettlements[region], settlements = state.settlements;
-  let housing = 0, capital = -1;
-  for (const id of ids) { const settlement = settlements[id]; if (settlement.status !== 'alive') continue; housing += settlement.housing; settlement.urban = 0; if (settlement.capital) capital = id; }
-  const urban = Math.min(specialists, housing);
-  let left = urban;
-  if (capital >= 0) { const settlement = settlements[capital]; settlement.urban = Math.min(left, settlement.housing); left -= settlement.urban; }
+  let housing = 0, before = 0, capital = -1;
   for (const id of ids) {
     const settlement = settlements[id];
     if (settlement.status !== 'alive') continue;
-    if (id !== capital) { settlement.urban = Math.min(left, settlement.housing); left -= settlement.urban; }
+    housing += settlement.housing; settlement.urban = Math.min(settlement.urban, settlement.housing); before += settlement.urban;
+    if (settlement.capital) capital = id;
+  }
+  const urban = Math.min(specialists, housing);
+  let left = urban;
+  if (urban < before) {
+    const keep = urban / before;
+    for (const id of ids) { const settlement = settlements[id]; if (settlement.status === 'alive') { settlement.urban = Math.floor(settlement.urban * keep); left -= settlement.urban; } }
+  } else left -= before;
+  // What is left (growth, or the rounding of a decline) fills in order: the capital first, then by founding.
+  if (capital >= 0 && left > 0) { const settlement = settlements[capital], add = Math.min(left, settlement.housing - settlement.urban); settlement.urban += add; left -= add; }
+  for (const id of ids) {
+    const settlement = settlements[id];
+    if (settlement.status !== 'alive') continue;
+    if (id !== capital && left > 0) { const add = Math.min(left, settlement.housing - settlement.urban); settlement.urban += add; left -= add; }
     if (average) settlement.urbanMean += (settlement.urban - settlement.urbanMean) / SETTLEMENT_TUNING.meanMonths;
   }
   return urban;
@@ -224,7 +236,7 @@ export function tierFor(urban: number, tier: number) {
 
 /**
  * Yearly per civilization (population system, staggered by id): its settlements rise or fall a tier with their
- * townspeople, and each region whose townspeople fill its housing founds another settlement or resettles ruins.
+ * townspeople once the change has lasted some years, and each region whose townspeople fill its housing founds another settlement or resettles ruins.
  */
 export function growSettlements(state: SimulationState, context: Pick<TickContext, 'tick' | 'stream'>, civ: Polity) {
   const tuning = SETTLEMENT_TUNING;
@@ -233,7 +245,11 @@ export function growSettlements(state: SimulationState, context: Pick<TickContex
     const group = state.groups[groupId], region = group.region;
     for (const settlement of livingSettlements(state, region)) {
       const tier = tierFor(settlement.urbanMean, settlement.tier);
-      if (tier === settlement.tier) continue;
+      // A tier changes only once the settlement has stayed past the line for tierYears checks in a row (VISION.md: a
+      // place hovering at a threshold is not announced as growing and shrinking again and again).
+      if (tier === settlement.tier) { settlement.tierYears = 0; continue; }
+      if (++settlement.tierYears < tuning.tierYears) continue;
+      settlement.tierYears = 0;
       const rising = tier > settlement.tier, threshold = tuning.tiers[Math.max(tier, settlement.tier)], mean = Math.round(settlement.urbanMean);
       settlement.tier = tier;
       state.metrics.tierChanges++;

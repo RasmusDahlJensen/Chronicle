@@ -395,11 +395,12 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
       });
     }
   }
-  // Wonders: one at a time, each unique in the world while it stands or is being built (VISION.md "Wonders").
+  // Wonders: one at a time, each unique in the world while it stands or is being built (VISION.md "Wonders"); a wonder
+  // elsewhere rules its type out only once word of it has reached this civilization.
   const wonders: PolityView['build']['wonders'] = [];
   const building = state.wonders.some(wonder => wonder.status === 'building' && state.settlements[wonder.settlement].owner === civ.id);
   if (!building) WONDERS.forEach((definition, type) => {
-    if (!wonderKnown(civ.knowledge, type) || state.wonders.some(wonder => wonder.type === type && (wonder.status === 'building' || wonder.status === 'standing'))) return;
+    if (!wonderKnown(civ.knowledge, type) || state.wonders.some(wonder => wonder.type === type && (wonder.status === 'building' || wonder.status === 'standing') && knowsOfWonder(state, civ, wonder))) return;
     wonders.push({ type, name: definition.name, motive: definition.motive, cost: definition.cost, upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast });
   });
   let stable = 0;
@@ -411,6 +412,18 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
     roads.routes.push({ settlement: route.settlement, name: settlement.name, urban: settlement.urban, km: route.km, cost: route.cost, upkeep: route.upkeep, edges: route.edges.length, bridges: route.bridges });
   }
   return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1, roads };
+}
+
+/**
+ * Whether word of a wonder has reached a civilization (VISION.md "Wonders": known only through contact, but word of
+ * great works travels one step further than other news): it holds it, or has met the people who hold it, or has met a
+ * people who has; or it has heard of it by trying to build the same.
+ */
+export function knowsOfWonder(state: SimulationState, civ: Polity, wonder: SimulationState['wonders'][number]) {
+  const holder = state.settlements[wonder.settlement].owner;
+  if (holder === civ.id || civ.met.has(holder) || civ.heardWonders.includes(wonder.id)) return true;
+  for (const other of civ.met.keys()) if (state.polities[other].met.has(holder)) return true;
+  return false;
 }
 
 /** Whether a region has a river or a lake (where irrigation may water its fields). */

@@ -186,6 +186,8 @@ export const SPECIALIST_TUNING = {
   /** Specialist share = cap × clamp(floor + slope × (food security − 1), 0, 1), where cap = baseCap × the techs'
    *  specialistCap multipliers: a people living at what its land feeds keeps `floor` of its cap; surplus frees the rest. */
   baseCap: 0.02, floor: 0.3, slope: 3.5,
+  /** Townspeople close this share of the gap to that each month (moving to and from town takes time). */
+  adjust: 1 / 12,
   /** No people can free more than this share of themselves from food production, whatever their techs. */
   maxShare: 0.9,
 } as const;
@@ -221,6 +223,8 @@ export const SETTLEMENT_TUNING = {
   /** A settlement that shrinks a tier cites its region's hardship, a famine there now (its deaths over about a year as a
    *  share of the people, × fallFamineScale) or unrest, each at fallCause or more; else only its fewer townspeople. */
   fallCause: 0.05, fallFamineScale: 10,
+  /** Years in a row a settlement's averaged townspeople must call for another tier before it changes. */
+  tierYears: 5,
 } as const;
 
 /**
@@ -501,7 +505,7 @@ export function validateTunables() {
   }
   if (!(fa.tropicsLatitude > 0 && fa.tropicsLatitude < 90)) problems.push('the tropics latitude must be between 0 and 90°');
   if (!(fa.sowingPatience > 0 && fa.sowingPatience <= 1)) problems.push('sowing patience must be in (0, 1]');
-  if (!(SPECIALIST_TUNING.slope >= 0 && SPECIALIST_TUNING.floor >= 0 && SPECIALIST_TUNING.floor <= 1 && SPECIALIST_TUNING.baseCap >= 0 && SPECIALIST_TUNING.baseCap < 1 && SPECIALIST_TUNING.maxShare > 0 && SPECIALIST_TUNING.maxShare < 1)) problems.push('specialist settings are invalid');
+  if (!(SPECIALIST_TUNING.slope >= 0 && SPECIALIST_TUNING.floor >= 0 && SPECIALIST_TUNING.floor <= 1 && SPECIALIST_TUNING.baseCap >= 0 && SPECIALIST_TUNING.baseCap < 1 && SPECIALIST_TUNING.maxShare > 0 && SPECIALIST_TUNING.maxShare < 1 && SPECIALIST_TUNING.adjust > 0 && SPECIALIST_TUNING.adjust <= 1)) problems.push('specialist settings are invalid');
   const st = SETTLE_TUNING;
   if (!(st.fromYears >= 0 && st.spanYears > 0 && st.baseShare >= 0 && st.baseShare <= 1 && st.rate > 0 && st.rate <= 1 && st.farmingPower > 0 && st.scalePeople >= 0 && st.scalePower > 0 && st.scaleFloor > 0 && st.scaleFloor <= 1)) problems.push('settling settings are invalid');
   if (!(MOBILITY_TUNING.coastalSailingKm > 0)) problems.push('the coastal sailing reach must be positive');
@@ -509,7 +513,7 @@ export function validateTunables() {
   if (!(se.tiers.length === 4 && se.tiers[0] === 0 && se.tiers.every((value, at) => at === 0 || value > se.tiers[at - 1]) && se.demote > 0 && se.demote < 1
     && Number.isInteger(se.baseHousing) && se.baseHousing > 0 && se.capitalHousing >= 1 && se.foundAt > 0 && se.foundAt <= 1 && se.keepName >= 0 && se.keepName <= 1
     && Number.isInteger(se.meanMonths) && se.meanMonths >= 1 && se.tierImportance.length === 4 && [...se.tierImportance, se.fallImportance].every(value => value >= 0 && value <= 1)
-    && se.fallCause >= 0 && se.fallFamineScale > 0)) problems.push('settlement settings are invalid');
+    && se.fallCause >= 0 && se.fallFamineScale > 0 && Number.isInteger(se.tierYears) && se.tierYears >= 1)) problems.push('settlement settings are invalid');
   const d = DECISION_TUNING;
   if (!(Number.isInteger(d.months) && d.months >= 1 && d.minScore >= 0 && d.doNothing > d.minScore && d.doNothing <= 1 && Number.isInteger(d.topChoices) && d.topChoices >= 1 && Number.isInteger(d.logSize) && d.logSize >= 1 && Number.isInteger(d.factorCount) && d.factorCount >= 1)) problems.push('decision settings are invalid');
   const reach = REACH_TUNING;

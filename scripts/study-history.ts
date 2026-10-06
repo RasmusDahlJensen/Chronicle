@@ -124,12 +124,20 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${show([1000, 3000], row => row.agricultureInventions)} | ${show([700, 1000], row => `${Math.round(row.agricultureShare * 100)}%`)} | ${show([1000, 2000, 3000], row => row.civEras)} | ${show([1000, 2000, 3000], row => `${row.civTechsMin}–${row.civTechsMax}`)} | ${show([1000, 3000], row => `${row.exchanges} (${row.tribeExchanges}) of ${row.exchangeOffers}`)} |`);
   }
   // M3b acceptance (VISION.md): settlements by water or a resource site, and the tiers they reach.
-  lines.push('', '| Seed | Settlements by water or a site at 1,000 / 2,000 / 3,000 (M3b: ≥ 80%) | Villages · towns · cities · metropolises at 1,000 | at 1,500 | at 3,000 | Founded by growth · ruins resettled · tier changes |',
-    '| --- | --- | --- | --- | --- | --- |');
+  lines.push('', '| Seed | Settlements by water or a site at 1,000 / 2,000 / 3,000 (M3b: ≥ 80%) | Villages · towns · cities · metropolises at 1,000 | at 1,500 | at 3,000 | Founded by growth · ruins resettled · tier changes | Most tier changes of one settlement in a century · settlements changing more than 3 times in one (M3c: a few at most) |',
+    '| --- | --- | --- | --- | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), m = result.report.metrics;
     const tiers = (year: number) => { const row = at(year); return row ? `${row.villages} · ${row.towns} · ${row.cities} · ${row.metropolises}` : '—'; };
-    lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => { const row = at(year); return row ? `${Math.round(row.settlementsByWater * 100)}%` : '—'; }).join(' / ')} | ${tiers(1000)} | ${tiers(1500)} | ${tiers(3000)} | ${m.settlementsGrown} · ${m.ruinsResettled} · ${m.tierChanges} |`);
+    // Tier churn: per settlement and century, how often it changed tier.
+    const churn = new Map<string, number>();
+    for (const event of (result.report.events ?? []) as { type: string; tick: number; settlement: number | null }[]) {
+      if (event.type !== 'settlementTierChanged') continue;
+      const key = `${event.settlement}:${Math.floor(event.tick / 1200)}`;
+      churn.set(key, (churn.get(key) ?? 0) + 1);
+    }
+    const churning = new Set([...churn].filter(([, count]) => count > 3).map(([key]) => key.split(':')[0]));
+    lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => { const row = at(year); return row ? `${Math.round(row.settlementsByWater * 100)}%` : '—'; }).join(' / ')} | ${tiers(1000)} | ${tiers(1500)} | ${tiers(3000)} | ${m.settlementsGrown} · ${m.ruinsResettled} · ${m.tierChanges} | ${Math.max(0, ...churn.values())} · ${churning.size} |`);
   }
   // M3b: wealth and buildings (VISION.md "Buildings", "Wealth").
   lines.push('', '| Seed | Standing buildings at 1,000 / 2,000 / 3,000 | Completed · lost to unpaid upkeep by 3,000 | Completed by type by 3,000 | Treasuries at 1,000 / 3,000 |', '| --- | --- | --- | --- | --- |');

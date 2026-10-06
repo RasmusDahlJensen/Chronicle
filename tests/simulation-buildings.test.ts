@@ -7,7 +7,7 @@ import { FARM_METHOD, METHOD_COUNT } from '../src/simulation/food.ts';
 import { beginWonder, construct, startProjects } from '../src/simulation/construction.ts';
 import { bestBuild, bestWonder, buildScore, need, needParts } from '../src/simulation/decisions/build.ts';
 import { incomeOf, loseWealth, produceWealth, siteIncome, transferWealth, wealthFlows, wonderBonus } from '../src/simulation/economy.ts';
-import { crosses, seaFrom } from '../src/simulation/perception.ts';
+import { crosses, knowsOfWonder, seaFrom } from '../src/simulation/perception.ts';
 import { RESOURCE_IDS } from '../shared/atlas.ts';
 import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { createLanguage } from '../src/simulation/names.ts';
@@ -42,7 +42,7 @@ function fixture() {
     farmBonus: new Float64Array(1).fill(1), droughtShield: new Float64Array(1), storeBonus: new Float64Array(1).fill(1), spoilageBonus: new Float64Array(1).fill(1),
     metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0, roadsAbandoned: 0 },
   } as unknown as SimulationState;
-  const civ = { id: 0, kind: 'civ', name: 'Ora', culture: 0, capital: null, groups: [0], wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], roadWorks: [], roadsUnpaid: 0 } as unknown as Polity;
+  const civ = { id: 0, kind: 'civ', name: 'Ora', culture: 0, capital: null, groups: [0], wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], roadWorks: [], roadsUnpaid: 0, heardWonders: [], met: new Map() } as unknown as Polity;
   state.polities = [civ];
   return { state, civ };
 }
@@ -317,4 +317,21 @@ test('irrigation built by a river raises its region\'s lasting capacity at once,
   for (let tick = 1; tick <= definition.months; tick++) month(state, tick);
   assert.equal(state.farmBonus[0], definition.effects.farm);
   assert.ok(state.capacity[0] > before * 1.05, `capacity ${state.capacity[0]} after ${before}`);
+});
+
+test('word of a wonder reaches a civilization only through contact, one step further than other news, or when it tries to build the same', () => {
+  const polity = (id: number) => ({ id, met: new Map<number, number>(), heardWonders: [] as number[], kind: 'civ', name: `P${id}` });
+  const [holder, near, far, beyond] = [0, 1, 2, 3].map(polity);
+  const state = { polities: [holder, near, far, beyond], settlements: [{ id: 0, owner: 0, status: 'alive', wonder: null, tier: 2, name: 'Kesh' }, { id: 1, owner: 3, status: 'alive', wonder: null, tier: 2, name: 'Tal' }], wonders: [] as unknown[] } as unknown as SimulationState;
+  const wonder = { id: 0, type: 0, settlement: 0, builder: 0, begunTick: 0, builtTick: null, status: 'building', spent: 0, cost: 1, condition: 1, endedTick: null, endCause: null, causes: [], waited: 0 } as SimulationState['wonders'][number];
+  state.wonders.push(wonder);
+  const knows = (civ: Polity) => knowsOfWonder(state, civ, wonder);
+  assert.ok(knows(holder as unknown as Polity), 'its own');
+  near.met.set(0, 0); far.met.set(1, 0);
+  assert.ok(knows(near as unknown as Polity), 'met the holder');
+  assert.ok(knows(far as unknown as Polity), 'met someone who met the holder');
+  assert.ok(!knows(beyond as unknown as Polity), 'no word reaches a people out of contact');
+  // Setting out to build the same, it learns of it.
+  assert.match(beginWonder(state, 0, beyond as unknown as Polity, 0, 1, []), /being built or stands elsewhere/);
+  assert.ok(knows(beyond as unknown as Polity));
 });
