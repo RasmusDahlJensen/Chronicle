@@ -336,7 +336,14 @@ export const SHARE_TUNING = {
  * per region: each month it becomes the larger of the month's shortfall of food (1 − food security) and its own value
  * × `hardshipFade`.
  */
-export const WEALTH_TUNING = { perTownsperson: 1, hardshipFade: 0.98 } as const;
+export const WEALTH_TUNING = {
+  perTownsperson: 1, hardshipFade: 0.98,
+  /** Wealth a year from each site a mine (minerals) or quarry (stone) works in its region, once its civilization can use
+   *  the resource (VISION.md "gold and salt raise wealth"; the supply of the resources themselves comes with trade, M5). */
+  siteYield: { copper: 1_500, tin: 2_000, iron: 1_500, gold: 4_000, coal: 1_000, uranium: 2_000, salt: 1_500, stone: 800 },
+  /** Buildings of stone cost this share where the civilization quarries stone. */
+  stoneDiscount: 0.75,
+} as const;
 
 /**
  * Building (VISION.md "Buildings" and the Build action). At its decision step a civilization weighs each building type
@@ -354,7 +361,10 @@ export const WEALTH_TUNING = { perTownsperson: 1, hardshipFade: 0.98 } as const;
  */
 export const BUILD_TUNING = {
   sizeScale: 8_000, farmStore: 0.2, faithBase: 0.3, learningBase: 0.3, tradeBase: 0.4, tradeOpenness: 0.6, crowdFrom: 0.7, frontierScale: 3, defenseBase: 0.1,
-  purposeWeight: { food: 0.5, faith: 0.35, learning: 0.3, trade: 0.35, housing: 0.6, defense: 0.25 },
+  purposeWeight: { food: 0.5, faith: 0.35, learning: 0.3, trade: 0.35, housing: 0.6, defense: 0.25, mining: 0.4, sea: 0.35 },
+  /** mining: min(1, wealth a year the region's unworked usable sites would give ÷ mineScale); sea (a coastal settlement):
+   *  min(1, sea crossings within its civilization's reach ÷ seaScale) × (seaBase + (Openness + Expansionism) ÷ 2). */
+  mineScale: 3_000, seaScale: 3, seaBase: 0.2,
   batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6,
   decayMonths: 60, recoverMonths: 24,
 } as const;
@@ -452,9 +462,10 @@ export function validateTunables() {
   if (!(Object.values(j).every(value => value >= 0) && j.prestigeScale > 0 && j.foundScore > 0 && j.admitPower > 0)) problems.push('joining settings are invalid');
   const u = UNITE_TUNING;
   if (!(Object.values(u).every(value => value >= 0) && u.sizeScale > 0 && u.admitPower > 0)) problems.push('unification settings are invalid');
-  if (!(WEALTH_TUNING.perTownsperson > 0 && WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1)) problems.push('wealth settings are invalid');
+  if (!(WEALTH_TUNING.perTownsperson > 0 && WEALTH_TUNING.hardshipFade >= 0 && WEALTH_TUNING.hardshipFade < 1 && WEALTH_TUNING.stoneDiscount > 0 && WEALTH_TUNING.stoneDiscount <= 1
+    && Object.values(WEALTH_TUNING.siteYield).every(value => value >= 0))) problems.push('wealth settings are invalid');
   const bu = BUILD_TUNING;
-  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths].every(value => value > 0) && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
+  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale].every(value => value > 0) && bu.seaBase >= 0 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
   const sh = SHARE_TUNING;
   if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');

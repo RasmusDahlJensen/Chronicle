@@ -1,3 +1,6 @@
+import { RESOURCE_IDS, type Resource } from '../../shared/atlas.ts';
+import { BUILDINGS } from './buildings.ts';
+import { depositState } from './deposits.ts';
 import { unrestDepth } from './pressure.ts';
 import type { Polity, Settlement, SimulationState, WealthFlows } from './state.ts';
 import { STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
@@ -20,14 +23,52 @@ export function settlementIncome(state: SimulationState, settlement: Settlement)
   return settlement.urban * WEALTH_TUNING.perTownsperson * settlement.bonus.wealth * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, settlement.region));
 }
 
-/** A civilization's income a year, as it stands this month. */
+/**
+ * Wealth a year from a region's sites of one kind (minerals or stone) that `civ` can use: what a mine or quarry there
+ * works, or would work. Less in unrest, as all output is.
+ */
+export function siteIncome(state: SimulationState, civ: Polity, region: number, works: 'mineral' | 'stone') {
+  let income = 0;
+  for (const [, code] of state.partition.regions[region].sites) {
+    const resource = RESOURCE_IDS[code - 1] as Resource | undefined;
+    if (!resource || (resource === 'stone') !== (works === 'stone') || !(resource in WEALTH_TUNING.siteYield)) continue;
+    if (depositState(civ.knowledge, resource) === 'usable') income += WEALTH_TUNING.siteYield[resource as keyof typeof WEALTH_TUNING.siteYield];
+  }
+  return income * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, region));
+}
+
+/** A civilization's income a year, as it stands this month: its townspeople's earnings and its worked sites. */
 export function incomeOf(state: SimulationState, civ: Polity) {
   let income = 0;
-  for (const groupId of civ.groups) for (const id of state.regionSettlements[state.groups[groupId].region]) {
-    const settlement = state.settlements[id];
-    if (settlement.status === 'alive') income += settlementIncome(state, settlement);
+  for (const groupId of civ.groups) {
+    const region = state.groups[groupId].region;
+    for (const id of state.regionSettlements[region]) {
+      const settlement = state.settlements[id];
+      if (settlement.status !== 'alive') continue;
+      income += settlementIncome(state, settlement);
+      if (settlement.bonus.mine) income += siteIncome(state, civ, region, 'mineral');
+      if (settlement.bonus.quarry) income += siteIncome(state, civ, region, 'stone');
+    }
   }
   return income;
+}
+
+/** Whether a civilization quarries stone it can use (its stone buildings cost less). */
+export function quarriesStone(state: SimulationState, civ: Polity) {
+  for (const groupId of civ.groups) {
+    const region = state.groups[groupId].region;
+    for (const id of state.regionSettlements[region]) {
+      const settlement = state.settlements[id];
+      if (settlement.status === 'alive' && settlement.bonus.quarry && siteIncome(state, civ, region, 'stone') > 0) return true;
+    }
+  }
+  return false;
+}
+
+/** What a building costs this civilization: less in stone where it quarries stone. */
+export function buildingCost(state: SimulationState, civ: Polity, type: number) {
+  const definition = BUILDINGS[type];
+  return definition.stone && quarriesStone(state, civ) ? Math.round(definition.cost * WEALTH_TUNING.stoneDiscount) : definition.cost;
 }
 
 /** The upkeep a civilization owes a year for its standing buildings. */

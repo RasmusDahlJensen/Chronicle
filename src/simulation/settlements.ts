@@ -28,10 +28,13 @@ export function housingOf(settlement: Pick<Settlement, 'capital'> & { buildings?
 
 /** What a settlement's buildings add up to (its `bonus`). */
 export function bonusOf(buildings: Settlement['buildings']): Settlement['bonus'] {
-  const bonus = { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0, upkeep: 0 };
+  const bonus = { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0, upkeep: 0, mine: false, quarry: false, harbor: false };
   for (const building of buildings) {
     const effects = BUILDINGS[building.type].effects;
     bonus.upkeep += BUILDINGS[building.type].upkeep;
+    if (effects.works === 'mineral') bonus.mine = true;
+    if (effects.works === 'stone') bonus.quarry = true;
+    if (effects.harbor) bonus.harbor = true;
     bonus.research *= effects.research ?? 1; bonus.wealth *= effects.wealth ?? 1; bonus.store *= effects.storeMonths ?? 1;
     bonus.spoilage *= effects.spoilage ?? 1; bonus.stability += effects.stability ?? 0;
   }
@@ -127,6 +130,7 @@ export function ruinSettlements(state: SimulationState, region: number, tick: nu
   for (const id of state.regionSettlements[region]) {
     const settlement = state.settlements[id];
     if (settlement.status !== 'alive') continue;
+    if (settlement.bonus.harbor) state.harbors[region]--;
     Object.assign(settlement, { status: 'ruined', capital: false, urban: 0, urbanMean: 0, tier: 0, buildings: [], bonus: bonusOf([]), housing: housingOf({ capital: false }), ruinedTick: tick });
   }
 }

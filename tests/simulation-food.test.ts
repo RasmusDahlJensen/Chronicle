@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
-import { reachableFree } from '../src/simulation/bands.ts';
+import { reachableFree, settle } from '../src/simulation/bands.ts';
+import { BUILDING_INDEX } from '../src/simulation/buildings.ts';
+import { applyBuildings } from '../src/simulation/settlements.ts';
 import { FARM_METHOD, harvest, METHOD_COUNT, monthsToHarvest, sow } from '../src/simulation/food.ts';
 import { decodeGeography } from '../src/simulation/geography.ts';
 import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
@@ -109,7 +111,7 @@ test('the harvest calendar follows latitude, and a harvest brings in exactly the
   assert.ok(harvests >= farmers.length, `${harvests} harvests followed`);
 });
 
-test('sea crossings need Sailing (coastal) or Navigation (any); later mobility gives no sea reach', async () => {
+test('sea crossings need Sailing (coastal) or Navigation (any) and a harbor of one\'s own; later mobility gives no sea reach', async () => {
   const { geography, partition } = await chronicle();
   const state = createSimulation(geography, partition, 'Sailing');
   const home = (id: number) => state.groups[state.polities[id].core].region;
@@ -126,6 +128,12 @@ test('sea crossings need Sailing (coastal) or Navigation (any); later mobility g
   assert.ok(band.knowledge.mobility >= 3 && band.knowledge.sea === 0);
   assert.equal(crossings().length, 0, 'rail does not cross the sea');
   band.knowledge = learn(knowledge, TECH_INDEX.get('Sailing')!);
+  // A tribe that knows Sailing still cannot cross: it builds nothing, so it has no harbor (VISION.md "Mobility").
+  assert.equal(crossings().length, 0, 'no harbor, no crossing');
+  settle(state, { tick: state.tick, stream: (entity?: number, salt?: number) => createRng(entity ?? 0, salt ?? 0) }, band, { farming: 1, yearsHere: 1 });
+  assert.equal(crossings().length, 0, 'a civilization without a harbor there cannot either');
+  const town = state.settlements[band.capital!];
+  town.buildings.push({ type: BUILDING_INDEX.get('harbor')!, condition: 1, builtTick: state.tick }); applyBuildings(town); state.harbors[region.id]++;
   const free = region.sea.filter(link => state.occupant[link.region] < 0);
   assert.deepEqual(crossings().map(option => option.region).sort((a, b) => a - b),
     free.filter(link => link.km <= 300).map(link => link.region).filter(other => !region.neighbors.some(edge => edge.region === other)).sort((a, b) => a - b), 'Sailing: crossings up to 300 km');

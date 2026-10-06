@@ -1,15 +1,16 @@
 import { BUILDINGS, buildingKnown } from './buildings.ts';
 import { cultureSimilarity } from './culture.ts';
-import { incomeOf, upkeepOf } from './economy.ts';
+import { buildingCost, incomeOf, siteIncome, upkeepOf } from './economy.ts';
 import { livingSettlements } from './settlements.ts';
-import { greatCircleKm } from './geography.ts';
+import { cellNeighbors, greatCircleKm } from './geography.ts';
 import { landPressure } from './pressure.ts';
 import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
 import { MOBILITY_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
- * must read it. A polity sees its own regions, their land neighbours and the sea crossings its knowledge reaches.
+ * must read it. A polity sees its own regions, their land neighbours and the sea crossings its knowledge reaches from
+ * its harbors.
  * A civilization remembers a region that leaves its sight as it was then (a snapshot); a tribe keeps only what is in
  * sight. Two polities meet when one sees where the other lives, and neighbouring civilizations tell each other what
  * they see. Physical systems may read the true world; decision code reads only `regionView`, `knownRegions` and
@@ -60,6 +61,21 @@ export function seeRegion(polity: Polity, region: number) {
 }
 
 /**
+ * The sea reach a polity has from one region (VISION.md "Mobility": Sailing and Navigation "from a region with a
+ * harbor"): what its knowledge gives (0 none, 1 coastal crossings, 2 any coast), only where it holds the region and a
+ * harbor stands there; elsewhere none. The one rule for sight, meeting, travel, expansion, exploration, movement and
+ * contact across the sea. Tribes build nothing, so they never cross the sea.
+ */
+export function seaFrom(state: SimulationState, polity: Polity, region: number): number {
+  return polity.knowledge.sea > 0 && state.harbors[region] > 0 && state.owner[region] === polity.id ? polity.knowledge.sea : 0;
+}
+
+/** Whether a sea crossing of `km` is within a sea reach (1: coastal crossings up to the coastal sailing distance; 2: any). */
+export function crosses(sea: number, km: number) {
+  return sea >= 2 || (sea >= 1 && km <= MOBILITY_TUNING.coastalSailingKm);
+}
+
+/**
  * A group of the polity arrives in a region (moving, splitting, expanding, joining): the region is in its sight at
  * once, and it meets whoever lives next to it or sees it across the sea — the same month, whichever side's sight is
  * rebuilt later (a seafarer that already sees an island meets the newcomers there).
@@ -75,8 +91,7 @@ export function arrive(state: SimulationState, polity: Polity, region: number, t
   for (const link of here.sea) {
     const them = state.occupant[link.region];
     if (them < 0) continue;
-    const reaches = (sea: number) => sea >= 2 || (sea >= 1 && link.km <= MOBILITY_TUNING.coastalSailingKm);
-    if (reaches(polity.knowledge.sea) || reaches(state.polities[them].knowledge.sea)) visit(link.region);
+    if (crosses(seaFrom(state, polity, region), link.km) || crosses(seaFrom(state, state.polities[them], link.region), link.km)) visit(link.region);
   }
 }
 
@@ -89,18 +104,19 @@ export function lookAgain(polity: Polity) { polity.map.dirty = true; }
  * the last it saw of them) and forgotten by a tribe. Anyone living in sight whom it has not met, it meets.
  */
 export function observe(state: SimulationState, polity: Polity, tick: number) {
-  const regions = state.partition.regions, map = polity.map, sea = polity.knowledge.sea;
+  const regions = state.partition.regions, map = polity.map;
   if (stamp.length !== regions.length) { stamp = new Int32Array(regions.length); mark = 0; }
   mark++;
   sight.length = 0;
   const add = (region: number) => { if (stamp[region] !== mark) { stamp[region] = mark; sight.push(region); } };
   for (const id of polity.groups) {
-    const here = regions[state.groups[id].region];
+    const here = regions[state.groups[id].region], sea = seaFrom(state, polity, here.id);
     add(here.id);
     for (const edge of here.neighbors) add(edge.region);
-    if (sea > 0) for (const link of here.sea) if (sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) add(link.region);
+    if (sea > 0) for (const link of here.sea) if (crosses(sea, link.km)) add(link.region);
   }
-  map.dirty = false; map.sea = sea;
+  // (Harbors built or lost make the map dirty; the sea reach its knowledge gives is remembered for the same reason.)
+  map.dirty = false; map.sea = polity.knowledge.sea;
   const remembers = polity.kind === 'civ';
   for (const region of map.observed) {
     if (stamp[region] === mark) continue;
@@ -190,11 +206,17 @@ export interface PolityView {
   build: {
     /** Its treasury, income and upkeep a year, and its regions (how widely it builds at once). */
     wealth: number; income: number; upkeep: number; regions: number;
-    /** The building types it knows: purpose, cost, upkeep, the smallest tier they stand in. */
-    catalog: { type: number; name: string; purpose: string; cost: number; upkeep: number; minTier: number }[];
+    /** The building types it knows: purpose, cost (as it would pay), upkeep, the smallest tier they stand in, whether
+     *  they need the sea beside the settlement, and which sites they work. */
+    catalog: { type: number; name: string; purpose: string; cost: number; upkeep: number; minTier: number; coast: boolean; works: '' | 'mineral' | 'stone' }[];
     /** Its living settlements: tier, townspeople and housing, its region's hardship (memory of hunger), share of food
-     *  farmed and stability, foreign peoples on the region's borders, and the building types it has or is building. */
-    settlements: { id: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; stability: number; frontier: number; has: number[] }[];
+     *  farmed and stability, foreign peoples on the region's borders, the building types it has or is building (for
+     *  those one region needs only one of, anywhere in the region); whether the sea is beside it, the sea crossings its
+     *  knowledge would reach from there, and the wealth a year its region's usable mineral and stone sites would give. */
+    settlements: {
+      id: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; stability: number; frontier: number; has: number[];
+      coast: boolean; seaLinks: number; mineYield: number; quarryYield: number;
+    }[];
   };
 }
 
@@ -246,7 +268,7 @@ const heap: number[] = [];
  * (`travelled`); returns its own regions.
  */
 function travelFromCapital(state: SimulationState, polity: Polity) {
-  const regions = state.partition.regions, map = polity.map, sea = polity.knowledge.sea, tuning = REACH_TUNING;
+  const regions = state.partition.regions, map = polity.map, tuning = REACH_TUNING;
   travelGeography = state.geography; travelRegions = regions;
   if (costStamp.length !== regions.length) { costStamp = new Int32Array(regions.length); cost = new Float64Array(regions.length); costMark = 0; }
   costMark++;
@@ -267,7 +289,8 @@ function travelFromCapital(state: SimulationState, polity: Polity) {
     // Its own land relays at the crossings' cost; known land it does not hold relays at a premium.
     const factor = own.has(region) ? 1 : tuning.foreignRelay;
     for (const edge of regions[region].neighbors) if (map.status[edge.region] !== UNKNOWN) reach(edge.region, at + factor * edgeKm(edge.travelKm, edge.riverTier));
-    if (sea > 0) for (const link of regions[region].sea) if ((sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) && map.status[link.region] !== UNKNOWN) reach(link.region, at + factor * seaKm(link.km));
+    const sea = seaFrom(state, polity, region);
+    if (sea > 0) for (const link of regions[region].sea) if (crosses(sea, link.km) && map.status[link.region] !== UNKNOWN) reach(link.region, at + factor * seaKm(link.km));
   }
   return own;
 }
@@ -309,23 +332,43 @@ export function governable(state: SimulationState, civ: Polity, groups: readonly
 /** What a civilization could build and where (the Build action's view): its own settlements and what it knows. */
 function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
   const catalog: PolityView['build']['catalog'] = [];
-  BUILDINGS.forEach((definition, type) => { if (buildingKnown(civ.knowledge, type)) catalog.push({ type, name: definition.name, purpose: definition.purpose, cost: definition.cost, upkeep: definition.upkeep, minTier: definition.minTier }); });
+  BUILDINGS.forEach((definition, type) => {
+    if (buildingKnown(civ.knowledge, type)) catalog.push({ type, name: definition.name, purpose: definition.purpose, cost: buildingCost(state, civ, type), upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast, works: definition.effects.works ?? '' });
+  });
   const settlements: PolityView['build']['settlements'] = [];
   if (catalog.length) for (const groupId of civ.groups) {
     const group = state.groups[groupId], region = group.region;
     // Foreign peoples on the region's borders, as it sees them (its neighbours are always in sight).
     const foreign = new Set<number>();
     for (const edge of state.partition.regions[region].neighbors) { const view = regionView(state, civ, edge.region); if (view && view.occupant >= 0 && view.occupant !== civ.id) foreign.add(view.occupant); }
-    for (const settlement of livingSettlements(state, region)) {
-      const has = settlement.buildings.map(building => building.type);
+    const here = livingSettlements(state, region);
+    // What the region has, or is building, of the buildings one region needs only one of.
+    const regionHas: number[] = [];
+    for (const settlement of here) {
+      for (const building of settlement.buildings) if (BUILDINGS[building.type].perRegion) regionHas.push(building.type);
+      for (const project of civ.projects) if (project.settlement === settlement.id && BUILDINGS[project.type].perRegion) regionHas.push(project.type);
+    }
+    let seaLinks = 0;
+    for (const link of state.partition.regions[region].sea) if (crosses(civ.knowledge.sea, link.km)) seaLinks++;
+    const mineYield = siteIncome(state, civ, region, 'mineral'), quarryYield = siteIncome(state, civ, region, 'stone');
+    for (const settlement of here) {
+      const has = [...regionHas, ...settlement.buildings.map(building => building.type)];
       for (const project of civ.projects) if (project.settlement === settlement.id) has.push(project.type);
       settlements.push({
         id: settlement.id, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, hardship: state.hardship[region],
         farmShare: group.farmShare, stability: state.stability[region], frontier: foreign.size, has,
+        coast: bySea(state, settlement.cell), seaLinks, mineYield, quarryYield,
       });
     }
   }
   return { wealth: civ.wealth, income: incomeOf(state, civ), upkeep: upkeepOf(state, civ), regions: civ.groups.length, catalog, settlements };
+}
+
+/** Whether the sea lies beside a cell (where a harbor may stand). */
+function bySea(state: SimulationState, cell: number) {
+  const near = new Int32Array(4);
+  for (const other of cellNeighbors(state.geography, cell, near)) if (other >= 0 && state.geography.marine[other]) return true;
+  return false;
 }
 
 /** How ready a people is to accept an exchange: less with strong Tradition and another way of life, less when it would
@@ -337,7 +380,7 @@ export function willingness(tradition: number, similarity: number, gain: number)
 }
 
 export function decisionView(state: SimulationState, polity: Polity): PolityView {
-  const regions = state.partition.regions, map = polity.map, sea = polity.knowledge.sea;
+  const regions = state.partition.regions, map = polity.map;
   const own = new Set<number>();
   let people = 0, pressure = 0, hunger = 0, value = 0;
   for (const id of polity.groups) {
@@ -362,7 +405,8 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   };
   for (const region of own) {
     for (const edge of regions[region].neighbors) consider(region, edge.region, edgeKm(edge.travelKm, edge.riverTier));
-    if (sea > 0) for (const link of regions[region].sea) if (sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) consider(region, link.region, seaKm(link.km));
+    const sea = seaFrom(state, polity, region);
+    if (sea > 0) for (const link of regions[region].sea) if (crosses(sea, link.km)) consider(region, link.region, seaKm(link.km));
   }
   // Travel from the capital only matters when there is land to weigh (most steps in a full world have none).
   if (found.size) {
@@ -424,7 +468,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   partners.sort((a, b) => a.polity - b.polity);
   return {
     build: buildView(state, polity),
-    id: polity.id, tick: state.tick, values: { ...state.cultures[polity.culture].values }, sea, seaTick: polity.seaTick,
+    id: polity.id, tick: state.tick, values: { ...state.cultures[polity.culture].values }, sea: polity.knowledge.sea, seaTick: polity.seaTick,
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,
     ownValue: own.size ? value / own.size : 0,

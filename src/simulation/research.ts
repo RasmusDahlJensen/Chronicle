@@ -1,11 +1,11 @@
 import { coreRegion, landPressure } from './bands.ts';
 import { blockedExtraction } from './deposits.ts';
-import { observe, shareSurroundings } from './perception.ts';
+import { crosses, observe, seaFrom, shareSurroundings } from './perception.ts';
 import { farmingPotential } from './food.ts';
 import { advance, chooseTarget, knows, learn, remaining, speedOf, type ResearchContext } from './knowledge.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
 import { TECH_INDEX, TECHS, type Affinity } from './techs.ts';
-import { MOBILITY_TUNING, RESEARCH_TUNING, SHARE_TUNING, STABILITY_TUNING } from './tunables.ts';
+import { RESEARCH_TUNING, SHARE_TUNING, STABILITY_TUNING } from './tunables.ts';
 import { unrestDepth } from './pressure.ts';
 import { townsResearch } from './economy.ts';
 import { WORLD_BIOMES } from '../../shared/generated-world.ts';
@@ -80,7 +80,8 @@ export function refreshContacts(state: SimulationState, polity: Polity) {
     };
     for (const region of frontier) {
       for (const edge of regions[region].neighbors) visit(edge.region);
-      if (polity.knowledge.sea > 0) for (const link of regions[region].sea) if (polity.knowledge.sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) visit(link.region);
+      const sea = seaFrom(state, polity, region);
+      if (sea > 0) for (const link of regions[region].sea) if (crosses(sea, link.km)) visit(link.region);
     }
     [frontier, next] = [next, frontier];
   }

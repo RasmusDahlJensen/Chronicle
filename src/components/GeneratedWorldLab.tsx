@@ -256,6 +256,7 @@ export function GeneratedWorldLab() {
     }));
     renderer.current.setSettlements(frame.settlements.cells.map((cell, index) => ({
       x: cell % world.width, y: Math.floor(cell / world.width), capital: frame.settlements.capitals[index] === 1, tier: frame.settlements.tiers[index], name: frame.settlements.names[index],
+      features: frame.settlements.features[index],
     })),
       { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE });
   }, [frame, regions, world, canvasRevision]);

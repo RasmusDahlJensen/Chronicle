@@ -127,13 +127,13 @@ export interface Settlement {
   buildings: Building[];
   bonus: BuildingBonus;
 }
-export interface BuildingBonus { research: number; wealth: number; store: number; spoilage: number; stability: number; upkeep: number }
+export interface BuildingBonus { research: number; wealth: number; store: number; spoilage: number; stability: number; upkeep: number; mine: boolean; quarry: boolean; harbor: boolean }
 
 /** A standing building: its type (an index into BUILDINGS), condition (0–1, worn by unpaid upkeep) and when it was built. */
 export interface Building { type: number; condition: number; builtTick: number }
 
 /** A building under construction for a civilization: where, what, the wealth spent so far, and why it was begun. */
-export interface Project { settlement: number; type: number; spent: number; startedTick: number; causes: { factor: string; weight: number }[] }
+export interface Project { settlement: number; type: number; spent: number; cost: number; startedTick: number; causes: { factor: string; weight: number }[] }
 
 /** People of one polity, culture and region; integer size with fractional birth and death carries. */
 export interface PopulationGroup {
@@ -264,6 +264,8 @@ export interface SimulationState {
   owner: Int32Array;
   /** Per region: hardship (0–1), the memory of hunger — the worst recent shortfall of food, fading over the years. */
   hardship: Float64Array;
+  /** Per region: standing harbors in its living settlements (VISION.md: sea crossings start only from a region with one). */
+  harbors: Uint8Array;
   /** Per region: every settlement ever founded there (living or in ruins), in founding order; the first living one is
    *  the region's main settlement. */
   regionSettlements: number[][];

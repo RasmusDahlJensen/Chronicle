@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 12;
+export const SIMULATION_PROTOCOL_VERSION = 13;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -106,6 +106,8 @@ export const ObserverFrameSchema = Type.Object({
     owners: Type.Array(id(), { maxItems: 50_000 }), capitals: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 50_000 }),
     tiers: Type.Array(Type.Integer({ minimum: 0, maximum: SETTLEMENT_TIERS.length - 1 }), { maxItems: 50_000 }),
     names: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 50_000 }),
+    /** What stands there that the map draws at detail zoom: 1 harbor, 2 mine, 4 quarry (a bitmask). */
+    features: Type.Array(Type.Integer({ minimum: 0, maximum: 7 }), { maxItems: 50_000 }),
   }, { additionalProperties: false }),
   /** [year, world population, living polities] every SERIES_YEARS, for the world chart. */
   series: Type.Array(Type.Tuple([Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 })]), { maxItems: 1_000 }),
@@ -215,7 +217,7 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   if ([regions, populations, kinds, eras, lineages].some(array => array.length !== ids.length)) throw invalid();
   if (lineages.some(lineage => lineage >= frame.lineages.length)) throw invalid();
   const settlements = frame.settlements;
-  if ([settlements.cells, settlements.owners, settlements.capitals, settlements.tiers, settlements.names].some(array => array.length !== settlements.ids.length)) throw invalid();
+  if ([settlements.cells, settlements.owners, settlements.capitals, settlements.tiers, settlements.names, settlements.features].some(array => array.length !== settlements.ids.length)) throw invalid();
   // One marker per region; all of a polity's markers agree on its kind.
   const civs = new Set<number>(), polities = new Set(ids), kindOf = new Map<number, number>();
   if (new Set(regions).size !== regions.length) throw invalid();

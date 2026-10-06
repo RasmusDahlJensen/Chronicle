@@ -18,7 +18,7 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, SERIES_YEARS } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 9;
+export const SIMULATION_RULES_VERSION = 10;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
@@ -41,7 +41,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
   const state: SimulationState = {
     seedText, seed: seedFromText(seedText), tick: 0, geography, partition, food: buildFoodModel(geography, partition),
     chronicle: new Chronicle(), cultures: [], polities: [], groups: [], living: [],
-    settlements: [], regionSettlements: Array.from({ length: regions }, () => []), owner: new Int32Array(regions).fill(-1), hardship: new Float64Array(regions), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions),
+    settlements: [], regionSettlements: Array.from({ length: regions }, () => []), owner: new Int32Array(regions).fill(-1), hardship: new Float64Array(regions), harbors: new Uint8Array(regions), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions),
     lineages: [],
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1), groupAt: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),

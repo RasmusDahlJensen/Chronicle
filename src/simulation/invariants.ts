@@ -3,10 +3,10 @@ import { bonusOf, housingOf } from './settlements.ts';
 import { EVENT_TYPES } from '../../shared/simulation.ts';
 import type { RegionPartition } from './regions.ts';
 import { cellNeighbors, type SimulationGeography } from './geography.ts';
-import { KNOWN, OBSERVED, UNKNOWN } from './perception.ts';
-import type { Polity, SimulationState } from './state.ts';
+import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
+import type { Polity, Settlement, SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
-import { MOBILITY_TUNING, REGION_TUNING } from './tunables.ts';
+import { REGION_TUNING } from './tunables.ts';
 
 /** Thrown when a tick leaves the world in an impossible state; the scenario and tick are in the message. */
 export class InvariantError extends Error {}
@@ -39,26 +39,21 @@ export function checkInvariants(state: SimulationState) {
   const seen = new Int32Array(regions).fill(-1);
   // Settlements (VISION.md "Settlements"): each living one stands on a land cell of a region its owner holds, listed in
   // that region's index, housing at most its housing; the urban of a region add up to its townspeople (checked below).
-  const villages = new Int32Array(regions), urban = new Float64Array(regions);
+  const villages = new Int32Array(regions), urban = new Float64Array(regions), harbors = new Int32Array(regions);
   for (const settlement of state.settlements) {
     if (!state.regionSettlements[settlement.region]?.includes(settlement.id)) fail(`settlement ${settlement.id} is missing from region ${settlement.region}'s list`);
     if (settlement.status !== 'alive') { if (settlement.capital || settlement.urban !== 0 || settlement.buildings.length) fail(`settlement ${settlement.id} in ruins is a capital or has people or buildings`); continue; }
     if (state.owner[settlement.region] !== settlement.owner) fail(`settlement ${settlement.id} stands in region ${settlement.region}, which its owner ${settlement.owner} does not hold`);
     if (state.partition.regionOf[settlement.cell] !== settlement.region) fail(`settlement ${settlement.id} is not on a land cell of its region`);
     if (!Number.isInteger(settlement.urban) || settlement.urban < 0 || settlement.urban > settlement.housing || !(settlement.tier >= 0 && settlement.tier <= 3)) fail(`settlement ${settlement.id} houses ${settlement.urban} of ${settlement.housing} (tier ${settlement.tier})`);
-    // Buildings: one of each type, in condition, and the housing they give.
-    if (settlement.housing !== housingOf(settlement)) fail(`settlement ${settlement.id}'s housing is not what its buildings give`);
-    if (settlement.buildings.length) {
-      const bonus = bonusOf(settlement.buildings), held = settlement.bonus;
-      if (bonus.research !== held.research || bonus.wealth !== held.wealth || bonus.store !== held.store || bonus.spoilage !== held.spoilage || bonus.stability !== held.stability || bonus.upkeep !== held.upkeep) fail(`settlement ${settlement.id}'s bonus is not what its buildings give`);
-      if (!state.polities[settlement.owner].repairing && settlement.buildings.some(building => building.condition < 1)) fail(`settlement ${settlement.id} has worn buildings its owner is not mending`);
-    } else if (settlement.bonus.research !== 1 || settlement.bonus.wealth !== 1 || settlement.bonus.store !== 1 || settlement.bonus.spoilage !== 1 || settlement.bonus.stability !== 0 || settlement.bonus.upkeep !== 0) fail(`settlement ${settlement.id} has a bonus without buildings`);
-    if (new Set(settlement.buildings.map(building => building.type)).size !== settlement.buildings.length || settlement.buildings.some(building => !(building.condition > 0 && building.condition <= 1) || !BUILDINGS[building.type])) fail(`settlement ${settlement.id} has invalid buildings`);
-    villages[settlement.region]++; urban[settlement.region] += settlement.urban;
+    // Buildings: one of each type, in condition, and the housing and bonus they give (yearly per settlement, staggered).
+    if ((state.tick + settlement.id) % 12 === 0) checkBuildings(state, settlement, fail);
+    villages[settlement.region]++; urban[settlement.region] += settlement.urban; if (settlement.bonus.harbor) harbors[settlement.region]++;
     if (settlement.capital && state.polities[settlement.owner]?.capital !== settlement.id) fail(`settlement ${settlement.id} is a capital its owner does not name`);
   }
   let indexed = 0;
   for (const list of state.regionSettlements) indexed += list.length;
+  for (let region = 0; region < regions; region++) if (state.harbors[region] !== harbors[region]) fail(`region ${region} counts ${state.harbors[region]} harbors, not its ${harbors[region]}`);
   if (indexed !== state.settlements.length) fail(`the region index lists ${indexed} settlements of ${state.settlements.length}`);
   for (const id of state.living) {
     const polity = state.polities[id];
@@ -110,7 +105,7 @@ export function checkInvariants(state: SimulationState) {
     if (!(polity.wealthCarry >= 0 && polity.wealthCarry < 1 && polity.upkeepCarry >= 0 && polity.upkeepCarry < 1)) fail(`polity ${id} carries ${polity.wealthCarry} wealth and ${polity.upkeepCarry} upkeep`);
     for (const project of polity.projects) {
       const settlement = state.settlements[project.settlement];
-      if (!settlement || !BUILDINGS[project.type] || !Number.isInteger(project.spent) || project.spent < 0 || project.spent >= BUILDINGS[project.type].cost) fail(`polity ${id} has an invalid work ${JSON.stringify(project)}`);
+      if (!settlement || !BUILDINGS[project.type] || !Number.isInteger(project.cost) || project.cost <= 0 || project.cost > BUILDINGS[project.type].cost || !Number.isInteger(project.spent) || project.spent < 0 || project.spent >= project.cost) fail(`polity ${id} has an invalid work ${JSON.stringify(project)}`);
     }
     if (polity.kind === 'civ' && !ledger.wealth.has(id) && polity.wealth !== 0) fail(`civilization ${id}'s treasury changed with no flows recorded`);
   }
@@ -140,6 +135,20 @@ export function checkInvariants(state: SimulationState) {
     const game = state.gameStock[region];
     if (!(game > 0 && game <= 1)) fail(`region ${region} game stock is ${game}`);
   }
+}
+
+/** A living settlement's buildings: one of each type, in condition, mended while upkeep is paid, and the housing and
+ *  bonus they give. */
+function checkBuildings(state: SimulationState, settlement: Settlement, fail: (message: string) => never) {
+  if (settlement.housing !== housingOf(settlement)) fail(`settlement ${settlement.id}'s housing is not what its buildings give`);
+  if (settlement.buildings.length) {
+    const bonus = bonusOf(settlement.buildings), held = settlement.bonus;
+    if (bonus.research !== held.research || bonus.wealth !== held.wealth || bonus.store !== held.store || bonus.spoilage !== held.spoilage || bonus.stability !== held.stability || bonus.upkeep !== held.upkeep
+      || bonus.mine !== held.mine || bonus.quarry !== held.quarry || bonus.harbor !== held.harbor) fail(`settlement ${settlement.id}'s bonus is not what its buildings give`);
+    if (!state.polities[settlement.owner].repairing && settlement.buildings.some(building => building.condition < 1)) fail(`settlement ${settlement.id} has worn buildings its owner is not mending`);
+  } else if (settlement.bonus.research !== 1 || settlement.bonus.wealth !== 1 || settlement.bonus.store !== 1 || settlement.bonus.spoilage !== 1 || settlement.bonus.stability !== 0 || settlement.bonus.upkeep !== 0
+    || settlement.bonus.mine || settlement.bonus.quarry || settlement.bonus.harbor) fail(`settlement ${settlement.id} has a bonus without buildings`);
+  if (new Set(settlement.buildings.map(building => building.type)).size !== settlement.buildings.length || settlement.buildings.some(building => !(building.condition > 0 && building.condition <= 1) || !BUILDINGS[building.type])) fail(`settlement ${settlement.id} has invalid buildings`);
 }
 
 /**
@@ -185,12 +194,12 @@ function checkMap(state: SimulationState, polity: Polity, fail: (message: string
   for (const other of polity.met.keys()) { const them = state.polities[other]; if (them.deathTick === null && !them.met.has(id)) fail(`polity ${id} has met ${other}, but not the other way round`); }
   // Sight that is not due for a rebuild is exactly what its groups and sea reach give, and it has met everyone in it.
   if (!map.dirty && map.sea === polity.knowledge.sea) {
-    const regions = state.partition.regions, sea = polity.knowledge.sea, expected = new Set<number>();
+    const regions = state.partition.regions, expected = new Set<number>();
     for (const groupId of polity.groups) {
-      const here = regions[state.groups[groupId].region];
+      const here = regions[state.groups[groupId].region], sea = seaFrom(state, polity, here.id);
       expected.add(here.id);
       for (const edge of here.neighbors) expected.add(edge.region);
-      if (sea > 0) for (const link of here.sea) if (sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) expected.add(link.region);
+      if (sea > 0) for (const link of here.sea) if (crosses(sea, link.km)) expected.add(link.region);
     }
     if (expected.size !== map.observed.length || map.observed.some(region => !expected.has(region))) fail(`polity ${id}'s sight is not what its land and sea reach give`);
     for (const region of map.observed) {

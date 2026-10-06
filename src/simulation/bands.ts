@@ -5,14 +5,14 @@ import { inheritKnowledge, learn, mergeKnowledge, newTechs, startingKnowledge, t
 import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createLanguage, createName } from './names.ts';
-import { absorbMap, arrive, capitalKm, emptyMap, forgetMap, governable, inheritContacts, joinView, lookAgain } from './perception.ts';
+import { absorbMap, arrive, capitalKm, crosses, emptyMap, forgetMap, governable, inheritContacts, joinView, lookAgain, seaFrom } from './perception.ts';
 import { loseWealth, produceWealth, storeEffects } from './economy.ts';
 import { announceSettlement, foundSettlement, growSettlements, house, livingSettlements, ruinSettlements, setCapital } from './settlements.ts';
 import { chooseJoin } from './decisions/join.ts';
 import { landPressure, unrestDepth } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
-import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, MOBILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING } from './tunables.ts';
+import { BAND_TUNING, CLOCK_TUNING, CULTURE_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING } from './tunables.ts';
 
 /**
  * Tribes and settled polities (VISION.md "Food, population and borders"). A polity holds one or more regions with
@@ -92,13 +92,14 @@ export function refuge(state: SimulationState, tribe: Polity, group: PopulationG
   return best;
 }
 
-/** Free regions a band of this polity could move or split into from `region`: land neighbours, and sea crossings its knowledge allows. */
+/** Free regions a band of this polity could move or split into from `region`: land neighbours, and sea crossings its
+ *  knowledge allows from a harbor of its own there (a tribe has none, so it never crosses the sea). */
 export function reachableFree(state: SimulationState, polity: Polity, region: number) {
-  const here = state.partition.regions[region], sea = polity.knowledge.sea;
+  const here = state.partition.regions[region], sea = seaFrom(state, polity, region);
   const options = here.neighbors.filter(edge => state.occupant[edge.region] < 0).map(edge => ({ region: edge.region, riverTier: edge.riverTier, travelKm: edge.travelKm }));
   if (sea > 0) {
     for (const link of here.sea) {
-      if (state.occupant[link.region] >= 0 || (sea < 2 && link.km > MOBILITY_TUNING.coastalSailingKm)) continue;
+      if (state.occupant[link.region] >= 0 || !crosses(sea, link.km)) continue;
       options.push({ region: link.region, riverTier: 0, travelKm: link.km });
     }
   }

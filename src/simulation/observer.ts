@@ -40,12 +40,13 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     const polity = state.polities[id], capital = state.settlements[polity.capital!];
     return { id, name: polity.name, regions: polity.groups.length, population: people, era: polity.knowledge.era, capital: capital.name, capitalCell: capital.cell };
   });
-  const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[], tiers: [] as number[], names: [] as string[] };
+  const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[], tiers: [] as number[], names: [] as string[], features: [] as number[] };
   for (const settlement of state.settlements) {
     if (settlement.status !== 'alive') continue;
     settlements.ids.push(settlement.id); settlements.cells.push(settlement.cell); settlements.owners.push(settlement.owner); settlements.capitals.push(settlement.capital ? 1 : 0);
     // Names only for the places a map labels: towns and larger, and capitals.
     settlements.tiers.push(settlement.tier); settlements.names.push(settlement.tier > 0 || settlement.capital ? settlement.name : '');
+    settlements.features.push((settlement.bonus.harbor ? 1 : 0) | (settlement.bonus.mine ? 2 : 0) | (settlement.bonus.quarry ? 4 : 0));
   }
   // At most 500 chart points: thin evenly once a long history exceeds that.
   const step = Math.max(1, Math.ceil(state.series.length / 500));

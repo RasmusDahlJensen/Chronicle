@@ -1,6 +1,7 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { BUILDINGS } from './buildings.ts';
-import { wealthFlows } from './economy.ts';
+import { buildingCost, wealthFlows } from './economy.ts';
+import { lookAgain } from './perception.ts';
 import { applyBuildings, house } from './settlements.ts';
 import type { Polity, Settlement, SimulationState, TickContext } from './state.ts';
 import { BUILD_TUNING } from './tunables.ts';
@@ -54,6 +55,8 @@ function payUpkeep(state: SimulationState, civ: Polity) {
       if (building.condition > 0) continue;
       lost = true;
       state.metrics.buildingsLost++;
+      // A harbor lost: no more sailing from here.
+      if (BUILDINGS[building.type].effects.harbor) { state.harbors[settlement.region]--; lookAgain(civ); }
       state.chronicle.emit({
         type: 'buildingDecayed', actors: [{ id: civ.id, role: 'civ' }], region: settlement.region, settlement: settlement.id,
         causes: [{ factor: 'unpaidUpkeep', weight: Math.max(0.001, Math.round(unpaid * 1000) / 1000) }], importance: 0.06,
@@ -72,10 +75,12 @@ function build(state: SimulationState, tick: number, civ: Polity) {
     const settlement = state.settlements[project.settlement], definition = BUILDINGS[project.type];
     // A settlement lost or fallen to ruin takes the work with it.
     if (settlement.status !== 'alive' || settlement.owner !== civ.id || settlement.buildings.some(building => building.type === project.type)) { state.metrics.projectsAbandoned++; continue; }
-    const instalment = Math.min(definition.cost - project.spent, Math.ceil(definition.cost / definition.months), civ.wealth);
+    const instalment = Math.min(project.cost - project.spent, Math.ceil(project.cost / definition.months), civ.wealth);
     if (instalment > 0) { civ.wealth -= instalment; project.spent += instalment; wealthFlows(state, civ).construction += instalment; }
-    if (project.spent < definition.cost) { remaining.push(project); continue; }
+    if (project.spent < project.cost) { remaining.push(project); continue; }
     settlement.buildings.push({ type: project.type, condition: 1, builtTick: tick });
+    // A harbor: the civilization's sea reach now starts here too (its sight is rebuilt).
+    if (definition.effects.harbor) { state.harbors[settlement.region]++; lookAgain(civ); }
     state.metrics.buildingsCompleted++;
     state.chronicle.emit({
       type: 'buildingCompleted', actors: [{ id: civ.id, role: 'civ' }], region: settlement.region, settlement: settlement.id,
@@ -89,10 +94,11 @@ function build(state: SimulationState, tick: number, civ: Polity) {
 /** The Build action carried out: the building begun in each chosen settlement still standing and without one. */
 export function startProjects(state: SimulationState, tick: number, civ: Polity, type: number, settlements: number[], cited: ChronicleEvent['causes']): string {
   let started = 0;
+  const cost = buildingCost(state, civ, type);
   for (const id of settlements) {
     const settlement = state.settlements[id];
     if (settlement.status !== 'alive' || settlement.owner !== civ.id || settlement.buildings.some(building => building.type === type) || civ.projects.some(project => project.settlement === id && project.type === type)) continue;
-    civ.projects.push({ settlement: id, type, spent: 0, startedTick: tick, causes: cited });
+    civ.projects.push({ settlement: id, type, spent: 0, cost, startedTick: tick, causes: cited });
     started++;
   }
   state.metrics.buildingsStarted += started;

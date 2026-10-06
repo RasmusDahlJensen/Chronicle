@@ -71,7 +71,7 @@ export const TECHS: readonly TechDefinition[] = [
   tech('Herbal medicine', 'Bronze', ['Writing'], 105_600_000, ['medicine'], { multiply: { mortality: 0.95 } }),
   tech('Horseback riding', 'Bronze', ['Animal husbandry', 'Wheel'], 124_800_000, ['military'], { multiply: { military: 1.15, reach: 1.1 } }, { grassland: 2 }),
   // Iron.
-  tech('Iron working', 'Iron', ['Bronze working'], 345_600_000, ['metal', 'military'], { use: ['iron'], multiply: { military: 1.3, farmYield: 1.1 } }),
+  tech('Iron working', 'Iron', ['Bronze working'], 345_600_000, ['metal', 'military'], { use: ['iron'], multiply: { military: 1.3, farmYield: 1.1 }, unlocks: ['quarry'] }),
   tech('Sailing', 'Iron', ['Boatbuilding'], 268_800_000, ['sailing', 'trade'], { mobility: 'coastalSailing', multiply: { fishYield: 1.15, tradeRange: 1.3 }, unlocks: ['harbor'] }, { coastal: 3, fishSite: 1.3 }),
   tech('Currency', 'Iron', ['Writing', 'Bronze working'], 307_200_000, ['trade', 'economy'], { multiply: { tradeRange: 1.3 }, unlocks: ['market'] }),
   tech('Mathematics', 'Iron', ['Writing'], 307_200_000, ['scholarship'], { multiply: { research: 1.15 } }),

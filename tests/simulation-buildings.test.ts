@@ -4,7 +4,9 @@ import { BUILDING_INDEX, BUILDINGS, buildingKnown, validateBuildings } from '../
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { construct, startProjects } from '../src/simulation/construction.ts';
 import { bestBuild, buildScore, need } from '../src/simulation/decisions/build.ts';
-import { incomeOf, loseWealth, produceWealth, transferWealth, wealthFlows } from '../src/simulation/economy.ts';
+import { incomeOf, loseWealth, produceWealth, siteIncome, transferWealth, wealthFlows } from '../src/simulation/economy.ts';
+import { crosses, seaFrom } from '../src/simulation/perception.ts';
+import { RESOURCE_IDS } from '../shared/atlas.ts';
 import { learn, startingKnowledge } from '../src/simulation/knowledge.ts';
 import { createLanguage } from '../src/simulation/names.ts';
 import type { PolityView } from '../src/simulation/perception.ts';
@@ -52,7 +54,7 @@ test('townspeople earn wealth, recorded to the unit; a union passes the treasury
   const other = { id: 1, wealth: 0, projects: [] } as unknown as Polity;
   transferWealth(state, civ, other);
   assert.deepEqual([civ.wealth, other.wealth, wealthFlows(state, civ).given, wealthFlows(state, other).received], [0, 500, 500, 500]);
-  other.projects.push({ settlement: 0, type: 0, spent: 0, startedTick: 0, causes: [] });
+  other.projects.push({ settlement: 0, type: 0, spent: 0, cost: 1, startedTick: 0, causes: [] });
   loseWealth(state, other);
   assert.deepEqual([other.wealth, wealthFlows(state, other).lost, other.projects.length, state.metrics.projectsAbandoned], [0, 500, 0, 1]);
 });
@@ -101,7 +103,8 @@ test('unpaid upkeep wears buildings down until they are lost, an event citing it
 });
 
 test('the Build choice weighs each building\'s need where it is greatest against its cost and upkeep', () => {
-  const settlement = (entry: Partial<PolityView['build']['settlements'][number]>) => ({ id: 1, name: 'Kesh', tier: 1, urban: 8_000, housing: 8_000, hardship: 0, farmShare: 1, stability: 0.9, frontier: 0, has: [] as number[], ...entry });
+  const settlement = (entry: Partial<PolityView['build']['settlements'][number]>) => ({ id: 1, name: 'Kesh', tier: 1, urban: 8_000, housing: 8_000, hardship: 0, farmShare: 1, stability: 0.9, frontier: 0, has: [] as number[],
+    coast: false, seaLinks: 0, mineYield: 0, quarryYield: 0, ...entry });
   const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
   assert.ok(need('food', settlement({ hardship: 0.6 }), values) > need('food', settlement({}), values), 'hard years call for granaries');
   assert.ok(need('faith', settlement({ stability: 0.4 }), values) > need('faith', settlement({}), values), 'unrest calls for shrines and temples');
@@ -109,7 +112,8 @@ test('the Build choice weighs each building\'s need where it is greatest against
   assert.ok(need('housing', settlement({ urban: 7_900 }), values) > 0.5 && need('housing', settlement({ urban: 2_000 }), values) === 0, 'crowded towns need housing');
   assert.equal(need('defense', settlement({ frontier: 0 }), values), 0, 'no foreign neighbours, no walls');
   const granary = BUILDING_INDEX.get('granary')!, temple = BUILDING_INDEX.get('temple')!;
-  const kinds = [granary, temple].map(type => ({ type, name: BUILDINGS[type].name, purpose: BUILDINGS[type].purpose, cost: BUILDINGS[type].cost, upkeep: BUILDINGS[type].upkeep, minTier: BUILDINGS[type].minTier }));
+  const kind = (type: number) => ({ type, name: BUILDINGS[type].name, purpose: BUILDINGS[type].purpose, cost: BUILDINGS[type].cost, upkeep: BUILDINGS[type].upkeep, minTier: BUILDINGS[type].minTier, coast: BUILDINGS[type].coast, works: BUILDINGS[type].effects.works ?? '' as const });
+  const kinds = [granary, temple].map(kind);
   const view = (settlements: ReturnType<typeof settlement>[], wealth = 100_000, income = 50_000) => ({ values, build: { wealth, income, upkeep: 0, regions: 1, catalog: kinds, settlements } }) as unknown as PolityView;
   const hungry = view([settlement({ id: 1, hardship: 0.8 }), settlement({ id: 2, hardship: 0.1, name: 'Tal' })]);
   const option = bestBuild(hungry)!;
@@ -118,4 +122,35 @@ test('the Build choice weighs each building\'s need where it is greatest against
   assert.equal(buildScore(view([settlement({ has: [granary] })]), kinds[0]).score, Number.NEGATIVE_INFINITY, 'nothing to build where it stands');
   assert.equal(buildScore(view([settlement({ tier: 0 })]), kinds[1]).score, Number.NEGATIVE_INFINITY, 'a temple needs a town');
   assert.ok(buildScore(view([settlement({ hardship: 0.8 })], 0, 100), kinds[0]).score < option.score, 'a poor civilization weighs the cost more');
+  // Mines and quarries are worth what their region's usable sites would earn, whatever the settlement's size; a harbor
+  // needs the sea beside the settlement and crossings within reach.
+  const mine = kind(BUILDING_INDEX.get('mine')!), harbor = kind(BUILDING_INDEX.get('harbor')!);
+  assert.equal(buildScore(view([settlement({})]), mine).score, Number.NEGATIVE_INFINITY, 'no usable deposits, no mine');
+  const rich = buildScore(view([settlement({ tier: 0, urban: 500, mineYield: 4_000 })]), mine);
+  assert.ok(rich.score > 0 && rich.factors[0].factor === 'deposits', 'gold in a small village is worth a mine');
+  assert.equal(buildScore(view([settlement({ seaLinks: 3 })]), harbor).score, Number.NEGATIVE_INFINITY, 'inland');
+  assert.ok(buildScore(view([settlement({ coast: true, seaLinks: 3 })]), harbor).score > buildScore(view([settlement({ coast: true, seaLinks: 1 })]), harbor).score, 'more crossings in reach');
+});
+
+test('a mine works its region\'s mineral sites for wealth, once the civilization can use them; a harbor opens the sea from its region', () => {
+  const { state, civ } = fixture();
+  const gold = RESOURCE_IDS.indexOf('gold') + 1, copper = RESOURCE_IDS.indexOf('copper') + 1;
+  Object.assign(state.partition.regions[0], { sites: [[0, gold], [1, copper]], sea: [] });
+  Object.assign(state, { harbors: new Uint8Array(1), owner: new Int32Array([0]) });
+  civ.knowledge = startingKnowledge();
+  const town = foundSettlement(state, createRng(5, 5), civ, 0, true, 0)!;
+  assert.equal(siteIncome(state, civ, 0, 'mineral'), 0, 'without Mining nothing is usable');
+  for (const name of ['Masonry', 'Mining']) civ.knowledge = learn(civ.knowledge, TECH_INDEX.get(name)!);
+  assert.equal(siteIncome(state, civ, 0, 'mineral'), WEALTH_TUNING.siteYield.gold, 'gold once mined; copper only with Copper working');
+  assert.equal(incomeOf(state, civ), 0, 'but only a mine works it');
+  town.buildings.push({ type: BUILDING_INDEX.get('mine')!, condition: 1, builtTick: 0 }); applyBuildings(town);
+  assert.equal(incomeOf(state, civ), WEALTH_TUNING.siteYield.gold);
+  // Sea reach from a region needs Sailing and a standing harbor there, in the civilization's own land.
+  civ.knowledge = learn(learn(learn(learn(civ.knowledge, TECH_INDEX.get('Pottery')!), TECH_INDEX.get('Boatbuilding')!), TECH_INDEX.get('Fishing')!), TECH_INDEX.get('Sailing')!);
+  assert.equal(seaFrom(state, civ, 0), 0, 'no harbor');
+  state.harbors[0] = 1;
+  assert.equal(seaFrom(state, civ, 0), 1);
+  state.owner[0] = -1;
+  assert.equal(seaFrom(state, civ, 0), 0, 'not its land');
+  assert.ok(crosses(1, 300) && !crosses(1, 301) && crosses(2, 5_000) && !crosses(0, 10));
 });

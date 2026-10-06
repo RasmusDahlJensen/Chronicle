@@ -3,11 +3,11 @@ import { endPolity, learnFrom, move, newGroup, polityPopulation, refuge, regionC
 import { foundSettlement, house, livingSettlements, setCapital } from './settlements.ts';
 import { transferWealth } from './economy.ts';
 import { newTechs } from './knowledge.ts';
-import { absorbMap, arrive, governable, lookAgain, meet, reveal, UNKNOWN } from './perception.ts';
+import { absorbMap, arrive, crosses, governable, lookAgain, meet, reveal, seaFrom, UNKNOWN } from './perception.ts';
 import { assess } from './stability.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
-import { EXPAND_TUNING, EXPLORE_TUNING, MOBILITY_TUNING, UNITE_TUNING } from './tunables.ts';
+import { EXPAND_TUNING, EXPLORE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * Carrying out what a civilization decided (VISION.md "Expansion", "Migration", "Exploration"). This is physical: it
@@ -89,11 +89,12 @@ export function expand(state: SimulationState, context: Pick<TickContext, 'tick'
  * (ties at random), mapping every region it passes and those next to them, and meeting whoever lives on its path.
  */
 export function explore(state: SimulationState, tick: number, rng: Rng, civ: Polity, cited: ChronicleEvent['causes']): string {
-  const regions = state.partition.regions, map = civ.map, sea = civ.knowledge.sea;
+  const regions = state.partition.regions, map = civ.map;
   const unknownAround = (region: number) => regions[region].neighbors.reduce((count, edge) => count + (map.status[edge.region] === UNKNOWN ? 1 : 0), 0);
+  // Over land, and across the sea only from a harbor of its own (VISION.md "Mobility"; voyages come with M5).
   const next = (region: number) => {
-    const options = regions[region].neighbors.map(edge => edge.region);
-    if (sea > 0) for (const link of regions[region].sea) if (sea >= 2 || link.km <= MOBILITY_TUNING.coastalSailingKm) options.push(link.region);
+    const options = regions[region].neighbors.map(edge => edge.region), sea = seaFrom(state, civ, region);
+    if (sea > 0) for (const link of regions[region].sea) if (crosses(sea, link.km)) options.push(link.region);
     return options;
   };
   // Its own regions' neighbours are always in sight, so expeditions set out from the edge of its sight: the region
@@ -106,7 +107,7 @@ export function explore(state: SimulationState, tick: number, rng: Rng, civ: Pol
   if (start < 0) return 'no unknown land within reach';
   let revealed = 0, met = 0, at = start;
   const visited = new Set([start]);
-  for (let step = 0; step < EXPLORE_TUNING.range[sea]; step++) {
+  for (let step = 0; step < EXPLORE_TUNING.range[civ.knowledge.sea]; step++) {
     const options = next(at).filter(region => !visited.has(region));
     if (!options.length) break;
     const scores = options.map(region => 1 + unknownAround(region) + (map.status[region] === UNKNOWN ? 2 : 0));

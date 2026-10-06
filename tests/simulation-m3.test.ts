@@ -34,7 +34,7 @@ function strip() {
     sea: id === 5 ? [{ region: 6, km: 200 }] : [],
   })), { id: 6, landmass: 1, neighbors: [], sea: [{ region: 5, km: 200 }] }];
   const state = {
-    tick: 0, partition: { regions }, occupant: new Int32Array(7).fill(-1), owner: new Int32Array(7).fill(-1), groupAt: new Int32Array(7).fill(-1),
+    tick: 0, partition: { regions }, occupant: new Int32Array(7).fill(-1), owner: new Int32Array(7).fill(-1), groupAt: new Int32Array(7).fill(-1), harbors: new Uint8Array(7),
     groups: [] as { id: number; region: number }[], polities: [] as Polity[], metrics: { firstContacts: 0 }, chronicle: new Chronicle(),
   } as unknown as SimulationState;
   const polity = (kind: 'band' | 'civ', name: string, region: number) => {
@@ -107,11 +107,14 @@ test('neighbours tell a civilization what they see; a breakaway knows whom its p
   const child = polity('band', 'Orani', 3);
   inheritContacts(state, child, neighbour, 12);
   assert.ok(hasMet(child, neighbour.id) && hasMet(child, civ.id) && hasMet(civ, child.id) && hasMet(neighbour, child.id));
-  // Coastal sailing reaches the island 200 km off region 5: someone living there is met across the sea.
-  const islanders = polity('band', 'Tiru', 6), sailors = polity('band', 'Mena', 5);
+  // Coastal sailing from a harbor reaches the island 200 km off region 5: someone living there is met across the sea.
+  const islanders = polity('band', 'Tiru', 6), sailors = polity('civ', 'Mena', 5);
   observe(state, sailors, 12);
   assert.equal(hasMet(sailors, islanders.id), false, 'on foot the island is out of sight');
   (sailors.knowledge as { sea: number }).sea = 1;
+  observe(state, sailors, 18);
+  assert.equal(hasMet(sailors, islanders.id), false, 'Sailing without a harbor there: still out of sight');
+  state.harbors[5] = 1;
   observe(state, sailors, 24);
   assert.ok(hasMet(sailors, islanders.id) && hasMet(islanders, sailors.id));
   // A seafarer that already sees an empty island meets newcomers there the month they land, though they cannot see back.
