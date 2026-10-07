@@ -250,6 +250,14 @@ test('farming bands settle into civilizations with villages, specialists, resear
   const weighed = details.getByRole('list', { name: 'Options weighed' });
   await expect(weighed).toContainText('Do nothing');
   expect(await weighed.getByRole('listitem').count()).toBeGreaterThanOrEqual(2);
+  // M5.1: its Diplomacy: the peoples it knows best, with its opinion of them and why, its beliefs and their intimacy.
+  const inspected = (await (await page.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${civ.region}`)).json()).inspect.polity;
+  expect(inspected.diplomacy.length).toBeGreaterThan(0);
+  const relations = details.getByRole('list', { name: 'Relations' });
+  await expect(relations.getByRole('listitem')).toHaveCount(inspected.diplomacy.length);
+  await expect(relations.getByRole('listitem').first()).toContainText(inspected.diplomacy[0].name);
+  await expect(relations.getByRole('listitem').first()).toContainText(`intimacy ${inspected.diplomacy[0].intimacy.toFixed(2)}`);
+  await expect(relations).toContainText(/opinion [+-]?\d+/);
   // The political map marks capitals with stars, and the civilization list takes the observer to one.
   await expect.poll(async () => Number(await canvas.getAttribute('data-capital-marks'))).toBeGreaterThan(0);
   const civilizations = history(page).getByRole('list', { name: 'Civilizations' });

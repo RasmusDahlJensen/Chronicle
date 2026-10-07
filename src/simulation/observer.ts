@@ -8,7 +8,7 @@ import { realmAccount, settlementAccount } from './budget.ts';
 import { regionFarm, wonderBonus } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
-import { capitalKm, knownRegionCount } from './perception.ts';
+import { believe, capitalKm, knownRegionCount } from './perception.ts';
 import { stabilityOf } from './stability.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState } from './state.ts';
 import { ancestry, lineOf } from './culture.ts';
@@ -135,6 +135,15 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
       reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: Math.round(kmFromCapital),
       lastDecision: lastDecision(polity),
+      diplomacy: polity.kind !== 'civ' ? [] : [...polity.relations].filter(([other]) => state.polities[other].deathTick === null)
+        .sort((a, b) => b[1].intimacy - a[1].intimacy || b[1].opinion - a[1].opinion || a[0] - b[0]).slice(0, 24).map(([other, relation]) => {
+          const them = state.polities[other];
+          return {
+            id: other, name: them.name, kind: them.kind, opinion: relation.opinion, reasons: relation.reasons.slice(0, 4), intimacy: round(relation.intimacy),
+            people: Math.round(believe(state, polity, them, 'people').estimate), strength: Math.round(believe(state, polity, them, 'strength').estimate),
+            sharing: (polity.exchanges.get(other) ?? 0) > state.tick, met: Math.floor((polity.met.get(other) ?? 0) / 12),
+          };
+        }),
       stability: polity.kind !== 'civ' ? null : (() => {
         const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);
         return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), faith: round(now.faith), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears) };
@@ -244,6 +253,7 @@ function lastDecision(polity: Polity): NonNullable<NonNullable<ObserverFrame['in
     options: step.options.slice(0, 4).map(option => ({
       action: option.action, score: option.score, target: option.target, label: option.label,
       factors: option.factors.filter(entry => entry.weight !== 0).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).slice(0, 8),
+      ...(option.beliefs ? { beliefs: option.beliefs.slice(0, 4) } : {}),
     })),
   };
 }

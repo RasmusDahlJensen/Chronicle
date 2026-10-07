@@ -2,6 +2,7 @@ import { causes } from './bands.ts';
 import { choose, drivers } from './decisions/choose.ts';
 import { expand, explore, unite } from './expansion.ts';
 import { decisionView } from './perception.ts';
+import { truthOf } from './relations.ts';
 import { share } from './sharing.ts';
 import { beginWonder, startProjects, startRoads } from './construction.ts';
 import type { SimulationState, TickContext } from './state.ts';
@@ -25,6 +26,9 @@ export function decide(state: SimulationState, context: TickContext) {
     const view = decisionView(state, polity);
     const { chosen, options } = choose(view, context.stream(id));
     const cited = causes(Object.fromEntries(drivers(chosen).map(entry => [entry.factor, entry.weight])));
+    // The beliefs each option weighed, beside the truth before anything is done (for the study and the lab; the choice
+    // never saw it).
+    const beliefs = options.map(option => option.beliefs?.map(belief => ({ ...belief, truth: Math.round(truthOf(state, state.polities[belief.polity], belief.kind)) })));
     let outcome = 'did nothing';
     if (chosen.action === 'expand') {
       const candidate = view.candidates.find(entry => entry.region === chosen.target)!;
@@ -38,10 +42,18 @@ export function decide(state: SimulationState, context: TickContext) {
     else if (chosen.action === 'build' && chosen.wonder) outcome = beginWonder(state, context.tick, polity, chosen.target!, chosen.targets![0], cited);
     else if (chosen.action === 'build') outcome = startProjects(state, context.tick, polity, chosen.target!, chosen.targets ?? [], cited);
     state.metrics.chosen[chosen.action]++;
+    const weighed = beliefs[options.indexOf(chosen)];
+    if (weighed?.length) {
+      state.metrics.beliefDecisions++;
+      if (weighed.some(belief => Math.abs(belief.estimate / Math.max(1, belief.truth) - 1) > 0.5)) state.metrics.beliefsFarOff++;
+    }
     polity.decisions.push({
       tick: context.tick, chosen: chosen.action, pick: options.indexOf(chosen), outcome,
       // Land beyond all reach scores −∞; the log keeps a finite floor.
-      options: options.map(option => ({ action: option.action, score: Math.max(-1, Math.round(option.score * 1000) / 1000), target: option.target, label: option.label, factors: option.factors })),
+      options: options.map((option, at) => ({
+        action: option.action, score: Math.max(-1, Math.round(option.score * 1000) / 1000), target: option.target, label: option.label, factors: option.factors,
+        ...(beliefs[at] ? { beliefs: beliefs[at] } : {}),
+      })),
     });
     if (polity.decisions.length > DECISION_TUNING.logSize) polity.decisions.shift();
   }

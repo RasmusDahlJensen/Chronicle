@@ -110,8 +110,19 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
         <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map((option, index) => <li key={index}>
           <span>{ACTION_NAMES[option.action]} {option.score.toFixed(2)}</span>
           <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
+          {option.beliefs?.map(belief => <span key={`${belief.polity}-${belief.kind}`} className="world-decision-belief">believed {BELIEF_NAMES[belief.kind]} {number.format(belief.estimate)} (truly {number.format(belief.truth)})</span>)}
         </li>)}</ol>
       </> : <p className="atlas-panel-note">No decision yet: a civilization weighs expanding, exploring, uniting, sharing knowledge or doing nothing every six months.</p>}
+    </section>}
+    {civ && polity.diplomacy.length > 0 && <section className="world-polity-diplomacy" aria-label="Diplomacy">
+      <p className="atlas-detail-label">Diplomacy · the peoples it knows best</p>
+      <ol className="world-diplomacy" aria-label="Relations">{polity.diplomacy.map(row => <li key={row.id}>
+        <span className="world-diplomacy-name">{row.name} <span>{row.kind === 'civ' ? 'civilization' : 'tribe'} · met in year {number.format(row.met)}{row.sharing ? ' · sharing knowledge' : ''}</span></span>
+        <span className={row.opinion >= 0 ? 'world-opinion-warm' : 'world-opinion-cold'}>opinion {row.opinion >= 0 ? '+' : ''}{Math.round(row.opinion)}</span>
+        <span>{row.reasons.map(reason => `${REASON_NAMES[reason.factor] ?? reason.factor} ${reason.weight >= 0 ? '+' : ''}${Math.round(reason.weight)}`).join(', ') || 'no strong feelings'}</span>
+        <span>believed {number.format(row.people)} people, strength {number.format(row.strength)} · intimacy {row.intimacy.toFixed(2)}</span>
+      </li>)}</ol>
+      <p className="atlas-panel-note">What it believes of others is off by a misjudgment of its own, smaller the better it knows them; opinion comes from faith, likeness, kinship, borders, sharing and what it remembers.</p>
     </section>}
     <section className="world-polity-knowledge" aria-label="Knowledge">
       <p className="atlas-detail-label">Research · {polity.researchPerYear.toLocaleString('en', { maximumFractionDigits: 1 })} points a year · {polity.contacts} contacts</p>
@@ -126,6 +137,13 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
     </section>
   </div>;
 }
+
+const BELIEF_NAMES = { people: 'people', strength: 'strength', wealth: 'wealth', era: 'era' } as const;
+/** Opinion's reasons as the inspector names them. */
+const REASON_NAMES: Record<string, string> = {
+  sameFaith: 'same faith', rivalFaith: 'rival faith', culture: 'culture', kin: 'kin', sharing: 'sharing knowledge', borderTension: 'border tension',
+  turnedAway: 'turned them away', refusedExchange: 'refused to share',
+};
 
 const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build' } as const;
 const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build' } as const;

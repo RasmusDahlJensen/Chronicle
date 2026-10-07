@@ -118,6 +118,12 @@ export function checkInvariants(state: SimulationState) {
     if (!polity.groups.length || !polity.groups.includes(polity.core)) fail(`polity ${id} has no bands or its core band ${polity.core} is not one of them`);
     if ((polity.together < 0) !== (polity.togetherRuling < 0) || (polity.together < 0) !== (polity.togetherYears === 0) || polity.togetherYears < 0 || polity.together === polity.togetherRuling && polity.together >= 0) fail(`polity ${id} tracks a second people inconsistently`);
     if (polity.stateReligion !== state.groups[polity.core].faith) fail(`polity ${id}'s state religion ${polity.stateReligion} is not its heartland's faith ${state.groups[polity.core].faith}`);
+    // Relations (M5.1): only a civilization keeps them, of peoples it has met, within their bounds.
+    if (polity.relations.size && polity.kind !== 'civ') fail(`tribe ${id} keeps relations`);
+    for (const [other, relation] of polity.relations) {
+      if (other === id || !polity.met.has(other) || !(relation.intimacy >= 0 && relation.intimacy <= 1) || !(Math.abs(relation.opinion) <= 100)
+        || relation.memories.some(memory => !Number.isFinite(memory.points) || memory.tick > state.tick)) fail(`polity ${id}'s relation with ${other} is out of bounds`);
+    }
     // Its ruling culture is its heartland people's (VISION.md "Culture and lineage").
     if (polity.culture !== state.groups[polity.core].culture) fail(`polity ${id}'s ruling culture ${polity.culture} is not its heartland's ${state.groups[polity.core].culture}`);
     const knowledge = polity.knowledge;

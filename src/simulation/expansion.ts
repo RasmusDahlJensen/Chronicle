@@ -4,6 +4,7 @@ import { foundSettlement, house, livingSettlements, setCapital } from './settlem
 import { transferWealth } from './economy.ts';
 import { newTechs } from './knowledge.ts';
 import { absorbMap, arrive, budgetView, crosses, governable, hasHarbor, lookAgain, meet, reveal, seaFrom, UNKNOWN } from './perception.ts';
+import { correct, remember } from './relations.ts';
 import { assess } from './stability.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
@@ -145,12 +146,19 @@ export function admission(state: SimulationState, small: Polity, large: Polity) 
  */
 export function unite(state: SimulationState, tick: number, rng: Rng, small: Polity, large: Polity, border: number, cited: ChronicleEvent['causes']): string {
   if (large.deathTick !== null || large.kind !== 'civ') return 'the other civilization is gone';
-  if (large.groups.length <= small.groups.length) return 'the other civilization is not larger';
+  // It asked as far as it believed them larger; a belief far off meets the truth here, and it learns it (and waits
+  // before asking again).
+  if (polityPopulation(state, large) <= polityPopulation(state, small)) {
+    small.rebuffed.set(large.id, tick);
+    correct(small, large.id);
+    return `the ${large.name} were not as many as believed`;
+  }
   // A refusal is remembered, and counted when only the larger realm's strain made it.
   const { governed, admit } = admission(state, small, large), roll = rng.next();
   if (roll >= admit) {
     if (roll < governed) state.metrics.unionsRefusedForStrain++;
     small.rebuffed.set(large.id, tick);
+    remember(state, small, large.id, 'turnedAway');
     return `the ${large.name} would not take them in`;
   }
   const people = polityPopulation(state, small), regions = small.groups.length, techs = newTechs(large.knowledge, small.knowledge);

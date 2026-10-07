@@ -2,6 +2,7 @@ import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { cultureSimilarity } from './culture.ts';
 import { newTechs } from './knowledge.ts';
 import { willingness } from './perception.ts';
+import { remember } from './relations.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, SimulationState } from './state.ts';
 import { SHARE_TUNING } from './tunables.ts';
@@ -18,7 +19,7 @@ export function share(state: SimulationState, tick: number, rng: Rng, civ: Polit
   const theirs = state.cultures[other.culture].values;
   const willing = willingness(theirs.tradition, cultureSimilarity(state.cultures[civ.culture].values, theirs), newTechs(other.knowledge, civ.knowledge));
   state.metrics.exchangeOffers++;
-  if (!rng.chance(willing)) { civ.exchangeRefused.set(other.id, tick); return `the ${other.name} would not share`; }
+  if (!rng.chance(willing)) { civ.exchangeRefused.set(other.id, tick); remember(state, civ, other.id, 'refusedExchange'); return `the ${other.name} would not share`; }
   const until = tick + SHARE_TUNING.years * 12;
   civ.exchanges.set(other.id, until); other.exchanges.set(civ.id, until);
   civ.exchangeRefused.delete(other.id);

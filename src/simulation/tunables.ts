@@ -296,7 +296,7 @@ export const JOIN_TUNING = {
  * × (1 − strainRefusal × its own budget strain): a realm already strained is loath to take in more (M3c).
  */
 export const UNITE_TUNING = {
-  kin: 0.16, similarity: 0.08, size: 0.22, sizeScale: 1.5, fed: 0.03, stability: 0.03, trouble: 0.25,
+  kin: 0.16, similarity: 0.08, size: 0.15, sizeScale: 1.5, fed: 0.03, stability: 0.03, trouble: 0.25, opinion: 0.1,
   tradition: 0.06, expansionism: 0.06, contentment: 0.1, crossing: 0.25, admitPower: 4, strainRefusal: 0.6,
   /** A civilization turned away does not ask the same one again for this many years. */
   rebuffYears: 30,
@@ -347,7 +347,7 @@ export const EXPLORE_TUNING = {
  * `years`; a refusal is remembered for `refusedYears`.
  */
 export const SHARE_TUNING = {
-  learn: 0.2, kin: 0.03, similarity: 0.02, openness: 0.06, techScale: 4, tradition: 0.12, busy: 0.05, refusal: 1, gainBase: 0.5,
+  learn: 0.2, kin: 0.03, similarity: 0.02, openness: 0.06, techScale: 4, tradition: 0.12, busy: 0.05, refusal: 1, gainBase: 0.5, opinion: 0.05,
   years: 40, refusedYears: 20,
 } as const;
 
@@ -608,6 +608,32 @@ export const NAME_TUNING = { thirdSyllable: 0.3, initialCluster: 0.25, initialCo
 /** Statistics sampled for the lab's world chart. */
 export const SERIES_YEARS = 1;
 
+/**
+ * Beliefs, intimacy and opinion (VISION.md "Beliefs about other polities", "Relations and memory"; M5.1), yearly per
+ * civilization and each living people it has met.
+ * - Beliefs: each of a pair's estimates (population, strength, wealth, era) is off by a bias drawn once,
+ *   exp(N(0, biasSpread)) − 1 within [biasMin, biasMax], times (1 − intimacy).
+ * - Intimacy (0–1) moves toward its target by `rise` a year when below it and by `fade` when above: the target is
+ *   `border` for a shared border, `contact` for being within two regions, `exchange` while they share knowledge
+ *   (trade, alliances, roads and war add later), at most 1; with none of these it fades to 0.
+ * - Opinion (−100 to 100), the sum of its standing reasons and memories: `sameFaith` for the same organized faith,
+ *   −`rivalFaith` × their mean Zeal for rival organized faiths (halved by a tolerant faith), both less in the secular
+ *   age (× 1 − the pair's mean secularity); `culture` × (similarity − `culturePivot`) ÷ (1 − `culturePivot`), within
+ *   ±`culture`, for how alike their cultures are (most cultures are fairly alike: the pivot is a typical likeness);
+ *   `kin` for a shared lineage, `sharing` while they share knowledge; −`borderTension` × min(1, the regions it has on
+ *   their border ÷ `borderScale`) × their mean Expansionism; and each memory's points, halving every `halfLifeYears`
+ *   (forgotten below `forgetBelow` points). Its `reasonCount` strongest reasons are kept.
+ * - A union refused because the other realm was not as many as believed teaches the truth: intimacy rises by
+ *   `correction` (then fades back toward what their contact supports).
+ */
+export const RELATION_TUNING = {
+  biasSpread: 0.5, biasMin: -0.7, biasMax: 2,
+  rise: 0.08, fade: 0.03, border: 0.5, contact: 0.2, exchange: 0.3,
+  sameFaith: 25, rivalFaith: 30, culture: 30, culturePivot: 0.85, kin: 10, sharing: 15, borderTension: 40, borderScale: 4, correction: 0.3,
+  memories: { turnedAway: { points: -20, halfLifeYears: 25 }, refusedExchange: { points: -10, halfLifeYears: 15 } },
+  forgetBelow: 1, reasonCount: 3,
+} as const;
+
 /** Story health measures (VISION.md "Story health"): the largest polity's share of the world's people it may hold except
  *  for a while. */
 export const STORY_TUNING = { dominantShare: 0.35 } as const;
@@ -739,6 +765,11 @@ export function validateTunables() {
   const st2 = STABILITY_TUNING;
   if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.strain >= 0 && st2.strainCore >= 0 && st2.strainCore <= 1 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   if (!(STORY_TUNING.dominantShare > 0 && STORY_TUNING.dominantShare < 1)) problems.push('story health settings are invalid');
+  const rt = RELATION_TUNING;
+  if (!(rt.biasSpread >= 0 && rt.biasMin > -1 && rt.biasMin <= 0 && rt.biasMax >= 0 && rt.rise > 0 && rt.rise <= 1 && rt.fade > 0 && rt.fade <= 1)
+    || ![rt.border, rt.contact, rt.exchange].every(value => value >= 0 && value <= 1) || ![rt.sameFaith, rt.rivalFaith, rt.culture, rt.kin, rt.sharing, rt.borderTension].every(value => value >= 0 && value <= 100)
+    || Object.values(rt.memories).some(memory => !(Math.abs(memory.points) <= 100 && memory.halfLifeYears > 0)) || !(rt.forgetBelow > 0 && Number.isInteger(rt.reasonCount) && rt.reasonCount >= 1)
+    || !(rt.culturePivot >= 0 && rt.culturePivot < 1 && rt.borderScale > 0 && rt.correction >= 0 && rt.correction <= 1)) problems.push('relation settings are invalid');
   const x = EXPLORE_TUNING;
   if (!(x.opennessWeight >= 0 && x.expansionismWeight >= 0 && x.base >= 0 && x.frontierScale > 0 && x.freshMobility >= 0 && x.freshYears > 0 && x.range.length === 3 && x.range.every(steps => Number.isInteger(steps) && steps >= 1))) problems.push('exploration settings are invalid');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);

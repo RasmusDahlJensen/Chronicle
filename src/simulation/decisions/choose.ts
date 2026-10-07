@@ -76,16 +76,17 @@ export function explorationScore(view: PolityView): Option {
 }
 
 /**
- * Uniting with one neighbour (VISION.md "Unification"): kinship, a much larger, well-fed and stable neighbour and its
- * own troubles draw it in; its pride (Tradition, Expansionism), its own contentment and a hard crossing hold it back.
- * Only a larger civilization, as far as it knows, can be joined.
+ * Uniting with one neighbour (VISION.md "Unification"): kinship, a neighbour it believes much more populous (M5.1:
+ * beliefs can be far off), well fed and stable, its own troubles and a good opinion of them draw it in; its pride
+ * (Tradition, Expansionism), its own contentment and a hard crossing hold it back. Only a civilization it believes
+ * larger can be joined.
  */
 export function unionScore(view: PolityView, neighbour: Neighbour): Option {
   const tuning = UNITE_TUNING;
-  const larger = neighbour.knownRegions > view.regions;
-  const size = larger ? Math.min(1, Math.log10(neighbour.knownRegions / Math.max(1, view.regions)) / tuning.sizeScale) : 0;
+  const larger = neighbour.believedPeople > view.people;
+  const size = larger ? Math.min(1, Math.log10(neighbour.believedPeople / Math.max(1, view.people)) / tuning.sizeScale) : 0;
   const parts = {
-    kinship: neighbour.kin ? tuning.kin : 0, similarity: tuning.similarity * neighbour.similarity, size: tuning.size * size,
+    kinship: neighbour.kin ? tuning.kin : 0, similarity: tuning.similarity * neighbour.similarity, size: tuning.size * size, opinion: tuning.opinion * neighbour.opinion / 100,
     fed: tuning.fed * neighbour.fed, stability: tuning.stability * neighbour.stability, trouble: tuning.trouble * Math.min(1, view.hunger + view.unrestShare),
     tradition: -tuning.tradition * view.values.tradition, expansionism: -tuning.expansionism * view.values.expansionism,
     contentment: -tuning.contentment * view.stability, crossing: -tuning.crossing * neighbour.crossingKm / 1000,
@@ -94,6 +95,7 @@ export function unionScore(view: PolityView, neighbour: Neighbour): Option {
   return {
     action: 'unite', score: larger ? score : Number.NEGATIVE_INFINITY, target: neighbour.civ, label: neighbour.name,
     factors: Object.entries(parts).map(([factor, weight]) => ({ factor, weight: round(weight) })),
+    beliefs: [{ polity: neighbour.civ, kind: 'people', estimate: Math.round(neighbour.believedPeople) }],
   };
 }
 
@@ -117,7 +119,7 @@ export function shareScore(view: PolityView, partner: Partner): Option {
   const parts = {
     learning: tuning.learn * learn, kinship: partner.kin ? tuning.kin * teach : 0, similarity: tuning.similarity * partner.similarity * teach,
     openness: tuning.openness * view.values.openness * teach, tradition: -tuning.tradition * view.values.tradition,
-    busy: -tuning.busy * view.exchanges,
+    busy: -tuning.busy * view.exchanges, opinion: tuning.opinion * partner.opinion / 100,
   };
   const score = Object.values(parts).reduce((sum, value) => sum + value, 0) * partner.willing;
   return {

@@ -273,23 +273,25 @@ test('stability: hunger, distance beyond the capital\'s reach and foreign rule l
   assert.equal(unrestDepth(state, 2), 1);
 });
 
-test('uniting: kin, a much larger and better-kept neighbour and its own troubles draw a civilization in; never into a smaller one', () => {
-  const neighbour = (entry: Partial<Neighbour> = {}): Neighbour => ({ civ: 7, name: 'Ora', kin: false, similarity: 0.7, knownRegions: 60, fed: 1, stability: 0.9, crossingKm: 400, border: 3, ...entry });
+test('uniting: kin, a neighbour believed much larger and better kept, a good opinion and its own troubles draw a civilization in; never into one it believes smaller', () => {
+  const neighbour = (entry: Partial<Neighbour> = {}): Neighbour => ({ civ: 7, name: 'Ora', kin: false, similarity: 0.7, knownRegions: 60, believedPeople: 150_000, confidence: 0.5, opinion: 0, fed: 1, stability: 0.9, crossingKm: 400, border: 3, ...entry });
   const score = (entry: Partial<Neighbour>, own: Partial<PolityView> = {}) => unionScore(view({ regions: 4, ...own }), neighbour(entry)).score;
   assert.ok(score({ kin: true }) > score({}), 'kin');
-  assert.ok(score({ knownRegions: 200 }) > score({ knownRegions: 8 }), 'a much larger neighbour');
+  assert.ok(score({ believedPeople: 500_000 }) > score({ believedPeople: 20_000 }), 'a neighbour believed much larger');
+  assert.ok(score({ opinion: 60 }) > score({ opinion: -60 }), 'a good opinion of them');
   assert.ok(score({}, { hunger: 0.6, unrestShare: 0.5 }) > score({}), 'its own hunger and unrest');
   assert.ok(score({}, { stability: 0.95 }) < score({}, { stability: 0.4 }), 'its own contentment holds it back');
   assert.ok(score({ crossingKm: 1800 }) < score({ crossingKm: 300 }), 'mountains or great rivers between them');
-  assert.equal(score({ knownRegions: 3 }), Number.NEGATIVE_INFINITY, 'never into a smaller civilization');
+  assert.equal(score({ believedPeople: 8_000 }), Number.NEGATIVE_INFINITY, 'never into a civilization it believes smaller');
   const option = unionScore(view({ regions: 4 }), neighbour({ kin: true }));
   assert.equal(option.label, 'Ora'); assert.equal(option.target, 7);
+  assert.deepEqual(option.beliefs, [{ polity: 7, kind: 'people', estimate: 150_000 }], 'the belief it weighed is recorded');
   // Uniting competes with the other actions at the same step.
-  assert.ok(options(view({ regions: 4, neighbours: [neighbour({ kin: true, knownRegions: 200 })] }, [{}])).some(entry => entry.action === 'unite'));
+  assert.ok(options(view({ regions: 4, neighbours: [neighbour({ kin: true, believedPeople: 500_000 })] }, [{}])).some(entry => entry.action === 'unite'));
 });
 
 test('sharing knowledge: what it would learn, kinship, likeness and Openness draw a civilization to share; Tradition and an unwilling people hold it back', () => {
-  const partner = (entry: Partial<Partner> = {}): Partner => ({ polity: 9, name: 'Kesh', kind: 'civ', kin: false, similarity: 0.6, teach: 2, learn: 2, willing: 0.8, ...entry });
+  const partner = (entry: Partial<Partner> = {}): Partner => ({ polity: 9, name: 'Kesh', kind: 'civ', kin: false, similarity: 0.6, opinion: 0, teach: 2, learn: 2, willing: 0.8, ...entry });
   const score = (entry: Partial<Partner>, values: Partial<PolityView['values']> = {}) => shareScore(view({ values: { ...view({}).values, ...values } }), partner(entry)).score;
   assert.ok(score({ learn: 4 }) > score({ learn: 0 }), 'what it would learn');
   assert.ok(score({ kin: true }) > score({}), 'kin');
@@ -297,6 +299,7 @@ test('sharing knowledge: what it would learn, kinship, likeness and Openness dra
   assert.ok(score({}, { openness: 0.9 }) > score({}, { openness: 0.1 }), 'Openness');
   assert.ok(score({}, { tradition: 0.9 }) < score({}, { tradition: 0.1 }), 'Tradition holds it back');
   assert.ok(score({ willing: 0.2 }) < score({ willing: 0.9 }), 'a people unlikely to accept');
+  assert.ok(score({ opinion: 50 }) > score({ opinion: -50 }), 'a good opinion of them');
   assert.equal(score({ teach: 0, learn: 0 }), Number.NEGATIVE_INFINITY, 'nothing to teach or learn');
   // What it would learn is the main draw. With nothing to learn, only an open people of little Tradition teaches its
   // kin for nothing in return; an ordinary people does not bother.

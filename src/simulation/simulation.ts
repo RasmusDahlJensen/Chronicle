@@ -8,6 +8,7 @@ import type { SimulationGeography } from './geography.ts';
 import { checkInvariants } from './invariants.ts';
 import { edgeKm, knownRegionCount } from './perception.ts';
 import { regionAffinities, research, shareKnowing } from './research.ts';
+import { relationStats, relationsYear } from './relations.ts';
 import { byWater } from './settlements.ts';
 import { edgeBetween, roadCoverage } from './roads.ts';
 import { construct } from './construction.ts';
@@ -17,21 +18,21 @@ import { cultureStats, cultureYear, harshLand } from './culture.ts';
 import { faithStats } from './faith.ts';
 import { ageFactor, costsOf, realmYears, settlementAccount, sizeFactor, totalCosts } from './budget.ts';
 import { wealthFlows, wonderBonus } from './economy.ts';
-import { ACTIONS, SYSTEMS, VALUE_KEYS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
+import { ACTIONS, MEMORY_REASONS, SYSTEMS, VALUE_KEYS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
 import type { RegionPartition } from './regions.ts';
 import { seedFromText, systemStream } from './rng.ts';
 import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 23;
+export const SIMULATION_RULES_VERSION = 24;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
 /** Rules per system. Empty systems keep their slot, cadence and timing until a milestone fills them. */
 const RUNS: Record<SystemKey, SystemRun> = {
   environment, production: produce, population: populate, knowledge: research, culture: cultureYear,
-  stability: stabilize, decisions: decide, construction: construct, diplomacy: () => {}, war: () => {}, fracture: () => {},
+  stability: stabilize, decisions: decide, construction: construct, diplomacy: relationsYear, war: () => {}, fracture: () => {},
   chronicle: (state, context) => state.chronicle.flush(context.tick),
 };
 
@@ -61,7 +62,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0, settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0,
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
-      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
+      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -222,7 +223,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     ...neglectStats(state), neglectBegun: m.neglectBegun,
     ...famineByWealth(state),
     ...roundedCultureStats(state), cultureSplits: m.cultureSplits, civCultureSplits: m.civCultureSplits, assimilations: m.assimilations, hybrids: m.hybrids, traitsEarned: m.traitsEarned,
-    ...roundedFaithStats(state), religionsFounded: m.religionsFounded, conversions: m.conversions, stateReligionChanges: m.stateReligionChanges, schisms: m.schisms,
+    ...relationStats(state), ...roundedFaithStats(state), religionsFounded: m.religionsFounded, conversions: m.conversions, stateReligionChanges: m.stateReligionChanges, schisms: m.schisms,
   };
 }
 
@@ -374,6 +375,8 @@ export function stateHash(state: SimulationState) {
     add(polity.roadsUnpaid * 1e6); add(polity.taxRate * 1e6); add(polity.arrears * 1e6); add(polity.inArrears ? 1 : 0); add(polity.heavyTaxes ? 1 : 0); add(polity.deferring ? 1 : 0); add(polity.keptYears);
     add(polity.famineDeaths); add(polity.personMonths); add(polity.outputSum * 1e3);
     for (const id of polity.heardWonders) add(id);
+    // Relations (M5.1): what it thinks of whom, how intimate they are, and what it remembers.
+    for (const [other, relation] of polity.relations) { add(other); add(relation.intimacy * 1e6); add(relation.opinion * 10); for (const memory of relation.memories) { add(MEMORY_REASONS.indexOf(memory.reason)); add(memory.points); add(memory.tick); } }
     for (const work of polity.roadWorks) { add(work.to); add(work.tier); add(work.spent); add(work.cost); for (const [a, b] of work.edges) { add(a); add(b); } }
     for (const step of polity.decisions) { add(step.tick); add(ACTIONS.indexOf(step.chosen)); add(step.pick); add(step.outcome.length); add(step.options.length); for (const option of step.options) { add(option.score * 1000); add(option.target ?? -1); } }
   }

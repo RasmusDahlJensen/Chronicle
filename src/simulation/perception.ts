@@ -10,7 +10,8 @@ import { cellNeighbors, greatCircleKm } from './geography.ts';
 import { CostHeap } from './heap.ts';
 import { edgeKm, edgeTravel, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
 import { landPressure } from './pressure.ts';
-import type { CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
+import { beliefBias, estimate, truthOf } from './relations.ts';
+import type { BeliefKind, CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
 import { BUDGET_TUNING, FAITH_TUNING, MOBILITY_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
@@ -19,8 +20,9 @@ import { BUDGET_TUNING, FAITH_TUNING, MOBILITY_TUNING, REACH_TUNING, SHARE_TUNIN
  * its harbors.
  * A civilization remembers a region that leaves its sight as it was then (a snapshot); a tribe keeps only what is in
  * sight. Two polities meet when one sees where the other lives, and neighbouring civilizations tell each other what
- * they see. Physical systems may read the true world; decision code reads only `regionView`, `knownRegions` and
- * `hasMet`.
+ * they see. Physical systems may read the true world; choices read only `regionView`, `knownRegions`, `hasMet`, and
+ * of other peoples only `believe` (an estimate off by the pair's bias, shrunk by their intimacy) and `opinionOf` (M5.1),
+ * all of it gathered into the view types decision code is given.
  */
 export const UNKNOWN = 0, KNOWN = 1, OBSERVED = 2;
 
@@ -259,6 +261,8 @@ export interface PolityView {
 /** A people in contact (met, within two regions) that a civilization could offer an exchange of knowledge (VISION.md "Sharing knowledge"). */
 export interface Partner {
   polity: number; name: string; kind: 'band' | 'civ'; kin: boolean; similarity: number;
+  /** What it thinks of them (−100 to 100; M5.1). */
+  opinion: number;
   /** Techs it knows that they do not (it would teach), and techs they know that it does not (it would learn): peoples
    *  in contact see what each other can do. */
   teach: number; learn: number;
@@ -270,6 +274,8 @@ export interface Neighbour {
   civ: number; name: string; kin: boolean; similarity: number;
   /** Regions it knows that civilization holds (in sight or remembered): its size as far as it knows. */
   knownRegions: number;
+  /** Their population as it believes it, how sure it is (its intimacy with them) and what it thinks of them (M5.1). */
+  believedPeople: number; confidence: number; opinion: number;
   /** That civilization's people in its sight: how well fed (0–1) and how stable their regions are. */
   fed: number; stability: number;
   /** The typical crossing between their lands (the median travel-km of the edges they share: a mountain range with one
@@ -287,6 +293,19 @@ export interface Candidate {
   /** The land's value (static farming capacity) and whether a tribe's band lives there, as it knows. */
   value: number; tribe: boolean;
 }
+
+/**
+ * What `observer` believes of `other` (VISION.md "Beliefs about other polities"; the query layer of its "Implementation
+ * rule"): an estimate of `kind`, off by their pair's bias shrunk by their intimacy, and how sure it is (that intimacy).
+ * Decisions see other peoples only through this.
+ */
+export function believe(state: SimulationState, observer: Polity, other: Polity, kind: BeliefKind) {
+  const intimacy = observer.relations.get(other.id)?.intimacy ?? 0;
+  return { estimate: estimate(truthOf(state, other, kind), beliefBias(state.seed, observer.id, other.id, kind), intimacy, kind), confidence: intimacy };
+}
+
+/** What `observer` thinks of `other` (−100 to 100; 0 for a people it has not judged yet). */
+export const opinionOf = (observer: Polity, other: number) => observer.relations.get(other)?.opinion ?? 0;
 
 const medianOf = (values: number[]) => { values.sort((a, b) => a - b); return values[Math.floor(values.length / 2)]; };
 
@@ -533,8 +552,11 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     const km = edgeKm(edge.travelKm, edge.riverTier), entry = neighbours.get(civ);
     shared.get(civ)?.push(km) ?? shared.set(civ, [km]);
     if (entry) { if (km < entry.crossingKm) { entry.crossingKm = km; entry.border = region; } continue; }
-    const them = state.polities[civ];
-    neighbours.set(civ, { civ, name: them.name, kin: them.lineage === polity.lineage, similarity: cultureSimilarity(culture, state.cultures[them.culture].values), knownRegions: 0, fed: 0, stability: 0, crossingKm: km, border: region });
+    const them = state.polities[civ], people = believe(state, polity, them, 'people');
+    neighbours.set(civ, {
+      civ, name: them.name, kin: them.lineage === polity.lineage, similarity: cultureSimilarity(culture, state.cultures[them.culture].values), knownRegions: 0,
+      believedPeople: people.estimate, confidence: people.confidence, opinion: opinionOf(polity, civ), fed: 0, stability: 0, crossingKm: km, border: region,
+    });
   }
   for (const entry of neighbours.values()) entry.crossingKm = medianOf(shared.get(entry.civ)!);
   if (neighbours.size) {
@@ -572,7 +594,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
       else if (!polity.knowledge.known[tech] && them.knowledge.known[tech]) learn++;
     }
     const theirs = state.cultures[them.culture].values, similarity = cultureSimilarity(culture, theirs);
-    partners.push({ polity: other, name: them.name, kind: them.kind, kin: them.lineage === polity.lineage, similarity, teach, learn, willing: willingness(theirs.tradition, similarity, teach) });
+    partners.push({ polity: other, name: them.name, kind: them.kind, kin: them.lineage === polity.lineage, similarity, opinion: opinionOf(polity, other), teach, learn, willing: willingness(theirs.tradition, similarity, teach) });
   }
   partners.sort((a, b) => a.polity - b.polity);
   return {

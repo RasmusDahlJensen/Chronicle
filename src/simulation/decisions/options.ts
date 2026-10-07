@@ -3,7 +3,10 @@ export type Action = 'expand' | 'explore' | 'nothing' | 'unite' | 'share' | 'bui
 export interface Factor { factor: string; weight: number }
 /** One option of a decision step: for Build, `target` is the building type (with `wonder`, the wonder type; with `road`,
  *  the road tier) and `targets` the settlements (for a road, the towns and cities it would reach). */
-export interface Option { action: Action; score: number; target: number | null; label: string | null; factors: Factor[]; targets?: number[]; wonder?: boolean; road?: boolean }
+export interface Option { action: Action; score: number; target: number | null; label: string | null; factors: Factor[]; targets?: number[]; wonder?: boolean; road?: boolean; beliefs?: BeliefCited[] }
+/** A belief about another people an option weighed (VISION.md: the chronicle can record that a war was declared on a
+ *  neighbour believed to be weak): whom, of what, and what was believed. */
+export interface BeliefCited { polity: number; kind: 'people' | 'strength' | 'wealth' | 'era'; estimate: number }
 
 /** Factors named with a leading × are multipliers (logged, never cited as causes); the rest are contributions to the score. */
 export const MULTIPLIER = '×';

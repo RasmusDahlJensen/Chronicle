@@ -127,16 +127,39 @@ export interface Polity {
   /** Whether it is letting the buildings and roads of some of its far regions go unkept (an episode, `neglected`), and
    *  the years in a row it has since kept everything up (the episode ends after BUDGET_TUNING.keptYears). */
   deferring: boolean; keptYears: number;
+  /** A civilization's relations with the living peoples it has met (VISION.md "Relations and memory", M5.1), by their
+   *  id; read through `perception.ts` (`relations.ts` keeps them). */
+  relations: Map<number, Relation>;
 }
+
+/**
+ * How one people sees another (M5.1): how intimate they are (0–1: how well it knows them; its beliefs' bias shrinks as
+ * this grows), its opinion of them (−100 to 100) with its strongest reasons (as last judged, yearly), and the memories
+ * that fade (VISION.md "Relations and memory"). The beliefs' bias itself is a pure function of the pair
+ * (`relations.ts` `beliefBias`): drawn once, never re-rolled.
+ */
+export interface Relation {
+  intimacy: number; opinion: number; reasons: { factor: string; weight: number }[];
+  memories: { reason: MemoryReason; points: number; tick: number }[];
+}
+export const MEMORY_REASONS = ['turnedAway', 'refusedExchange'] as const;
+export type MemoryReason = typeof MEMORY_REASONS[number];
 
 export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build'] as const;
 export type Action = typeof ACTIONS[number];
 
 /** One decision step: every option with its score and the factors behind it, best first, and the one chosen (its
  *  action and its index among the options: Build can be weighed as a building, a wonder and roads at once). */
+/** A belief a decision weighed: about whom, of what, what was believed, and the truth then. */
+export interface BeliefRecord { polity: number; kind: BeliefKind; estimate: number; truth: number }
+export { BELIEF_KINDS } from '../../shared/simulation.ts';
+export type BeliefKind = typeof import('../../shared/simulation.ts').BELIEF_KINDS[number];
+
 export interface DecisionRecord {
   tick: number; chosen: Action; pick: number;
-  options: { action: Action; score: number; target: number | null; label: string | null; factors: { factor: string; weight: number }[] }[];
+  /** Each option, and the beliefs about other peoples it weighed (what was believed and, for the study and the lab, the
+   *  truth at the time: decisions never see it). */
+  options: { action: Action; score: number; target: number | null; label: string | null; factors: { factor: string; weight: number }[]; beliefs?: BeliefRecord[] }[];
   /** What came of it: done, or why not (for example a target taken by someone else first). */
   outcome: string;
 }
@@ -342,6 +365,12 @@ export interface CenturyStats {
   religions: number; religionsFounded: number; faithShare: number; religionMaxCivs: number; stateReligions: number; conversions: number; stateReligionChanges: number;
   /** Schisms so far, and civilizations in the secular age (M4.4). */
   schisms: number; secularCivs: number;
+  /** Beliefs and opinion (M5.1), over civilizations' relations with living civilizations: the mean error of believed
+   *  population (|estimate ÷ truth − 1|) where they know each other little (intimacy below 0.3), somewhat and well (0.7
+   *  and over; −1 where no pair does), the mean intimacy, the mean opinion and the shares of opinions of at least 30 and at most −30; decisions
+   *  that weighed a belief so far, and those whose belief was more than half off. */
+  beliefErrorLow: number; beliefErrorMid: number; beliefErrorHigh: number; meanIntimacy: number;
+  opinionMean: number; opinionWarm: number; opinionCold: number; beliefDecisions: number; beliefsFarOff: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -423,6 +452,9 @@ export interface Metrics {
   religionsFounded: number; conversions: number; stateReligionChanges: number;
   /** Sects that split from a religion (VISION.md "Schisms"). */
   schisms: number;
+  /** Decisions taken that weighed a belief about another people (M5.1), and of those, ones whose belief was more than
+   *  half off the truth (VISION.md M5: at least one in the study). */
+  beliefDecisions: number; beliefsFarOff: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;

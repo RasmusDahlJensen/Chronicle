@@ -13,7 +13,8 @@ import { admission, expand, unite } from '../src/simulation/expansion.ts';
 import { budgetView, decisionView } from '../src/simulation/perception.ts';
 import { assess } from '../src/simulation/stability.ts';
 import { edgeKm } from '../src/simulation/perception.ts';
-import { BUDGET_TUNING, STABILITY_TUNING, UNITE_TUNING } from '../src/simulation/tunables.ts';
+import { BUDGET_TUNING, RELATION_TUNING, STABILITY_TUNING, UNITE_TUNING } from '../src/simulation/tunables.ts';
+import { judge } from '../src/simulation/relations.ts';
 import { refreshRemoteness } from '../src/simulation/budget.ts';
 import { wealthFlows } from '../src/simulation/economy.ts';
 import { createRng, type Rng } from '../src/simulation/rng.ts';
@@ -415,14 +416,29 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
       shared.sort((a, b) => a - b);
       assert.ok(shared.length > 0 && neighbour.crossingKm === shared[Math.floor(shared.length / 2)], 'the median crossing between their lands');
       assert.ok(neighbour.knownRegions >= 1);
-      if (!pair && state.polities[neighbour.civ].groups.length > state.polities[id].groups.length) pair = { small: id, large: neighbour.civ };
+      if (!pair && polityPopulation(state, state.polities[neighbour.civ]) > polityPopulation(state, state.polities[id])) pair = { small: id, large: neighbour.civ };
     }
   }
   assert.ok(pair, 'two neighbouring civilizations of different sizes');
+  // M5.1: the decision log keeps the beliefs each option weighed, beside the truth; chosen ones are counted.
+  const weighed = civs.flatMap(id => state.polities[id].decisions.flatMap(step => step.options.flatMap(option => option.beliefs ?? [])));
+  assert.ok(weighed.length > 0, 'unions weigh believed sizes');
+  assert.ok(weighed.every(belief => belief.kind === 'people' && belief.estimate >= 0 && belief.truth >= 0));
+  const chosen = civs.reduce((sum, id) => sum + state.polities[id].decisions.filter(step => step.options[step.pick].beliefs?.length).length, 0);
+  assert.ok(state.metrics.beliefDecisions >= chosen && state.metrics.beliefsFarOff <= state.metrics.beliefDecisions);
   const small = state.polities[pair.small], large = state.polities[pair.large];
+  // M5.1: asked on a belief far off (the larger one asking to join the smaller), the truth refuses it, it learns, and waits.
+  judge(state, large, state.tick);
+  const known = large.relations.get(small.id)!.intimacy;
+  assert.match(unite(state, state.tick, refusing, large, small, state.groups[large.groups[0]].region, [{ factor: 'test', weight: 1 }]), /were not as many as believed/);
+  assert.equal(large.deathTick, null);
+  assert.equal(large.rebuffed.get(small.id), state.tick, 'it waits before asking again');
+  assert.equal(large.relations.get(small.id)!.intimacy, Math.min(1, known + RELATION_TUNING.correction), 'it comes to know them better');
+  large.rebuffed.delete(small.id);
   const refused = unite(state, state.tick, refusing, small, large, small.groups.length ? state.groups[small.groups[0]].region : 0, [{ factor: 'test', weight: 1 }]);
   assert.match(refused, /would not take them in/);
   assert.equal(small.deathTick, null);
+  assert.equal(small.relations.get(large.id)?.memories.at(-1)?.reason, 'turnedAway', 'it remembers being turned away');
   assert.ok(!decisionView(state, small).neighbours.some(entry => entry.civ === large.id), 'it does not ask the same civilization again for a while');
   const regions = small.groups.map(id => state.groups[id].region), before = large.groups.length;
   // Its treasury, its works under way and its worn buildings pass to the union, recorded as wealth given and received.

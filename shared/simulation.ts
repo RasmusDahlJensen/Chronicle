@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 25;
+export const SIMULATION_PROTOCOL_VERSION = 26;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -42,6 +42,8 @@ const id = () => Type.Integer({ minimum: 0, maximum: 2 ** 31 - 1 });
 /** How a culture began (`OriginSchema` lists the same names), and a people's five values (0–1). */
 export const CULTURE_ORIGIN_NAMES = ['founding', 'breakaway', 'split', 'hybrid'] as const;
 export const VALUE_NAMES = ['militarism', 'zeal', 'openness', 'tradition', 'expansionism'] as const;
+/** What one people believes of another (VISION.md "Beliefs about other polities"): their population, strength, wealth and era. */
+export const BELIEF_KINDS = ['people', 'strength', 'wealth', 'era'] as const;
 const OriginSchema = Type.Union([Type.Literal('founding'), Type.Literal('breakaway'), Type.Literal('split'), Type.Literal('hybrid')]);
 const ValuesSchema = Type.Object(Object.fromEntries(VALUE_NAMES.map(key => [key, Type.Number({ minimum: 0, maximum: 1 })])) as Record<typeof VALUE_NAMES[number], ReturnType<typeof Type.Number>>, { additionalProperties: false });
 /**
@@ -279,8 +281,21 @@ export const ObserverFrameSchema = Type.Object({
            *  Build the building type, the wonder type or the road tier (and what is built where, as the label). */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
           factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
+          /** The beliefs about other peoples it weighed (M5.1): whom, of what, what it believed and the truth then. */
+          beliefs: Type.Optional(Type.Array(Type.Object({ polity: id(), kind: Type.Enum(BELIEF_KINDS), estimate: Type.Number({ minimum: 0 }), truth: Type.Number({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 4 })),
         }, { additionalProperties: false }), { maxItems: 4 }),
       }, { additionalProperties: false })]),
+      /** A civilization's relations (M5.1, VISION.md "Diplomacy" view): the peoples it has met that it knows best, with
+       *  what it thinks of them (−100 to 100) and its strongest reasons, how intimate they are (0–1, how sure its
+       *  beliefs are), their population and strength as it believes them, whether they share knowledge, and the year
+       *  they met. Empty for a tribe. */
+      diplomacy: Type.Array(Type.Object({
+        id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]),
+        opinion: Type.Number({ minimum: -100, maximum: 100 }),
+        reasons: Type.Array(Type.Object({ factor: Type.String({ maxLength: 32 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
+        intimacy: Type.Number({ minimum: 0, maximum: 1 }), people: Type.Integer({ minimum: 0 }), strength: Type.Integer({ minimum: 0 }),
+        sharing: Type.Boolean(), met: Type.Integer({ minimum: 0 }),
+      }, { additionalProperties: false }), { maxItems: 24 }),
       /** A civilization's budget (null for a tribe; VISION.md "Wealth"): its treasury, the share of its people's output
        *  it takes in taxes, its revenue a year (taxes on trades and on farmers' surplus, and what its sites pay), its
        *  costs a year, its arrears (the share of its costs left unpaid, over about a year), and its buildings and roads
