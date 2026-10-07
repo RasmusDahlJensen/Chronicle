@@ -236,6 +236,9 @@ test('farming bands settle into civilizations with villages, specialists, resear
   }
   expect(later.roads.a.length).toBeGreaterThan(0);
   await expect.poll(async () => Number(await canvas.getAttribute('data-road-marks'))).toBe(later.roads.a.length);
+  // M3c.5: roads worn below 80% are drawn worn, as many as the frame reports.
+  expect(later.roads.conditions.length).toBe(later.roads.a.length);
+  await expect.poll(async () => Number(await canvas.getAttribute('data-worn-road-marks'))).toBe(later.roads.conditions.filter((condition: number) => condition < 80).length);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

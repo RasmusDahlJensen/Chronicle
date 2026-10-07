@@ -1,4 +1,4 @@
-import { ageFactor, arrearsBurden, costShares, costsOf, realmYears, refreshRemoteness, sizeFactor, taxBurden } from './budget.ts';
+import { ageFactor, arrearsBurden, costShares, deferMaintenance, fullCostsOf, realmYears, refreshRemoteness, sizeFactor, taxBurden, totalCosts } from './budget.ts';
 import { causes } from './causes.ts';
 import { taxRate } from './decisions/budget.ts';
 import { buildingStability, wonderBonus } from './economy.ts';
@@ -78,11 +78,13 @@ function judge(state: SimulationState, civ: Polity, km: (region: number) => numb
   }
 }
 
-/** The taxes a civilization sets for the year (`decisions/budget.ts`), from its budget as it knows it. */
+/** The taxes a civilization sets for the year (`decisions/budget.ts`), from its budget as it knows it (all it holds kept
+ *  up), and what it lets go unkept if even they fall short (`deferMaintenance`). */
 function setTaxes(state: SimulationState, civ: Polity) {
-  const tuning = BUDGET_TUNING, costs = costsOf(state, civ);
-  const rate = taxRate(budgetView(state, civ, costs));
+  const tuning = BUDGET_TUNING, costs = fullCostsOf(state, civ), view = budgetView(state, civ, costs);
+  const rate = taxRate(view);
   civ.taxRate = rate;
+  deferMaintenance(state, civ, rate * view.output + view.sites, (tuning.reserveYears + tuning.reserveTradition * view.tradition) * totalCosts(costs), view.strain);
   if (!civ.heavyTaxes && rate > tuning.heavyRate) {
     civ.heavyTaxes = true; state.metrics.taxesRaised++;
     state.chronicle.emit({ type: 'taxes', actors: [{ id: civ.id, role: 'civ' }], region: null, importance: 0.06, causes: costShares(costs), data: { civ: civ.name, raised: true, rate: Math.round(rate * 100) } });

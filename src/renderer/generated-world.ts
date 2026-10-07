@@ -21,12 +21,27 @@ export interface BandMarker { x: number; y: number; population: number; color: s
 export interface SettlementMark { x: number; y: number; capital: boolean; tier: number; name: string; features?: number }
 /** A road between two places in world cell coordinates (the main settlements, or centres, of the regions it joins), by
  *  tier (1 road, 2 paved road, 3 railway, 4 highway), and whether a bridge carries it over a river. */
-export interface RoadMark { x1: number; y1: number; x2: number; y2: number; tier: number; bridge: boolean }
+export interface RoadMark { x1: number; y1: number; x2: number; y2: number; tier: number; bridge: boolean; condition: number }
 /** Road lines by tier: colour, width in pixels and dash. */
 export const ROAD_STYLE: readonly { color: string; width: number; dash: number[] }[] = [
   { color: '#8a6a43', width: 1.1, dash: [3, 2] }, { color: '#5e4630', width: 1.7, dash: [] },
   { color: '#2d2a28', width: 2, dash: [5, 2] }, { color: '#9b3b2e', width: 2.4, dash: [] },
 ];
+/** The fill of a settlement whose buildings go unkept. */
+const WORN_FILL = '#cbbfa8';
+/** How worn a road looks (VISION.md "Wealth": neglect is visible): 0 kept (at least 80% of its condition), 1 worn, 2
+ *  crumbling (below 40%). */
+export const roadWear = (condition: number) => condition >= 0.8 ? 0 : condition >= 0.4 ? 1 : 2;
+const DUST = [205, 187, 154];
+/** A road's look by tier and wear: worn roads fade toward the dust of the land, thin and break up. */
+export function roadLook(tier: number, condition: number) {
+  const style = ROAD_STYLE[tier - 1], wear = roadWear(condition);
+  if (!wear) return { ...style, alpha: 0.9 };
+  const fade = wear === 1 ? 0.45 : 0.7, rgb = [1, 3, 5].map(at => parseInt(style.color.slice(at, at + 2), 16));
+  const color = `#${rgb.map((value, index) => Math.round(value + (DUST[index] - value) * fade).toString(16).padStart(2, '0')).join('')}`;
+  const dash = wear === 1 ? (style.dash.length ? [style.dash[0], style.dash[1] * 1.8] : [6, 2.5]) : [1.5, 4];
+  return { color, width: style.width * (wear === 1 ? 0.85 : 0.7), dash, alpha: wear === 1 ? 0.8 : 0.6 };
+}
 interface WorldView { zoom: number; detail: boolean; tiles: WorldCoordinate[] }
 interface Callbacks {
   onSelect: (cell: WorldCoordinate | null) => void;
@@ -272,34 +287,40 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
       target.restore();
     }
-    // Roads between the places they join, under the markers: dashed tracks, solid paved roads; bridges as small light
-    // squares at the crossing from detail zoom. Each road takes the shorter way round the wrapped world.
-    let bridgeMarks = 0;
+    // Roads between the places they join, under the markers: dashed tracks, solid paved roads, faded and broken where
+    // worn (`roadLook`); bridges as small light squares at the crossing from detail zoom, darker where worn. Each road
+    // takes the shorter way round the wrapped world.
+    let bridgeMarks = 0, wornRoads = 0;
     if (roads.length) {
-      target.save(); target.lineCap = 'round'; target.globalAlpha = 0.9;
-      const thin = m.scale < 2 ? 0.7 : 1, crossings: { x: number; y: number }[] = [];
-      for (let tier = 1; tier <= ROAD_STYLE.length; tier++) {
-        const style = ROAD_STYLE[tier - 1];
-        target.beginPath(); target.strokeStyle = style.color; target.lineWidth = style.width * thin; target.setLineDash(style.dash);
+      target.save(); target.lineCap = 'round';
+      const thin = m.scale < 2 ? 0.7 : 1, crossings: { x: number; y: number; worn: boolean }[] = [];
+      for (const road of roads) if (roadWear(road.condition)) wornRoads++;
+      for (let tier = 1; tier <= ROAD_STYLE.length; tier++) for (let wear = 0; wear <= 2; wear++) {
+        const style = roadLook(tier, wear === 0 ? 1 : wear === 1 ? 0.6 : 0.2);
+        target.beginPath(); target.strokeStyle = style.color; target.lineWidth = style.width * thin; target.setLineDash(style.dash); target.globalAlpha = style.alpha;
         let drawn = false;
         // One copy more on each side: a road drawn from its first end may cross the world's seam into view.
         for (let copy = startCopy - 1; copy <= endCopy + 1; copy++) for (const road of roads) {
-          if (road.tier !== tier) continue;
+          if (road.tier !== tier || roadWear(road.condition) !== wear) continue;
           const dx = wrap(road.x2 - road.x1 + world.width / 2, world.width) - world.width / 2;
           const x1 = left + (copy * world.width + road.x1 + 0.5) * m.scale, y1 = top + (road.y1 + 0.5) * m.scale;
           const x2 = x1 + dx * m.scale, y2 = top + (road.y2 + 0.5) * m.scale;
           if (Math.max(x1, x2) < -4 || Math.min(x1, x2) > m.width + 4 || Math.max(y1, y2) < -4 || Math.min(y1, y2) > m.height + 4) continue;
           target.moveTo(x1, y1); target.lineTo(x2, y2); drawn = true;
-          if (road.bridge && m.scale >= 3) crossings.push({ x: (x1 + x2) / 2, y: (y1 + y2) / 2 });
+          if (road.bridge && m.scale >= 3) crossings.push({ x: (x1 + x2) / 2, y: (y1 + y2) / 2, worn: wear > 0 });
         }
         if (drawn) target.stroke();
       }
-      target.setLineDash([]); target.fillStyle = '#f2ead8'; target.strokeStyle = '#3d3024'; target.lineWidth = 1;
+      target.setLineDash([]); target.globalAlpha = 0.9; target.strokeStyle = '#3d3024'; target.lineWidth = 1;
       const size = Math.max(3, Math.min(6, m.scale * 0.5));
-      for (const crossing of crossings) { target.fillRect(crossing.x - size / 2, crossing.y - size / 2, size, size); target.strokeRect(crossing.x - size / 2, crossing.y - size / 2, size, size); bridgeMarks++; }
+      for (const crossing of crossings) {
+        target.fillStyle = crossing.worn ? '#b5a487' : '#f2ead8';
+        target.fillRect(crossing.x - size / 2, crossing.y - size / 2, size, size); target.strokeRect(crossing.x - size / 2, crossing.y - size / 2, size, size); bridgeMarks++;
+      }
       target.restore();
     }
     canvas.dataset.roadMarks = String(roads.length);
+    canvas.dataset.wornRoadMarks = String(wornRoads);
     canvas.dataset.bridgeMarks = String(bridgeMarks);
     // Polity markers at their region's centre. Populations run from a few dozen foragers to a million farmers, so size
     // follows the logarithm of population, and no marker grows wider than about half a region. Over territories they
@@ -326,7 +347,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     // (larger diamonds) a little sooner, cities and metropolises (rings) at every zoom; capitals as stars, larger with
     // their tier, so the political map shows where each civilization is governed from. Names follow as the map zooms:
     // metropolises and cities first, then towns and capitals.
-    let capitalMarks = 0, labels = 0, features = 0;
+    let capitalMarks = 0, labels = 0, features = 0, worn = 0;
     if (villages.length) {
       target.save(); target.fillStyle = villageStyle.fill; target.strokeStyle = villageStyle.stroke; target.lineWidth = 1;
       const base = Math.max(2.5, Math.min(7, m.scale * 0.6)), star = Math.max(3.5, Math.min(8, m.scale * 0.9));
@@ -348,7 +369,11 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
           target.arc(x, y, half, 0, Math.PI * 2);
           if (village.tier === 3) { target.moveTo(x + half * 0.5, y); target.arc(x, y, half * 0.5, 0, Math.PI * 2); }
         } else { target.moveTo(x, y - half * 1.3); target.lineTo(x + half, y); target.lineTo(x, y + half * 1.3); target.lineTo(x - half, y); }
-        target.closePath(); target.fill(); target.stroke();
+        target.closePath();
+        // A settlement whose buildings go unkept looks it: faded, its outline broken.
+        if (village.features && village.features & 16) {
+          target.save(); target.fillStyle = WORN_FILL; target.setLineDash([2, 1.5]); target.fill(); target.stroke(); target.restore(); worn++;
+        } else { target.fill(); target.stroke(); }
         // At detail zoom, what stands there: a harbor (a blue disc below right), a mine (a dark triangle below left), a
         // quarry (a grey square below), a wonder (a gold disc above).
         if (village.features && m.scale >= 4) {
@@ -373,6 +398,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       target.restore();
     }
     canvas.dataset.capitalMarks = String(capitalMarks);
+    canvas.dataset.wornSettlementMarks = String(worn);
     canvas.dataset.settlementLabels = String(labels);
     canvas.dataset.settlementFeatures = String(features);
     // Keep the selected cell's outline above the marks.

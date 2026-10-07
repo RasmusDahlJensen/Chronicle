@@ -290,7 +290,7 @@ export function GeneratedWorldLab() {
     const place = (region: number) => anchor.get(region)?.cell ?? regions.map.regions[region]?.centroid ?? 0;
     renderer.current.setRoads(frame.roads.a.map((a, index) => {
       const from = place(a), to = place(frame.roads.b[index]);
-      return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), tier: frame.roads.tiers[index], bridge: frame.roads.bridges[index] === 1 };
+      return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), tier: frame.roads.tiers[index], bridge: frame.roads.bridges[index] === 1, condition: frame.roads.conditions[index] / 100 };
     }));
   }, [frame, regions, world, canvasRevision]);
   // Cultivated land: a region's farmland cells ranked below its cultivated count (VISION.md "Cultivated land").
@@ -454,6 +454,7 @@ export function GeneratedWorldLab() {
                 <div><dt>Neighbours</dt><dd>{cellRegion.neighbors.length}{cellRegion.island ? ' · island' : ''}</dd></div>
                 {inspected && <div><dt>Capacity</dt><dd id="region-capacity">{number.format(inspected.capacity)} people</dd></div>}
                 {inspected && <div><dt>Game stock</dt><dd>{Math.round(inspected.gameStock * 100)}%</dd></div>}
+                {inspected?.neglected && <div><dt>Upkeep</dt><dd id="region-neglect">let go unkept by its realm: its buildings and roads wear</dd></div>}
                 {inspected && inspected.fields.cells > 0 && <div><dt>Fields</dt><dd id="region-fields">{Math.round(inspected.fields.share * 100)}% of its farmland cultivated ({number.format(inspected.fields.cells)} cells)</dd></div>}
                 {inspected && <div><dt>Last harvest</dt><dd id="region-harvest">{Math.round(inspected.weather.harvest * 100)}% of the crops{inspected.weather.drought ? ` · drought, ${inspected.weather.drought} months left` : ''}{inspected.weather.famine ? ' · famine' : ''}{inspected.weather.relief ? ' · relief food arriving' : ''}{inspected.weather.irrigation > 1 ? ` · irrigated (farming ×${inspected.weather.irrigation.toFixed(2)})` : ''}</dd></div>}
               </dl>

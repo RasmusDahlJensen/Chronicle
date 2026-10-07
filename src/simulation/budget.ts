@@ -1,6 +1,6 @@
 import { causes } from './causes.ts';
 import { farmOutput, regionSites, settlementOutput, wonderBonus } from './economy.ts';
-import { roadUpkeepOf } from './roads.ts';
+import { keeperOf, roadUpkeepOf } from './roads.ts';
 import type { Polity, PopulationGroup, SimulationState } from './state.ts';
 import { BUDGET_TUNING, REACH_TUNING } from './tunables.ts';
 import { WONDERS } from './wonders.ts';
@@ -36,19 +36,75 @@ export function services(urban: number) {
 /** What running a realm costs a year: administration of its regions, services in its settlements, upkeep of its
  *  buildings and wonders, and of the roads it keeps. */
 export interface Costs { administration: number; services: number; upkeep: number; roads: number }
-export function costsOf(state: SimulationState, civ: Polity, roads = roadUpkeepOf(state, civ)): Costs {
+/** (With `all`, the upkeep of everything it holds; else not of what it lets go unkept this year.) */
+export function costsOf(state: SimulationState, civ: Polity, roads = roadUpkeepOf(state, civ), all = false): Costs {
   const size = sizeFactor(civ.groups.length), age = ageFactor(realmYears(state, civ));
   let administered = 0, served = 0, upkeep = 0;
   for (const groupId of civ.groups) {
-    const group = state.groups[groupId], region = group.region;
+    const group = state.groups[groupId], region = group.region, kept = all || !state.neglected[region];
     administered += administration(group.size, state.remoteness[region], size, age);
     for (const id of state.regionSettlements[region]) {
       const settlement = state.settlements[id];
-      if (settlement.status === 'alive') { served += services(settlement.urban); upkeep += settlement.bonus.upkeep; }
+      if (settlement.status === 'alive') { served += services(settlement.urban); if (kept) upkeep += settlement.bonus.upkeep; }
     }
   }
-  for (const wonder of state.wonders) if (wonder.status === 'standing' && state.settlements[wonder.settlement].owner === civ.id) upkeep += WONDERS[wonder.type].upkeep;
+  for (const wonder of state.wonders) {
+    const settlement = state.settlements[wonder.settlement];
+    if (wonder.status === 'standing' && settlement.owner === civ.id && (all || !state.neglected[settlement.region])) upkeep += WONDERS[wonder.type].upkeep;
+  }
   return { administration: administered, services: served, upkeep, roads };
+}
+
+/** What running a realm would cost a year if it kept up everything it holds. */
+export const fullCostsOf = (state: SimulationState, civ: Polity) => costsOf(state, civ, roadUpkeepOf(state, civ, true), true);
+
+/**
+ * Deferred maintenance (VISION.md "Wealth": deficits wear buildings and roads, the farthest first; neglect is visible),
+ * yearly after taxes are set. A strained court spends on its core: a realm whose costs outrun what customary taxes
+ * raise (its `strain`) lets its farthest regions go unkept, a share of its regions as large as its strain ×
+ * `neglectStrain`; and if its taxes at the rate set, with what its savings beyond its reserve can spare, still fall
+ * short, it lets more go, from the outside in, until what it keeps up fits. Its capital is always kept. Unkept, their
+ * buildings, wonders and roads wear and their upkeep is not paid. An episode begins (an event) when it first lets a
+ * region go and ends (an event) after `keptYears` years in a row of keeping everything up.
+ */
+export function deferMaintenance(state: SimulationState, civ: Polity, revenue: number, reserve: number, strain: number) {
+  const tuning = BUDGET_TUNING, costs = fullCostsOf(state, civ), spare = Math.max(0, civ.wealth - reserve) / tuning.refillYears;
+  let deficit = totalCosts(costs) - revenue - spare, neglected = 0;
+  // Upkeep by region: its settlements' buildings and wonders and the roads kept up there.
+  const upkeep = new Map<number, number>();
+  for (const groupId of civ.groups) upkeep.set(state.groups[groupId].region, 0);
+  for (const region of upkeep.keys()) for (const id of state.regionSettlements[region]) {
+    const settlement = state.settlements[id];
+    if (settlement.status === 'alive') upkeep.set(region, upkeep.get(region)! + settlement.bonus.upkeep);
+  }
+  for (const wonder of state.wonders) {
+    const region = state.settlements[wonder.settlement].region;
+    if (wonder.status === 'standing' && upkeep.has(region)) upkeep.set(region, upkeep.get(region)! + WONDERS[wonder.type].upkeep);
+  }
+  // A road's upkeep is saved by letting its farther end go.
+  for (const road of state.roads.values()) {
+    if (keeperOf(state, road) !== civ.id) continue;
+    const far = !upkeep.has(road.a) ? road.b : !upkeep.has(road.b) ? road.a : state.remoteness[road.a] >= state.remoteness[road.b] ? road.a : road.b;
+    if (upkeep.has(far)) upkeep.set(far, upkeep.get(far)! + road.upkeep);
+  }
+  // Farthest first; the capital's region last of all and never let go.
+  const capital = civ.capital !== null ? state.settlements[civ.capital].region : -1;
+  const order = [...upkeep.keys()].sort((a, b) => Number(a === capital) - Number(b === capital) || state.remoteness[b] - state.remoteness[a] || a - b);
+  const strained = Math.round(Math.min(1, tuning.neglectStrain * strain) * order.length), short = deficit > 0;
+  for (const region of order) {
+    if (region !== capital && (neglected < strained || deficit > 0)) { state.neglected[region] = 1; neglected++; deficit -= upkeep.get(region)!; }
+    else state.neglected[region] = 0;
+  }
+  if (neglected > 0) {
+    civ.keptYears = 0;
+    if (!civ.deferring) {
+      civ.deferring = true; state.metrics.neglectBegun++;
+      state.chronicle.emit({ type: 'neglect', actors: [{ id: civ.id, role: 'civ' }], region: order[0], importance: 0.06, causes: causes({ strain, shortfall: short ? 1 : 0 }), data: { civ: civ.name, begun: true, regions: neglected } });
+    }
+  } else if (civ.deferring && ++civ.keptYears >= tuning.keptYears) {
+    civ.deferring = false;
+    state.chronicle.emit({ type: 'neglect', actors: [{ id: civ.id, role: 'civ' }], region: null, importance: 0.03, causes: [], data: { civ: civ.name, ended: true } });
+  }
 }
 export const totalCosts = (costs: Costs) => costs.administration + costs.services + costs.upkeep + costs.roads;
 /** A realm's costs as causes: each kind's share of the whole. */
@@ -65,6 +121,8 @@ export function refreshRemoteness(state: SimulationState, civ: Polity, km: (regi
   const reach = REACH_TUNING.baseKm * civ.knowledge.multipliers.reach;
   for (const groupId of civ.groups) {
     const region = state.groups[groupId].region;
+    // Land new to the realm is kept up until its first yearly assessment.
+    if (state.remoteOwner[region] !== civ.id) state.neglected[region] = 0;
     state.remoteness[region] = km(region) / reach; state.remoteOwner[region] = civ.id;
   }
 }
@@ -121,8 +179,9 @@ export function seatOf(state: SimulationState, region: number) {
 export function settlementAccount(state: SimulationState, civ: Polity, id: number, wonder = wonderBonus(state, civ).wealth) {
   const settlement = state.settlements[id], region = settlement.region;
   const trades = civ.taxRate * settlementOutput(state, settlement) * wonder, served = services(settlement.urban);
-  let upkeep = settlement.bonus.upkeep;
-  if (settlement.wonder !== null) for (const standing of state.wonders) if (standing.settlement === id && standing.status === 'standing') upkeep += WONDERS[standing.type].upkeep;
+  // In a region let go unkept, its upkeep is not paid.
+  let upkeep = state.neglected[region] ? 0 : settlement.bonus.upkeep;
+  if (settlement.wonder !== null && !state.neglected[region]) for (const standing of state.wonders) if (standing.settlement === id && standing.status === 'standing') upkeep += WONDERS[standing.type].upkeep;
   const seat = seatOf(state, region) === id && state.groupAt[region] >= 0;
   const around = seat ? regionAccount(state, civ, state.groups[state.groupAt[region]]) : null;
   const farms = around?.farms ?? 0, sites = around?.sites ?? 0, administered = around?.administration ?? 0;

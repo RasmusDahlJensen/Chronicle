@@ -119,7 +119,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
     population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }], civList: [],
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
-    roads: { a: [], b: [], tiers: [], bridges: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], inspect: null, wonders: [],
+    roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], inspect: null, wonders: [],
     events: [
       { id: 0, tick: 1, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
       { id: 1, tick: 2, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
@@ -147,12 +147,14 @@ test('observer frames reject events newer than the frame or out of order', () =>
   assert.throws(() => parseObserverFrame({ ...civFrame, settlements: { ...civFrame.settlements, tiers: [] } }), 'every settlement has a tier');
   assert.throws(() => parseObserverFrame({ ...civFrame, settlements: { ...civFrame.settlements, tiers: [4] } }), 'tiers are village to metropolis');
   // Roads lie on edges between the world's regions, lower id first, each edge once, with a known tier.
-  const road = { a: [0], b: [1], tiers: [2], bridges: [1] }, wider = { ...frame, counters: { regions: 3, landmasses: 1 } };
+  const road = { a: [0], b: [1], tiers: [2], bridges: [1], conditions: [55] }, wider = { ...frame, counters: { regions: 3, landmasses: 1 } };
   assert.equal(parseObserverFrame({ ...wider, roads: road }).roads.a.length, 1);
   assert.throws(() => parseObserverFrame({ ...wider, roads: { ...road, bridges: [] } }), 'road arrays must line up');
+  assert.throws(() => parseObserverFrame({ ...wider, roads: { ...road, conditions: [] } }), 'every road has a condition');
+  assert.throws(() => parseObserverFrame({ ...wider, roads: { ...road, conditions: [101] } }), 'a condition is a percentage');
   assert.throws(() => parseObserverFrame({ ...wider, roads: { ...road, a: [1], b: [0] } }), 'the lower region first');
   assert.throws(() => parseObserverFrame({ ...wider, roads: { ...road, b: [3] } }), 'regions of this world');
-  assert.throws(() => parseObserverFrame({ ...wider, roads: { a: [0, 0], b: [1, 1], tiers: [1, 1], bridges: [0, 0] } }), 'each edge once');
+  assert.throws(() => parseObserverFrame({ ...wider, roads: { a: [0, 0], b: [1, 1], tiers: [1, 1], bridges: [0, 0], conditions: [100, 100] } }), 'each edge once');
   assert.throws(() => parseObserverFrame({ ...wider, roads: { ...road, tiers: [5] } }), 'known tiers');
   // Cultivated land: regions of this world, each once, with a count.
   assert.equal(parseObserverFrame({ ...wider, fields: { regions: [0, 2], cells: [3, 1] } }).fields.regions.length, 2);

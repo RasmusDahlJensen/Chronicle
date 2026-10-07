@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BUILDING_INDEX } from '../src/simulation/buildings.ts';
-import { administration, ageFactor, arrearsBurden, costsOf, realmAccount, regionAccount, seatOf, services, settlementAccount, sizeFactor, taxBurden, totalCosts } from '../src/simulation/budget.ts';
+import { administration, ageFactor, arrearsBurden, costsOf, deferMaintenance, fullCostsOf, realmAccount, regionAccount, seatOf, services, settlementAccount, sizeFactor, taxBurden, totalCosts } from '../src/simulation/budget.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { construct } from '../src/simulation/construction.ts';
+import { edgeTravel, roadKey, roadUpkeepOf } from '../src/simulation/roads.ts';
+import { WONDER_INDEX, WONDERS } from '../src/simulation/wonders.ts';
+import { roadLook, roadWear } from '../src/renderer/generated-world.ts';
 import { taxRate } from '../src/simulation/decisions/budget.ts';
 import { buildScore } from '../src/simulation/decisions/build.ts';
 import { expansionScore } from '../src/simulation/decisions/choose.ts';
@@ -78,42 +81,43 @@ test('taxes above the customary rate unsettle people and below it content them; 
 });
 
 /**
- * Test fixture: one civilization holding two regions of a 6 × 2 strip (cells 0–5 and 6–11, all by a river): its
- * heartland of 200,000 well-fed farmers, and a far region (1.5 reaches away) of 20,000 hungry herders and farmers.
+ * Test fixture: one civilization holding a strip of regions of 6 cells each (all by a river): its heartland of 200,000
+ * well-fed farmers, and far regions of 20,000 hungry herders and farmers, 1.5 reaches away (with two regions) or 0.8
+ * and 1.6 (with three).
  */
-function realm() {
-  const cells = 12, width = 6;
+function realm(count = 2) {
+  const cells = 6 * count, width = 6, regions = Array.from({ length: count }, (_, id) => id);
   const state = {
     tick: 12 * 300, geography: { width, cells, riverRunoff: new Uint32Array(cells).fill(9_000), resource: new Uint8Array(cells), marine: new Uint8Array(cells), lake: new Uint32Array(cells) },
     partition: {
-      regions: [0, 1].map(id => ({ id, centroid: id * 6, settlementSites: [id * 6, id * 6 + 1, id * 6 + 2], neighbors: [], sites: [] })),
-      regionOf: Int32Array.from({ length: cells }, (_, cell) => (cell < 6 ? 0 : 1)),
+      regions: regions.map(id => ({ id, centroid: id * 6, settlementSites: [id * 6, id * 6 + 1, id * 6 + 2], neighbors: [], sites: [] })),
+      regionOf: Int32Array.from({ length: cells }, (_, cell) => Math.floor(cell / 6)),
     },
-    cultures: [{ language: createLanguage(createRng(1, 1)), values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 } }], settlements: [], regionSettlements: [[], []], chronicle: new Chronicle(),
-    groups: [
-      { id: 0, region: 0, specialists: 0, foodSecurity: 1.1, size: 200_000, farmShare: 1 },
-      { id: 1, region: 1, specialists: 0, foodSecurity: 0.75, size: 20_000, farmShare: 0.6 },
-    ],
-    groupAt: Int32Array.from([0, 1]), unrest: new Uint8Array(2), stability: new Float64Array(2).fill(1),
-    remoteness: Float64Array.from([0, 1.5]), remoteOwner: Int32Array.from([0, 0]),
-    living: [0], ledger: { wealth: new Map() }, wonders: [], roads: new Map(), owner: Int32Array.from([0, 0]),
-    farmBonus: new Float64Array(2).fill(1), droughtShield: new Float64Array(2), storeBonus: new Float64Array(2).fill(1), spoilageBonus: new Float64Array(2).fill(1),
-    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, roadsAbandoned: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0 },
+    cultures: [{ language: createLanguage(createRng(1, 1)), values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 } }], settlements: [], regionSettlements: regions.map(() => []), chronicle: new Chronicle(),
+    groups: regions.map(id => id === 0 ? { id, region: id, specialists: 0, foodSecurity: 1.1, size: 200_000, farmShare: 1 } : { id, region: id, specialists: 0, foodSecurity: 0.75, size: 20_000, farmShare: 0.6 }),
+    groupAt: Int32Array.from(regions), unrest: new Uint8Array(count), stability: new Float64Array(count).fill(1),
+    remoteness: Float64Array.from(regions, id => count === 2 ? 1.5 * id : 0.8 * id), remoteOwner: new Int32Array(count), neglected: new Uint8Array(count),
+    living: [0], ledger: { wealth: new Map() }, wonders: [], roads: new Map(), owner: new Int32Array(count),
+    farmBonus: new Float64Array(count).fill(1), droughtShield: new Float64Array(count), storeBonus: new Float64Array(count).fill(1), spoilageBonus: new Float64Array(count).fill(1),
+    metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, roadsAbandoned: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, neglectBegun: 0 },
   } as unknown as SimulationState;
   const civ = {
-    id: 0, kind: 'civ', name: 'Ora', culture: 0, capital: null, groups: [0, 1], wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], roadWorks: [], roadsUnpaid: 0,
-    heardWonders: [], met: new Map(), settledTick: 0, taxRate: 0.25, arrears: 0, inArrears: false, heavyTaxes: false, repairing: false, knowledge: { multipliers: { reach: 1 } },
+    id: 0, kind: 'civ', name: 'Ora', culture: 0, capital: null, groups: regions.slice(), wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], roadWorks: [], roadsUnpaid: 0,
+    heardWonders: [], met: new Map(), settledTick: 0, taxRate: 0.25, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, repairing: false, knowledge: { multipliers: { reach: 1 } },
   } as unknown as Polity;
   state.polities = [civ];
   const city = foundSettlement(state, createRng(5, 5), civ, 0, true, 0, [], false)!;
   const hamlet = foundSettlement(state, createRng(5, 7), civ, 0, false, 0, [], false)!;
   state.groups[0].specialists = house(state, 0, city.housing + 10);
-  const village = foundSettlement(state, createRng(5, 6), civ, 1, false, 0, [], false)!;
-  state.groups[1].specialists = house(state, 1, 10);
+  const villages = regions.slice(1).map(region => {
+    const village = foundSettlement(state, createRng(5, 5 + region), civ, region, false, 0, [], false)!;
+    state.groups[region].specialists = house(state, region, 10);
+    return village;
+  });
   // A shrine in the hamlet: it costs more than the hamlet pays.
   hamlet.buildings.push({ type: BUILDING_INDEX.get('shrine')!, condition: 1, builtTick: 0 });
   applyBuildings(hamlet);
-  return { state, civ, city, hamlet, village };
+  return { state, civ, city, hamlet, village: villages[0], villages };
 }
 
 test('each settlement shows what it pays and costs, its region\'s seat keeping the region\'s account, and they add up to the realm\'s; not every place pays', () => {
@@ -134,6 +138,12 @@ test('each settlement shows what it pays and costs, its region\'s seat keeping t
   const far = settlementAccount(state, civ, village.id);
   assert.ok(far.seat && far.farms === 0, 'hungry farmers have nothing to sell');
   assert.ok(far.balance < 0, 'the frontier village runs at a loss');
+  // A region let go unkept: its upkeep is not paid, and the accounts still add up to what the realm pays.
+  village.buildings.push({ type: BUILDING_INDEX.get('granary')!, condition: 1, builtTick: 0 }); applyBuildings(village);
+  state.neglected[1] = 1;
+  const unkept = realmAccount(state, civ), owed = costsOf(state, civ);
+  assert.equal(settlementAccount(state, civ, village.id).upkeep, 0);
+  for (const kind of ['administration', 'services', 'upkeep', 'roads'] as const) assert.ok(Math.abs(unkept.costs[kind] - owed[kind]) < 1e-6, `${kind} with a region unkept`);
   // The far region costs more to administer per person than the heartland.
   const perPerson = (region: number) => regionAccount(state, civ, state.groups[region]).administration / state.groups[region].size;
   assert.ok(perPerson(1) > perPerson(0));
@@ -220,4 +230,91 @@ test('a large, old realm holds its far provinces less firmly, most in its far re
   assert.ok(Math.abs(far.strain - expected) < 1e-12 && Math.abs(far.value - (STABILITY_TUNING.base - expected)) < 1e-12);
   assert.ok(stabilityOf(state, young, group, reach).strain < 0.005, 'a small young realm feels hardly any');
   assert.equal(far.calm, far.value, 'strain is no part of the budget: calm counts it');
+});
+
+test('a strained realm lets its far provinces go unkept, more when even its taxes fall short; their buildings wear', () => {
+  const { state, civ, village } = realm();
+  village.buildings.push({ type: BUILDING_INDEX.get('granary')!, condition: 1, builtTick: 0 });
+  applyBuildings(village);
+  civ.capital = state.settlements.find(settlement => settlement.capital)!.id;
+  const full = totalCosts(fullCostsOf(state, civ));
+  // Not strained, its taxes enough: everything kept up.
+  deferMaintenance(state, civ, full, 0, 0);
+  assert.deepEqual([...state.neglected, civ.deferring], [0, 0, false]);
+  // Strained (its costs outrun customary taxes by half): the farthest half of its regions goes unkept, never the capital's.
+  deferMaintenance(state, civ, full, 0, 0.5);
+  assert.deepEqual([...state.neglected], [0, 1]);
+  assert.ok(civ.deferring && state.metrics.neglectBegun === 1);
+  assert.equal(totalCosts(costsOf(state, civ)), full - village.bonus.upkeep, 'its upkeep is not paid');
+  state.chronicle.flush(state.tick);
+  assert.ok(state.chronicle.events.some(event => event.type === 'neglect' && event.data.begun && event.region === 1));
+  // Not strained but short even at the taxes it set, with no savings to spare: from the outside in, the capital kept.
+  deferMaintenance(state, civ, 0, 0, 0);
+  assert.deepEqual([...state.neglected], [0, 1]);
+  // Savings beyond the reserve cover a shortfall first.
+  civ.wealth = 10 * full;
+  deferMaintenance(state, civ, full - village.bonus.upkeep, 0, 0);
+  assert.equal(state.neglected[1], 0);
+  // The episode ends only after years in a row of keeping everything up (the year just kept is the first).
+  for (let year = 2; year < BUDGET_TUNING.keptYears; year++) deferMaintenance(state, civ, full, 0, 0);
+  assert.ok(civ.deferring);
+  deferMaintenance(state, civ, full, 0, 0);
+  assert.equal(civ.deferring, false);
+  // A month in a region let go unkept: its buildings wear though everything due is paid.
+  civ.wealth = 1_000_000; state.neglected[1] = 1; civ.deferring = true;
+  state.ledger.wealth.clear(); wealthFlows(state, civ);
+  construct(state, { tick: state.tick } as never);
+  assert.ok(village.buildings[0].condition < 1 && civ.arrears === 0, 'the far granary wears');
+});
+
+test('a worn road is slower than a kept one, and looks worn on the map', () => {
+  const edge = { region: 1, travelKm: 400, riverTier: 0 };
+  const road = { a: 0, b: 1, tier: 1, bridge: false, condition: 1, builder: 0, builtTick: 0, upkeep: 0 };
+  const state = { partition: { regions: [{ id: 0 }, { id: 1 }] }, roads: new Map([[roadKey(2, 0, 1), road]]) } as unknown as SimulationState;
+  const kept = edgeTravel(state, 0, edge);
+  road.condition = 0.5;
+  assert.ok(edgeTravel(state, 0, edge) > kept && edgeTravel(state, 0, edge) < 400, 'worn: slower, still better than none');
+  road.condition = 0;
+  assert.equal(edgeTravel(state, 0, edge), 400, 'worn away: no help at all');
+  assert.equal(roadWear(0.9), 0); assert.equal(roadWear(0.6), 1); assert.equal(roadWear(0.1), 2);
+  const fresh = roadLook(2, 1), worn = roadLook(2, 0.6), crumbling = roadLook(2, 0.1);
+  assert.deepEqual(fresh.dash, [], 'a kept paved road is solid');
+  assert.ok(worn.dash.length > 0 && worn.color !== fresh.color && worn.width < fresh.width, 'a worn one breaks up and fades');
+  assert.ok(crumbling.alpha < worn.alpha && crumbling.width < worn.width && crumbling.dash[1] > crumbling.dash[0], 'a crumbling one is faint, a trail of dots');
+});
+
+test('letting go runs from the farthest region inward and stops once the upkeep saved covers the shortfall; roads into unkept land and wonders there wear', () => {
+  const { state, civ, villages: [near, far] } = realm(3);
+  civ.capital = state.settlements.find(settlement => settlement.capital)!.id;
+  for (const village of [near, far]) { village.buildings.push({ type: BUILDING_INDEX.get('granary')!, condition: 1, builtTick: 0 }); applyBuildings(village); }
+  // A road between the near and the far region, kept by this realm.
+  const road = { a: 1, b: 2, tier: 1, bridge: false, condition: 1, builder: 0, builtTick: 0, upkeep: 50 };
+  state.roads.set(roadKey(3, 1, 2), road);
+  // A wonder standing in the far village.
+  const gardens = WONDER_INDEX.get('hangingGardens')!;
+  state.wonders.push({ id: 0, type: gardens, settlement: far.id, builder: 0, begunTick: 0, builtTick: 0, status: 'standing', spent: 1, cost: 1, condition: 1, endedTick: null, endCause: null, causes: [], waited: 0 });
+  far.wonder = gardens;
+  const full = totalCosts(fullCostsOf(state, civ)), farUpkeep = far.bonus.upkeep + WONDERS[gardens].upkeep + road.upkeep;
+  // Short by less than the far region's upkeep (its road counted with it): only the far region goes.
+  deferMaintenance(state, civ, full - farUpkeep + 1, 0, 0);
+  assert.deepEqual([...state.neglected], [0, 0, 1], 'the farthest first, the rest kept up');
+  assert.equal(roadUpkeepOf(state, civ), 0, 'the road into unkept land is not kept up');
+  assert.equal(roadUpkeepOf(state, civ, true), 50);
+  // A month: the road, the far granary and the wonder wear; nothing is in arrears.
+  civ.wealth = 1_000_000;
+  state.ledger.wealth.clear(); wealthFlows(state, civ);
+  construct(state, { tick: state.tick } as never);
+  assert.ok(Math.abs(road.condition - (1 - 1 / BUILD_TUNING.neglectRoadMonths)) < 1e-12, 'the road wears');
+  assert.ok(far.buildings[0].condition < 1 && state.wonders[0].condition < 1 && near.buildings[0].condition === 1);
+  // Short by more than the far region's upkeep, with no savings: the near one goes too, never the capital's.
+  civ.wealth = 0;
+  deferMaintenance(state, civ, full - farUpkeep - near.bonus.upkeep, 0, 0);
+  assert.deepEqual([...state.neglected], [0, 1, 1]);
+  // Kept up again, they mend.
+  deferMaintenance(state, civ, full, 0, 0);
+  civ.wealth = 1_000_000;
+  const worn = road.condition;
+  state.ledger.wealth.clear(); wealthFlows(state, civ);
+  construct(state, { tick: state.tick + 1 } as never);
+  assert.ok(road.condition > worn && far.buildings[0].condition > 1 - 2 / BUILD_TUNING.neglectDecayMonths);
 });

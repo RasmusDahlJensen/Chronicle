@@ -153,7 +153,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     map: emptyMap(state.partition.regions.length), met: new Map(),
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
-    taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, famineDeaths: 0, personMonths: 0, outputSum: 0,
+    taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -508,7 +508,7 @@ function removeGroup(state: SimulationState, polity: Polity, group: PopulationGr
     state.owner[region] = -1;
     ruinSettlements(state, region, tick);
   }
-  state.hardship[region] = 0; state.reliefTick[region] = -1;
+  state.hardship[region] = 0; state.reliefTick[region] = -1; state.neglected[region] = 0;
   if (polity.groups.length) return;
   endPolity(state, polity, tick);
   if (polity.kind === 'civ') {
@@ -565,6 +565,8 @@ export function rehome(state: SimulationState, polity: Polity) {
   const next = livingSettlements(state, coreRegion(state, polity))[0];
   if (!next || next.owner !== polity.id) return;
   setCapital(next, true); polity.capital = next.id;
+  // The new capital's region is kept up at once.
+  state.neglected[next.region] = 0;
   state.chronicle.emit({
     type: 'capitalMoved', actors: [{ id: polity.id, role: 'civ' }], region: next.region, settlement: next.id,
     causes: causes({ capitalLost: 1 }), importance: 0.3, data: { name: next.name, civ: polity.name },

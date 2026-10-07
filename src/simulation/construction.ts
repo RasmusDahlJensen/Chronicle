@@ -6,7 +6,7 @@ import { buildingCost, wealthFlows } from './economy.ts';
 import { bySea, capitalTravel, hasHarbor, lookAgain, riverOrLake } from './perception.ts';
 import { applyBuildings, endWonder, house, refreshRegionBonus } from './settlements.ts';
 import { WONDERS } from './wonders.ts';
-import { edgeBetween, keeperOf, knownRoadTier, ROAD_TIERS, roadKey, roadRoutes, roadUpkeep } from './roads.ts';
+import { edgeBetween, keeperOf, knownRoadTier, ROAD_TIERS, roadKey, roadRoutes, roadUnkept, roadUpkeep } from './roads.ts';
 import type { Polity, Settlement, SimulationState, TickContext } from './state.ts';
 import { BUILD_TUNING } from './tunables.ts';
 
@@ -37,7 +37,7 @@ let dues = new Float64Array(0);
 function roadDues(state: SimulationState) {
   if (dues.length < state.polities.length) dues = new Float64Array(Math.max(64, state.polities.length * 2));
   else dues.fill(0);
-  for (const road of state.roads.values()) { const keeper = keeperOf(state, road); if (keeper >= 0) dues[keeper] += road.upkeep; }
+  for (const road of state.roads.values()) { const keeper = keeperOf(state, road); if (keeper >= 0 && !roadUnkept(state, road)) dues[keeper] += road.upkeep; }
   return dues;
 }
 
@@ -64,19 +64,22 @@ function payCosts(state: SimulationState, civ: Polity, roads: number) {
   // What was paid, by kind of cost, in whole units.
   const administration = Math.floor(paid * costs.administration / yearly), services = Math.floor(paid * costs.services / yearly);
   flows.administration += administration; flows.services += services; flows.upkeep += paid - administration - services;
-  // Paid in full, buildings mend; short, they wear in proportion to what went unpaid and are lost at nothing.
+  // Paid in full, buildings mend; short, they wear in proportion to what went unpaid and are lost at nothing. Those
+  // in regions it lets go unkept wear as if nothing were paid.
   const unpaid = due > 0 ? 1 - paid / due : 0;
   recordArrears(state, civ, unpaid, costs);
   // Its roads wear by the same share (`wearRoads`).
   civ.roadsUnpaid = unpaid;
-  if (unpaid <= 0 && !civ.repairing) return;
+  if (unpaid <= 0 && !civ.repairing && !civ.deferring) return;
   let worn = false;
   for (const groupId of civ.groups) for (const id of state.regionSettlements[state.groups[groupId].region]) {
     const settlement = state.settlements[id];
     if (settlement.status !== 'alive' || !settlement.buildings.length) continue;
     let lost = false;
+    // Let go unkept, a building declines over years; unpaid in arrears, faster.
+    const wear = Math.max(unpaid / BUILD_TUNING.decayMonths, state.neglected[settlement.region] ? 1 / BUILD_TUNING.neglectDecayMonths : 0);
     for (const building of settlement.buildings) {
-      building.condition = unpaid > 0 ? building.condition - unpaid / BUILD_TUNING.decayMonths : Math.min(1, building.condition + 1 / BUILD_TUNING.recoverMonths);
+      building.condition = wear > 0 ? building.condition - wear : Math.min(1, building.condition + 1 / BUILD_TUNING.recoverMonths);
       if (building.condition < 1) worn = true;
       if (building.condition > 0) continue;
       lost = true;
@@ -85,7 +88,7 @@ function payCosts(state: SimulationState, civ: Polity, roads: number) {
       if (BUILDINGS[building.type].effects.harbor) { state.harbors[settlement.region]--; lookAgain(civ); }
       state.chronicle.emit({
         type: 'buildingDecayed', actors: [{ id: civ.id, role: 'civ' }], region: settlement.region, settlement: settlement.id,
-        causes: [{ factor: 'unpaidUpkeep', weight: Math.max(0.001, Math.round(unpaid * 1000) / 1000) }], importance: 0.06,
+        causes: [{ factor: state.neglected[settlement.region] ? 'neglect' : 'unpaidUpkeep', weight: Math.max(0.001, Math.round(Math.max(unpaid, state.neglected[settlement.region]) * 1000) / 1000) }], importance: 0.06,
         data: { building: BUILDINGS[building.type].name, the: `the ${BUILDINGS[building.type].name}`, name: settlement.name, civ: civ.name },
       });
     }
@@ -94,7 +97,8 @@ function payCosts(state: SimulationState, civ: Polity, roads: number) {
   // Its wonders wear and mend the same way; one worn away is destroyed.
   for (const wonder of state.wonders) {
     if (wonder.status !== 'standing' || state.settlements[wonder.settlement].owner !== civ.id) continue;
-    wonder.condition = unpaid > 0 ? wonder.condition - unpaid / BUILD_TUNING.decayMonths : Math.min(1, wonder.condition + 1 / BUILD_TUNING.recoverMonths);
+    const wear = Math.max(unpaid / BUILD_TUNING.decayMonths, state.neglected[state.settlements[wonder.settlement].region] ? 1 / BUILD_TUNING.neglectDecayMonths : 0);
+    wonder.condition = wear > 0 ? wonder.condition - wear : Math.min(1, wonder.condition + 1 / BUILD_TUNING.recoverMonths);
     if (wonder.condition < 1) worn = true;
     if (wonder.condition > 0) continue;
     const settlement = state.settlements[wonder.settlement];
@@ -111,8 +115,9 @@ function buildWonders(state: SimulationState, tick: number, civ: Polity) {
     const settlement = state.settlements[wonder.settlement];
     const definition = WONDERS[wonder.type];
     if (settlement.status !== 'alive' || settlement.owner !== civ.id) continue;
-    // Work waits while its city is smaller than the wonder needs, and is given up after waiting too long.
-    if (settlement.tier < definition.minTier) {
+    // Work waits while its city is smaller than the wonder needs or its region is let go unkept, and is given up after
+    // waiting too long.
+    if (settlement.tier < definition.minTier || state.neglected[settlement.region]) {
       if (++wonder.waited >= BUILD_TUNING.waitMonths) endWonder(state, wonder, tick, 'stalled');
       continue;
     }
@@ -155,8 +160,9 @@ function build(state: SimulationState, tick: number, civ: Polity) {
     const settlement = state.settlements[project.settlement], definition = BUILDINGS[project.type];
     // A settlement lost or fallen to ruin takes the work with it.
     if (settlement.status !== 'alive' || settlement.owner !== civ.id || settlement.buildings.some(building => building.type === project.type)) { state.metrics.projectsAbandoned++; continue; }
-    // Work waits (unpaid) while the settlement is smaller than the building needs, and is given up after waiting too long.
-    if (settlement.tier < definition.minTier) {
+    // Work waits (unpaid) while the settlement is smaller than the building needs, or while its region is let go
+    // unkept, and is given up after waiting too long.
+    if (settlement.tier < definition.minTier || state.neglected[settlement.region]) {
       if (++project.waited >= BUILD_TUNING.waitMonths) state.metrics.projectsAbandoned++; else remaining.push(project);
       continue;
     }
@@ -206,8 +212,8 @@ function buildRoads(state: SimulationState, tick: number, civ: Polity) {
   const remaining: Polity['roadWorks'] = [], n = state.partition.regions.length;
   for (const work of civ.roadWorks) {
     const target = state.settlements[work.to];
-    // Land lost on the way, or the town fallen to ruin, ends the work.
-    if (target.status !== 'alive' || target.owner !== civ.id || work.path.some(region => state.owner[region] !== civ.id)) { state.metrics.roadsAbandoned++; continue; }
+    // Land lost on the way, the town fallen to ruin, or a region on the way let go unkept, ends the work.
+    if (target.status !== 'alive' || target.owner !== civ.id || work.path.some(region => state.owner[region] !== civ.id || state.neglected[region])) { state.metrics.roadsAbandoned++; continue; }
     const instalment = Math.min(work.cost - work.spent, Math.ceil(work.cost / work.months), civ.wealth);
     if (instalment > 0) { const flows = wealthFlows(state, civ); civ.wealth -= instalment; work.spent += instalment; flows.construction += instalment; }
     if (work.spent < work.cost) { remaining.push(work); continue; }
@@ -242,8 +248,10 @@ function buildRoads(state: SimulationState, tick: number, civ: Polity) {
 function wearRoads(state: SimulationState) {
   let lost: Map<number, { region: number; roads: number; unpaid: number }> | null = null;
   for (const [key, road] of state.roads) {
-    const keeper = keeperOf(state, road), unpaid = keeper >= 0 ? state.polities[keeper].roadsUnpaid : 1;
-    if (unpaid > 0) road.condition -= unpaid / BUILD_TUNING.roadDecayMonths;
+    // Unpaid or kept by nobody, it wears; in a region its keeper lets go unkept, faster (ruts, washed-out stretches).
+    const keeper = keeperOf(state, road), unkept = keeper >= 0 && roadUnkept(state, road);
+    const unpaid = keeper < 0 ? 1 : unkept ? 1 : state.polities[keeper].roadsUnpaid;
+    if (unpaid > 0) road.condition -= unkept ? 1 / BUILD_TUNING.neglectRoadMonths : unpaid / BUILD_TUNING.roadDecayMonths;
     else if (road.condition < 1) road.condition = Math.min(1, road.condition + 1 / BUILD_TUNING.recoverMonths);
     if (road.condition > 0) continue;
     state.roads.delete(key);

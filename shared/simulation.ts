@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 20;
+export const SIMULATION_PROTOCOL_VERSION = 21;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -32,7 +32,7 @@ export const EVENT_TYPES = [
   'governmentChange', 'unrest', 'revolt', 'secession', 'civilWar', 'civDestroyed', 'cultureSplit', 'hybridCulture',
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
-  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief',
+  'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief', 'neglect',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -108,16 +108,19 @@ export const ObserverFrameSchema = Type.Object({
     owners: Type.Array(id(), { maxItems: 50_000 }), capitals: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 50_000 }),
     tiers: Type.Array(Type.Integer({ minimum: 0, maximum: SETTLEMENT_TIERS.length - 1 }), { maxItems: 50_000 }),
     names: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 50_000 }),
-    /** What stands there that the map draws at detail zoom: 1 harbor, 2 mine, 4 quarry, 8 a wonder (a bitmask). */
-    features: Type.Array(Type.Integer({ minimum: 0, maximum: 15 }), { maxItems: 50_000 }),
+    /** What stands there that the map draws at detail zoom: 1 harbor, 2 mine, 4 quarry, 8 a wonder; and 16 when its
+     *  buildings or wonder go unkept or are worn (a bitmask). */
+    features: Type.Array(Type.Integer({ minimum: 0, maximum: 31 }), { maxItems: 50_000 }),
   }, { additionalProperties: false }),
   /** Standing roads as parallel arrays, in the order first built: the two regions of the land edge it lies on (the
    *  lower id first), its tier (an index into ROAD_TIER_NAMES plus one: 1 road, 2 paved road, 3 railway, 4 highway) and
-   *  whether a bridge carries it over the river there (0/1); for the map's roads and bridges. */
+   *  whether a bridge carries it over the river there (0/1), and its condition in percent (worn roads look worn); for
+   *  the map's roads and bridges. */
   roads: Type.Object({
     a: Type.Array(id(), { maxItems: 100_000 }), b: Type.Array(id(), { maxItems: 100_000 }),
     tiers: Type.Array(Type.Integer({ minimum: 1, maximum: ROAD_TIER_NAMES.length }), { maxItems: 100_000 }),
     bridges: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 100_000 }),
+    conditions: Type.Array(Type.Integer({ minimum: 0, maximum: 100 }), { maxItems: 100_000 }),
   }, { additionalProperties: false }),
   /** Cultivated land (VISION.md "Cultivated land"), for regions with any: how many of the region's farmland cells, in
    *  the region map's `fieldRank` order, its fields cover (a cell is cultivated when its rank is below the count). */
@@ -141,6 +144,8 @@ export const ObserverFrameSchema = Type.Object({
     weather: Type.Object({
       harvest: Type.Number({ minimum: 0 }), drought: Type.Integer({ minimum: 0 }), famine: Type.Boolean(), irrigation: Type.Number({ minimum: 1 }), relief: Type.Boolean(),
     }, { additionalProperties: false }),
+    /** Whether its realm lets its buildings and roads go unkept this year (deferred maintenance; they wear). */
+    neglected: Type.Boolean(),
     /** Its cultivated land: the share of its farmland's labour under cultivation (0–1) and the cells it covers. */
     fields: Type.Object({ share: Type.Number({ minimum: 0, maximum: 1 }), cells: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
     /** The region's settlements, living and in ruins, main one first: tier, townspeople, housing, founding tick, the
@@ -297,7 +302,7 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   if (settlements.ids.length !== frame.settlementCount || eras.some(era => era > frame.leadingEra)) throw invalid();
   // Each road lies on an edge between two regions of this world, named once, lower id first.
   const roads = frame.roads, edges = new Set<string>();
-  if ([roads.b, roads.tiers, roads.bridges].some(array => array.length !== roads.a.length)) throw invalid();
+  if ([roads.b, roads.tiers, roads.bridges, roads.conditions].some(array => array.length !== roads.a.length)) throw invalid();
   roads.a.forEach((a, index) => {
     const b = roads.b[index], key = `${a},${b}`;
     if (a >= b || b >= frame.counters.regions || edges.has(key)) throw invalid();

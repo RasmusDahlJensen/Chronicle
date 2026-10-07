@@ -284,7 +284,11 @@ Wealth must matter: running a society costs money, more the larger and older it 
   - **settlement services** per townsperson, more per head in larger places;
   - **upkeep** of buildings, roads and wonders; armies (M6), clergy (M4) and courts (M7) join later.
 - **Not every place pays.** Each settlement shows what it earns and what it costs. Many villages and frontier towns run at a loss, carried by profitable cities and rich farmland.
-- **Deficits:** a realm short of income draws on its treasury; with that empty, upkeep goes unpaid, so buildings and roads wear and unrest grows, first in the regions farthest from the capital. Large old empires feel this first.
+- **Deficits and neglect:**
+  - **A strained court spends on its core.** A realm whose costs outrun what customary taxes raise lets the buildings, wonders and roads of its farthest regions go unkept, a share as large as half its strain, while it still pays everything else. It builds nothing new there.
+  - **Short even at the taxes it sets:** it draws on its savings beyond its reserve, a fifth a year. Then it lets more go, from the outside in. When even that cannot pay its costs, it falls into arrears: upkeep goes unpaid everywhere, and unrest grows, first in the regions farthest from the capital.
+  - **The capital is always kept up.** Large old empires feel all this first.
+  - **Neglect is visible** (user, M3c review, 7 October 2026): worn roads look worn on the map and are slower, worn settlements look worn, and what stays unkept long enough is lost.
 - The Build action and every later action weigh what the realm can afford: its income after costs, not its treasury alone.
 
 **Trade.** Two civs can trade if they have contact and a reachable route under either civ's mobility. At each decision step, civs with a deficit look for partners with a surplus, scored by relations, route distance, hubs and the partner's Openness. A trade agreement transfers a fixed resource amount per year in exchange for another resource or wealth, and lasts until cancelled by war, a relations drop or the need disappearing. Trade agreements are contact edges: they raise relations, share knowledge as an exchange does, carry cultural and religious influence and make road agreements likelier. Store them as edges for the trade-routes lens.
@@ -660,6 +664,12 @@ Acceptance:
 - A civ never sees a wonder whose holder neither it nor a people it has met has met (test).
 - A state copied mid-history continues with the same event-log hash as the original (test).
 - Then stop for user review (rule 2).
+- **The M3c review** (user, 7 October 2026):
+  - **Neglect must be visible**, in the look of infrastructure as well as its loss; added as slice M3c.5.
+  - **Empires should rise and fall as real ones did** (Rome, the Mongols, the British Empire and the like), with simpler rules. The research is in [EMPIRES_RESEARCH.md](EMPIRES_RESEARCH.md).
+  - **Rulers should differ** in how they rule their people and in their aggression, and be replaced as in reality: lifelong rulers die or are overthrown, elected ones lose elections, hereditary ones pass power on, with crises.
+  - **The user kept the planned order** (M4, M5, M6, then M7). The findings are recorded as requirements of M6 and M7 ("Grounded in history" under each), so they are built when those milestones come.
+  - Famine relief's strength is left as it is for now.
 
 **P — Persistence** (waits until the user asks for it; user, M3b review). Saving and resuming worlds, snapshots, `SAVE_FORMAT_VERSION`.
 
@@ -691,6 +701,10 @@ Acceptance:
 - In most seeds, at least one settlement is razed and later resettled, and at least one bridge or road is destroyed in war.
 - The largest civ's land share over time is reported (the hegemony limit becomes acceptance in M7).
 - Borders settle onto barriers: by year 3,000 the median land travel cost of edges between regions of different civs is at least 1.5× the median of all land region edges in every seed. (Moved here from M3 at the M3 review, 2 October 2026.)
+- **Grounded in history** (the M3c review, 7 October 2026; [EMPIRES_RESEARCH.md](EMPIRES_RESEARCH.md)): M6 also builds:
+  - **a military edge that spreads:** the military tech multiplier in war strength (soldiers × military tech × supply) compares the two sides' military knowledge. A large edge raises the drive to conquer and shrinks as rivals learn the techs, so conquests come in waves after a breakthrough;
+  - **conquest that pays, then stops paying:** loot and tribute fill the treasury, and army size follows threat and recent war income. When the frontier reaches poor or strong land, the army's upkeep (a cost in the M3c budget) pushes the realm toward arrears. Demobilizing unsettles the soldiers;
+  - **threat drives consolidation:** a strong or raiding neighbour raises the pull of unions among those it threatens, and herders beside rich farmers gain from raiding and from confederating.
 
 **M7 — Government, rulers and fracture.** Government forms and transitions, rulers, dynasties, succession crises, elections, cohesion, revolts, secession, civil war, independence (movements, referendums where the government allows them, and dissolution of a collapsing center, held back by economic ties and repression), plague, knowledge loss.
 
@@ -701,6 +715,42 @@ Acceptance:
   - more independence movements fail or never break away than succeed;
   - successful breakaways happen by more than one route (war, vote, dissolution);
   - every referendum happens under a government that allows votes.
+- **Grounded in history** (the user, M3c review, 7 October 2026: empires should rise and fall "closer to how it is in irl but with simpler simulation rules", like the Roman, Mongol and British empires; rulers should differ in how they rule their people and in their aggression, and be replaced as they would be in reality). The findings are in [EMPIRES_RESEARCH.md](EMPIRES_RESEARCH.md). M7 builds them as graded rules, never scripted events:
+  - **Rulers** (with "Layer 2: ruler traits"):
+    - each civilization has a named ruler with an age, one or two traits and a dynasty;
+    - traits shape how they rule: taxes and their weight, building and upkeep, relief, repression, expansion, unions and war;
+    - a trait's weight scales with the government's personal power: high in chiefdoms, empires and dictatorships, low in constitutional monarchies and democracies;
+    - rulers age and die along a human mortality curve that falls with Medicine.
+  - **Succession by government form.**
+    - **Forms:**
+      - chiefdoms and steppe realms pass power among kin, with frequent contests;
+      - hereditary monarchies pass it to the eldest son;
+      - elective monarchies let the great families choose, and neighbours back claimants;
+      - some cultures divide a realm among sons, leaving kin realms that are drawn to reunite;
+      - dictatorships end by coup or an appointed heir;
+      - one-party states let the party choose;
+      - democracies replace leaders at elections.
+    - **Starting values** for the yearly risk of a ruler being removed: about 0.7% under primogeniture, 4% elective and 6% kin succession. The risk is highest early in a reign and after a predecessor was removed, and rises with low legitimacy, powerful elites and a large army. Assemblies (parliaments, republics) lower it.
+  - **Legitimacy by performance** (the Mandate of Heaven):
+    - it rises with prosperity, wonders, victories and long reigns;
+    - it falls with famine deaths, arrears, neglect, defeats and debasement;
+    - low legitimacy raises the risk of removal and of regions joining revolts;
+    - a successful rebel can found a new dynasty while the state endures.
+  - **Crises at the centre:** a disputed succession, a child ruler, a removed ruler, the capital lost, civil war, a lost war or a default raise a crisis value. While it lasts, every region's chance of breaking away is multiplied, and regions that remember a former state, have another culture or have drifted far from the capital go first. Breakups therefore cluster after crises. Strain alone (M3c) keeps costing output and making the edges brittle; it is a shock at the centre that breaks a strained realm.
+  - **Governors drifting away:** regions beyond governance reach slowly gain autonomy. Autonomy cuts the tax and troops they send, turns them into nominal vassals, and lets them leave at the next crisis without war.
+  - **Elites and sclerosis:**
+    - elite power (the share of revenue kept by nobles, governors and commanders) raises reach and mobilization but also depositions and autonomy;
+    - long prosperity breeds more elites than positions, and their competition raises unrest and the chance a succession becomes civil war (secular cycles);
+    - the M3c age cost becomes a stock of accumulated privilege: it grows in peaceful years and is cut by a reforming ruler, a new dynasty, civil war or conquest. Reform costs elite stability.
+  - **A fiscal crisis has several ways out**, chosen by traits and values: heavier taxes and arrears (as now), cutting the army, debasing the coinage (a one-off gain, then lower trade and more unrest), defaulting on debts (with credit from Banking: cheaper under constrained governments), or giving up costly far regions as vassals or independent states (a managed retreat).
+  - **Restoration:** whoever holds a fallen empire's capital or core people is drawn to reunite its fragments.
+  - **Shocks on strain:** plague and drought cut food and taxes, and the stability damage of any shock scales with a realm's strain and arrears. Drought among herders drives raids and migration onto farmers.
+  - **Nationalism:** from Printing on, cultural and language difference weigh more toward independence. Rivals may fund separatists.
+  - **Health checks** (never quotas):
+    - large realms stay at half their peak size or more for a median of one to two centuries, with a long tail;
+    - mean reigns by succession type are near 20, 12 and 9 years (primogeniture, elective, kin);
+    - breakups cluster after crises at the centre;
+    - the realms that rose fastest tend to break first.
 
 **M8 — Late game.** Industrial break, factories, railways and highways, power plants, demographic transition, airports, nuclear power and weapons with deterrence, rockets, rocket sites and space milestones, end condition.
 

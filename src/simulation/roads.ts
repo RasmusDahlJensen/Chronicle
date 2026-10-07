@@ -61,11 +61,15 @@ export const roadKey = (regions: number, a: number, b: number) => a < b ? a * re
 export const edgeKm = (travelKm: number, riverTier: number) => travelKm * (1 + REACH_TUNING.riverCrossing[riverTier]);
 
 /** Travel cost of the land edge from `from`, with the road on it if any (unless `roads` is false): its tier's share of
- *  the distance, and the river's surcharge unless a bridge carries it. */
+ *  the distance, less of a help the more worn it is (a road worn away is no road), and the river's surcharge unless a
+ *  bridge carries it. */
 export function edgeTravel(state: SimulationState, from: number, edge: RegionEdge, roads = true) {
   if (roads && state.roads.size) {
     const road = state.roads.get(roadKey(state.partition.regions.length, from, edge.region));
-    if (road) return edge.travelKm * (ROAD_TIERS[road.tier - 1].travel + (road.bridge ? 0 : REACH_TUNING.riverCrossing[edge.riverTier]));
+    if (road) {
+      const travel = ROAD_TIERS[road.tier - 1].travel;
+      return edge.travelKm * (travel + (1 - road.condition) * (1 - travel) + (road.bridge ? 0 : REACH_TUNING.riverCrossing[edge.riverTier]));
+    }
   }
   return edgeKm(edge.travelKm, edge.riverTier);
 }
@@ -86,10 +90,13 @@ export function keeperOf(state: SimulationState, road: Road) {
   return first >= 0 ? first : state.owner[road.b];
 }
 
-/** The upkeep a year of the roads a civilization keeps. */
-export function roadUpkeepOf(state: SimulationState, civ: Polity) {
+/** Whether a road goes unkept: it leads into a region its realm lets go unkept (`budget.ts` `deferMaintenance`). */
+export const roadUnkept = (state: SimulationState, road: Road) => state.neglected[road.a] === 1 || state.neglected[road.b] === 1;
+
+/** The upkeep a year of the roads a civilization keeps up: all it holds with `all`, else not those it lets go unkept. */
+export function roadUpkeepOf(state: SimulationState, civ: Polity, all = false) {
   let upkeep = 0;
-  for (const road of state.roads.values()) if (keeperOf(state, road) === civ.id) upkeep += road.upkeep;
+  for (const road of state.roads.values()) if (keeperOf(state, road) === civ.id && (all || !roadUnkept(state, road))) upkeep += road.upkeep;
   return upkeep;
 }
 

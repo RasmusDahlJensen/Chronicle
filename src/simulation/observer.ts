@@ -16,6 +16,15 @@ import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
 type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'fields' | 'wonders' | 'series' | 'inspect'>;
 
+/** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
+ *  wonder is below 80% condition. */
+function worn(state: SimulationState, settlement: SimulationState['settlements'][number]) {
+  if (state.neglected[settlement.region] && (settlement.buildings.length > 0 || settlement.wonder !== null)) return true;
+  for (const building of settlement.buildings) if (building.condition < 0.8) return true;
+  if (settlement.wonder !== null) for (const wonder of state.wonders) if (wonder.settlement === settlement.id && wonder.status === 'standing' && wonder.condition < 0.8) return true;
+  return false;
+}
+
 /**
  * What an observer may see of the true world (VISION.md "Observer views": the god view). Built on request from the
  * state; it never changes the simulation.
@@ -49,10 +58,10 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     settlements.ids.push(settlement.id); settlements.cells.push(settlement.cell); settlements.owners.push(settlement.owner); settlements.capitals.push(settlement.capital ? 1 : 0);
     // Names only for the places a map labels: towns and larger, and capitals.
     settlements.tiers.push(settlement.tier); settlements.names.push(settlement.tier > 0 || settlement.capital ? settlement.name : '');
-    settlements.features.push((settlement.bonus.harbor ? 1 : 0) | (settlement.bonus.mine ? 2 : 0) | (settlement.bonus.quarry ? 4 : 0) | (settlement.wonder !== null ? 8 : 0));
+    settlements.features.push((settlement.bonus.harbor ? 1 : 0) | (settlement.bonus.mine ? 2 : 0) | (settlement.bonus.quarry ? 4 : 0) | (settlement.wonder !== null ? 8 : 0) | (worn(state, settlement) ? 16 : 0));
   }
-  const roads = { a: [] as number[], b: [] as number[], tiers: [] as number[], bridges: [] as number[] };
-  for (const road of state.roads.values()) { roads.a.push(road.a); roads.b.push(road.b); roads.tiers.push(road.tier); roads.bridges.push(road.bridge ? 1 : 0); }
+  const roads = { a: [] as number[], b: [] as number[], tiers: [] as number[], bridges: [] as number[], conditions: [] as number[] };
+  for (const road of state.roads.values()) { roads.a.push(road.a); roads.b.push(road.b); roads.tiers.push(road.tier); roads.bridges.push(road.bridge ? 1 : 0); roads.conditions.push(Math.round(road.condition * 100)); }
   const fields = { regions: [] as number[], cells: [] as number[] };
   for (let region = 0; region < state.fields.length; region++) {
     if (!(state.fields[region] > 0)) continue;
@@ -167,7 +176,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
     };
   });
   return {
-    region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews,
+    region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews, neglected: state.neglected[region] === 1,
     weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)), relief: state.reliefTick[region] >= 0 && state.tick - state.reliefTick[region] <= 1 },
     fields: (() => {
       const land = fieldLand(state.fieldRanking, region);

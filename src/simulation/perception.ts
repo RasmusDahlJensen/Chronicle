@@ -1,7 +1,7 @@
 import { BUILDINGS, buildingKnown } from './buildings.ts';
 import { WONDERS, wonderKnown } from './wonders.ts';
 import { cultureSimilarity } from './culture.ts';
-import { type Costs, costsOf, totalCosts } from './budget.ts';
+import { type Costs, fullCostsOf, totalCosts } from './budget.ts';
 import { buildingCost, outputOf, siteIncome } from './economy.ts';
 import { livingSettlements } from './settlements.ts';
 import { cellNeighbors, greatCircleKm } from './geography.ts';
@@ -377,6 +377,8 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
   const mines = catalog.some(kind => kind.works === 'mineral'), quarries = catalog.some(kind => kind.works === 'stone');
   if (catalog.length) for (const groupId of civ.groups) {
     const group = state.groups[groupId], region = group.region;
+    // It builds nothing where it lets things go unkept (`budget.ts` `deferMaintenance`).
+    if (state.neglected[region]) continue;
     // Foreign peoples on the region's borders, as it sees them (its neighbours are always in sight).
     const foreign = new Set<number>();
     for (const edge of state.partition.regions[region].neighbors) {
@@ -412,6 +414,7 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
   const roads: PolityView['build']['roads'] = { tier, one: tier ? ROAD_TIERS[tier - 1].one : '', many: tier ? ROAD_TIERS[tier - 1].many : '', routes: [] };
   for (const route of roadRoutes(state, civ, tier)) {
     const settlement = state.settlements[route.settlement];
+    if (route.path.some(region => state.neglected[region])) continue;
     roads.routes.push({ settlement: route.settlement, name: settlement.name, urban: settlement.urban, km: route.km, cost: route.cost, upkeep: route.upkeep, edges: route.edges.length, bridges: route.bridges });
   }
   return { regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1, roads };
@@ -431,8 +434,9 @@ export function wonderOptions(state: SimulationState, civ: Polity): PolityView['
   return wonders;
 }
 
-/** A civilization's budget as it knows it: its own output, sites, costs and treasury (`PolityView['budget']`). */
-export function budgetView(state: SimulationState, civ: Polity, costs: Costs = costsOf(state, civ)): PolityView['budget'] {
+/** A civilization's budget as it knows it: its own output, sites, costs (all it holds kept up: letting far regions go
+ *  does not make it less strained) and treasury (`PolityView['budget']`). */
+export function budgetView(state: SimulationState, civ: Polity, costs: Costs = fullCostsOf(state, civ)): PolityView['budget'] {
   const { output, sites } = outputOf(state, civ), total = totalCosts(costs), revenue = BUDGET_TUNING.customaryRate * output + sites;
   let calm = 0, people = 0;
   for (const groupId of civ.groups) {

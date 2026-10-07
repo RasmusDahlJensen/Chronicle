@@ -389,6 +389,10 @@ export const WEALTH_TUNING = {
  * stability by arrearsUnrest × arrears × (arrearsCore + (1 − arrearsCore) × min(1, remoteness)): most at the edges. A
  * realm whose arrears pass `arrearsEvent` falls into arrears (an event) until they fall below half of it.
  *
+ * Deferred maintenance (`deferMaintenance`): a strained realm lets its farthest regions go unkept, a share as large as
+ * neglectStrain × its strain, more if even its taxes fall short; an episode ends after `keptYears` years of keeping
+ * everything up.
+ *
  * Expansion weighs the strain on a realm's purse: adminWeight × strain × (½ + ½ × min(1, the land's remoteness)),
  * strain = clamp(costs ÷ (customary taxes + sites) − 1, 0, 1).
  */
@@ -398,7 +402,7 @@ export const BUDGET_TUNING = {
   taxUnrest: 0.3, taxContent: 0.05,
   perRegion: 100, perPerson: 0.01, distance: 0.5, remoteCap: 2, sizeScale: 20, sizePower: 0.5, ageMax: 1, ageYears: 600,
   servicesBase: 0.3, servicesScale: 10_000, servicesPower: 0.5,
-  arrearsMonths: 12, arrearsUnrest: 0.5, arrearsCore: 0.2, arrearsEvent: 0.1,
+  arrearsMonths: 12, arrearsUnrest: 0.5, arrearsCore: 0.2, arrearsEvent: 0.1, neglectStrain: 0.5, keptYears: 5,
   adminWeight: 0.5,
 } as const;
 
@@ -425,7 +429,8 @@ export const RELIEF_TUNING = { months: 2, costPer1000Km: 0.2, kmPerMonth: 500, t
  * and the realm's sites raise a year and surplus what that leaves after its costs (VISION.md "Wealth": it weighs its
  * income after costs). The best type is the Build option; it is begun in those settlements. Construction is paid in
  * equal monthly instalments while the treasury allows. Costs are due monthly; unpaid, every building loses
- * unpaid share ÷ decayMonths of condition a month (paid, it regains 1 ÷ recoverMonths) and is lost at 0.
+ * unpaid share ÷ decayMonths of condition a month (paid, it regains 1 ÷ recoverMonths) and is lost at 0; in a region
+ * its realm lets go unkept, it loses at least 1 ÷ neglectDecayMonths a month, declining over years.
  */
 export const BUILD_TUNING = {
   sizeScale: 8_000, farmStore: 0.2, faithBase: 0.3, learningBase: 0.3, tradeBase: 0.4, tradeOpenness: 0.6, crowdFrom: 0.7, frontierScale: 3, defenseBase: 0.1,
@@ -450,14 +455,14 @@ export const BUILD_TUNING = {
    * from the capital ÷ governance reach)), at most 1, × size; the score is purposeWeight.roads × the mean of the best
    * batch − the cost and upkeep burdens as for buildings. A road's upkeep is roadUpkeep of what it cost to build a
    * year; unpaid (or kept by no civilization) it loses 1 ÷ roadDecayMonths of its condition a month, times the unpaid
-   * share, and is lost at 0.
+   * share, and in a region its keeper lets go unkept 1 ÷ neglectRoadMonths; it is lost at 0.
    */
   roadBase: 0.2, roadOpenness: 0.3, roadReach: 0.8, roadUpkeep: 0.02, roadDecayMonths: 240,
   /** Laying out a route, a stretch of road that already serves (or is being built) counts this share of its travel
    *  cost, so new roads branch off the network instead of running beside it. */
   roadReuse: 0.1,
   batchRegions: 8, batchMax: 12, cost: 0.5, treasuryYears: 5, upkeepWeight: 0.6, surplusFloor: 0.05,
-  decayMonths: 60, recoverMonths: 24,
+  decayMonths: 60, recoverMonths: 24, neglectDecayMonths: 120, neglectRoadMonths: 120,
   /** Work waits, unpaid, while its settlement is below the tier it needs; after waitMonths it is abandoned. */
   waitMonths: 240,
 } as const;
@@ -594,11 +599,11 @@ export function validateTunables() {
   const bg = BUDGET_TUNING;
   if (!(Object.values(bg).every(value => value >= 0) && bg.townOutput > 0 && bg.hungerLine < 1 && bg.minRate > 0 && bg.minRate < bg.customaryRate && bg.customaryRate < bg.maxRate && bg.maxRate <= 1
     && bg.heavyRate > bg.customaryRate && bg.heavyRate <= bg.maxRate && bg.rateStep > 0 && bg.refillYears > 0 && bg.calmFull > bg.calmFloor && bg.calmFull <= 1 && bg.sizeScale > 0 && bg.ageYears > 0 && bg.servicesScale > 0
-    && bg.arrearsMonths >= 1 && bg.arrearsCore <= 1 && bg.arrearsEvent > 0 && bg.arrearsEvent <= 1)) problems.push('budget settings are invalid');
+    && bg.arrearsMonths >= 1 && bg.arrearsCore <= 1 && bg.arrearsEvent > 0 && bg.arrearsEvent <= 1 && Number.isInteger(bg.keptYears) && bg.keptYears >= 1)) problems.push('budget settings are invalid');
   const rl = RELIEF_TUNING;
   if (!(rl.months > 0 && rl.costPer1000Km >= 0 && rl.kmPerMonth > 0 && rl.treasuryShare > 0 && rl.treasuryShare <= 1 && Number.isInteger(rl.episodeMonths) && rl.episodeMonths >= 1)) problems.push('relief settings are invalid');
   const bu = BUILD_TUNING;
-  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.roadReuse > 0 && bu.roadReuse <= 1 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight, bu.surplusFloor].every(value => value >= 0)
+  if (!([bu.sizeScale, bu.frontierScale, bu.batchRegions, bu.treasuryYears, bu.decayMonths, bu.recoverMonths, bu.neglectDecayMonths, bu.neglectRoadMonths, bu.mineScale, bu.seaScale, bu.wonderCity, bu.farmScale, bu.waitMonths].every(value => value > 0) && bu.irrigationBase >= 0 && bu.seaBase >= 0 && bu.roadReuse > 0 && bu.roadReuse <= 1 && bu.wonderWeight >= 0 && bu.roadBase >= 0 && bu.roadOpenness >= 0 && bu.roadReach >= 0 && bu.roadUpkeep >= 0 && bu.roadDecayMonths > 0 && bu.goldenFrom >= 0 && bu.goldenFrom < 1 && [bu.farmStore, bu.faithBase, bu.learningBase, bu.tradeBase, bu.tradeOpenness, bu.defenseBase, bu.cost, bu.upkeepWeight, bu.surplusFloor].every(value => value >= 0)
     && bu.crowdFrom >= 0 && bu.crowdFrom < 1 && Number.isInteger(bu.batchMax) && bu.batchMax >= 1 && Object.values(bu.purposeWeight).every(value => value >= 0))) problems.push('building settings are invalid');
   const sh = SHARE_TUNING;
   if (!(Object.values(sh).every(value => value >= 0) && sh.techScale > 0 && sh.refusal <= 1 && sh.gainBase <= 1 && Number.isInteger(sh.years) && sh.years >= 1 && Number.isInteger(sh.refusedYears))) problems.push('sharing settings are invalid');

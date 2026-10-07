@@ -91,6 +91,9 @@ export interface Polity {
    *  arrears, the share of its costs left unpaid, averaged over about a year (0–1); and whether it is now known to be in
    *  arrears and to tax heavily (each change of these is an event). */
   taxRate: number; arrears: number; inArrears: boolean; heavyTaxes: boolean;
+  /** Whether it is letting the buildings and roads of some of its far regions go unkept (an episode, `neglected`), and
+   *  the years in a row it has since kept everything up (the episode ends after BUDGET_TUNING.keptYears). */
+  deferring: boolean; keptYears: number;
 }
 
 export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build'] as const;
@@ -282,6 +285,10 @@ export interface CenturyStats {
    *  the largest polity held more than 35% of the world's people, and all such years, so far. */
   stabilityLargeOld: number; stabilitySmallYoung: number; unrestLargeOld: number; unrestSmallYoung: number;
   unionsRefusedForStrain: number; longestDominance: number; dominanceYears: number;
+  /** Visible neglect (M3c.5): the share of civilization regions let go unkept now, of road edges worn below 80% of
+   *  their condition, and of standing buildings worn below 80%; civilizations that began to let far regions go unkept
+   *  so far. */
+  regionsNeglected: number; roadsWorn: number; buildingsWorn: number; neglectBegun: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -354,6 +361,8 @@ export interface Metrics {
   reliefUnits: number; reliefLost: number; reliefCost: number; reliefBegun: number; reliefShortTreasury: number; reliefShortFood: number;
   /** Unions a larger civilization refused only for its budget strain (it would have admitted them unstrained). */
   unionsRefusedForStrain: number;
+  /** Civilizations that began to let far regions go unkept (an event). */
+  neglectBegun: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;
@@ -410,6 +419,9 @@ export interface SimulationState {
    *  costs follow, and the civilization it was measured for (−1 none); measured at the owner's yearly assessment and in
    *  the month the region joins a realm (`budget.ts`). */
   remoteness: Float64Array; remoteOwner: Int32Array;
+  /** Per region: whether its realm lets its buildings, wonders and roads go unkept this year (deferred maintenance,
+   *  set at the yearly assessment; 0 where nobody rules). */
+  neglected: Uint8Array;
   /** Per region: the tick famine relief last reached it (−1 never, or since its people left); relief again within
    *  RELIEF_TUNING.episodeMonths is the same episode. */
   reliefTick: Int32Array;
