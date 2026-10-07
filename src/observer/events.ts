@@ -64,7 +64,7 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   cultureSplit: 'In {regions} regions of the {polity}{?others| and beyond}, {population} people have grown apart from the {parent} and become the {culture}{?both|, with more {more} and less {less} than their forebears}{?onlyMore|, with more {more} than their forebears}{?onlyLess|, with less {less} than their forebears}.',
   hybridCulture: 'In the realm of the {civ}, the {first} and the {second} have become one people, the {culture} ({firstShare}% {first}, {secondShare}% {second}).',
   religionFounded: 'In region {region}, the {civ} found the {religion} faith ({tenets}){?reformed|, in place of the {from} faith}.',
-  schism: '{religion} splits from {parent}.',
+  schism: 'In {regions} regions, the followers of the {parent} faith, long cut off from {?holyLand|its holy land}{?mainBody|its main body}, become the {religion} faith{?swapped|, holding to {taken} in place of {dropped}}{?onlyDropped|, setting {dropped} aside}.',
   stateReligionChanged: '{?adopted|The {civ} take up the {religion} faith as their state religion.}{?changed|The {civ} take up the {religion} faith as their state religion in place of the {from}.}{?folk|The {civ} return to the folk ways of their forebears, leaving the {from} faith.}',
   drought: 'Drought strikes region {region}{?oneMore| and a region beside it}{?moreRegions| and {more} regions around it}{?oneYear| for a year}{?severalYears| for {years} years}, hitting the {name}{?others| and their neighbours}.',
   climateShock: 'A climate shock lowers harvests worldwide.',

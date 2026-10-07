@@ -260,7 +260,7 @@ export function cultureYear(state: SimulationState, context: TickContext) {
   if (religions.length) {
     const followers = new Map<number, PopulationGroup[]>();
     for (const id of state.living) for (const groupId of state.polities[id].groups) { const group = state.groups[groupId]; if (group.faith >= 0) { const list = followers.get(group.faith); if (list) list.push(group); else followers.set(group.faith, [group]); } }
-    for (const religion of religions) refreshReligion(context, religion, followers.get(religion.id) ?? []);
+    for (const religion of religions) refreshReligion(state, context, religion, followers.get(religion.id) ?? []);
   }
   const cultures = state.cultures.filter(culture => culture.deathTick === null && due(culture.id));
   if (!cultures.length) return;
@@ -479,7 +479,7 @@ export function cultureStats(state: SimulationState) {
 export function assimilationChance(state: SimulationState, civ: Polity, group: PopulationGroup, heart: PopulationGroup, share: number, kin = false) {
   const tuning = CULTURE_TUNING;
   const close = Math.max(0, 1 - divergence(group.values, heart.values) / tuning.assimilationRange);
-  const holding = 1 - 0.5 * group.values.tradition, pressing = 1 - 0.5 * heart.values.openness;
+  const holding = 1 - tuning.assimilationTradition * group.values.tradition, pressing = 1 - tuning.assimilationTolerance * heart.values.openness;
   const near = state.remoteOwner[group.region] === civ.id ? 0.5 + 0.5 * Math.exp(-state.remoteness[group.region]) : 0.5;
   const small = kin ? 1 : Math.max(0, 1 - share / tuning.hybridShare);
   return { chance: tuning.assimilationRate * close * holding * pressing * near * small, close, holding, pressing, near, small };

@@ -162,7 +162,7 @@ test('the road choice favours far and large towns, scales with the batch, and ne
   const view = (routes: ReturnType<typeof route>[], tier = 1, regions = 8) => ({
     values, reachKm: 4_000,
     budget: { rate: 0.2, output: 500_000, sites: 0, costs: 0, treasury: 1_000_000, revenue: 100_000, surplus: 100_000, strain: 0, tradition: 0.5, calm: 0.9 },
-    build: { monuments: 1, regions, roads: { tier, one: 'a road', many: 'roads', routes } },
+    build: { monuments: 1, piety: 1, regions, roads: { tier, one: 'a road', many: 'roads', routes } },
   }) as unknown as PolityView;
   assert.equal(bestRoad(view([])), null);
   assert.equal(bestRoad(view([route(1, 1_000)], 0)), null, 'no road known');

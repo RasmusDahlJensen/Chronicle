@@ -519,8 +519,8 @@ export const FIELD_TUNING = {
  * (as the observer's lineage colours do).
  * Mixed peoples (M4.2), once a year per civilization:
  * - a people of another culture takes up the ruling culture with a chance of `assimilationRate` × how close its values
- *   are to the realm's heartland people's (none beyond `assimilationRange`) × (1 − ½ its Tradition) × (1 − ½ the
- *   heartland's Openness: tolerant realms let peoples be) × (½ + ½ e^(−remoteness)) × how small a share of the realm
+ *   are to the realm's heartland people's (none beyond `assimilationRange`) × (1 − `assimilationTradition` × its
+ *   Tradition) × (1 − `assimilationTolerance` × the heartland's Openness: tolerant realms let peoples be) × (½ + ½ e^(−remoteness)) × how small a share of the realm
  *   its culture is (none at `hybridShare` or more, except for kin: cultures whose ancestry overlaps by at least
  *   `kinShare`); taking up its ways, its values move `assimilationBlend` of the way to the heartland's (within
  *   `splitDivergence` of them, so it does not split off again at once);
@@ -534,7 +534,7 @@ export const CULTURE_TUNING = {
   driftRate: 0.005, influenceRate: 0.03, foreignContact: 0.25, confidence: 0.25, heartPull: 2, fashion: 0.03,
   prestigeEra: 0.25, prestigeWonder: 0.5, prestigeCity: 0.1, prestigeWealth: 0.5, wealthPerPerson: 0.2, townShare: 0.25, seaShare: 0.5,
   splitDivergence: 0.07, splitRegions: 3, splitRate: 0.05, splitNote: 0.25, languageChanges: 2, hueShift: 20, hueStart: 20, hueStep: 137.508,
-  assimilationRate: 0.01, assimilationRange: 0.1, assimilationBlend: 0.5, kinShare: 0.5, hybridShare: 0.25, hybridYears: 150, hybridRange: 0.1, hybridRate: 0.02, fusionBlend: 0.8,
+  assimilationRate: 0.01, assimilationRange: 0.1, assimilationBlend: 0.5, assimilationTradition: 0.5, assimilationTolerance: 0.5, kinShare: 0.5, hybridShare: 0.25, hybridYears: 150, hybridRange: 0.1, hybridRate: 0.02, fusionBlend: 0.8,
 } as const;
 
 /**
@@ -562,12 +562,20 @@ export const TRAIT_TUNING = { share: 0.6, max: 4, inherit: 0.85, herding: 0.3, f
  * - under a state religion, a people of another faith is less settled by `friction` × (`zealFriction` + its Zeal),
  *   times the state religion's friction tenets;
  * - research weighs religion techs × (`religionZealBase` + its people's Zeal); a state religion of Monument builders
- *   weighs temples and wonders × `monumentWeight`; an ascetic faith's followers produce `asceticWealth` of their wealth.
+ *   weighs temples and wonders × `monumentWeight`; an ascetic faith's followers produce `asceticWealth` of their wealth;
+ * - schisms (M4.4): a religion's followers in neighbouring regions or one polity are one body; a body of at least
+ *   `schismRegions` regions cut off from its main body becomes a sect with one tenet changed, with a chance of
+ *   `schismRate` a year × how long its people have been apart (people-weighted: none at half of `schismYears`, all of it
+ *   at `schismYears`); its colour turns by up to `sectHueShift` degrees;
+ * - the secular age (M4.4): a polity's secularity grows `secularPerTech` for each Early modern or later tech it knows,
+ *   at most `secularMax`; faith friction, Zeal's weight in research and in building, and the chance to found a religion
+ *   fall by it.
  */
 export const FAITH_TUNING = {
   foundingRate: 0.05, crisisScale: 200, zealFloor: 0.4, reformation: 0.01, minTenets: 2, maxTenets: 4, tenetFavour: 4,
   conversionRate: 0.1, foreignContact: 0.5, stateSupport: 0.3, templeSupport: 0.3, holyDraw: 0.5, folkAttachment: 1, faithAttachment: 0.3, stateHold: 0.3, traditionHold: 0.5,
   friction: 0.12, zealFriction: 0.5, religionZealBase: 0.8, monumentWeight: 1.5, asceticWealth: 0.95,
+  schismRegions: 3, schismYears: 150, schismRate: 0.02, sectHueShift: 30, secularPerTech: 0.05, secularMax: 0.8,
 } as const;
 
 /** What a group's conditions are measured by (0–1 each; `culture.ts`). */
@@ -643,10 +651,11 @@ export function validateTunables() {
   const c = CULTURE_TUNING;
   if (!(c.valueMin >= 0 && c.valueSpan > 0 && c.valueMin + c.valueSpan <= 1 && c.mutation >= 0)) problems.push('culture value ranges are invalid');
   if (![c.driftRate, c.influenceRate, c.splitRate].every(rate => rate >= 0 && rate <= 1) || !(c.foreignContact >= 0 && c.confidence > 0 && c.heartPull >= 0 && c.fashion >= 0 && c.fashion < 0.5 && c.prestigeEra >= 0 && c.prestigeWonder >= 0 && c.prestigeCity >= 0 && c.prestigeWealth >= 0 && c.wealthPerPerson > 0 && c.townShare > 0 && c.townShare <= 1 && c.seaShare >= 0 && c.seaShare <= 1 && c.splitNote >= 0 && c.hueStep > 0)) problems.push('culture drift and influence rates are invalid');
-  if (![c.assimilationRate, c.hybridRate, c.kinShare, c.fusionBlend].every(value => value >= 0 && value <= 1) || !(c.hybridShare > 0 && c.hybridShare <= 0.5) || !(Number.isInteger(c.hybridYears) && c.hybridRange * (1 - c.fusionBlend) < c.splitDivergence) || !(c.assimilationRange > 0 && c.assimilationRange * (1 - c.assimilationBlend) < c.splitDivergence && c.assimilationBlend >= 0 && c.assimilationBlend <= 1 && c.hybridRange > 0 && c.hybridYears >= 0)) problems.push('assimilation and hybrid settings are invalid');
+  if (![c.assimilationRate, c.assimilationTradition, c.assimilationTolerance, c.hybridRate, c.kinShare, c.fusionBlend].every(value => value >= 0 && value <= 1) || !(c.hybridShare > 0 && c.hybridShare <= 0.5) || !(Number.isInteger(c.hybridYears) && c.hybridRange * (1 - c.fusionBlend) < c.splitDivergence) || !(c.assimilationRange > 0 && c.assimilationRange * (1 - c.assimilationBlend) < c.splitDivergence && c.assimilationBlend >= 0 && c.assimilationBlend <= 1 && c.hybridRange > 0 && c.hybridYears >= 0)) problems.push('assimilation and hybrid settings are invalid');
   const ft = FAITH_TUNING;
   if (![ft.foundingRate, ft.reformation, ft.stateHold, ft.conversionRate, ft.zealFloor, ft.foreignContact, ft.folkAttachment, ft.faithAttachment].every(value => value >= 0 && value <= 1) || ft.zealFloor >= 1
     || ![ft.crisisScale, ft.tenetFavour, ft.stateSupport, ft.templeSupport, ft.holyDraw, ft.friction, ft.zealFriction, ft.religionZealBase, ft.monumentWeight].every(value => value >= 0) || !(ft.traditionHold >= 0 && ft.traditionHold <= 1 && ft.asceticWealth > 0 && ft.asceticWealth <= 1)
+    || !(Number.isInteger(ft.schismRegions) && ft.schismRegions >= 1 && Number.isInteger(ft.schismYears) && ft.schismYears >= 1 && ft.schismRate >= 0 && ft.schismRate <= 1 && ft.sectHueShift >= 0 && ft.sectHueShift <= 180 && ft.secularPerTech >= 0 && ft.secularMax >= 0 && ft.secularMax <= 1)
     || !(Number.isInteger(ft.minTenets) && Number.isInteger(ft.maxTenets) && ft.minTenets >= 1 && ft.maxTenets >= ft.minTenets && ft.maxTenets <= TENETS.length)) problems.push('faith settings are invalid');
   if (new Set(TENETS.map(tenet => tenet.key)).size !== TENETS.length || TENETS.some(tenet => (tenet.excludes ?? []).some(key => !TENETS.some(other => other.key === key))
     || Object.values(tenet.pulls).some(pull => !(Math.abs(pull ?? 0) <= 0.3)) || !((tenet.spread ?? 1) > 0) || !((tenet.friction ?? 1) >= 0) || !((tenet.stability ?? 0) >= 0))) problems.push('tenet data is invalid');

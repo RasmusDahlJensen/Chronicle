@@ -8,12 +8,13 @@ import { chromium } from '@playwright/test';
  * time controls through the browser, so the images show exactly what an observer sees.
  *
  *   node scripts/review-screenshots.ts --out .chronicle/review/m0 [--url http://127.0.0.1:5173] [--seed Chronicle] [--years 0,100,250,500,1000] [--regions]
+ *     [--peoples polity|descent|culture|faith|era|off] (the Peoples map lens; each image's name ends with it when given)
  */
 const { values } = parseArgs({
   options: {
     url: { type: 'string', default: 'http://127.0.0.1:5173' }, seed: { type: 'string', default: 'Chronicle' },
     size: { type: 'string', default: 'large' }, years: { type: 'string', default: '0,100,250,500,1000' },
-    out: { type: 'string', default: '.chronicle/review/latest' }, regions: { type: 'boolean', default: false },
+    out: { type: 'string', default: '.chronicle/review/latest' }, regions: { type: 'boolean', default: false }, peoples: { type: 'string' },
   },
 });
 const years = values.years.split(',').map(Number).sort((a, b) => a - b);
@@ -36,6 +37,11 @@ try {
   await history.getAttribute('data-tick', { timeout: 120_000 });
   await page.waitForFunction(() => /\d/.test(document.querySelector('[aria-label="History"]')?.getAttribute('data-tick') ?? ''), undefined, { timeout: 120_000 });
   if (values.regions) await page.getByLabel('Regions', { exact: true }).check();
+  const lenses: Record<string, string> = { polity: 'Political', descent: 'By descent', culture: 'By culture', faith: 'By faith', era: 'By era', off: 'Hidden' };
+  if (values.peoples !== undefined) {
+    if (!lenses[values.peoples]) throw new Error(`--peoples must be one of ${Object.keys(lenses).join(', ')}.`);
+    await page.getByLabel(lenses[values.peoples], { exact: true }).check();
+  }
   await history.getByRole('button', { name: 'Reset to year 0' }).click();
   await page.waitForFunction(() => document.querySelector('[aria-label="History"]')?.getAttribute('data-tick') === '0');
   for (const year of years) {
@@ -46,7 +52,7 @@ try {
         && document.querySelector('[aria-label="History"]')?.getAttribute('data-playing') === 'false', year * 12, { timeout: 600_000, polling: 250 });
     }
     await page.waitForTimeout(600);
-    const path = join(values.out, `${values.seed}-year-${String(year).padStart(4, '0')}.png`);
+    const path = join(values.out, `${values.seed}-year-${String(year).padStart(4, '0')}${values.peoples !== undefined ? `-${values.peoples}` : ''}.png`);
     await page.screenshot({ path, fullPage: true });
     console.log(path);
   }

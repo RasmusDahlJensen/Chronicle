@@ -128,7 +128,7 @@ function breakawayCulture(state: SimulationState, rng: Rng, parent: Culture, val
 /** A new population group of `polity` in a free region, of its ruling culture, whose people hold `values` and `faith`. */
 export function newGroup(state: SimulationState, polity: Polity, region: number, size: number, values: CultureValues, faith: number): PopulationGroup {
   const group: PopulationGroup = {
-    id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, values: { ...values }, faith, foundedTick: state.tick, arrivedTick: state.tick,
+    id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, values: { ...values }, faith, faithApart: 0, foundedTick: state.tick, arrivedTick: state.tick,
     store: 0, planted: 0, birthCarry: 0, naturalCarry: 0, famineCarry: 0, foodSecurity: 1, birthsYear: 0, deathsYear: 0, lastBirths: 0, lastDeaths: 0,
     sizeAtYearStart: size, specialists: 0, farmShare: 0,
   };

@@ -100,8 +100,9 @@ export interface ResearchContext {
   /** Need for food (0–1): hunger, or land pressure when the land is filling up, whichever is larger. */
   foodNeed: number;
   tradition: number; openness: number;
-  /** Its people's Zeal: religion techs weigh more for a zealous people (M4.3). */
-  zeal: number;
+  /** Its people's Zeal: religion techs weigh more for a zealous people (M4.3), less so in the secular age (its
+   *  secularity, 0–1, M4.4). */
+  zeal: number; secularity: number;
   /** Whether a people it shares knowledge with knows the tech (VISION.md "Sharing knowledge"). */
   shared: (tech: number) => boolean;
   /** The most advanced era it knows of: its own, or a living people's it has met (catch-up). */
@@ -160,7 +161,7 @@ export function researchWeight(tech: number, context: ResearchContext, factors?:
     weight *= value; factors?.push({ factor: 'tradition', weight: -(1 - value) });
   }
   if (RELIGION[tech]) {
-    const value = FAITH_TUNING.religionZealBase + context.zeal;
+    const value = 1 + (FAITH_TUNING.religionZealBase + context.zeal - 1) * (1 - context.secularity);
     weight *= value; factors?.push({ factor: 'zeal', weight: value - 1 });
   }
   return weight;

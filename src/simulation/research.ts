@@ -1,3 +1,4 @@
+import { secularity } from './faith.ts';
 import { coreRegion, landPressure } from './bands.ts';
 import { blockedExtraction } from './deposits.ts';
 import { crosses, hasHarbor, observe, seaFrom, shareSurroundings } from './perception.ts';
@@ -170,7 +171,7 @@ function contextFor(state: SimulationState, polity: Polity): ResearchContext {
   for (const [flag, living] of affinity) affinity.set(flag, people > 0 ? living / people : 0);
   return {
     affinity, blocked, rate: researchRate(state, polity), foodNeed: people > 0 ? need / people : 0,
-    tradition: culture.values.tradition, openness: culture.values.openness, zeal: culture.values.zeal, shared: tech => teacherOf(state, polity, tech) >= 0,
+    tradition: culture.values.tradition, openness: culture.values.openness, zeal: culture.values.zeal, secularity: secularity(polity), shared: tech => teacherOf(state, polity, tech) >= 0,
     frontier: polity.frontierEra,
   };
 }

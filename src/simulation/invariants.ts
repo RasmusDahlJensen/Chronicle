@@ -134,6 +134,7 @@ export function checkInvariants(state: SimulationState) {
       const culture = state.cultures[group.culture];
       if (!culture || culture.deathTick !== null) fail(`group ${groupId} lives by culture ${group.culture}, which is gone`);
       if (group.faith !== -1 && (!state.religions[group.faith] || state.religions[group.faith].deathTick !== null)) fail(`group ${groupId} follows religion ${group.faith}, which is gone`);
+      if (!Number.isInteger(group.faithApart) || group.faithApart < 0) fail(`group ${groupId} has been cut off from its faith for ${group.faithApart} years`);
       for (const key of VALUE_KEYS) if (!(group.values[key] >= 0 && group.values[key] <= 1)) fail(`group ${groupId} has ${key} ${group.values[key]}`);
       if (region < 0 || region >= regions) fail(`group ${groupId} is in missing region ${region}`);
       if (seen[region] >= 0) fail(`region ${region} holds bands of polities ${seen[region]} and ${id}`);

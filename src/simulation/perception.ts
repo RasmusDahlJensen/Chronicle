@@ -1,5 +1,6 @@
 import { BUILDINGS, buildingKnown } from './buildings.ts';
 import { TENETS } from './religions.ts';
+import { secularity } from './faith.ts';
 import { WONDERS, wonderKnown } from './wonders.ts';
 import { cultureSimilarity } from './culture.ts';
 import { type Costs, fullCostsOf, totalCosts } from './budget.ts';
@@ -242,8 +243,8 @@ export interface PolityView {
     wonders: { type: number; name: string; motive: string; cost: number; months: number; upkeep: number; minTier: number; coast: boolean }[];
     stability: number;
     /** How much more its state religion makes it build shrines, temples and wonders (Monument builders: VISION.md
-     *  "Tenets"; 1 otherwise). */
-    monuments: number;
+     *  "Tenets"; 1 otherwise), and how much of its people's Zeal still moves its building (1 − its secularity). */
+    monuments: number; piety: number;
     /** Roads (VISION.md "Roads"): the best tier it knows (0 none) and its names, and for each of its regions with a
      *  town or city that its roads do not yet reach from its capital at that tier, the road it could build there
      *  (`roads.ts` `roadRoutes`): the largest such settlement, its townspeople, its travel-km from the capital now, and
@@ -422,7 +423,7 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
     roads.routes.push({ settlement: route.settlement, name: settlement.name, urban: settlement.urban, km: route.km, cost: route.cost, upkeep: route.upkeep, edges: route.edges.length, bridges: route.bridges });
   }
   const monuments = civ.stateReligion >= 0 && state.religions[civ.stateReligion].tenets.some(tenet => TENETS[tenet].key === 'monumentBuilders') ? FAITH_TUNING.monumentWeight : 1;
-  return { regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1, roads, monuments };
+  return { regions: civ.groups.length, catalog, settlements, wonders, stability: civ.groups.length ? stable / civ.groups.length : 1, roads, monuments, piety: 1 - secularity(civ) };
 }
 
 /**

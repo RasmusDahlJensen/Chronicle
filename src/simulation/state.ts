@@ -237,8 +237,9 @@ export interface PopulationGroup {
   /** Its people's values (VISION.md "Culture and lineage": drift and influence act on the people living here, so the
    *  far parts of a culture can grow apart). */
   values: CultureValues;
-  /** Its people's faith: a religion's id, or −1 for the folk ways of its culture (VISION.md "Folk beliefs"). */
-  faith: number;
+  /** Its people's faith: a religion's id, or −1 for the folk ways of its culture (VISION.md "Folk beliefs"); and the
+   *  years its followers here have been cut off from their religion's main body (0 when joined to it; schisms). */
+  faith: number; faithApart: number;
   /** Tick it was founded and tick it entered its current region (settling needs a long stay). */
   foundedTick: number; arrivedTick: number;
   /** Food store in integer units of 1/100 person-month. */
@@ -339,6 +340,8 @@ export interface CenturyStats {
    *  follow a religion, the most civilizations any one religion is followed in, civilizations with a state religion,
    *  regions converted and state religions changed so far. */
   religions: number; religionsFounded: number; faithShare: number; religionMaxCivs: number; stateReligions: number; conversions: number; stateReligionChanges: number;
+  /** Schisms so far, and civilizations in the secular age (M4.4). */
+  schisms: number; secularCivs: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -418,6 +421,8 @@ export interface Metrics {
   cultureSplits: number; civCultureSplits: number; assimilations: number; hybrids: number; traitsEarned: number;
   /** Religions founded, regions whose people took up a religion, and changes of a civilization's state religion. */
   religionsFounded: number; conversions: number; stateReligionChanges: number;
+  /** Sects that split from a religion (VISION.md "Schisms"). */
+  schisms: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;

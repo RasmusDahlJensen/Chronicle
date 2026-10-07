@@ -21,6 +21,9 @@ const spendable = (budget: PolityView['budget']) => Math.max(1, Math.max(0, budg
  *  short weighs new upkeep heavily). */
 const headroom = (budget: PolityView['budget']) => Math.max(1, BUILD_TUNING.surplusFloor * budget.revenue, budget.surplus);
 
+/** The values that weigh its building: its people's, with Zeal faded by the secular age (VISION.md "Secular age"). */
+const valuesOf = (view: PolityView) => view.build.piety === 1 ? view.values : { ...view.values, zeal: view.values.zeal * view.build.piety };
+
 /** What a need is called when it is cited as a cause, by the purpose that answers it. */
 export const NEED_OF: Record<string, string> = { food: 'hardship', faith: 'instability', learning: 'learning', trade: 'commerce', housing: 'crowding', defense: 'frontier', mining: 'deposits', sea: 'seaReach', farming: 'farming' };
 
@@ -81,7 +84,7 @@ export function buildScore(view: PolityView, kind: Kind): Option & { targets: nu
   const batch = Math.min(tuning.batchMax, Math.max(1, Math.ceil(build.regions / tuning.batchRegions)));
   const regions = new Set<number>();
   const ranked = build.settlements.filter(settlement => settlement.tier >= kind.minTier && !settlement.has.includes(kind.type))
-    .map(settlement => ({ settlement, value: needFor(kind, settlement, view.values) * sizeFor(kind, settlement) }))
+    .map(settlement => ({ settlement, value: needFor(kind, settlement, valuesOf(view)) * sizeFor(kind, settlement) }))
     .filter(entry => entry.value > 0).sort((a, b) => b.value - a.value || a.settlement.id - b.settlement.id)
     // One a region needs only one of: the best settlement in each region.
     .filter(entry => !kind.perRegion || (!regions.has(entry.settlement.region) && regions.add(entry.settlement.region) !== undefined)).slice(0, batch);
@@ -93,8 +96,8 @@ export function buildScore(view: PolityView, kind: Kind): Option & { targets: nu
   const parts = new Map<string, number>();
   for (const { settlement } of ranked) {
     const size = sizeFor(kind, settlement);
-    if (kind.works) parts.set(NEED_OF[kind.purpose], (parts.get(NEED_OF[kind.purpose]) ?? 0) + needFor(kind, settlement, view.values));
-    else for (const [name, value] of Object.entries(needParts(kind.purpose, settlement, view.values))) parts.set(name, (parts.get(name) ?? 0) + value * size);
+    if (kind.works) parts.set(NEED_OF[kind.purpose], (parts.get(NEED_OF[kind.purpose]) ?? 0) + needFor(kind, settlement, valuesOf(view)));
+    else for (const [name, value] of Object.entries(needParts(kind.purpose, settlement, valuesOf(view)))) parts.set(name, (parts.get(name) ?? 0) + value * size);
   }
   const cost = tuning.cost * kind.cost * ranked.length / spendable(view.budget);
   const upkeep = tuning.upkeepWeight * kind.upkeep * ranked.length / headroom(view.budget);
@@ -131,7 +134,7 @@ export function bestWonder(view: PolityView): (Option & { targets: number[] }) |
     const city = build.settlements.filter(settlement => settlement.tier >= wonder.minTier && !settlement.wonder && (!wonder.coast || settlement.coast))
       .sort((a, b) => b.urban - a.urban || a.id - b.id)[0];
     if (!city) continue;
-    const motive = view.values[MOTIVE_VALUE[wonder.motive] ?? 'zeal'], greatness = Math.min(1, city.urban / tuning.wonderCity);
+    const motive = valuesOf(view)[MOTIVE_VALUE[wonder.motive] ?? 'zeal'], greatness = Math.min(1, city.urban / tuning.wonderCity);
     // The motive is what it cites; the golden age and the city's greatness scale it (multipliers, never causes).
     const drive = tuning.wonderWeight * motive * golden * greatness * view.build.monuments;
     // A wonder is paid for over decades: what it would take each year while it is built weighs against what the realm

@@ -1,10 +1,10 @@
 import { BUILDING_INDEX } from './buildings.ts';
 import { causes } from './causes.ts';
-import { createName } from './names.ts';
+import { createName, descendName } from './names.ts';
 import type { Rng } from './rng.ts';
 import { TENETS } from './religions.ts';
 import { VALUE_KEYS, type CultureValues, type Polity, type PopulationGroup, type Religion, type SimulationState, type TickContext } from './state.ts';
-import { TECH_INDEX } from './techs.ts';
+import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { FAITH_TUNING } from './tunables.ts';
 
 /**
@@ -18,8 +18,8 @@ import { FAITH_TUNING } from './tunables.ts';
  * under an organized state religion are less settled (stability).
  */
 
-/** Stream salts for a realm's yearly founding draw and a group's conversion draw. */
-export const FOUNDING_STREAM = 0xfa17, CONVERSION_STREAM = 0xfa18;
+/** Stream salts for a realm's yearly founding draw, a group's conversion draw and a religion's yearly schism draw. */
+export const FOUNDING_STREAM = 0xfa17, CONVERSION_STREAM = 0xfa18, SCHISM_STREAM = 0xfa19;
 const ORGANIZED = TECH_INDEX.get('Organized religion')!, THEOLOGY = TECH_INDEX.get('Theology')!;
 
 /** Whether a polity may found a religion: it knows Organized religion or Theology. */
@@ -156,6 +156,8 @@ export function faithYear(state: SimulationState, rng: Rng, group: PopulationGro
  * changes the realm's (an event for a civilization: VISION.md "State religion").
  */
 export function setGroupFaith(state: SimulationState, group: PopulationGroup, faith: number) {
+  // Its years apart are from its old faith's body; in a new faith it starts afresh.
+  if (group.faith !== faith) group.faithApart = 0;
   group.faith = faith;
   const polity = state.polities[group.polity];
   if (polity.core === group.id) followRulers(state, polity, 'heartlandConverted');
@@ -189,7 +191,7 @@ export function faithBurden(state: SimulationState, polity: Polity, group: Popul
   let burden = 0;
   if (polity.stateReligion >= 0 && group.faith !== polity.stateReligion) {
     const tolerance = state.religions[polity.stateReligion].tenets.reduce((product, tenet) => product * (TENETS[tenet].friction ?? 1), 1);
-    burden += FAITH_TUNING.friction * (FAITH_TUNING.zealFriction + group.values.zeal) * tolerance;
+    burden += FAITH_TUNING.friction * (FAITH_TUNING.zealFriction + group.values.zeal) * tolerance * (1 - secularity(polity));
   }
   if (group.faith >= 0) for (const tenet of state.religions[group.faith].tenets) burden -= TENETS[tenet].stability ?? 0;
   return burden;
@@ -201,13 +203,15 @@ export function realmFaith(state: SimulationState, context: TickContext, civ: Po
   if (!canFound(civ)) return;
   const rng = context.stream(civ.id, FOUNDING_STREAM), why = foundingTrigger(state, civ);
   const attached = civ.stateReligion >= 0 ? FAITH_TUNING.reformation : 1;
-  if (rng.chance(FAITH_TUNING.foundingRate * why.trigger * attached)) foundReligion(state, context, rng, civ, why);
+  if (rng.chance(FAITH_TUNING.foundingRate * why.trigger * attached * (1 - secularity(civ)))) foundReligion(state, context, rng, civ, why);
 }
 
-/** A religion's followers at its yearly refresh; one with none left dies and stays in history. */
-export function refreshReligion(context: TickContext, religion: Religion, groups: PopulationGroup[]) {
+/** A religion's followers at its yearly refresh; one with none left dies and stays in history; parts long cut off may
+ *  form a sect. */
+export function refreshReligion(state: SimulationState, context: TickContext, religion: Religion, groups: PopulationGroup[]) {
   religion.people = groups.reduce((sum, group) => sum + group.size, 0); religion.regions = groups.length;
-  if (!groups.length) religion.deathTick = context.tick;
+  if (!groups.length) { religion.deathTick = context.tick; return; }
+  schisms(state, context, context.stream(religion.id, SCHISM_STREAM), religion, groups);
 }
 
 /**
@@ -230,7 +234,101 @@ export function faithStats(state: SimulationState) {
       civsOf.set(group.faith, civs);
     }
   }
-  let most = 0;
+  let most = 0, secular = 0;
   for (const civs of civsOf.values()) most = Math.max(most, civs.size);
-  return { religions: civsOf.size, faithShare: people > 0 ? faithful / people : 0, religionMaxCivs: most, stateReligions };
+  for (const id of state.living) if (state.polities[id].kind === 'civ' && secularity(state.polities[id]) > 0) secular++;
+  return { religions: civsOf.size, faithShare: people > 0 ? faithful / people : 0, religionMaxCivs: most, stateReligions, secularCivs: secular };
 }
+
+
+/**
+ * Schisms (VISION.md "Schisms"; hostility and war between co-religionists come with M5 and M6): a religion's followers
+ * form bodies of neighbouring regions. The main body holds its holy land (or, once the holy land has fallen away, it is
+ * the largest). Followers outside it count the years they have been cut off (`faithApart`, reset whenever they are back
+ * in the main body). A body of at least `schismRegions` regions whose people have all been cut off for `schismYears` may
+ * become a sect, with a chance of `schismRate` a year: one tenet changed, its holy land the body's most populous region.
+ */
+export function schisms(state: SimulationState, context: TickContext, rng: Rng, religion: Religion, groups: PopulationGroup[]) {
+  const tuning = FAITH_TUNING, byRegion = new Map(groups.map(group => [group.region, group])), byPolity = new Map<number, PopulationGroup[]>();
+  for (const group of groups) { const list = byPolity.get(group.polity); if (list) list.push(group); else byPolity.set(group.polity, [group]); }
+  // Followers are in contact through neighbouring regions and within one polity (VISION.md: the same civilization is
+  // contact), so a realm's enclaves and overseas provinces are not cut off from its other followers.
+  const seen = new Set<number>(), bodies: { groups: PopulationGroup[]; people: number }[] = [];
+  for (const group of [...groups].sort((a, b) => a.region - b.region)) {
+    if (seen.has(group.id)) continue;
+    const body = [group], queue = [group];
+    seen.add(group.id);
+    while (queue.length) {
+      const at = queue.pop()!;
+      const next = [...state.partition.regions[at.region].neighbors.map(edge => byRegion.get(edge.region)), ...(byPolity.get(at.polity) ?? [])];
+      for (const other of next) if (other && !seen.has(other.id)) { seen.add(other.id); queue.push(other); body.push(other); }
+    }
+    bodies.push({ groups: body, people: body.reduce((sum, entry) => sum + entry.size, 0) });
+  }
+  const holy = bodies.find(body => body.groups.some(group => group.region === religion.holyRegion));
+  const main = holy ?? bodies.reduce((best, body) => body.people > best.people ? body : best, bodies[0]);
+  for (const body of bodies) for (const group of body.groups) group.faithApart = body === main ? 0 : group.faithApart + 1;
+  for (const body of bodies.filter(entry => entry !== main).sort((a, b) => b.people - a.people || a.groups[0].region - b.groups[0].region)) {
+    if (body.groups.length < tuning.schismRegions) continue;
+    // Graded by how long its people have been apart (people-weighted): from half the years to all of them.
+    const apart = body.groups.reduce((sum, group) => sum + group.faithApart * group.size, 0) / Math.max(1, body.people);
+    if (!rng.chance(tuning.schismRate * Math.max(0, Math.min(1, (2 * apart - tuning.schismYears) / tuning.schismYears)))) continue;
+    formSect(state, context, rng, religion, body.groups, apart, holy === undefined);
+    return;
+  }
+}
+
+/**
+ * One tenet changed (VISION.md "Schisms"): a random tenet replaced by one the religion lacks and that none of its other
+ * tenets excludes; or, when no such tenet exists, one dropped (a religion keeps at least one).
+ */
+export function changeTenet(rng: Rng, tenets: number[]) {
+  const at = rng.int(tenets.length), kept = tenets.filter((_, index) => index !== at);
+  const open = TENETS.map((_, id) => id).filter(id => !tenets.includes(id) && !kept.some(other => TENETS[other].excludes?.includes(TENETS[id].key) || TENETS[id].excludes?.includes(TENETS[other].key)));
+  if (open.length) return { tenets: [...kept, open[rng.int(open.length)]].sort((a, b) => a - b), dropped: tenets[at] };
+  return { tenets: kept.length ? kept : tenets, dropped: kept.length ? tenets[at] : -1 };
+}
+
+function formSect(state: SimulationState, context: TickContext, rng: Rng, parent: Religion, body: PopulationGroup[], apart: number, holyLost: boolean) {
+  const largest = body.reduce((best, group) => group.size > best.size || (group.size === best.size && group.id < best.id) ? group : best);
+  const holders = new Map<number, number>();
+  for (const group of body) holders.set(group.polity, (holders.get(group.polity) ?? 0) + group.size);
+  let founder = largest.polity;
+  for (const [polity, count] of holders) if (count > (holders.get(founder) ?? 0) || (count === holders.get(founder) && polity < founder)) founder = polity;
+  const change = changeTenet(rng, parent.tenets);
+  const taken = change.tenets.find(tenet => !parent.tenets.includes(tenet)) ?? -1;
+  const language = state.cultures[largest.culture].language;
+  const names = new Set(state.religions.map(religion => religion.name.toLowerCase()));
+  const sect: Religion = {
+    id: state.religions.length, name: descendName(rng, parent.name, language, names), tenets: change.tenets, founder, holyRegion: largest.region, parent: parent.id,
+    foundedTick: context.tick, hue: (parent.hue + (rng.next() * 2 - 1) * FAITH_TUNING.sectHueShift + 360) % 360, people: 0, regions: 0, deathTick: null,
+  };
+  state.religions.push(sect);
+  const people = body.reduce((sum, group) => sum + group.size, 0);
+  state.metrics.schisms++;
+  // The schism first, then any realm whose rulers take up the sect.
+  state.chronicle.emit({
+    type: 'schism', actors: [{ id: founder, role: 'polity' }], region: largest.region, causes: causes({ yearsApart: apart / FAITH_TUNING.schismYears }), importance: 0.3,
+    data: {
+      religion: sect.name, parent: parent.name, regions: body.length, population: people, polity: state.polities[founder].name, holyLand: !holyLost, mainBody: holyLost,
+      taken: taken >= 0 ? TENETS[taken].name : '', dropped: change.dropped >= 0 ? TENETS[change.dropped].name : '', swapped: taken >= 0 && change.dropped >= 0, onlyDropped: taken < 0 && change.dropped >= 0,
+    },
+  });
+  for (const group of body) setGroupFaith(state, group, sect.id);
+  sect.people = people; sect.regions = body.length;
+  parent.people -= people; parent.regions -= body.length;
+}
+
+/**
+ * The secular age (VISION.md "Secular age"): from Early modern knowledge on, a polity's faith weighs less, gradually:
+ * its secularity is `secularPerTech` for each tech of the Early modern era or later it knows, at most `secularMax`; faith
+ * friction, Zeal's weight in research and in building shrines, temples and pious wonders, and the chance to found a
+ * religion fall by that share.
+ */
+export function secularity(polity: Polity) {
+  let modern = 0;
+  for (const tech of MODERN_TECHS) modern += polity.knowledge.known[tech];
+  return Math.min(FAITH_TUNING.secularMax, FAITH_TUNING.secularPerTech * modern);
+}
+/** Techs of the Early modern era and later, whose knowledge brings the secular age on, tech by tech. */
+const MODERN_TECHS = TECHS.map((definition, index) => ERAS.indexOf(definition.era) >= ERAS.indexOf('Early modern') ? index : -1).filter(index => index >= 0);

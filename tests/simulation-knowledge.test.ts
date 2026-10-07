@@ -107,7 +107,7 @@ test('a large people researches faster than a small one, but not in proportion',
 test('research weights follow need, environment, shared knowledge and culture', () => {
   const knowledge = learn(startingKnowledge(), TECH_INDEX.get('Pottery')!);
   const agriculture = TECH_INDEX.get('Agriculture')!;
-  const base = { affinity: new Map<Affinity, number>(), foodNeed: 0, tradition: 0.2, openness: 0.5, zeal: 0.5, shared: () => false, frontier: 1, blocked: new Set<number>(), rate: 3 };
+  const base = { affinity: new Map<Affinity, number>(), foodNeed: 0, tradition: 0.2, openness: 0.5, zeal: 0.5, secularity: 0, shared: () => false, frontier: 1, blocked: new Set<number>(), rate: 3 };
   const plain = researchWeight(agriculture, base);
   const fertile = (share: number) => researchWeight(agriculture, { ...base, affinity: new Map<Affinity, number>([['fertileRiver', share]]) });
   assert.ok(fertile(1) > plain * 2, 'fertile river land');

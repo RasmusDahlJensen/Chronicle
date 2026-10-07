@@ -211,6 +211,15 @@ function storyHealth(rows: SeedResult[]) {
     const within = firstYear === null ? '—' : String(Math.max(0, ...stats.filter(row => row.year >= firstYear && row.year <= firstYear + 500).map(row => row.religionMaxCivs)));
     lines.push(`| ${result.seed} | ${known ? Math.floor(known.year) : '—'} · ${first ? `${firstYear}: ${first.data.civ}, ${first.data.religion} (${first.data.tenets})` : '—'} | ${each(row => String(row.religionsFounded))} · ${last.religions} | ${within} · ${last.religionMaxCivs} | ${each(row => `${Math.round(row.faithShare * 100)}%`)} | ${each(row => String(row.stateReligions))} · ${last.stateReligionChanges} |`);
   }
+  // M4.4 (VISION.md "Schisms", "Secular age"): sects of long-separated followers; realms in the secular age.
+  lines.push('', '| Seed | Schisms by 2,000 / 2,500 / 3,000 | First schism: year, parent → sect (the change) | Religions with followers at 2,000 / 2,500 / 3,000 | Civilizations in the secular age at 2,500 / 3,000 |', '| --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year);
+    const each = (show: (row: Stats) => string, years = [2000, 2500, 3000]) => years.map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    const first = ((result.report.events ?? []) as { type: string; tick: number; data: Record<string, unknown> }[]).find(event => event.type === 'schism');
+    const change = first ? (first.data.swapped ? `${first.data.taken} for ${first.data.dropped}` : first.data.onlyDropped ? `without ${first.data.dropped}` : '') : '';
+    lines.push(`| ${result.seed} | ${each(row => String(row.schisms))} | ${first ? `${Math.floor(first.tick / 12)}: ${first.data.parent} → ${first.data.religion} (${change})` : '—'} | ${each(row => String(row.religions))} | ${each(row => String(row.secularCivs), [2500, 3000])} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');
