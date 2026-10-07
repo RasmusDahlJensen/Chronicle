@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Chronicle } from '../src/simulation/chronicle.ts';
-import { ancestry, cultureYear, divergence, foundCulture, heartOf, lineOf, liveYear, pullMeasures, pullTarget } from '../src/simulation/culture.ts';
-import { createLanguage, createName, descendName, mutateLanguage, nameStem } from '../src/simulation/names.ts';
+import { ancestry, assimilationChance, cultureYear, divergence, foundCulture, foundHybrid, heartOf, kin, lineOf, liveYear, pullMeasures, pullTarget, realmPeoples, traitConditions } from '../src/simulation/culture.ts';
+import { blendLanguage, blendName, createLanguage, createName, descendName, mutateLanguage, nameStem } from '../src/simulation/names.ts';
+import { TRAITS } from '../src/simulation/traits.ts';
 import { describeEvent } from '../src/observer/events.ts';
 import { createRng, systemStream } from '../src/simulation/rng.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TickContext } from '../src/simulation/state.ts';
-import { CULTURE_PULLS, CULTURE_TUNING, NAME_TUNING } from '../src/simulation/tunables.ts';
+import { CULTURE_PULLS, CULTURE_TUNING, NAME_TUNING, TRAIT_TUNING } from '../src/simulation/tunables.ts';
 
 const flat = (value: number): CultureValues => ({ militarism: value, zeal: value, openness: value, tradition: value, expansionism: value });
 
@@ -62,20 +63,21 @@ test('ancestry gives each starting people\'s share in a culture, summing to 1, t
  */
 function strip(count = 6) {
   const regions = Array.from({ length: count }, (_, id) => ({
-    id, coastal: false, neighbors: [id - 1, id + 1].filter(other => other >= 0 && other < count).map(region => ({ region, travelKm: 100, riverTier: 0 })),
+    id, coastal: false, riverTier: 0, defensibility: 0, neighbors: [id - 1, id + 1].filter(other => other >= 0 && other < count).map(region => ({ region, travelKm: 100, riverTier: 0 })),
   }));
   const state = {
     tick: 0, partition: { regions }, occupant: new Int32Array(count).fill(-1), groupAt: new Int32Array(count).fill(-1), owner: new Int32Array(count).fill(-1),
     regionSettlements: regions.map(() => [] as number[]), settlements: [], wonders: [], harshness: new Float64Array(count), hardship: new Float64Array(count), habitable: new Uint8Array(count).fill(1),
+    affinity: regions.map(() => new Set<string>()),
     capacity: new Float64Array(count).fill(40_000), remoteness: Float64Array.from(regions, region => region.id * 0.5), remoteOwner: new Int32Array(count),
     cultures: [] as Culture[], polities: [] as Polity[], groups: [] as PopulationGroup[], living: [] as number[],
-    metrics: { cultureSplits: 0, civCultureSplits: 0 }, chronicle: new Chronicle(),
+    metrics: { cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0 }, chronicle: new Chronicle(),
   } as unknown as SimulationState;
   const culture = foundCulture(state, createRng(1, 0, 1), 'founding', null, flat(0.5), 40);
-  const polity = { id: 0, kind: 'civ', name: 'Kesh', culture: culture.id, groups: [] as number[], core: 0, knowledge: { sea: 0, era: 2 }, deathTick: null } as unknown as Polity;
+  const polity = { id: 0, kind: 'civ', name: 'Kesh', culture: culture.id, groups: [] as number[], core: 0, knowledge: { sea: 0, era: 2 }, deathTick: null, capital: null, wealth: 0, together: -1, togetherSince: -1 } as unknown as Polity;
   state.polities.push(polity); state.living.push(0);
   for (const region of regions) {
-    const group = { id: region.id, polity: 0, culture: culture.id, region: region.id, size: 10_000, values: flat(0.5), deathTick: null } as unknown as PopulationGroup;
+    const group = { id: region.id, polity: 0, culture: culture.id, region: region.id, size: 10_000, values: flat(0.5), deathTick: null, farmShare: 0 } as unknown as PopulationGroup;
     state.groups.push(group); polity.groups.push(group.id);
     state.occupant[region.id] = 0; state.groupAt[region.id] = group.id; state.owner[region.id] = 0;
   }
@@ -218,4 +220,164 @@ test('a split that takes another polity\'s heartland makes the daughter that pol
   cultureYear(state, context(Math.ceil(state.tick / 12) * 12 + 12 + child.id));
   assert.notEqual(child.deathTick, null);
   assert.ok(child.people === 0 && state.cultures.length === 2);
+});
+
+test('a hybrid\'s language mixes its parents\' sounds and its name joins the heavier parent\'s first syllable to the rest of the other\'s', () => {
+  for (let seed = 0; seed < 200; seed++) {
+    const rng = createRng(seed, 0, 0x4b1d);
+    const a = createLanguage(rng), b = createLanguage(rng), first = createName(rng, a), second = createName(rng, b);
+    const mixed = blendLanguage(rng, a, b, 0.6), name = blendName(rng, first, second, mixed);
+    for (const kind of ['initials', 'consonants', 'vowels', 'codas'] as const) {
+      assert.ok(mixed[kind].length >= 1 && mixed[kind].every(sound => a[kind].includes(sound) || b[kind].includes(sound)), `${kind} come from the parents`);
+      assert.equal(new Set(mixed[kind]).size, mixed[kind].length);
+    }
+    assert.ok(name.toLowerCase().startsWith(nameStem(first)), `${name} keeps ${first}'s first syllable`);
+    const stem = nameStem(first), rest = second.toLowerCase().slice(nameStem(second).length);
+    const joined = rest.length >= 2 ? ('aeiou'.includes(stem.at(-1)!) && 'aeiou'.includes(rest[0]) ? stem + rest.slice(1) : stem + rest) : '';
+    if (joined.length >= NAME_TUNING.minLength && joined.length <= NAME_TUNING.maxLength && joined !== first.toLowerCase() && joined !== second.toLowerCase()) assert.equal(name.toLowerCase(), joined, `${name} joins ${first} and ${second}`);
+  }
+  assert.equal(blendName(createRng(1, 0, 1), 'Vaelor', 'Keshun', createLanguage(createRng(1, 0, 2))), 'Vaelhun');
+});
+
+test('a smaller people grown close to its realm\'s ruling culture may take it up; one still apart, or a large one, does not; kin of any size may', () => {
+  const { state, polity, context } = strip(8);
+  const other = foundCulture(state, createRng(3, 0, 1), 'founding', null, flat(0.5), 200);
+  const heart = state.groups[polity.core], guest = state.groups[7];
+  guest.culture = other.id; guest.values = { ...flat(0.5), zeal: 0.53 };
+  const share = guest.size / 80_000, odds = (entry = guest, at = share, where = state, kin = false) => assimilationChance(where, polity, entry, heart, at, kin).chance;
+  assert.ok(odds() > 0, 'close and small: it may');
+  assert.ok(odds({ ...guest, values: { ...guest.values, tradition: 0.9 } }) < odds(), 'Tradition holds it back');
+  assert.ok(odds() < odds(guest, share, { ...state, remoteness: new Float64Array(8) } as SimulationState), 'far from the court: slower');
+  heart.values = { ...flat(0.5), openness: 0.9 };
+  const tolerant = odds();
+  heart.values = flat(0.5);
+  assert.ok(tolerant < odds(), 'a tolerant realm presses less');
+  assert.equal(odds({ ...guest, values: { ...flat(0.5), zeal: 0.5 + 6 * CULTURE_TUNING.assimilationRange } }), 0, 'still apart: never');
+  assert.equal(odds(guest, CULTURE_TUNING.hybridShare), 0, 'a large people does not dissolve');
+  assert.ok(odds(guest, CULTURE_TUNING.hybridShare, state, true) > 0, 'unless it is kin');
+  // The same people outside the realm is not touched.
+  const outsider = { ...guest, id: 99, polity: 5 } as PopulationGroup;
+  let year = 0;
+  while (guest.culture === other.id && year < 5_000) { realmPeoples(state, context(year * 12), polity); year++; }
+  assert.equal(guest.culture, polity.culture, 'in time it takes up the ruling culture');
+  assert.equal(outsider.culture, other.id);
+  assert.ok(Math.abs(guest.values.zeal - (0.53 - CULTURE_TUNING.assimilationBlend * 0.03)) < 1e-12, 'and its ways: its values move toward the heartland\'s');
+  assert.equal(state.metrics.assimilations, 1);
+  state.chronicle.flush(state.tick);
+  const event = state.chronicle.events.find(entry => entry.type === 'assimilation')!;
+  assert.equal(event.data.culture, other.name); assert.equal(event.data.ruling, state.cultures[polity.culture].name); assert.equal(event.data.one, true);
+  assert.ok(event.causes.length > 0, 'with what drew them in');
+  assert.equal(describeEvent(event), `In region 7 of the Kesh, 10,000 people of the ${other.name} have taken up the ways of the ${state.cultures[polity.culture].name}.`);
+  // Its last people gone, the culture dies at its next refresh and stays in history.
+  cultureYear(state, context(Math.ceil(state.tick / 12) * 12 + 12 + other.id));
+  assert.notEqual(other.deathTick, null);
+});
+
+test('two large unrelated peoples long together in one realm fuse into a hybrid that holds together; kin do not fuse', () => {
+  const { state, polity, culture, context } = strip(8);
+  const other = foundCulture(state, createRng(4, 0, 1), 'founding', null, flat(0.5), 200);
+  for (const region of [4, 5, 6, 7]) { state.groups[region].culture = other.id; state.groups[region].values = { ...flat(0.5), openness: 0.6, tradition: 0.6 }; }
+  realmPeoples(state, context(0), polity);
+  assert.deepEqual([polity.together, polity.togetherRuling, polity.togetherYears], [other.id, culture.id, 1]);
+  for (let year = 1; year < CULTURE_TUNING.hybridYears - 1; year++) realmPeoples(state, context(year * 12), polity);
+  assert.equal(state.cultures.length, 2, 'not before they have lived together long enough');
+  // A dip below a large share fades their years together; it does not wipe them out.
+  const years = polity.togetherYears;
+  const moved = [state.groups[5], state.groups[6], state.groups[7]];
+  for (const group of moved) group.culture = culture.id;
+  realmPeoples(state, context(9_000 * 12), polity);
+  assert.equal(polity.togetherYears, years - 1);
+  for (const group of moved) group.culture = other.id;
+  let year = CULTURE_TUNING.hybridYears;
+  while (state.cultures.length === 2 && year < 2_000) { realmPeoples(state, context(year * 12), polity); year++; }
+  const hybrid = state.cultures[2];
+  assert.equal(hybrid.origin, 'hybrid');
+  assert.deepEqual(hybrid.parents.map(entry => entry.id).sort(), [culture.id, other.id]);
+  assert.ok(Math.abs(hybrid.parents.reduce((sum, entry) => sum + entry.weight, 0) - 1) < 1e-12);
+  assert.ok(state.groups.every(group => group.culture === hybrid.id), 'both peoples are now one');
+  assert.equal(polity.culture, hybrid.id, 'and it rules');
+  assert.deepEqual([polity.together, polity.togetherRuling, polity.togetherYears], [-1, -1, 0]);
+  const roots = ancestry(state, hybrid.id);
+  assert.deepEqual(roots.map(entry => entry.id).sort(), [culture.id, other.id]);
+  assert.ok(Math.abs(roots[0].share - 0.5) < 1e-12);
+  assert.equal(state.metrics.hybrids, 1);
+  state.chronicle.flush(state.tick);
+  const event = state.chronicle.events.find(entry => entry.type === 'hybridCulture')!;
+  assert.equal(describeEvent(event), `In the realm of the Kesh, the ${event.data.first} and the ${event.data.second} have become one people, the ${hybrid.name} (50% ${event.data.first}, 50% ${event.data.second}).`);
+  // Its ways brought together, it does not split along the old seam.
+  assert.ok(state.groups.every(group => divergence(group.values, state.groups[polity.core].values) < CULTURE_TUNING.splitDivergence));
+  for (let at = 0; at < 100; at++) cultureYear(state, context(5_000 * 12 + at * 12 + hybrid.id));
+  assert.equal(state.cultures.filter(entry => entry.origin === 'split').length, 0);
+  // Sister peoples (one ancestry) are kin and do not fuse; a culture and its own daughter neither.
+  const sisters = strip(8);
+  const first = foundCulture(sisters.state, createRng(5, 0, 1), 'split', sisters.culture, flat(0.5)), second = foundCulture(sisters.state, createRng(6, 0, 1), 'split', sisters.culture, flat(0.5));
+  assert.ok(kin(sisters.state, first.id, second.id) && kin(sisters.state, sisters.culture.id, first.id) && !kin(state, culture.id, other.id));
+  for (const region of [0, 1, 2, 3]) sisters.state.groups[region].culture = first.id;
+  sisters.polity.culture = first.id;
+  for (const region of [4, 5, 6, 7]) sisters.state.groups[region].culture = second.id;
+  for (let at = 0; at < 300; at++) realmPeoples(sisters.state, sisters.context(at * 12), sisters.polity);
+  assert.equal(sisters.polity.together, -1);
+  assert.ok(sisters.state.cultures.every(entry => entry.origin !== 'hybrid'));
+});
+
+test('a realm whose ruling culture changes starts counting a pair again; a hybrid of a smaller ruling people takes its partner\'s first syllable and a colour between theirs', () => {
+  const { state, polity, culture, context } = strip(8);
+  const other = foundCulture(state, createRng(4, 0, 1), 'founding', null, flat(0.5), 100), third = foundCulture(state, createRng(7, 0, 1), 'founding', null, flat(0.5), 300);
+  for (const region of [4, 5, 6, 7]) state.groups[region].culture = other.id;
+  for (let year = 0; year < 50; year++) realmPeoples(state, context(year * 12), polity);
+  assert.equal(polity.togetherYears, 50);
+  // Its heartland's people become another people's: the old pair's years do not carry over.
+  for (const region of [0, 1, 2, 3]) state.groups[region].culture = third.id;
+  polity.culture = third.id;
+  realmPeoples(state, context(50 * 12), polity);
+  assert.deepEqual([polity.together, polity.togetherRuling, polity.togetherYears], [other.id, third.id, 1]);
+  // Fusion led by the larger people: a smaller ruling people (30%) and a larger partner (70%).
+  const always = { next: () => 0, int: () => 0, chance: () => true, weighted: () => 0 };
+  const hybrid = foundHybrid(state, always, culture, other, 0.3, flat(0.5));
+  assert.equal(hybrid.parents[0].id, other.id, 'the heavier parent first');
+  assert.ok(Math.abs(hybrid.parents[0].weight - 0.7) < 1e-12);
+  assert.ok(hybrid.name.toLowerCase().startsWith(nameStem(other.name)));
+  const turn = ((culture.hue - other.hue + 540) % 360) - 180;
+  assert.ok(Math.abs(((hybrid.hue - other.hue + 540) % 360) - 180 - 0.3 * turn) < 1e-9, 'its colour lies between theirs, nearer the larger');
+});
+
+test('each trait\'s conditions: a sailed coast, great-river farming, rough land, desert herding away from water, and great works', () => {
+  const { state, polity } = strip(3);
+  const group = state.groups[1], region = state.partition.regions[1];
+  const conditions = () => traitConditions(state, polity, group);
+  assert.deepEqual(Object.values(conditions()), [false, false, false, false, false]);
+  region.coastal = true; (polity.knowledge as { sea: number }).sea = 1;
+  assert.equal(conditions().seafaring, true);
+  (region as { riverTier: number }).riverTier = 3; group.farmShare = TRAIT_TUNING.farming;
+  assert.equal(conditions().greatRiverFarming, true);
+  state.affinity[1].add('rough');
+  assert.equal(conditions().mountains, true);
+  state.affinity[1].add('desert');
+  assert.equal(conditions().desertHerding, false, 'by a great river they farm');
+  (region as { riverTier: number }).riverTier = 0;
+  assert.equal(conditions().desertHerding, true);
+  state.regionSettlements[1].push(0); (state.settlements as unknown as object[]).push({ status: 'alive', tier: 2, wonder: null });
+  assert.equal(conditions().greatWorks, true);
+});
+
+test('a culture earns a trait from the life most of its people lead for long enough, its values feel it, and daughters keep it', () => {
+  const { state, polity, culture, context } = strip(3);
+  const seafarers = TRAITS.findIndex(trait => trait.key === 'seafarers');
+  for (const region of state.partition.regions) region.coastal = true;
+  (polity.knowledge as { sea: number }).sea = 1;
+  for (let year = 0; year < TRAITS[seafarers].years - 1; year++) cultureYear(state, context(year * 12 + culture.id));
+  assert.deepEqual(culture.traits, [], 'not yet');
+  cultureYear(state, context((TRAITS[seafarers].years - 1) * 12 + culture.id));
+  assert.deepEqual(culture.traits, [seafarers]);
+  assert.equal(state.metrics.traitsEarned, 1);
+  const measured = pullMeasures(state, polity, state.groups[1]);
+  assert.ok(Math.abs(pullTarget(measured, culture.traits).openness - pullTarget(measured).openness - (TRAITS[seafarers].pulls.openness ?? 0)) < 1e-12, 'its values are pulled');
+  const always = { next: () => 0, int: () => 0, chance: () => true, weighted: () => 0 }, never = { ...always, chance: () => false };
+  assert.deepEqual(foundCulture(state, always, 'split', culture, flat(0.5)).traits, [seafarers], 'a daughter keeps it');
+  assert.deepEqual(foundCulture(state, never, 'split', culture, flat(0.5)).traits, [], 'or loses it');
+  const other = foundCulture(state, never, 'founding', null, flat(0.5));
+  assert.deepEqual(foundHybrid(state, always, other, culture, 0.7, flat(0.5)).traits, [seafarers], 'a hybrid may keep its lighter parent\'s');
+  assert.ok(TRAIT_TUNING.inherit > 0.5);
+  state.chronicle.flush(state.tick);
+  assert.equal(describeEvent(state.chronicle.events.find(entry => entry.type === 'traitEarned')!), `The ${culture.name} are now known as Seafarers, for the life most of them have led for 100 years.`);
 });

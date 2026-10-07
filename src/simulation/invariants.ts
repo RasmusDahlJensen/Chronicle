@@ -8,7 +8,8 @@ import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
 import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
 import { VALUE_KEYS, type Polity, type RoadWork, type Settlement, type SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
-import { BUDGET_TUNING, BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING, SETTLEMENT_TUNING } from './tunables.ts';
+import { BUDGET_TUNING, BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING, SETTLEMENT_TUNING, TRAIT_TUNING } from './tunables.ts';
+import { TRAITS } from './traits.ts';
 import { fieldLand } from './fields.ts';
 
 /** The least share of its crops a harvest can come in at: the worst weather in drought without irrigation. */
@@ -109,11 +110,13 @@ export function checkInvariants(state: SimulationState) {
   for (const culture of state.cultures) {
     if (culture.parents.length && Math.abs(culture.parents.reduce((sum, parent) => sum + parent.weight, 0) - 1) > 1e-9) fail(`culture ${culture.id}'s parents' weights do not sum to 1`);
     if (culture.parents.some(parent => parent.id >= culture.id)) fail(`culture ${culture.id} names a later parent`);
+    if (culture.traits.length > TRAIT_TUNING.max || new Set(culture.traits).size !== culture.traits.length || culture.traits.some(trait => !TRAITS[trait]) || culture.traitYears.length !== TRAITS.length) fail(`culture ${culture.id} has inconsistent traits`);
   }
   for (const id of state.living) {
     const polity = state.polities[id];
     if (!polity || polity.deathTick !== null) fail(`live polity list names ${id}`);
     if (!polity.groups.length || !polity.groups.includes(polity.core)) fail(`polity ${id} has no bands or its core band ${polity.core} is not one of them`);
+    if ((polity.together < 0) !== (polity.togetherRuling < 0) || (polity.together < 0) !== (polity.togetherYears === 0) || polity.togetherYears < 0 || polity.together === polity.togetherRuling && polity.together >= 0) fail(`polity ${id} tracks a second people inconsistently`);
     // Its ruling culture is its heartland people's (VISION.md "Culture and lineage").
     if (polity.culture !== state.groups[polity.core].culture) fail(`polity ${id}'s ruling culture ${polity.culture} is not its heartland's ${state.groups[polity.core].culture}`);
     const knowledge = polity.knowledge;

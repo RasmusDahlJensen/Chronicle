@@ -16,9 +16,10 @@ export type Mobility = typeof MOBILITY[number];
 /** Coefficients a tech can multiply. Food yields per method; storage in months and monthly spoilage; the specialist cap. */
 export type Coefficient = 'forageYield' | 'huntYield' | 'fishYield' | 'herdYield' | 'farmYield' | 'storeMonths' | 'spoilage'
   | 'specialistCap' | 'research' | 'mortality' | 'birthRate' | 'reach' | 'military' | 'tradeRange' | 'disease';
-/** Environment conditions that raise a tech's research weight (VISION.md "environment"). Known-but-unusable deposits
- *  raise every extraction tech the same way (`RESEARCH_TUNING.blockedWeight`). */
-export type Affinity = 'coastal' | 'riverOrLake' | 'fertileRiver' | 'grassland' | 'forest' | 'rough' | 'arid' | 'cold'
+/** A region's environment conditions (`research.ts` `regionAffinities`): those a tech lists raise its research weight
+ *  (VISION.md "environment"; `desert` is read only by cultural traits). Known-but-unusable deposits raise every
+ *  extraction tech the same way (`RESEARCH_TUNING.blockedWeight`). */
+export type Affinity = 'coastal' | 'riverOrLake' | 'fertileRiver' | 'grassland' | 'forest' | 'rough' | 'arid' | 'desert' | 'cold'
   | 'grainSite' | 'gameSite' | 'fishSite';
 /** What a tech is for, read by the need and culture weights. */
 export type TechTag = 'food' | 'storage' | 'sailing' | 'mining' | 'metal' | 'military' | 'scholarship' | 'governance' | 'religion'

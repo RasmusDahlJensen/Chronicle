@@ -28,13 +28,14 @@ export function regionAffinities(state: Pick<SimulationState, 'geography' | 'par
   const site = (code: string) => RESOURCE_IDS.indexOf(code as typeof RESOURCE_IDS[number]) + 1;
   return partition.regions.map(region => {
     const flags = new Set<Affinity>();
-    let grass = 0, forest = 0, rough = 0, arid = 0, temperature = 0;
+    let grass = 0, forest = 0, rough = 0, arid = 0, desert = 0, temperature = 0;
     for (const cell of region.cells) {
       const biome = WORLD_BIOMES[geography.biome[cell]];
       if (biome === 'grassland' || biome === 'savanna' || biome === 'steppe') grass++;
       if (biome === 'forest' || biome === 'boreal' || biome === 'rainforest') forest++;
       if (biome === 'mountain' || biome === 'snow') rough++;
       if (biome === 'desert' || biome === 'steppe') arid++;
+      if (biome === 'desert') desert++;
       temperature += geography.temperature[cell] / 10;
     }
     const share = (count: number) => count / region.cells.length;
@@ -45,6 +46,7 @@ export function regionAffinities(state: Pick<SimulationState, 'geography' | 'par
     if (share(forest) >= tuning.affinityShare) flags.add('forest');
     if (share(rough) >= tuning.roughShare || region.defensibility >= tuning.roughDefensibility) flags.add('rough');
     if (share(arid) >= tuning.affinityShare) flags.add('arid');
+    if (share(desert) >= tuning.affinityShare) flags.add('desert');
     if (temperature / region.cells.length < tuning.coldCelsius) flags.add('cold');
     for (const [, code] of region.sites) {
       if (code === site('grain')) flags.add('grainSite');

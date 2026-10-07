@@ -12,6 +12,7 @@ import { capitalKm, knownRegionCount } from './perception.ts';
 import { stabilityOf } from './stability.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState } from './state.ts';
 import { ancestry, lineOf } from './culture.ts';
+import { TRAITS } from './traits.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
@@ -208,6 +209,7 @@ function peopleView(state: SimulationState, group: PopulationGroup, living: { re
   const culture = state.cultures[group.culture];
   return {
     culture: culture.name, origin: culture.origin, parent: culture.parents.length ? heaviestParent(state, culture).name : null, founded: culture.foundedTick,
+    parents: culture.parents.map(entry => ({ name: state.cultures[entry.id].name, weight: round(entry.weight) })), traits: culture.traits.map(trait => TRAITS[trait].name),
     regions: living.regions, population: living.population,
     ancestry: ancestry(state, culture.id).slice(0, 6).map(entry => ({ name: state.cultures[entry.id].name, share: round(entry.share) })),
     line: lineOf(state, culture.id, 6).map(entry => ({ name: entry.name, origin: entry.origin, founded: entry.foundedTick })),

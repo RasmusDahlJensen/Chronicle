@@ -47,6 +47,9 @@ export interface Culture {
   origin: CultureOrigin; hue: number;
   /** People of it and regions where it lives, at its last yearly refresh; the tick it was found without people. */
   people: number; regions: number; deathTick: number | null;
+  /** Its traits (indices into `TRAITS`, in the order earned or inherited), and per trait the years in a row most of its
+   *  people have lived in that trait's conditions. */
+  traits: number[]; traitYears: number[];
 }
 
 /**
@@ -62,6 +65,10 @@ export interface Polity {
   groups: number[];
   /** Its core group: the heartland band, where a breakaway's distance is measured from and the capital is founded. */
   core: number;
+  /** The pair of peoples it watches for a hybrid (VISION.md "Hybrids"): the other culture that has lived beside its
+   *  ruling culture as a large part of its people (−1 none), that ruling culture, and their years together (growing
+   *  while both are large, fading while either is not). */
+  together: number; togetherRuling: number; togetherYears: number;
   /** The starting band it descends from (0–29 by default): a people's lineage, kept by every daughter. */
   lineage: number;
   knowledge: Knowledge;
@@ -311,6 +318,9 @@ export interface CenturyStats {
    *  cultures, people-weighted), how far the people of a culture differ from its heart (people-weighted mean), and the
    *  share of civilizations' people whose culture is not their realm's. */
   cultures: number; cultureSplits: number; civCultureSplits: number; valueSpread: number; cultureDivergence: number; foreignShare: number;
+  /** Mixed peoples (M4.2): regions assimilated, hybrid cultures formed and traits earned so far, and living cultures
+   *  with at least one trait. */
+  assimilations: number; hybrids: number; traitsEarned: number; culturesWithTraits: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -385,8 +395,9 @@ export interface Metrics {
   unionsRefusedForStrain: number;
   /** Civilizations that began to let far regions go unkept (an event). */
   neglectBegun: number;
-  /** Cultures that split from another (an event), and of those, from the culture of a civilization's people. */
-  cultureSplits: number; civCultureSplits: number;
+  /** Cultures that split from another (an event), and of those, from the culture of a civilization's people; regions
+   *  whose people took up their realm's ruling culture; hybrid cultures formed; traits earned. */
+  cultureSplits: number; civCultureSplits: number; assimilations: number; hybrids: number; traitsEarned: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;

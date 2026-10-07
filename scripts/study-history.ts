@@ -188,6 +188,17 @@ function storyHealth(rows: SeedResult[]) {
     const first = ((result.report.events ?? []) as { type: string; tick: number; data: Record<string, unknown> }[]).find(event => event.type === 'cultureSplit' && event.data.fromCiv === true);
     lines.push(`| ${result.seed} | ${each(row => String(row.cultures))} | ${each(row => `${row.cultureSplits} (${row.civCultureSplits})`)} | ${first ? `${Math.floor(first.tick / 12)}: ${first.data.parent} → ${first.data.culture}` : '—'} | ${each(row => `${row.valueSpread.toFixed(3)} · ${row.cultureDivergence.toFixed(3)}`)} | ${each(row => percent(row.foreignShare))} |`);
   }
+  // M4.2 (VISION.md "Assimilation", "Hybrids", "Traits"): peoples taking up their realm's culture, hybrids, traits.
+  lines.push('', '| Seed | Hybrid cultures by 1,000 / 2,000 / 3,000 (M4: ≥ 1 by 2,000) | First hybrid: year, parents → hybrid | Regions assimilated by 1,000 / 2,000 / 3,000 | Cultures with traits at 1,000 / 2,000 / 3,000 · traits earned by 3,000 | Traits earned, by name |',
+    '| --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    const events = (result.report.events ?? []) as { type: string; tick: number; data: Record<string, unknown> }[];
+    const first = events.find(event => event.type === 'hybridCulture'), byTrait = new Map<string, number>();
+    for (const event of events) if (event.type === 'traitEarned') byTrait.set(String(event.data.trait), (byTrait.get(String(event.data.trait)) ?? 0) + 1);
+    lines.push(`| ${result.seed} | ${each(row => String(row.hybrids))} | ${first ? `${Math.floor(first.tick / 12)}: ${first.data.first} + ${first.data.second} → ${first.data.culture}` : '—'} | ${each(row => String(row.assimilations))} | ${each(row => String(row.culturesWithTraits))} · ${last.traitsEarned} | ${[...byTrait].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(', ') || '—'} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');

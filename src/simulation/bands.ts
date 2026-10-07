@@ -147,7 +147,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     // A lineage's home is where its first band began: a daughter on another landmass is still away from home.
     homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], frontierEra: 0,
     exchanges: new Map(), exchangeRefused: new Map(), capital: null, settledTick: null,
-    map: emptyMap(state.partition.regions.length), met: new Map(),
+    map: emptyMap(state.partition.regions.length), met: new Map(), together: -1, togetherRuling: -1, togetherYears: 0,
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
     taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,

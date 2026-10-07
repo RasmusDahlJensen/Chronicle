@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 22;
+export const SIMULATION_PROTOCOL_VERSION = 23;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -33,6 +33,7 @@ export const EVENT_TYPES = [
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
   'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief', 'neglect',
+  'assimilation', 'traitEarned',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -158,13 +159,16 @@ export const ObserverFrameSchema = Type.Object({
     weather: Type.Object({
       harvest: Type.Number({ minimum: 0 }), drought: Type.Integer({ minimum: 0 }), famine: Type.Boolean(), irrigation: Type.Number({ minimum: 1 }), relief: Type.Boolean(),
     }, { additionalProperties: false }),
-    /** The people living here (null for empty land): their culture, how it began (and its heaviest parent), the tick
-     *  it began (`founded`, as for each entry of its line), where and how many live by it now, its descent from the
+    /** The people living here (null for empty land): their culture, how it began (and its heaviest parent, and both
+     *  parents with their weights), the tick it began (`founded`, as for each entry of its line), its traits, where and
+     *  how many live by it now, its descent from the
      *  starting peoples (shares summing to 1, largest first), its line back through its heaviest parents, and the values
      *  of the people here and of the whole culture. */
     people: Type.Union([Type.Null(), Type.Object({
       culture: Type.String({ maxLength: 40 }), origin: OriginSchema,
       parent: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]), founded: Type.Integer({ minimum: 0 }),
+      parents: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), weight: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 2 }),
+      traits: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 8 }),
       regions: Type.Integer({ minimum: 0 }), population: Type.Integer({ minimum: 0 }),
       ancestry: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), share: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 6 }),
       line: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), origin: OriginSchema, founded: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 6 }),

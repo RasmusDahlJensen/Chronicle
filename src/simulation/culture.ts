@@ -1,19 +1,22 @@
 import { causes } from './causes.ts';
-import { createLanguage, createName, descendName, mutateLanguage } from './names.ts';
+import { blendLanguage, blendName, createLanguage, createName, descendName, mutateLanguage } from './names.ts';
 import type { Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureOrigin, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TickContext } from './state.ts';
-import { CULTURE_PULLS, CULTURE_TUNING, type PullMeasure } from './tunables.ts';
+import { TRAITS, type TraitCondition } from './traits.ts';
+import { CULTURE_PULLS, CULTURE_TUNING, TRAIT_TUNING, type PullMeasure } from './tunables.ts';
 
 /**
  * Living cultures (VISION.md "Culture and lineage", M4). Values live on the people: each population group holds its
  * own, which drift with its conditions and blend toward the peoples it is in contact with, so a culture stays one
  * where its people are close and grows apart where they are not. A culture's values are its people's mean. When part
  * of a culture has grown far enough from its heart, it splits off as a daughter culture whose name and colour descend
- * from its parent's. Cultures are never deleted, so any culture's descent can be traced to the starting peoples.
+ * from its parent's. Within a realm, smaller peoples grown close to the ruling culture take it up over generations,
+ * and two large peoples long together may fuse into a hybrid. Cultures earn traits from the lives most of their people
+ * lead. Cultures are never deleted, so any culture's descent can be traced to the starting peoples.
  */
 
-/** Stream salt for a culture's yearly draws (its common step and splitting). */
-const CULTURE_STREAM = 0xc017;
+/** Stream salts for a culture's yearly draws (its common step and splitting) and a realm's (assimilation, fusion). */
+const CULTURE_STREAM = 0xc017, REALM_STREAM = 0xc018;
 
 /** How alike two cultures' values are (0–1): one minus the mean absolute difference of the five sliders. */
 export function cultureSimilarity(a: CultureValues, b: CultureValues) {
@@ -40,9 +43,33 @@ export function foundCulture(state: SimulationState, rng: Rng, origin: CultureOr
   const culture: Culture = {
     id: state.cultures.length, name, values: { ...values }, language, parents: parent ? [{ id: parent.id, weight: 1 }] : [], foundedTick: state.tick,
     origin, hue: wrapHue(parent ? parent.hue + (rng.next() * 2 - 1) * CULTURE_TUNING.hueShift : hue), people: 0, regions: 0, deathTick: null,
+    traits: [], traitYears: TRAITS.map(() => 0),
   };
+  if (parent) inherit(rng, culture, parent.traits, TRAIT_TUNING.inherit);
   state.cultures.push(culture);
   return culture;
+}
+
+/** A hybrid of two cultures (VISION.md "Hybrids"): both are its parents, `weight` of it from `first`; its language and
+ *  name mix theirs, its colour lies between theirs, and it may keep traits of either (the lighter parent's less often). */
+export function foundHybrid(state: SimulationState, rng: Rng, first: Culture, second: Culture, weight: number, values: CultureValues): Culture {
+  const [heavy, light, w] = weight >= 0.5 ? [first, second, weight] : [second, first, 1 - weight];
+  const language = blendLanguage(rng, heavy.language, light.language, w);
+  const turn = ((light.hue - heavy.hue + 540) % 360) - 180;
+  const culture: Culture = {
+    id: state.cultures.length, name: blendName(rng, heavy.name, light.name, language, new Set(state.cultures.map(entry => entry.name.toLowerCase()))), values: { ...values }, language,
+    parents: [{ id: heavy.id, weight: w }, { id: light.id, weight: 1 - w }], foundedTick: state.tick, origin: 'hybrid',
+    hue: wrapHue(heavy.hue + (1 - w) * turn), people: 0, regions: 0, deathTick: null, traits: [], traitYears: TRAITS.map(() => 0),
+  };
+  inherit(rng, culture, heavy.traits, TRAIT_TUNING.inherit);
+  inherit(rng, culture, light.traits, TRAIT_TUNING.inherit / 2);
+  state.cultures.push(culture);
+  return culture;
+}
+
+/** A new culture keeps each of `traits` with chance `chance`, up to the most a culture holds. */
+function inherit(rng: Rng, culture: Culture, traits: number[], chance: number) {
+  for (const trait of traits) if (culture.traits.length < TRAIT_TUNING.max && !culture.traits.includes(trait) && rng.chance(chance)) culture.traits.push(trait);
 }
 
 /** A group's people take up another culture; a polity's ruling culture is its heartland people's. */
@@ -90,16 +117,31 @@ export function pullMeasures(state: SimulationState, polity: Polity, group: Popu
   };
 }
 
-/** Where a group's values are drawn by its conditions alone. */
-export function pullTarget(measured: Record<PullMeasure, number>): CultureValues {
+/** Where a group's values are drawn by its conditions, and by its culture's traits. */
+export function pullTarget(measured: Record<PullMeasure, number>, traits: number[] = []): CultureValues {
   const target = {} as CultureValues;
   for (const key of VALUE_KEYS) {
     const pull = CULTURE_PULLS[key];
     let value = pull.base;
     for (const entry of pull.pulls) value += entry.weight * measured[entry.measure];
+    for (const trait of traits) value += TRAITS[trait].pulls[key] ?? 0;
     target[key] = clamp01(value);
   }
   return target;
+}
+
+/** Which traits' conditions a group's people live in (VISION.md "Traits"). */
+export function traitConditions(state: SimulationState, polity: Polity, group: PopulationGroup): Record<TraitCondition, boolean> {
+  const region = state.partition.regions[group.region], tuning = TRAIT_TUNING;
+  let great = false;
+  for (const id of state.regionSettlements[group.region]) { const settlement = state.settlements[id]; if (settlement.status === 'alive' && (settlement.tier >= 2 || settlement.wonder !== null)) great = true; }
+  return {
+    seafaring: region.coastal && polity.knowledge.sea > 0,
+    greatRiverFarming: region.riverTier >= 3 && group.farmShare >= tuning.farming,
+    mountains: state.affinity[group.region].has('rough'),
+    desertHerding: state.affinity[group.region].has('desert') && group.farmShare >= tuning.herding && region.riverTier < 2 && !region.openLake,
+    greatWorks: great,
+  };
 }
 
 /** A polity's prestige (VISION.md "Influence": size, wealth, tech, great cities, wonders; military victories come with
@@ -124,7 +166,7 @@ export function prestigeOf(state: SimulationState, polity: Polity, wonders: Map<
  */
 export function liveYear(state: SimulationState, group: PopulationGroup, prestige: (polity: number) => number) {
   const tuning = CULTURE_TUNING, polity = state.polities[group.polity], values = group.values;
-  const target = pullTarget(pullMeasures(state, polity, group));
+  const target = pullTarget(pullMeasures(state, polity, group), state.cultures[group.culture].traits);
   const pull = [0, 0, 0, 0, 0];
   let weight = 0;
   const own = prestige(polity.id);
@@ -180,6 +222,8 @@ export function cultureYear(state: SimulationState, context: TickContext) {
   };
   // Groups by id, so a band that moves still has one culture year a year.
   for (const id of state.living) for (const groupId of state.polities[id].groups) if (due(groupId)) liveYear(state, state.groups[groupId], prestigeOfId);
+  // Each realm's peoples, once a year (staggered by id): assimilation and fusion.
+  for (const id of state.living.slice()) { const civ = state.polities[id]; if (civ.kind === 'civ' && due(id)) realmPeoples(state, context, civ); }
   const cultures = state.cultures.filter(culture => culture.deathTick === null && due(culture.id));
   if (!cultures.length) return;
   const members = new Map<number, PopulationGroup[]>();
@@ -198,9 +242,33 @@ function refreshCulture(state: SimulationState, context: TickContext, culture: C
   const step = VALUE_KEYS.map(() => (rng.next() * 2 - 1) * fashion);
   for (const group of groups) VALUE_KEYS.forEach((key, at) => { group.values[key] = clamp01(group.values[key] + step[at]); });
   summarize(culture, groups);
+  earnTraits(state, culture, groups);
   const left = splitOff(state, rng, culture, groups);
   // What it is without the part that split off.
   if (left) summarize(culture, left);
+}
+
+/** A culture earns a trait once at least `TRAIT_TUNING.share` of its people have lived in its conditions for the
+ *  trait's years in a row (an event); it keeps it. */
+function earnTraits(state: SimulationState, culture: Culture, groups: PopulationGroup[]) {
+  const living = new Array<number>(TRAITS.length).fill(0);
+  let people = 0;
+  for (const group of groups) {
+    people += group.size;
+    const conditions = traitConditions(state, state.polities[group.polity], group);
+    TRAITS.forEach((trait, at) => { if (conditions[trait.condition]) living[at] += group.size; });
+  }
+  TRAITS.forEach((trait, at) => {
+    culture.traitYears[at] = people > 0 && living[at] >= TRAIT_TUNING.share * people ? culture.traitYears[at] + 1 : 0;
+    if (culture.traitYears[at] < trait.years || culture.traits.includes(at) || culture.traits.length >= TRAIT_TUNING.max) return;
+    culture.traits.push(at);
+    state.metrics.traitsEarned++;
+    const largest = groups.reduce((best, group) => group.size > best.size ? group : best);
+    state.chronicle.emit({
+      type: 'traitEarned', actors: [{ id: largest.polity, role: 'polity' }], region: largest.region, causes: causes({ [trait.condition]: living[at] / people }), importance: 0.15,
+      data: { culture: culture.name, trait: trait.name, years: trait.years },
+    });
+  });
 }
 
 /** A culture's values, people and regions from its groups. */
@@ -356,5 +424,132 @@ export function cultureStats(state: SimulationState) {
       spread += Math.sqrt(variance / people) / means.length;
     }
   }
-  return { cultures: cultureValues.length, valueSpread: spread, cultureDivergence: people > 0 ? apart / people : 0, foreignShare: civPeople > 0 ? foreign / civPeople : 0 };
+  let withTraits = 0;
+  for (const id of members.keys()) if (state.cultures[id].traits.length) withTraits++;
+  return { cultures: cultureValues.length, valueSpread: spread, cultureDivergence: people > 0 ? apart / people : 0, foreignShare: civPeople > 0 ? foreign / civPeople : 0, culturesWithTraits: withTraits };
+}
+
+
+/**
+ * Assimilation (VISION.md "Assimilation"): a people of another culture under a realm's rule takes up its ruling
+ * culture over generations. Its yearly chance is `assimilationRate` × how close their values already are to the realm's
+ * heartland people's (none beyond `assimilationRange`) × how little they hold to their ways (1 − ½ Tradition) × how hard
+ * the realm presses (1 − ½ its heartland's Openness: tolerant realms let peoples be) × how near the court (½ + ½
+ * e^(−remoteness)) × how small a share of the realm they are (none at `hybridShare` or more: large peoples do not
+ * dissolve, they may fuse instead; kin dissolve into kin whatever their size). Returns the chance and its parts.
+ */
+export function assimilationChance(state: SimulationState, civ: Polity, group: PopulationGroup, heart: PopulationGroup, share: number, kin = false) {
+  const tuning = CULTURE_TUNING;
+  const close = Math.max(0, 1 - divergence(group.values, heart.values) / tuning.assimilationRange);
+  const holding = 1 - 0.5 * group.values.tradition, pressing = 1 - 0.5 * heart.values.openness;
+  const near = state.remoteOwner[group.region] === civ.id ? 0.5 + 0.5 * Math.exp(-state.remoteness[group.region]) : 0.5;
+  const small = kin ? 1 : Math.max(0, 1 - share / tuning.hybridShare);
+  return { chance: tuning.assimilationRate * close * holding * pressing * near * small, close, holding, pressing, near, small };
+}
+
+/**
+ * Whether two cultures are kin: most of their descent is from the same starting peoples (an overlap of their ancestry
+ * of at least `kinShare`), as sister peoples and a daughter and her forebear are. Kin do not fuse into a hybrid.
+ */
+export function kin(state: SimulationState, a: number, b: number) {
+  const first = new Map(ancestry(state, a).map(entry => [entry.id, entry.share]));
+  let overlap = 0;
+  for (const entry of ancestry(state, b)) overlap += Math.min(entry.share, first.get(entry.id) ?? 0);
+  return overlap >= CULTURE_TUNING.kinShare;
+}
+
+/**
+ * A realm's peoples (once a year per civilization): smaller peoples of other cultures, and kin of any size, may
+ * assimilate into its ruling culture; and a ruling culture and the largest other people, unrelated, that have both
+ * been a large part of the realm for long and have grown alike may fuse into a hybrid people (VISION.md "Hybrids").
+ * The years a pair has lived together grow while both are large and fade while either is not, and start again only
+ * when the pair changes.
+ */
+export function realmPeoples(state: SimulationState, context: TickContext, civ: Polity) {
+  const tuning = CULTURE_TUNING, ruling = civ.culture, rng = context.stream(civ.id, REALM_STREAM);
+  const byCulture = new Map<number, PopulationGroup[]>();
+  let total = 0;
+  for (const id of civ.groups) {
+    const group = state.groups[id];
+    total += group.size;
+    const list = byCulture.get(group.culture);
+    if (list) list.push(group); else byCulture.set(group.culture, [group]);
+  }
+  const people = (groups: PopulationGroup[]) => groups.reduce((sum, group) => sum + group.size, 0);
+  const heart = state.groups[civ.core], kinship = new Map<number, boolean>();
+  for (const culture of byCulture.keys()) if (culture !== ruling) kinship.set(culture, kin(state, ruling, culture));
+  // The largest other people of the realm, and how long it has lived beside the ruling one as a large part of it.
+  let partner = -1, partnerPeople = 0;
+  for (const [culture, groups] of byCulture) if (culture !== ruling) { const count = people(groups); if (count > partnerPeople || (count === partnerPeople && culture < partner)) { partner = culture; partnerPeople = count; } }
+  const rulingShare = people(byCulture.get(ruling) ?? []) / Math.max(1, total), partnerShare = partnerPeople / Math.max(1, total);
+  const large = partner >= 0 && !kinship.get(partner) && rulingShare >= tuning.hybridShare && partnerShare >= tuning.hybridShare;
+  // A new ruling culture ends the pair (its rulers did not live beside them).
+  if (civ.together >= 0 && civ.togetherRuling !== ruling) { civ.together = -1; civ.togetherRuling = -1; civ.togetherYears = 0; }
+  if (civ.together >= 0 && civ.together === partner && large) civ.togetherYears++;
+  else if (civ.together >= 0) { civ.togetherYears--; if (civ.togetherYears <= 0) { civ.together = -1; civ.togetherRuling = -1; civ.togetherYears = 0; } }
+  if (civ.together < 0 && large) { civ.together = partner; civ.togetherRuling = ruling; civ.togetherYears = 1; }
+  if (civ.together === partner && large && civ.togetherYears >= tuning.hybridYears) {
+    const a = byCulture.get(ruling)!, b = byCulture.get(partner)!;
+    const apart = divergence(meanValues(a), meanValues(b));
+    if (apart <= tuning.hybridRange && rng.chance(tuning.hybridRate)) { fuse(state, rng, civ, a, b, apart); return; }
+  }
+  // Assimilation, aggregated into one event per culture a year, with the mean of what drew its people in.
+  const taken = new Map<number, { regions: number; people: number; region: number; parts: Record<string, number> }>();
+  for (const [culture, groups] of byCulture) {
+    if (culture === ruling) continue;
+    const share = people(groups) / Math.max(1, total);
+    for (const group of groups) {
+      const odds = assimilationChance(state, civ, group, heart, share, kinship.get(culture));
+      if (!rng.chance(odds.chance)) continue;
+      const entry = taken.get(culture) ?? { regions: 0, people: 0, region: group.region, parts: { closeWays: 0, openToChange: 0, realmPresses: 0, nearCourt: 0, smallPeople: 0 } };
+      entry.regions++; entry.people += group.size;
+      entry.parts.closeWays += odds.close; entry.parts.openToChange += odds.holding; entry.parts.realmPresses += odds.pressing; entry.parts.nearCourt += odds.near; entry.parts.smallPeople += odds.small;
+      taken.set(culture, entry);
+      setGroupCulture(state, group, ruling);
+      // Taking up its ways: their values move toward the heartland's.
+      for (const key of VALUE_KEYS) group.values[key] += tuning.assimilationBlend * (heart.values[key] - group.values[key]);
+    }
+  }
+  for (const [culture, entry] of taken) {
+    state.metrics.assimilations += entry.regions;
+    const factors = Object.fromEntries(Object.entries(entry.parts).map(([factor, sum]) => [factor, sum / entry.regions]));
+    state.chronicle.emit({
+      type: 'assimilation', actors: [{ id: civ.id, role: 'civ' }], region: entry.region, causes: causes(factors), importance: 0.08,
+      data: { culture: state.cultures[culture].name, ruling: state.cultures[ruling].name, civ: civ.name, regions: entry.regions, population: entry.people, one: entry.regions === 1, more: entry.regions > 1, kin: kinship.get(culture) === true },
+    });
+  }
+}
+
+function meanValues(groups: PopulationGroup[]): CultureValues {
+  const values = {} as CultureValues;
+  let people = 0;
+  for (const key of VALUE_KEYS) values[key] = 0;
+  for (const group of groups) { people += group.size; for (const key of VALUE_KEYS) values[key] += group.values[key] * group.size; }
+  for (const key of VALUE_KEYS) values[key] = people > 0 ? values[key] / people : groups[0]?.values[key] ?? 0.5;
+  return values;
+}
+
+/**
+ * Two peoples of a realm become one (VISION.md "Hybrids"): a new culture with both as parents, weighted by people.
+ * Becoming one people brings their ways together: every group's values move `fusionBlend` of the way to the hybrid's,
+ * so the new people does not split along the old seam. Their parents' counts wait for their next yearly refresh.
+ */
+function fuse(state: SimulationState, rng: Rng, civ: Polity, a: PopulationGroup[], b: PopulationGroup[], apart: number) {
+  const first = state.cultures[a[0].culture], second = state.cultures[b[0].culture];
+  const pa = a.reduce((sum, group) => sum + group.size, 0), pb = b.reduce((sum, group) => sum + group.size, 0), wa = pa / (pa + pb);
+  const values = meanValues([...a, ...b]);
+  const hybrid = foundHybrid(state, rng, first, second, wa, values);
+  for (const group of [...a, ...b]) {
+    setGroupCulture(state, group, hybrid.id);
+    for (const key of VALUE_KEYS) group.values[key] += CULTURE_TUNING.fusionBlend * (values[key] - group.values[key]);
+  }
+  hybrid.people = pa + pb; hybrid.regions = a.length + b.length;
+  const years = civ.togetherYears;
+  civ.together = -1; civ.togetherRuling = -1; civ.togetherYears = 0;
+  state.metrics.hybrids++;
+  const capital = civ.capital !== null ? state.settlements[civ.capital] : null;
+  state.chronicle.emit({
+    type: 'hybridCulture', actors: [{ id: civ.id, role: 'civ' }], region: capital?.region ?? a[0].region, causes: causes({ yearsTogether: years / 1000, alike: 1 - apart }), importance: 0.35,
+    data: { culture: hybrid.name, first: first.name, second: second.name, civ: civ.name, firstShare: Math.round(wa * 100), secondShare: 100 - Math.round(wa * 100), population: pa + pb },
+  });
 }

@@ -64,10 +64,11 @@ function BudgetDetail({ wealth }: { wealth: NonNullable<NonNullable<Inspected['p
 /** The people of the inspected region (VISION.md "Ancestry query"): their culture, how it began, its descent and their values. */
 function PeopleDetail({ people }: { people: NonNullable<Inspected['people']> }) {
   const origin = people.origin === 'founding' ? 'one of the starting peoples' : people.origin === 'breakaway' ? `a band that broke away from the ${people.parent}`
-    : people.origin === 'split' ? `grew apart from the ${people.parent}` : `formed from the ${people.parent} and others`;
+    : people.origin === 'split' ? `grew apart from the ${people.parent}` : `formed from the ${people.parents.map(entry => `${entry.name} (${Math.round(entry.weight * 100)}%)`).join(' and ')}`;
   return <div className="world-cell-band" role="group" aria-label="People of this region">
     <p className="atlas-detail-label">People</p><h3 id="people-culture">{people.culture} <span>· {origin}, year {simulationDate(people.founded).year}</span></h3>
     <p className="atlas-panel-note" id="people-ancestry">Descent from the starting peoples: {people.ancestry.map(entry => `${Math.round(entry.share * 100)}% ${entry.name}`).join(', ')}{people.line.length ? `. Line: ${people.line.map(entry => entry.name).join(' ← ')}` : ''}. The culture lives in {number.format(people.regions)} {people.regions === 1 ? 'region' : 'regions'} ({formatPeople(people.population)} people).</p>
+    {people.traits.length > 0 && <p className="atlas-panel-note" id="people-traits">Known as: {people.traits.join(', ')}.</p>}
     <p className="atlas-panel-note" id="people-values">Values here (the whole culture's): {VALUE_NAMES.map(key => `${key} ${people.values[key].toFixed(2)} (${people.cultureValues[key].toFixed(2)})`).join(' · ')}.</p>
   </div>;
 }

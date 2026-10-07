@@ -23,7 +23,7 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 20;
+export const SIMULATION_RULES_VERSION = 21;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
@@ -60,7 +60,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0, settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0,
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
-      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
+      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -106,7 +106,7 @@ export function worldPopulation(state: SimulationState) {
 
 function roundedCultureStats(state: SimulationState) {
   const stats = cultureStats(state), round = (value: number) => Math.round(value * 1000) / 1000;
-  return { cultures: stats.cultures, valueSpread: round(stats.valueSpread), cultureDivergence: round(stats.cultureDivergence), foreignShare: round(stats.foreignShare) };
+  return { cultures: stats.cultures, valueSpread: round(stats.valueSpread), cultureDivergence: round(stats.cultureDivergence), foreignShare: round(stats.foreignShare), culturesWithTraits: stats.culturesWithTraits };
 }
 
 /** Story health's dominance rule (VISION.md: the largest polity holds at most 35% of the world's people, except for up
@@ -215,7 +215,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     unionsRefusedForStrain: m.unionsRefusedForStrain, longestDominance: m.longestDominance, dominanceYears: m.dominanceYears,
     ...neglectStats(state), neglectBegun: m.neglectBegun,
     ...famineByWealth(state),
-    ...roundedCultureStats(state), cultureSplits: m.cultureSplits, civCultureSplits: m.civCultureSplits,
+    ...roundedCultureStats(state), cultureSplits: m.cultureSplits, civCultureSplits: m.civCultureSplits, assimilations: m.assimilations, hybrids: m.hybrids, traitsEarned: m.traitsEarned,
   };
 }
 
@@ -342,12 +342,13 @@ export function stateHash(state: SimulationState) {
   const text = (value: string) => { add(value.length); for (let at = 0; at < value.length; at++) add(value.charCodeAt(at)); };
   for (const culture of state.cultures) {
     add(culture.deathTick ?? -1); add(culture.people); add(culture.regions); add(culture.hue * 1e6); for (const key of VALUE_KEYS) add(culture.values[key] * 1e9);
+    add(culture.traits.length); for (const trait of culture.traits) add(trait); for (const years of culture.traitYears) add(years);
     text(culture.name); add(CULTURE_ORIGIN_NAMES.indexOf(culture.origin)); add(culture.foundedTick);
     for (const parent of culture.parents) { add(parent.id); add(parent.weight * 1e9); }
     for (const sounds of [culture.language.initials, culture.language.consonants, culture.language.vowels, culture.language.codas]) { add(sounds.length); for (const sound of sounds) text(sound); }
   }
   for (const polity of state.polities) {
-    add(polity.kind === 'civ' ? 1 : 0); add(polity.core); add(polity.culture); add(polity.capital ?? -1); add(polity.homeLandmass); add(polity.knowledge.target);
+    add(polity.kind === 'civ' ? 1 : 0); add(polity.core); add(polity.culture); add(polity.together); add(polity.togetherRuling); add(polity.togetherYears); add(polity.capital ?? -1); add(polity.homeLandmass); add(polity.knowledge.target);
     for (const group of polity.groups) add(group);
     for (const points of polity.knowledge.progress) if (points) add(points);
     for (const known of polity.knowledge.known) add(known);

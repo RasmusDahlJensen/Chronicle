@@ -1,5 +1,6 @@
 import type { WorldBiome } from '../../shared/generated-world.ts';
 import { VALUE_NAMES } from '../../shared/simulation.ts';
+import { TRAIT_CONDITIONS, TRAITS } from './traits.ts';
 
 /**
  * Every tunable simulation number (VISION.md rule 5). Values are starting points recorded in the active brief;
@@ -515,13 +516,34 @@ export const FIELD_TUNING = {
  * less of by at least `splitNote` × `splitDivergence`. A daughter's language changes `languageChanges` sounds, and its
  * colour turns by up to `hueShift` degrees; the starting peoples' colours lie `hueStep` degrees apart from `hueStart`
  * (as the observer's lineage colours do).
+ * Mixed peoples (M4.2), once a year per civilization:
+ * - a people of another culture takes up the ruling culture with a chance of `assimilationRate` × how close its values
+ *   are to the realm's heartland people's (none beyond `assimilationRange`) × (1 − ½ its Tradition) × (1 − ½ the
+ *   heartland's Openness: tolerant realms let peoples be) × (½ + ½ e^(−remoteness)) × how small a share of the realm
+ *   its culture is (none at `hybridShare` or more, except for kin: cultures whose ancestry overlaps by at least
+ *   `kinShare`); taking up its ways, its values move `assimilationBlend` of the way to the heartland's (within
+ *   `splitDivergence` of them, so it does not split off again at once);
+ * - the ruling culture and the largest other people, not kin, each holding at least `hybridShare` of the realm's people
+ *   for `hybridYears` (counted up while both are large, down while either is not), whose people's values differ by at
+ *   most `hybridRange`, fuse into a hybrid with a chance of `hybridRate` a year; becoming one people, every group's
+ *   values move `fusionBlend` of the way to the hybrid's, so it does not split along the old seam.
  */
 export const CULTURE_TUNING = {
   valueMin: 0.15, valueSpan: 0.7, mutation: 0.1,
   driftRate: 0.005, influenceRate: 0.03, foreignContact: 0.25, confidence: 0.25, heartPull: 2, fashion: 0.03,
   prestigeEra: 0.25, prestigeWonder: 0.5, prestigeCity: 0.1, prestigeWealth: 0.5, wealthPerPerson: 0.2, townShare: 0.25, seaShare: 0.5,
   splitDivergence: 0.07, splitRegions: 3, splitRate: 0.05, splitNote: 0.25, languageChanges: 2, hueShift: 20, hueStart: 20, hueStep: 137.508,
+  assimilationRate: 0.01, assimilationRange: 0.1, assimilationBlend: 0.5, kinShare: 0.5, hybridShare: 0.25, hybridYears: 150, hybridRange: 0.1, hybridRate: 0.02, fusionBlend: 0.8,
 } as const;
+
+/**
+ * Traits (VISION.md "Traits"; `traits.ts`): earned when at least `share` of a culture's people have lived in the
+ * trait's conditions for its years in a row; at most `max`; each passes to a daughter with chance `inherit` (from a
+ * hybrid's lighter parent, half that). Mountains and deserts are the regions' environment flags (rough; desert, not
+ * steppe); desert herders get at least `herding` of their food from herds and fields away from any river or lake (desert
+ * farmers live by water), and great-river farmers `farming`.
+ */
+export const TRAIT_TUNING = { share: 0.6, max: 4, inherit: 0.85, herding: 0.3, farming: 0.5 } as const;
 
 /** What a group's conditions are measured by (0–1 each; `culture.ts`). */
 export const PULL_MEASURES = ['harshLand', 'frontier', 'townsAndSea', 'hardship', 'openLand'] as const;
@@ -596,6 +618,12 @@ export function validateTunables() {
   const c = CULTURE_TUNING;
   if (!(c.valueMin >= 0 && c.valueSpan > 0 && c.valueMin + c.valueSpan <= 1 && c.mutation >= 0)) problems.push('culture value ranges are invalid');
   if (![c.driftRate, c.influenceRate, c.splitRate].every(rate => rate >= 0 && rate <= 1) || !(c.foreignContact >= 0 && c.confidence > 0 && c.heartPull >= 0 && c.fashion >= 0 && c.fashion < 0.5 && c.prestigeEra >= 0 && c.prestigeWonder >= 0 && c.prestigeCity >= 0 && c.prestigeWealth >= 0 && c.wealthPerPerson > 0 && c.townShare > 0 && c.townShare <= 1 && c.seaShare >= 0 && c.seaShare <= 1 && c.splitNote >= 0 && c.hueStep > 0)) problems.push('culture drift and influence rates are invalid');
+  if (![c.assimilationRate, c.hybridRate, c.kinShare, c.fusionBlend].every(value => value >= 0 && value <= 1) || !(c.hybridShare > 0 && c.hybridShare <= 0.5) || !(Number.isInteger(c.hybridYears) && c.hybridRange * (1 - c.fusionBlend) < c.splitDivergence) || !(c.assimilationRange > 0 && c.assimilationRange * (1 - c.assimilationBlend) < c.splitDivergence && c.assimilationBlend >= 0 && c.assimilationBlend <= 1 && c.hybridRange > 0 && c.hybridYears >= 0)) problems.push('assimilation and hybrid settings are invalid');
+  const t = TRAIT_TUNING;
+  if (![t.share, t.inherit, t.herding, t.farming].every(value => value >= 0 && value <= 1) || !(Number.isInteger(t.max) && t.max >= 1 && t.max <= 8)) problems.push('trait settings are invalid');
+  // Trait data (traits.ts): unique keys, known conditions, years of at least one, small pulls.
+  if (new Set(TRAITS.map(trait => trait.key)).size !== TRAITS.length || TRAITS.some(trait => !TRAIT_CONDITIONS.includes(trait.condition) || !(Number.isInteger(trait.years) && trait.years >= 1)
+    || Object.values(trait.pulls).some(pull => !(Math.abs(pull ?? 0) <= 0.3)))) problems.push('trait data is invalid');
   if (!(c.splitDivergence > 0 && c.splitDivergence < 1 && Number.isInteger(c.splitRegions) && c.splitRegions >= 1 && Number.isInteger(c.languageChanges) && c.languageChanges >= 0 && c.hueShift >= 0 && c.hueShift <= 180)) problems.push('culture splitting settings are invalid');
   for (const key of VALUE_NAMES) {
     const pull = CULTURE_PULLS[key];

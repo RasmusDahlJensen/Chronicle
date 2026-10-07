@@ -5,7 +5,8 @@ import { NAME_TUNING } from './tunables.ts';
  * A culture's language seed: a small phoneme inventory (VISION.md "Naming"). Names for bands, cultures and
  * settlements are drawn from it, so a culture's names sound alike. Consonant clusters only begin a name and codas
  * only end it, which keeps names pronounceable. A daughter culture's seed is its parent's with a few sounds changed,
- * and its name keeps its parent's first syllable (M4: names visibly descend).
+ * and its name keeps its parent's first syllable (M4: names visibly descend). A hybrid's seed mixes both parents'
+ * sounds, and its name joins the heavier parent's first syllable to the rest of the other's name.
  */
 export interface LanguageSeed { initials: string[]; consonants: string[]; vowels: string[]; codas: string[] }
 
@@ -94,4 +95,33 @@ export function descendName(rng: Rng, parent: string, language: LanguageSeed, ta
     if (name.length >= shape.minLength && name.length <= shape.maxLength && name !== parent.toLowerCase() && !taken?.has(name)) return name[0].toUpperCase() + name.slice(1);
   }
   return unused(rng, stem, language, new Set([...(taken ?? []), parent.toLowerCase(), stem]));
+}
+
+/** A hybrid language: of each kind of sound, a mix of both parents' (from `first` with chance `weight`), as many as
+ *  the parents have on average. */
+export function blendLanguage(rng: Rng, first: LanguageSeed, second: LanguageSeed, weight: number): LanguageSeed {
+  const language = {} as LanguageSeed;
+  for (const kind of SOUND_KINDS) {
+    const mine = [...new Set(first[kind])], theirs = [...new Set(second[kind])];
+    const count = Math.max(1, Math.round(weight * mine.length + (1 - weight) * theirs.length)), sounds: string[] = [];
+    const pools = [mine.filter(sound => !theirs.includes(sound)), theirs.filter(sound => !mine.includes(sound))];
+    for (const shared of mine) if (theirs.includes(shared) && sounds.length < count) sounds.push(shared);
+    while (sounds.length < count && (pools[0].length || pools[1].length)) {
+      const from = pools[0].length && (!pools[1].length || rng.chance(weight)) ? pools[0] : pools[1];
+      sounds.push(from.splice(rng.int(from.length), 1)[0]);
+    }
+    language[kind] = sounds;
+  }
+  return language;
+}
+
+/** A hybrid's name: the heavier parent's first syllable and the rest of the other's name (or a new ending in the
+ *  hybrid language when the other's name is all first syllable). */
+export function blendName(rng: Rng, first: string, second: string, language: LanguageSeed, taken?: ReadonlySet<string>) {
+  const stem = nameStem(first), rest = second.toLowerCase().slice(nameStem(second).length);
+  if (rest.length >= 2) {
+    const joined = isVowel(stem[stem.length - 1] ?? 'a') === isVowel(rest[0]) && isVowel(rest[0]) ? stem + rest.slice(1) : stem + rest;
+    if (joined.length >= NAME_TUNING.minLength && joined.length <= NAME_TUNING.maxLength && joined !== first.toLowerCase() && joined !== second.toLowerCase() && !taken?.has(joined)) return joined[0].toUpperCase() + joined.slice(1);
+  }
+  return descendName(rng, first, language, taken);
 }
