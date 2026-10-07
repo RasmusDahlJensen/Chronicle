@@ -1,6 +1,7 @@
 import type { WorldBiome } from '../../shared/generated-world.ts';
 import { VALUE_NAMES } from '../../shared/simulation.ts';
 import { TRAIT_CONDITIONS, TRAITS } from './traits.ts';
+import { TENETS } from './religions.ts';
 
 /**
  * Every tunable simulation number (VISION.md rule 5). Values are starting points recorded in the active brief;
@@ -545,6 +546,30 @@ export const CULTURE_TUNING = {
  */
 export const TRAIT_TUNING = { share: 0.6, max: 4, inherit: 0.85, herding: 0.3, farming: 0.5 } as const;
 
+/**
+ * Faiths (VISION.md "Religion", M4.3; `faith.ts`), once a year:
+ * - a civilization that knows Organized religion or Theology founds a religion with a chance of `foundingRate` × its
+ *   trigger (× `reformation` when its rulers already follow one: a reformation is rare): a crisis (famine deaths
+ *   over about the last year as a share of its people × `crisisScale`, at most 1) or its people's zeal (its heartland's
+ *   Zeal above `zealFloor`, scaled to 1), the stronger; the religion draws `minTenets` to `maxTenets` tenets, each
+ *   weighted e^(`tenetFavour` × Σ favour × (value − ½)) by its founders' values;
+ * - each people is drawn to religions by the share of its neighbouring peoples following them (another polity's at
+ *   `foreignContact`), its realm's state religion (`stateSupport`, plus `templeSupport` with a shrine or temple in its
+ *   region) and the holy land under or beside it (`holyDraw`); it may take one up, chosen by those draws, with a chance
+ *   of `conversionRate` × all draws together (at most 1) × the religion's spread tenets × (1 − `traditionHold` × its
+ *   Tradition) × its attachment (`folkAttachment` to the folk ways, `faithAttachment` to another religion, and
+ *   × `stateHold` more when its faith is its realm's state religion: the rulers' faith is entrenched);
+ * - under a state religion, a people of another faith is less settled by `friction` × (`zealFriction` + its Zeal),
+ *   times the state religion's friction tenets;
+ * - research weighs religion techs × (`religionZealBase` + its people's Zeal); a state religion of Monument builders
+ *   weighs temples and wonders × `monumentWeight`; an ascetic faith's followers produce `asceticWealth` of their wealth.
+ */
+export const FAITH_TUNING = {
+  foundingRate: 0.05, crisisScale: 200, zealFloor: 0.4, reformation: 0.01, minTenets: 2, maxTenets: 4, tenetFavour: 4,
+  conversionRate: 0.1, foreignContact: 0.5, stateSupport: 0.3, templeSupport: 0.3, holyDraw: 0.5, folkAttachment: 1, faithAttachment: 0.3, stateHold: 0.3, traditionHold: 0.5,
+  friction: 0.12, zealFriction: 0.5, religionZealBase: 0.8, monumentWeight: 1.5, asceticWealth: 0.95,
+} as const;
+
 /** What a group's conditions are measured by (0–1 each; `culture.ts`). */
 export const PULL_MEASURES = ['harshLand', 'frontier', 'townsAndSea', 'hardship', 'openLand'] as const;
 export type PullMeasure = typeof PULL_MEASURES[number];
@@ -619,6 +644,12 @@ export function validateTunables() {
   if (!(c.valueMin >= 0 && c.valueSpan > 0 && c.valueMin + c.valueSpan <= 1 && c.mutation >= 0)) problems.push('culture value ranges are invalid');
   if (![c.driftRate, c.influenceRate, c.splitRate].every(rate => rate >= 0 && rate <= 1) || !(c.foreignContact >= 0 && c.confidence > 0 && c.heartPull >= 0 && c.fashion >= 0 && c.fashion < 0.5 && c.prestigeEra >= 0 && c.prestigeWonder >= 0 && c.prestigeCity >= 0 && c.prestigeWealth >= 0 && c.wealthPerPerson > 0 && c.townShare > 0 && c.townShare <= 1 && c.seaShare >= 0 && c.seaShare <= 1 && c.splitNote >= 0 && c.hueStep > 0)) problems.push('culture drift and influence rates are invalid');
   if (![c.assimilationRate, c.hybridRate, c.kinShare, c.fusionBlend].every(value => value >= 0 && value <= 1) || !(c.hybridShare > 0 && c.hybridShare <= 0.5) || !(Number.isInteger(c.hybridYears) && c.hybridRange * (1 - c.fusionBlend) < c.splitDivergence) || !(c.assimilationRange > 0 && c.assimilationRange * (1 - c.assimilationBlend) < c.splitDivergence && c.assimilationBlend >= 0 && c.assimilationBlend <= 1 && c.hybridRange > 0 && c.hybridYears >= 0)) problems.push('assimilation and hybrid settings are invalid');
+  const ft = FAITH_TUNING;
+  if (![ft.foundingRate, ft.reformation, ft.stateHold, ft.conversionRate, ft.zealFloor, ft.foreignContact, ft.folkAttachment, ft.faithAttachment].every(value => value >= 0 && value <= 1) || ft.zealFloor >= 1
+    || ![ft.crisisScale, ft.tenetFavour, ft.stateSupport, ft.templeSupport, ft.holyDraw, ft.friction, ft.zealFriction, ft.religionZealBase, ft.monumentWeight].every(value => value >= 0) || !(ft.traditionHold >= 0 && ft.traditionHold <= 1 && ft.asceticWealth > 0 && ft.asceticWealth <= 1)
+    || !(Number.isInteger(ft.minTenets) && Number.isInteger(ft.maxTenets) && ft.minTenets >= 1 && ft.maxTenets >= ft.minTenets && ft.maxTenets <= TENETS.length)) problems.push('faith settings are invalid');
+  if (new Set(TENETS.map(tenet => tenet.key)).size !== TENETS.length || TENETS.some(tenet => (tenet.excludes ?? []).some(key => !TENETS.some(other => other.key === key))
+    || Object.values(tenet.pulls).some(pull => !(Math.abs(pull ?? 0) <= 0.3)) || !((tenet.spread ?? 1) > 0) || !((tenet.friction ?? 1) >= 0) || !((tenet.stability ?? 0) >= 0))) problems.push('tenet data is invalid');
   const t = TRAIT_TUNING;
   if (![t.share, t.inherit, t.herding, t.farming].every(value => value >= 0 && value <= 1) || !(Number.isInteger(t.max) && t.max >= 1 && t.max <= 8)) problems.push('trait settings are invalid');
   // Trait data (traits.ts): unique keys, known conditions, years of at least one, small pulls.

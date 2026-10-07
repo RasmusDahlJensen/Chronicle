@@ -14,6 +14,7 @@ import { construct } from './construction.ts';
 import { environment } from './environment.ts';
 import { cultivatedCells, rankFarmland } from './fields.ts';
 import { cultureStats, cultureYear, harshLand } from './culture.ts';
+import { faithStats } from './faith.ts';
 import { ageFactor, costsOf, realmYears, settlementAccount, sizeFactor, totalCosts } from './budget.ts';
 import { wealthFlows, wonderBonus } from './economy.ts';
 import { ACTIONS, SYSTEMS, VALUE_KEYS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
@@ -23,7 +24,7 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 21;
+export const SIMULATION_RULES_VERSION = 22;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
@@ -45,7 +46,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
   const regions = partition.regions.length;
   const state: SimulationState = {
     seedText, seed: seedFromText(seedText), tick: 0, geography, partition, food: buildFoodModel(geography, partition),
-    chronicle: new Chronicle(), cultures: [], polities: [], groups: [], living: [],
+    chronicle: new Chronicle(), cultures: [], polities: [], groups: [], religions: [], living: [],
     settlements: [], regionSettlements: Array.from({ length: regions }, () => []), owner: new Int32Array(regions).fill(-1), hardship: new Float64Array(regions), harbors: new Uint8Array(regions), wonders: [], roads: new Map(),
     weather: new Float64Array(regions).fill(1), harvestFactor: new Float64Array(regions).fill(1), drought: new Uint8Array(regions), famineRecent: new Float64Array(regions), famine: new Uint8Array(regions),
     farmBonus: new Float64Array(regions).fill(1), droughtShield: new Float64Array(regions), storeBonus: new Float64Array(regions).fill(1), spoilageBonus: new Float64Array(regions).fill(1),
@@ -60,7 +61,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0, settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0,
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
-      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
+      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -107,6 +108,11 @@ export function worldPopulation(state: SimulationState) {
 function roundedCultureStats(state: SimulationState) {
   const stats = cultureStats(state), round = (value: number) => Math.round(value * 1000) / 1000;
   return { cultures: stats.cultures, valueSpread: round(stats.valueSpread), cultureDivergence: round(stats.cultureDivergence), foreignShare: round(stats.foreignShare), culturesWithTraits: stats.culturesWithTraits };
+}
+
+function roundedFaithStats(state: SimulationState) {
+  const stats = faithStats(state);
+  return { ...stats, faithShare: Math.round(stats.faithShare * 1000) / 1000 };
 }
 
 /** Story health's dominance rule (VISION.md: the largest polity holds at most 35% of the world's people, except for up
@@ -216,6 +222,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     ...neglectStats(state), neglectBegun: m.neglectBegun,
     ...famineByWealth(state),
     ...roundedCultureStats(state), cultureSplits: m.cultureSplits, civCultureSplits: m.civCultureSplits, assimilations: m.assimilations, hybrids: m.hybrids, traitsEarned: m.traitsEarned,
+    ...roundedFaithStats(state), religionsFounded: m.religionsFounded, conversions: m.conversions, stateReligionChanges: m.stateReligionChanges,
   };
 }
 
@@ -336,7 +343,7 @@ export function stateHash(state: SimulationState) {
   add(state.tick);
   for (const group of state.groups) {
     add(group.size); add(group.region); add(group.arrivedTick); add(group.store); add(group.planted); add(group.birthCarry); add(group.naturalCarry); add(group.famineCarry); add(group.specialists); add(group.foodSecurity * 1e6);
-    add(group.culture); for (const key of VALUE_KEYS) add(group.values[key] * 1e9);
+    add(group.culture); add(group.faith); for (const key of VALUE_KEYS) add(group.values[key] * 1e9);
   }
   // Names and languages feed later names (and so the chronicle).
   const text = (value: string) => { add(value.length); for (let at = 0; at < value.length; at++) add(value.charCodeAt(at)); };
@@ -348,7 +355,7 @@ export function stateHash(state: SimulationState) {
     for (const sounds of [culture.language.initials, culture.language.consonants, culture.language.vowels, culture.language.codas]) { add(sounds.length); for (const sound of sounds) text(sound); }
   }
   for (const polity of state.polities) {
-    add(polity.kind === 'civ' ? 1 : 0); add(polity.core); add(polity.culture); add(polity.together); add(polity.togetherRuling); add(polity.togetherYears); add(polity.capital ?? -1); add(polity.homeLandmass); add(polity.knowledge.target);
+    add(polity.kind === 'civ' ? 1 : 0); add(polity.core); add(polity.culture); add(polity.together); add(polity.togetherRuling); add(polity.togetherYears); add(polity.stateReligion); add(polity.capital ?? -1); add(polity.homeLandmass); add(polity.knowledge.target);
     for (const group of polity.groups) add(group);
     for (const points of polity.knowledge.progress) if (points) add(points);
     for (const known of polity.knowledge.known) add(known);
@@ -367,6 +374,10 @@ export function stateHash(state: SimulationState) {
     for (const id of polity.heardWonders) add(id);
     for (const work of polity.roadWorks) { add(work.to); add(work.tier); add(work.spent); add(work.cost); for (const [a, b] of work.edges) { add(a); add(b); } }
     for (const step of polity.decisions) { add(step.tick); add(ACTIONS.indexOf(step.chosen)); add(step.pick); add(step.outcome.length); add(step.options.length); for (const option of step.options) { add(option.score * 1000); add(option.target ?? -1); } }
+  }
+  for (const religion of state.religions) {
+    add(religion.deathTick ?? -1); add(religion.people); add(religion.regions); add(religion.hue * 1e6); add(religion.founder); add(religion.holyRegion); add(religion.parent ?? -1); add(religion.foundedTick);
+    text(religion.name); add(religion.tenets.length); for (const tenet of religion.tenets) add(tenet);
   }
   for (const settlement of state.settlements) { add(settlement.cell); add(settlement.owner); add(settlement.status === 'alive' ? 1 : 0); add(settlement.capital ? 1 : 0); add(settlement.tier); add(settlement.urban); add(settlement.housing); add(settlement.urbanMean * 1000); add(settlement.tierYears); for (const building of settlement.buildings) { add(building.type); add(building.condition * 1e6); } }
   for (const value of state.owner) add(value);

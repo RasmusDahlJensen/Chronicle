@@ -3,6 +3,8 @@ import { blendLanguage, blendName, createLanguage, createName, descendName, muta
 import type { Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureOrigin, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TickContext } from './state.ts';
 import { TRAITS, type TraitCondition } from './traits.ts';
+import { TENETS } from './religions.ts';
+import { CONVERSION_STREAM, faithYear, realmFaith, refreshReligion, tenetPulls } from './faith.ts';
 import { CULTURE_PULLS, CULTURE_TUNING, TRAIT_TUNING, type PullMeasure } from './tunables.ts';
 
 /**
@@ -117,14 +119,15 @@ export function pullMeasures(state: SimulationState, polity: Polity, group: Popu
   };
 }
 
-/** Where a group's values are drawn by its conditions, and by its culture's traits. */
-export function pullTarget(measured: Record<PullMeasure, number>, traits: number[] = []): CultureValues {
+/** Where a group's values are drawn by its conditions, by its culture's traits and by its faith's tenets. */
+export function pullTarget(measured: Record<PullMeasure, number>, traits: number[] = [], tenets: number[] = []): CultureValues {
   const target = {} as CultureValues;
   for (const key of VALUE_KEYS) {
     const pull = CULTURE_PULLS[key];
     let value = pull.base;
     for (const entry of pull.pulls) value += entry.weight * measured[entry.measure];
     for (const trait of traits) value += TRAITS[trait].pulls[key] ?? 0;
+    for (const tenet of tenets) value += TENETS[tenet].pulls[key] ?? 0;
     target[key] = clamp01(value);
   }
   return target;
@@ -166,7 +169,7 @@ export function prestigeOf(state: SimulationState, polity: Polity, wonders: Map<
  */
 export function liveYear(state: SimulationState, group: PopulationGroup, prestige: (polity: number) => number) {
   const tuning = CULTURE_TUNING, polity = state.polities[group.polity], values = group.values;
-  const target = pullTarget(pullMeasures(state, polity, group), state.cultures[group.culture].traits);
+  const target = pullTarget(pullMeasures(state, polity, group), state.cultures[group.culture].traits, tenetPulls(state, group.faith));
   const pull = [0, 0, 0, 0, 0];
   let weight = 0;
   const own = prestige(polity.id);
@@ -221,9 +224,44 @@ export function cultureYear(state: SimulationState, context: TickContext) {
     return value;
   };
   // Groups by id, so a band that moves still has one culture year a year.
+  // Each people's culture year (staggered by group id).
   for (const id of state.living) for (const groupId of state.polities[id].groups) if (due(groupId)) liveYear(state, state.groups[groupId], prestigeOfId);
-  // Each realm's peoples, once a year (staggered by id): assimilation and fusion.
-  for (const id of state.living.slice()) { const civ = state.polities[id]; if (civ.kind === 'civ' && due(id)) realmPeoples(state, context, civ); }
+  // Each polity's peoples' faith year (staggered by polity id, so its conversions to each religion are one event a
+  // year, citing the mean of what drew them: VISION.md "Spread").
+  for (const id of state.living.slice()) {
+    if (!due(id) || state.polities[id].deathTick !== null) continue;
+    const polity = state.polities[id], converted = new Map<number, { regions: number; people: number; region: number; parts: Record<string, number> }>();
+    for (const groupId of polity.groups.slice()) {
+      const group = state.groups[groupId], taken = faithYear(state, context.stream(groupId, CONVERSION_STREAM), group);
+      if (!taken) continue;
+      state.metrics.conversions++;
+      const entry = converted.get(taken.religion) ?? { regions: 0, people: 0, region: group.region, parts: { neighbours: 0, stateSupport: 0, shrine: 0, holyLand: 0 } };
+      entry.regions++; entry.people += group.size;
+      for (const key of Object.keys(entry.parts) as (keyof typeof taken.draw)[]) entry.parts[key] += taken.draw[key];
+      converted.set(taken.religion, entry);
+    }
+    for (const [religion, entry] of converted) {
+      state.chronicle.emit({
+        type: 'faithSpread', actors: [{ id, role: polity.kind === 'civ' ? 'civ' : 'band' }], region: entry.region,
+        causes: causes(Object.fromEntries(Object.entries(entry.parts).map(([factor, sum]) => [factor, sum / entry.regions]))), importance: 0.06,
+        data: { religion: state.religions[religion].name, polity: polity.name, regions: entry.regions, population: entry.people, one: entry.regions === 1, more: entry.regions > 1 },
+      });
+    }
+  }
+  // Each realm's peoples and faith, once a year (staggered by id): assimilation and fusion, and founding a religion.
+  for (const id of state.living.slice()) {
+    const civ = state.polities[id];
+    if (civ.kind !== 'civ' || !due(id)) continue;
+    realmPeoples(state, context, civ);
+    realmFaith(state, context, civ);
+  }
+  // Each religion's followers, once a year (staggered by id).
+  const religions = state.religions.filter(religion => religion.deathTick === null && due(religion.id));
+  if (religions.length) {
+    const followers = new Map<number, PopulationGroup[]>();
+    for (const id of state.living) for (const groupId of state.polities[id].groups) { const group = state.groups[groupId]; if (group.faith >= 0) { const list = followers.get(group.faith); if (list) list.push(group); else followers.set(group.faith, [group]); } }
+    for (const religion of religions) refreshReligion(context, religion, followers.get(religion.id) ?? []);
+  }
   const cultures = state.cultures.filter(culture => culture.deathTick === null && due(culture.id));
   if (!cultures.length) return;
   const members = new Map<number, PopulationGroup[]>();

@@ -199,6 +199,18 @@ function storyHealth(rows: SeedResult[]) {
     for (const event of events) if (event.type === 'traitEarned') byTrait.set(String(event.data.trait), (byTrait.get(String(event.data.trait)) ?? 0) + 1);
     lines.push(`| ${result.seed} | ${each(row => String(row.hybrids))} | ${first ? `${Math.floor(first.tick / 12)}: ${first.data.first} + ${first.data.second} → ${first.data.culture}` : '—'} | ${each(row => String(row.assimilations))} | ${each(row => String(row.culturesWithTraits))} · ${last.traitsEarned} | ${[...byTrait].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name} ${count}`).join(', ') || '—'} |`);
   }
+  // M4.3 (VISION.md "Religion"): founding, spread across civilizations, state religions.
+  lines.push('', '| Seed | Organized religion first known · first religion founded: year, civilization, religion (tenets) (M4: by 2,500) | Religions founded by 2,000 / 2,500 / 3,000 · with followers at 3,000 | Most civilizations one religion is followed in within 500 years of the first founding (M4: ≥ 3) · at 3,000 | Share of people following a religion at 2,000 / 2,500 / 3,000 | Civilizations with a state religion at 2,000 / 2,500 / 3,000 · state religions changed by 3,000 |',
+    '| --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const each = (show: (row: Stats) => string, years = [2000, 2500, 3000]) => years.map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    const events = (result.report.events ?? []) as { type: string; tick: number; data: Record<string, unknown> }[];
+    const first = events.find(event => event.type === 'religionFounded'), known = result.report.knowledge.firsts.find(entry => entry.tech === 'Organized religion');
+    const firstYear = first ? Math.floor(first.tick / 12) : null;
+    const within = firstYear === null ? '—' : String(Math.max(0, ...stats.filter(row => row.year >= firstYear && row.year <= firstYear + 500).map(row => row.religionMaxCivs)));
+    lines.push(`| ${result.seed} | ${known ? Math.floor(known.year) : '—'} · ${first ? `${firstYear}: ${first.data.civ}, ${first.data.religion} (${first.data.tenets})` : '—'} | ${each(row => String(row.religionsFounded))} · ${last.religions} | ${within} · ${last.religionMaxCivs} | ${each(row => `${Math.round(row.faithShare * 100)}%`)} | ${each(row => String(row.stateReligions))} · ${last.stateReligionChanges} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');

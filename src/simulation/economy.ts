@@ -4,7 +4,8 @@ import { depositState } from './deposits.ts';
 import { WONDERS } from './wonders.ts';
 import { unrestDepth } from './pressure.ts';
 import type { Polity, PopulationGroup, Settlement, SimulationState, WealthFlows } from './state.ts';
-import { BUDGET_TUNING, STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
+import { BUDGET_TUNING, FAITH_TUNING, STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
+import { TENETS } from './religions.ts';
 
 /**
  * Wealth and what buildings do for a region (VISION.md "Wealth", "Buildings"). A realm's income comes from what its
@@ -23,7 +24,13 @@ export function wealthFlows(state: SimulationState, civ: Polity): WealthFlows {
 
 /** What a settlement's townspeople produce in a year before tax: their trades, more with markets, less in unrest. */
 export function settlementOutput(state: SimulationState, settlement: Settlement) {
-  return settlement.urban * BUDGET_TUNING.townOutput * settlement.bonus.wealth * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, settlement.region));
+  return settlement.urban * BUDGET_TUNING.townOutput * settlement.bonus.wealth * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, settlement.region)) * faithWealth(state, settlement.region);
+}
+
+/** An ascetic faith's followers produce less to sell (VISION.md "Tenets": Asceticism lowers wealth). */
+export function faithWealth(state: SimulationState, region: number) {
+  const at = state.groupAt[region], faith = at >= 0 ? state.groups[at].faith : -1;
+  return faith >= 0 && state.religions[faith].tenets.some(tenet => TENETS[tenet].key === 'asceticism') ? FAITH_TUNING.asceticWealth : 1;
 }
 
 /** What a region's farmers and herders have to sell in a year before tax: their surplus food, none when they go hungry,
@@ -31,7 +38,7 @@ export function settlementOutput(state: SimulationState, settlement: Settlement)
 export function farmOutput(state: SimulationState, group: PopulationGroup) {
   const tuning = BUDGET_TUNING, farmers = Math.max(0, group.size - group.specialists);
   const surplus = Math.max(0, Math.min(1, (group.foodSecurity - tuning.hungerLine) / (1 - tuning.hungerLine)));
-  return farmers * tuning.farmOutput * Math.max(0, Math.min(1, group.farmShare)) * surplus * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, group.region));
+  return farmers * tuning.farmOutput * Math.max(0, Math.min(1, group.farmShare)) * surplus * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, group.region)) * faithWealth(state, group.region);
 }
 
 /**

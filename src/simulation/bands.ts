@@ -6,6 +6,7 @@ import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
 import { createName } from './names.ts';
 import { blendValues, foundCulture, setGroupCulture } from './culture.ts';
+import { followRulers } from './faith.ts';
 import { absorbMap, arrive, capitalKm, crosses, emptyMap, forgetMap, governable, hasHarbor, inheritContacts, joinView, lookAgain, seaFrom } from './perception.ts';
 import { relieve } from './relief.ts';
 import { loseWealth, produceWealth, regionFarm, regionOutput, regionSites, regionSpoilage, regionStore, wonderBonus } from './economy.ts';
@@ -124,10 +125,10 @@ function breakawayCulture(state: SimulationState, rng: Rng, parent: Culture, val
   return foundCulture(state, rng, 'breakaway', parent, changed);
 }
 
-/** A new population group of `polity` in a free region, of its ruling culture, whose people hold `values`. */
-export function newGroup(state: SimulationState, polity: Polity, region: number, size: number, values: CultureValues): PopulationGroup {
+/** A new population group of `polity` in a free region, of its ruling culture, whose people hold `values` and `faith`. */
+export function newGroup(state: SimulationState, polity: Polity, region: number, size: number, values: CultureValues, faith: number): PopulationGroup {
   const group: PopulationGroup = {
-    id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, values: { ...values }, foundedTick: state.tick, arrivedTick: state.tick,
+    id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, values: { ...values }, faith, foundedTick: state.tick, arrivedTick: state.tick,
     store: 0, planted: 0, birthCarry: 0, naturalCarry: 0, famineCarry: 0, foodSecurity: 1, birthsYear: 0, deathsYear: 0, lastBirths: 0, lastDeaths: 0,
     sizeAtYearStart: size, specialists: 0, farmShare: 0,
   };
@@ -138,7 +139,7 @@ export function newGroup(state: SimulationState, polity: Polity, region: number,
 }
 
 /** A new tribe of one band: a starting band, or a band that broke away from `parent`. */
-function newTribe(state: SimulationState, rng: Rng, region: number, size: number, culture: Culture, parent: Polity | null): Polity {
+function newTribe(state: SimulationState, rng: Rng, region: number, size: number, culture: Culture, parent: Polity | null, faith = -1): Polity {
   const polity: Polity = {
     id: state.polities.length, kind: 'band', name: createName(rng, culture.language), culture: culture.id,
     foundedTick: state.tick, deathTick: null, parent: parent?.id ?? null, groups: [], core: state.groups.length,
@@ -147,7 +148,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     // A lineage's home is where its first band began: a daughter on another landmass is still away from home.
     homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], frontierEra: 0,
     exchanges: new Map(), exchangeRefused: new Map(), capital: null, settledTick: null,
-    map: emptyMap(state.partition.regions.length), met: new Map(), together: -1, togetherRuling: -1, togetherYears: 0,
+    map: emptyMap(state.partition.regions.length), met: new Map(), together: -1, togetherRuling: -1, togetherYears: 0, stateReligion: faith,
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(),
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
     taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,
@@ -155,7 +156,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
   if (parent) inheritContacts(state, polity, parent, state.tick);
-  newGroup(state, polity, region, size, culture.values);
+  newGroup(state, polity, region, size, culture.values, faith);
   return polity;
 }
 
@@ -558,8 +559,9 @@ export function transferGroup(state: SimulationState, rng: Rng, group: Populatio
 export function rehome(state: SimulationState, polity: Polity) {
   if (!polity.groups.includes(polity.core)) {
     polity.core = polity.groups.reduce((best, id) => state.groups[id].size > state.groups[best].size ? id : best, polity.groups[0]);
-    // Its ruling culture is its new heartland's people's.
+    // Its ruling culture and its state religion are its new heartland's people's.
     polity.culture = state.groups[polity.core].culture;
+    followRulers(state, polity, 'heartlandMoved');
   }
   if (polity.kind !== 'civ' || polity.capital === null || state.settlements[polity.capital].status === 'alive') return;
   // The new heartland's main settlement becomes the capital.
@@ -725,11 +727,11 @@ function split(state: SimulationState, context: TickContext, tribe: Polity, grou
   let child: PopulationGroup, polity: Polity, culture: Culture | null = null;
   if (breaksAway) {
     culture = breakawayCulture(state, rng, state.cultures[group.culture], group.values);
-    polity = newTribe(state, rng, to, leaving, culture, tribe);
+    polity = newTribe(state, rng, to, leaving, culture, tribe, group.faith);
     child = state.groups[polity.core];
   } else {
     polity = tribe;
-    child = newGroup(state, tribe, to, leaving, group.values);
+    child = newGroup(state, tribe, to, leaving, group.values, group.faith);
     setGroupCulture(state, child, group.culture);
   }
   const carried = Math.floor(group.store * leaving / group.size);

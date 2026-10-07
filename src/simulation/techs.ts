@@ -82,7 +82,9 @@ export const TECHS: readonly TechDefinition[] = [
   tech('Engineering', 'Classical', ['Mathematics', 'Masonry', 'Iron working'], 505_600_000, ['construction'], { unlocks: ['pavedRoad', 'bridge', 'aqueduct', 'canal', 'fortress'] }, undefined, true),
   tech('Philosophy', 'Classical', ['Mathematics'], 460_800_000, ['scholarship'], { multiply: { research: 1.1 }, unlocks: ['republic'] }),
   tech('Administration', 'Classical', ['Writing', 'Currency'], 505_600_000, ['governance'], { multiply: { reach: 1.3, specialistCap: 1.2 }, unlocks: ['dictatorship'] }, undefined, true),
-  tech('Organized religion', 'Classical', ['Writing', 'Philosophy'], 460_800_000, ['religion'], { unlocks: ['religionFounding', 'temple'] }),
+  // Priesthoods arose with writing; Theology needs Philosophy. M4.3: with Philosophy too, and at Philosophy's cost,
+  // religions came after 2,500 in most study seeds, too late for VISION.md M4; it costs what Mathematics does.
+  tech('Organized religion', 'Classical', ['Writing'], 307_200_000, ['religion'], { unlocks: ['religionFounding', 'temple'] }),
   tech('Cartography', 'Classical', ['Mathematics', 'Sailing'], 416_000_000, ['sailing'], { multiply: { tradeRange: 1.2 } }, { coastal: 1.5 }),
   tech('Architecture', 'Classical', ['Masonry', 'Mathematics'], 460_800_000, ['construction', 'storage'], { unlocks: ['monument', 'silo'] }),
   tech('Crop rotation', 'Classical', ['Plough', 'Iron working'], 460_800_000, ['food'], { multiply: { farmYield: 1.2 } }),
@@ -129,10 +131,16 @@ export const TECHS: readonly TechDefinition[] = [
 export const STARTING_TECHS = ['Foraging', 'Fire', 'Hunting', 'Fishing'] as const;
 export const TECH_INDEX = new Map(TECHS.map((definition, index) => [definition.id, index]));
 
-/** The era a polity is in: the latest era of any tech it knows (eras are labels, never gates). */
+/**
+ * The era a polity is in (eras are labels, never gates): the latest era up to which it knows a tech of every era. A
+ * people passes through each age: one that learns a later era's tech early (Organized religion needs only Writing, M4.3)
+ * keeps its label until it knows a tech of each era between.
+ */
 export function eraOf(known: Uint8Array) {
+  const reached = new Array<boolean>(ERAS.length).fill(false);
+  for (let index = 0; index < TECHS.length; index++) if (known[index]) reached[ERAS.indexOf(TECHS[index].era)] = true;
   let era = 0;
-  for (let index = 0; index < TECHS.length; index++) if (known[index]) era = Math.max(era, ERAS.indexOf(TECHS[index].era));
+  while (era + 1 < ERAS.length && reached[era + 1]) era++;
   return era;
 }
 

@@ -210,7 +210,7 @@ test('building weighs the realm\'s surplus after its costs: a realm already shor
   const view = (surplus: number, treasury: number) => ({
     values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 },
     budget: { rate: 0.2, output: 50_000, sites: 0, costs: 10_000 - surplus, treasury, revenue: 10_000, surplus, strain: Math.max(0, -surplus / 10_000), tradition: 0.5, calm: 0.9 },
-    build: { regions: 1, catalog: [kind], settlements: [settlement], wonders: [], stability: 0.9 },
+    build: { monuments: 1, regions: 1, catalog: [kind], settlements: [settlement], wonders: [], stability: 0.9 },
   }) as unknown as PolityView;
   const rich = buildScore(view(5_000, 10_000), kind), short = buildScore(view(-2_000, 10_000), kind), broke = buildScore(view(-2_000, 0), kind);
   assert.ok(rich.score > short.score && short.score > broke.score, `${rich.score} > ${short.score} > ${broke.score}`);

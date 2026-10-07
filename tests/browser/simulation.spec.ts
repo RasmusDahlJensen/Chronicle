@@ -157,6 +157,12 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await expect(page.locator('#people-ancestry')).toContainText(`lives in ${people.regions.toLocaleString('en')} region`);
   expect(people.regions).toBeGreaterThan(0);
   await expect(page.locator('#people-values')).toContainText('militarism');
+  // By faith: at year 200 no religion exists yet; every people keeps the folk ways of its culture.
+  await page.getByLabel('By faith').check();
+  await expect(canvas).toHaveAttribute('data-territory-regions', String(frame.markers.ids.length));
+  expect(frame.religions).toEqual([]);
+  await expect(page.locator('#religion-legend-empty')).toContainText('No religion has been founded yet');
+  await expect(page.locator('#people-faith')).toHaveText(`Faith: the folk ways of the ${people.culture}.`);
   await page.getByLabel('By era').check();
   await expect(legend.getByRole('listitem').filter({ hasText: ERA_NAMES[frame.leadingEra] })).toContainText(/[1-9][\d,]*$/);
   await page.getByLabel('Hidden').check();

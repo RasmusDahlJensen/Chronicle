@@ -3,6 +3,7 @@ import { causes } from './causes.ts';
 import { taxRate } from './decisions/budget.ts';
 import { buildingStability, wonderBonus } from './economy.ts';
 import { cultureSimilarity } from './culture.ts';
+import { faithBurden } from './faith.ts';
 import { budgetView, capitalTravel } from './perception.ts';
 import type { Polity, PopulationGroup, SimulationState, TickContext } from './state.ts';
 import { BUDGET_TUNING, REACH_TUNING, STABILITY_TUNING } from './tunables.ts';
@@ -23,6 +24,8 @@ export function stabilityOf(state: SimulationState, civ: Polity, group: Populati
   const reach = REACH_TUNING.baseKm * civ.knowledge.multipliers.reach;
   const overextension = Math.min(tuning.overextensionCap, tuning.overextension * (Number.isFinite(kmFromCapital) ? Math.max(0, kmFromCapital / reach - 1) : Number.POSITIVE_INFINITY));
   const foreignRule = group.culture === civ.culture ? 0 : tuning.foreignRule * (1 - cultureSimilarity(state.cultures[group.culture].values, state.cultures[civ.culture].values));
+  // Another faith than the realm's (VISION.md "State religion"), or an ascetic one that steadies.
+  const faith = faithBurden(state, civ, group);
   const remoteness = Number.isFinite(kmFromCapital) ? kmFromCapital / reach : Number.POSITIVE_INFINITY;
   const taxes = taxBurden(civ.taxRate), arrears = arrearsBurden(civ, remoteness);
   // A large, old realm holds its far provinces less firmly (VISION.md M3c: empire strain).
@@ -30,8 +33,8 @@ export function stabilityOf(state: SimulationState, civ: Polity, group: Populati
   // Shrines and temples steady their region, and some wonders the whole realm (VISION.md "Buildings", "Wonders").
   const buildings = buildingStability(state, group.region) + wonderBonus(state, civ).stability;
   // How calm the region is apart from its realm's budget: what its taxes can rest on.
-  const calm = Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - strain + buildings));
-  return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - strain - taxes - arrears + buildings)), calm, hunger, overextension, foreignRule, strain, taxes, arrears, buildings };
+  const calm = Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - faith - strain + buildings));
+  return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - faith - strain - taxes - arrears + buildings)), calm, hunger, overextension, foreignRule, faith, strain, taxes, arrears, buildings };
 }
 
 /**
@@ -71,7 +74,7 @@ function judge(state: SimulationState, civ: Polity, km: (region: number) => numb
       state.unrest[region] = 1; state.metrics.unrestOutbreaks++;
       state.chronicle.emit({
         type: 'unrest', actors: [{ id: civ.id, role: 'civ' }], region,
-        causes: causes({ hunger: result.hunger, overextension: result.overextension, foreignRule: result.foreignRule, strain: result.strain, taxes: result.taxes, arrears: result.arrears }), importance: 0.1,
+        causes: causes({ hunger: result.hunger, overextension: result.overextension, foreignRule: result.foreignRule, faith: Math.max(0, result.faith), strain: result.strain, taxes: result.taxes, arrears: result.arrears }), importance: 0.1,
         data: { civ: civ.name, stability: Math.round(result.value * 100) / 100 },
       });
     } else if (state.unrest[region] && result.value >= tuning.unrestBelow + tuning.hysteresis) state.unrest[region] = 0;

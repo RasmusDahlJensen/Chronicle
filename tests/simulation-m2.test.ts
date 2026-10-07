@@ -243,6 +243,9 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
   tamper(state => { const band = state.polities[state.living[3]]; band.culture = state.polities[state.living[4]].culture; }, /ruling culture/);
   tamper(state => { const band = state.polities[state.living[3]]; state.cultures[band.culture].deathTick = state.tick; }, /which is gone/);
   tamper(state => { state.groups[state.polities[state.living[3]].core].values.zeal = 1.2; }, /has zeal 1.2/);
+  // M4.3: a polity's state religion is its heartland's faith, and a people follows a living religion or the folk ways.
+  tamper(state => { state.polities[state.living[3]].stateReligion = 0; }, /state religion/);
+  tamper(state => { state.groups[state.polities[state.living[3]].core].faith = 7; state.polities[state.living[3]].stateReligion = 7; }, /follows religion 7, which is gone/);
   // A civilization's townspeople must all live in its settlements there, within their housing.
   tamper(state => {
     const band = state.polities[state.living[4]];

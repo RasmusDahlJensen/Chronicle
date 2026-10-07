@@ -53,6 +53,16 @@ export interface Culture {
 }
 
 /**
+ * An organized religion (VISION.md "Religion"), never deleted: its name, tenets (indices into `TENETS`), the
+ * civilization that founded it, its holy region, the religion it split from (schisms, M4.4), when it began, its map
+ * hue, its followers' people and regions at its last yearly refresh, and the tick it was found without followers.
+ */
+export interface Religion {
+  id: number; name: string; tenets: number[]; founder: number; holyRegion: number; parent: number | null;
+  foundedTick: number; hue: number; people: number; regions: number; deathTick: number | null;
+}
+
+/**
  * A tribe of bands or a civilization (VISION.md "Polities"), with one population group (a band of people) in each
  * region it holds. Never deleted: dead polities keep their death tick.
  */
@@ -69,6 +79,8 @@ export interface Polity {
    *  ruling culture as a large part of its people (−1 none), that ruling culture, and their years together (growing
    *  while both are large, fading while either is not). */
   together: number; togetherRuling: number; togetherYears: number;
+  /** Its state religion: its rulers' faith, the faith of its heartland's people (−1: the folk ways of its culture). */
+  stateReligion: number;
   /** The starting band it descends from (0–29 by default): a people's lineage, kept by every daughter. */
   lineage: number;
   knowledge: Knowledge;
@@ -225,6 +237,8 @@ export interface PopulationGroup {
   /** Its people's values (VISION.md "Culture and lineage": drift and influence act on the people living here, so the
    *  far parts of a culture can grow apart). */
   values: CultureValues;
+  /** Its people's faith: a religion's id, or −1 for the folk ways of its culture (VISION.md "Folk beliefs"). */
+  faith: number;
   /** Tick it was founded and tick it entered its current region (settling needs a long stay). */
   foundedTick: number; arrivedTick: number;
   /** Food store in integer units of 1/100 person-month. */
@@ -321,6 +335,10 @@ export interface CenturyStats {
   /** Mixed peoples (M4.2): regions assimilated, hybrid cultures formed and traits earned so far, and living cultures
    *  with at least one trait. */
   assimilations: number; hybrids: number; traitsEarned: number; culturesWithTraits: number;
+  /** Faiths (M4.3): living religions with followers, religions founded so far, the share of the world's people who
+   *  follow a religion, the most civilizations any one religion is followed in, civilizations with a state religion,
+   *  regions converted and state religions changed so far. */
+  religions: number; religionsFounded: number; faithShare: number; religionMaxCivs: number; stateReligions: number; conversions: number; stateReligionChanges: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -398,6 +416,8 @@ export interface Metrics {
   /** Cultures that split from another (an event), and of those, from the culture of a civilization's people; regions
    *  whose people took up their realm's ruling culture; hybrid cultures formed; traits earned. */
   cultureSplits: number; civCultureSplits: number; assimilations: number; hybrids: number; traitsEarned: number;
+  /** Religions founded, regions whose people took up a religion, and changes of a civilization's state religion. */
+  religionsFounded: number; conversions: number; stateReligionChanges: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;
@@ -411,6 +431,8 @@ export interface SimulationState {
   geography: SimulationGeography; partition: RegionPartition; food: FoodModel;
   chronicle: Chronicle;
   cultures: Culture[]; polities: Polity[]; groups: PopulationGroup[];
+  /** Every organized religion ever founded. */
+  religions: Religion[];
   /** Per region: game stock (0–1), the occupying polity and its group there (−1 for none), capacity at the current game stock, months above 1.1× capacity. */
   gameStock: Float64Array; occupant: Int32Array; groupAt: Int32Array; capacity: Float64Array; overCapacity: Int32Array;
   /** Per region: the game stock at the last capacity solve (the solve is redone when it has drifted). */

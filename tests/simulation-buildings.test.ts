@@ -137,7 +137,7 @@ test('the Build choice weighs each building\'s need where it is greatest against
   const granary = BUILDING_INDEX.get('granary')!, temple = BUILDING_INDEX.get('temple')!;
   const kind = (type: number) => ({ type, name: BUILDINGS[type].name, one: BUILDINGS[type].one, many: BUILDINGS[type].many, purpose: BUILDINGS[type].purpose, cost: BUILDINGS[type].cost, upkeep: BUILDINGS[type].upkeep, minTier: BUILDINGS[type].minTier, coast: BUILDINGS[type].coast, water: BUILDINGS[type].water, perRegion: BUILDINGS[type].perRegion, works: BUILDINGS[type].effects.works ?? '' as const });
   const kinds = [granary, temple].map(kind);
-  const view = (settlements: ReturnType<typeof settlement>[], wealth = 100_000, income = 50_000) => ({ values, budget: { rate: 0.2, output: income * 5, sites: 0, costs: 0, treasury: wealth, revenue: income, surplus: income, strain: 0, tradition: 0.5, calm: 0.9 }, build: { regions: 1, catalog: kinds, settlements, wonders: [], stability: 0.9 } }) as unknown as PolityView;
+  const view = (settlements: ReturnType<typeof settlement>[], wealth = 100_000, income = 50_000) => ({ values, budget: { rate: 0.2, output: income * 5, sites: 0, costs: 0, treasury: wealth, revenue: income, surplus: income, strain: 0, tradition: 0.5, calm: 0.9 }, build: { monuments: 1, regions: 1, catalog: kinds, settlements, wonders: [], stability: 0.9 } }) as unknown as PolityView;
   const hungry = view([settlement({ id: 1, hardship: 0.8 }), settlement({ id: 2, hardship: 0.1, name: 'Tal' })]);
   const option = bestBuild(hungry)!;
   assert.equal(option.target, granary); assert.deepEqual(option.targets, [1], 'the hungriest settlement first, one at a time for a civilization of one region');
@@ -280,7 +280,7 @@ test('the wonder choice needs a motive, a golden age and a great city', () => {
     values: { ...values, expansionism },
     budget: { rate: 0.2, output: 10_000_000, sites: 0, costs: 0, treasury: 50_000_000, revenue: 2_000_000, surplus: 2_000_000, strain: 0, tradition: 0.5, calm: 0.9 },
     build: {
-      regions: 10, catalog: [], stability,
+      monuments: 1, regions: 10, catalog: [], stability,
       settlements: [{ id: 1, region: 0, name: 'Kesh', tier: 2, urban, housing: 20_000, hardship: 0, farmShare: 1, stability, frontier: 0, has: [], coast: false, water: true, seaLinks: 0, mineYield: 0, quarryYield: 0, wonder: false }],
       wonders: [{ type: gardens, name: definition.name, motive: definition.motive, cost: definition.cost, months: definition.months, upkeep: definition.upkeep, minTier: definition.minTier, coast: definition.coast }],
     },

@@ -13,10 +13,11 @@ import { stabilityOf } from './stability.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState } from './state.ts';
 import { ancestry, lineOf } from './culture.ts';
 import { TRAITS } from './traits.ts';
+import { TENETS } from './religions.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'fields' | 'wonders' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'fields' | 'wonders' | 'series' | 'inspect'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -32,8 +33,8 @@ function worn(state: SimulationState, settlement: SimulationState['settlements']
  * state; it never changes the simulation.
  */
 export function observerView(state: SimulationState, inspect: number | null): View {
-  const ids: number[] = [], regions: number[] = [], populations: number[] = [], kinds: number[] = [], eras: number[] = [], lineages: number[] = [], cultureIds: number[] = [];
-  const living = new Map<number, { regions: number; population: number }>();
+  const ids: number[] = [], regions: number[] = [], populations: number[] = [], kinds: number[] = [], eras: number[] = [], lineages: number[] = [], cultureIds: number[] = [], faiths: number[] = [];
+  const living = new Map<number, { regions: number; population: number }>(), followed = new Map<number, { regions: number; population: number; civs: Set<number> }>();
   let population = 0, civs = 0, specialists = 0, leadingEra = 0;
   const sizes: { id: number; people: number }[] = [];
   for (const id of state.living) {
@@ -44,6 +45,11 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
       ids.push(id); regions.push(group.region); populations.push(group.size); kinds.push(polity.kind === 'civ' ? 1 : 0); eras.push(polity.knowledge.era); lineages.push(polity.lineage); cultureIds.push(group.culture);
       const culture = living.get(group.culture) ?? { regions: 0, population: 0 };
       culture.regions++; culture.population += group.size; living.set(group.culture, culture);
+      faiths.push(group.faith);
+      if (group.faith >= 0) {
+        const faith = followed.get(group.faith) ?? { regions: 0, population: 0, civs: new Set<number>() };
+        faith.regions++; faith.population += group.size; if (polity.kind === 'civ') faith.civs.add(id); followed.set(group.faith, faith);
+      }
       people += group.size; specialists += group.specialists;
     }
     population += people; leadingEra = Math.max(leadingEra, polity.knowledge.era); sizes.push({ id, people });
@@ -82,7 +88,11 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
       const culture = state.cultures[id];
       return { id, name: culture.name, hue: round(culture.hue, 2), parent: culture.parents.length ? heaviestParent(state, culture).name : null, ...entry };
     }),
-    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds }, settlements, roads, fields, series,
+    religions: [...followed].sort(([a, x], [b, y]) => y.population - x.population || a - b).slice(0, 500).map(([id, entry]) => {
+      const religion = state.religions[id];
+      return { id, name: religion.name, hue: round(religion.hue, 2), regions: entry.regions, population: entry.population, civs: entry.civs.size };
+    }),
+    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds, faiths }, settlements, roads, fields, series,
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
@@ -114,6 +124,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
     const kmFromCapital = capitalKm(state, polity, region);
     view = {
       id: polity.id, kind: polity.kind, name: polity.name, culture: state.cultures[polity.culture].name, lineage: state.lineages[polity.lineage] ?? '',
+      stateReligion: polity.stateReligion >= 0 ? state.religions[polity.stateReligion].name : null,
       regions: polity.groups.length, totalPopulation: polityPopulation(state, polity), population: group.size,
       birthsThisYear: group.birthsYear, deathsThisYear: group.deathsYear, birthsLastYear: group.lastBirths, deathsLastYear: group.lastDeaths,
       foodSecurity: round(group.foodSecurity), foodStoreMonths: group.size > 0 ? round(group.store / (group.size * FOOD_TUNING.unitsPerPersonMonth), 2) : 0,
@@ -126,7 +137,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       lastDecision: lastDecision(polity),
       stability: polity.kind !== 'civ' ? null : (() => {
         const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);
-        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears) };
+        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), faith: round(now.faith), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
       wealth: polity.kind !== 'civ' ? null : (() => {
@@ -214,6 +225,13 @@ function peopleView(state: SimulationState, group: PopulationGroup, living: { re
     ancestry: ancestry(state, culture.id).slice(0, 6).map(entry => ({ name: state.cultures[entry.id].name, share: round(entry.share) })),
     line: lineOf(state, culture.id, 6).map(entry => ({ name: entry.name, origin: entry.origin, founded: entry.foundedTick })),
     values: roundValues(group.values), cultureValues: roundValues(culture.values),
+    faith: group.faith < 0 ? null : (() => {
+      const religion = state.religions[group.faith];
+      return {
+        name: religion.name, tenets: religion.tenets.map(tenet => TENETS[tenet].name), founded: religion.foundedTick, founder: state.polities[religion.founder].name,
+        parent: religion.parent === null ? null : state.religions[religion.parent].name, holy: religion.holyRegion === group.region,
+      };
+    })(),
   };
 }
 

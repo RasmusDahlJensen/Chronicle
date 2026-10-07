@@ -1,6 +1,6 @@
 import { ERAS, eraOf, MOBILITY, STARTING_TECHS, TECH_INDEX, TECHS, type Affinity, type Coefficient } from './techs.ts';
 import type { Rng } from './rng.ts';
-import { RESEARCH_TUNING } from './tunables.ts';
+import { FAITH_TUNING, RESEARCH_TUNING } from './tunables.ts';
 
 /**
  * A polity's knowledge (VISION.md "Knowledge and technology"): the techs it knows, its one active research target,
@@ -31,7 +31,7 @@ const COEFFICIENTS: Coefficient[] = ['forageYield', 'huntYield', 'fishYield', 'h
 // The graph as indices, read on every research choice.
 const REQUIRES = TECHS.map(definition => definition.requires.map(name => TECH_INDEX.get(name)!));
 const AFFINITIES = TECHS.map(definition => Object.entries(definition.affinity ?? {}) as [Affinity, number][]);
-const FOOD = TECHS.map(definition => definition.tags.includes('food')), ECONOMY = TECHS.map(definition => definition.tags.includes('economy'));
+const FOOD = TECHS.map(definition => definition.tags.includes('food')), ECONOMY = TECHS.map(definition => definition.tags.includes('economy')), RELIGION = TECHS.map(definition => definition.tags.includes('religion'));
 
 const fresh = () => ({ target: -1, progress: new Float64Array(TECHS.length), taught: new Float64Array(TECHS.length), caught: new Float64Array(TECHS.length), reasons: [], candidates: [] });
 
@@ -100,6 +100,8 @@ export interface ResearchContext {
   /** Need for food (0–1): hunger, or land pressure when the land is filling up, whichever is larger. */
   foodNeed: number;
   tradition: number; openness: number;
+  /** Its people's Zeal: religion techs weigh more for a zealous people (M4.3). */
+  zeal: number;
   /** Whether a people it shares knowledge with knows the tech (VISION.md "Sharing knowledge"). */
   shared: (tech: number) => boolean;
   /** The most advanced era it knows of: its own, or a living people's it has met (catch-up). */
@@ -156,6 +158,10 @@ export function researchWeight(tech: number, context: ResearchContext, factors?:
   if (ECONOMY[tech]) {
     const value = 1 - tuning.traditionBrake * context.tradition;
     weight *= value; factors?.push({ factor: 'tradition', weight: -(1 - value) });
+  }
+  if (RELIGION[tech]) {
+    const value = FAITH_TUNING.religionZealBase + context.zeal;
+    weight *= value; factors?.push({ factor: 'zeal', weight: value - 1 });
   }
   return weight;
 }

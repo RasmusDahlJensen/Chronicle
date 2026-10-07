@@ -15,7 +15,7 @@ import { SimulationPanel } from './SimulationPanel.tsx';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { describeEvent } from '../observer/events.ts';
 import { ERA_NAMES, RIVER_TIERS, simulationDate, VALUE_NAMES, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
-import { cssColor, cultureColor, ERA_COLORS, eraColor, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
+import { cssColor, cultureColor, ERA_COLORS, eraColor, faithColor, FOLK_COLOR, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -69,6 +69,7 @@ function PeopleDetail({ people }: { people: NonNullable<Inspected['people']> }) 
     <p className="atlas-detail-label">People</p><h3 id="people-culture">{people.culture} <span>· {origin}, year {simulationDate(people.founded).year}</span></h3>
     <p className="atlas-panel-note" id="people-ancestry">Descent from the starting peoples: {people.ancestry.map(entry => `${Math.round(entry.share * 100)}% ${entry.name}`).join(', ')}{people.line.length ? `. Line: ${people.line.map(entry => entry.name).join(' ← ')}` : ''}. The culture lives in {number.format(people.regions)} {people.regions === 1 ? 'region' : 'regions'} ({formatPeople(people.population)} people).</p>
     {people.traits.length > 0 && <p className="atlas-panel-note" id="people-traits">Known as: {people.traits.join(', ')}.</p>}
+    <p className="atlas-panel-note" id="people-faith">{people.faith ? `Faith: the ${people.faith.name} faith (${people.faith.tenets.join(', ')}), founded by the ${people.faith.founder} in year ${simulationDate(people.faith.founded).year}${people.faith.parent ? `, a sect of the ${people.faith.parent}` : ''}${people.faith.holy ? '. This is its holy land' : ''}.` : `Faith: the folk ways of the ${people.culture}.`}</p>
     <p className="atlas-panel-note" id="people-values">Values here (the whole culture's): {VALUE_NAMES.map(key => `${key} ${people.values[key].toFixed(2)} (${people.cultureValues[key].toFixed(2)})`).join(' · ')}.</p>
   </div>;
 }
@@ -79,6 +80,7 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
   const percent = research && research.cost > 0 ? Math.min(100, research.progress / research.cost * 100) : 0;
   return <div className="world-cell-band" aria-label={civ ? 'Civilization in this region' : 'Tribe in this region'} role="group" data-polity-kind={polity.kind}>
     <p className="atlas-detail-label">{civ ? 'Civilization' : 'Tribe'} · {ERA_NAMES[polity.era]} era</p><h3>{polity.name} <span>· {polity.culture} culture</span></h3>
+    {civ && <p className="atlas-panel-note" id="polity-religion">{polity.stateReligion ? `State religion: the ${polity.stateReligion} faith.` : 'Its rulers keep the folk ways of their forebears.'}</p>}
     <p className="atlas-panel-note" id="polity-lineage">Descended from the {polity.lineage} people, one of the starting bands.</p>
     <dl className="world-water-facts">
       <div><dt>Regions</dt><dd id="polity-regions">{number.format(polity.regions)}</dd></div>
@@ -102,7 +104,7 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
     <p className="atlas-panel-note">Food security is expected food over need — for farmers, the coming harvest and other food over the harvest cycle; below 1, or when the store runs out before the harvest, people go hungry and famine deaths rise. Crops sown since the last harvest come in at the next one. Surplus frees specialists, who live in settlements and research; bands have none.</p>
     {civ && <section className="world-polity-decision" aria-label="Decisions">
       <p className="atlas-detail-label">Governance · reach {number.format(polity.reachKm)} km of travel{polity.capitalKm !== null ? ` · this region ${number.format(polity.capitalKm)} km from the capital` : ''}</p>
-      {polity.stability && <p className="atlas-panel-note" id="polity-stability">Stability here {polity.stability.value.toFixed(2)}{polity.stability.unrest ? ' · in unrest (lower output and research)' : ''}{[['hunger', polity.stability.hunger], ['overextension', polity.stability.overextension], ['foreign rule', polity.stability.foreignRule], ['strain of a large, old realm', polity.stability.strain], ['taxes', polity.stability.taxes], ['arrears', polity.stability.arrears]].filter(([, weight]) => (weight as number) > 0.005).map(([factor, weight]) => ` · ${factor} −${(weight as number).toFixed(2)}`).join('')}{polity.stability.taxes < -0.005 ? ` · light taxes +${(-polity.stability.taxes).toFixed(2)}` : ''}.</p>}
+      {polity.stability && <p className="atlas-panel-note" id="polity-stability">Stability here {polity.stability.value.toFixed(2)}{polity.stability.unrest ? ' · in unrest (lower output and research)' : ''}{[['hunger', polity.stability.hunger], ['overextension', polity.stability.overextension], ['foreign rule', polity.stability.foreignRule], ['another faith', polity.stability.faith], ['strain of a large, old realm', polity.stability.strain], ['taxes', polity.stability.taxes], ['arrears', polity.stability.arrears]].filter(([, weight]) => (weight as number) > 0.005).map(([factor, weight]) => ` · ${factor} −${(weight as number).toFixed(2)}`).join('')}{polity.stability.taxes < -0.005 ? ` · light taxes +${(-polity.stability.taxes).toFixed(2)}` : ''}{polity.stability.faith < -0.005 ? ` · ascetic faith +${(-polity.stability.faith).toFixed(2)}` : ''}.</p>}
       {polity.lastDecision ? <>
         <h4 id="polity-decision">{DECISION_LABELS[polity.lastDecision.chosen]}{decisionTarget(polity.lastDecision)} <span>year {simulationDate(polity.lastDecision.tick).year} · {polity.lastDecision.outcome}</span></h4>
         <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map((option, index) => <li key={index}>
@@ -187,7 +189,7 @@ export function GeneratedWorldLab() {
   const [showFields, setShowFields] = useState(true);
   // Territories of the peoples living on the land, coloured by polity (each tribe or civilization), by descent (which
   // starting band) or by era.
-  const [peoples, setPeoples] = useState<'polity' | 'descent' | 'culture' | 'era' | 'off'>('polity');
+  const [peoples, setPeoples] = useState<'polity' | 'descent' | 'culture' | 'faith' | 'era' | 'off'>('polity');
   const [regions, setRegions] = useState<{ map: RegionMap; cells: Uint16Array; fieldRank: Uint16Array } | null>(null);
   const [regionError, setRegionError] = useState<string | null>(null);
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
@@ -322,11 +324,12 @@ export function GeneratedWorldLab() {
     if (!renderer.current) return;
     if (peoples === 'off' || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
     const fill = new Uint32Array(regions.map.regions.length);
-    const { ids, regions: at, kinds, eras, lineages, cultures } = frame.markers;
-    const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue]));
+    const { ids, regions: at, kinds, eras, lineages, cultures, faiths } = frame.markers;
+    const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue])), faithHues = new Map(frame.religions.map(entry => [entry.id, entry.hue]));
     for (let index = 0; index < at.length; index++) {
       const color = peoples === 'era' ? eraColor(eras[index]) : peoples === 'descent' ? lineageColor(lineages[index])
-        : peoples === 'culture' ? cultureColor(hues.get(cultures[index]) ?? 0, cultures[index]) : polityColor(ids[index]);
+        : peoples === 'culture' ? cultureColor(hues.get(cultures[index]) ?? 0, cultures[index])
+        : peoples === 'faith' ? (faiths[index] < 0 ? FOLK_COLOR : faithColor(faithHues.get(faiths[index]) ?? 0)) : polityColor(ids[index]);
       if (at[index] < fill.length) fill[at[index]] = packColor(color, kinds[index] === 1 ? TERRITORY_ALPHA.civ : TERRITORY_ALPHA.band);
     }
     renderer.current.setTerritories(fill);
@@ -405,9 +408,9 @@ export function GeneratedWorldLab() {
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
             <ul className="world-resource-legend" aria-label="Resource site legend">{RESOURCE_IDS.map(resource => <li key={resource} title={`Extraction: ${RESOURCE_RULES[resource].extractionTechnology}`}><ResourceIcon resource={resource} />{RESOURCES[resource].label}</li>)}</ul>
             <fieldset className="world-peoples-options"><legend>Peoples</legend>
-              {([['polity', 'Political'], ['descent', 'By descent'], ['culture', 'By culture'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
+              {([['polity', 'Political'], ['descent', 'By descent'], ['culture', 'By culture'], ['faith', 'By faith'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
             </fieldset>
-            <p className="atlas-panel-note">Every region a tribe's band or a civilization's village lives in is filled: lighter for roaming tribes, stronger for settled civilizations. Political: each civilization or tribe has its own colour, with capitals as stars; by descent, each of the starting peoples and all who broke away from it share one; by culture, each region shows the culture of the people living there.</p>
+            <p className="atlas-panel-note">Every region a tribe's band or a civilization's village lives in is filled: lighter for roaming tribes, stronger for settled civilizations. Political: each civilization or tribe has its own colour, with capitals as stars; by descent, each of the starting peoples and all who broke away from it share one; by culture, each region shows the culture of the people living there; by faith, the religion its people follow (pale where they keep the folk ways of their culture).</p>
           </section>
           {peoples !== 'off' && frame && <section className="atlas-panel-section world-peoples-legend" aria-label="Peoples legend">
             {peoples === 'polity' ? <><div className="atlas-section-heading"><h2>Largest polities</h2><span>regions · people</span></div>
@@ -421,6 +424,10 @@ export function GeneratedWorldLab() {
               <ul id="culture-legend">{frame.cultures.slice(0, 10).map(entry => <li key={entry.id}><span><span className="atlas-biome-swatch" style={{ backgroundColor: cssColor(cultureColor(entry.hue, entry.id)) }} aria-hidden="true" />{entry.name}{entry.parent ? <span className="world-polity-kind">from the {entry.parent}</span> : null}</span><span>{number.format(entry.regions)} · {formatPeople(entry.population)}</span></li>)}</ul>
               {frame.cultures.length > 10 && <p className="atlas-panel-note">and {frame.cultures.length - 10} more {frame.cultures.length - 10 === 1 ? 'culture' : 'cultures'}.</p>}
               <p className="atlas-panel-note">A culture belongs to its people, not to a realm. Where its people grow apart it splits, and the daughter keeps a colour near its parent's.</p></>
+              : peoples === 'faith' ? <><div className="atlas-section-heading"><h2>Religions</h2><span>civilizations · regions · people</span></div>
+              {frame.religions.length ? <ul id="religion-legend">{frame.religions.slice(0, 10).map(entry => <li key={entry.id}><span><span className="atlas-biome-swatch" style={{ backgroundColor: cssColor(faithColor(entry.hue)) }} aria-hidden="true" />{entry.name}</span><span>{number.format(entry.civs)} · {number.format(entry.regions)} · {formatPeople(entry.population)}</span></li>)}</ul>
+                : <p className="atlas-panel-note" id="religion-legend-empty">No religion has been founded yet: every people keeps the folk ways of its culture.</p>}
+              <p className="atlas-panel-note">Religions are founded in civilizations that know Organized religion and spread from people to people across borders; pale regions keep the folk ways of their culture.</p></>
               : <><div className="atlas-section-heading"><h2>Eras</h2><span>polities</span></div>
               <ul>{ERA_NAMES.map((era, index) => peopleSummary.eras[index] ? <li key={era}><span><span className="atlas-biome-swatch" style={{ backgroundColor: ERA_COLORS[index] }} aria-hidden="true" />{era}</span><span>{number.format(peopleSummary.eras[index])}</span></li> : null)}</ul></>}
           </section>}

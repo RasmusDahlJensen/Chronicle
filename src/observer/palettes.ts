@@ -52,6 +52,14 @@ export function cultureColor(hue: number, id: number): [number, number, number] 
   return hslToRgb(shown, 0.6, [0.42, 0.5, 0.58][id % 3]);
 }
 
+/** A religion's map colour as [r, g, b]: strong, so faiths stand out against the pale folk ways. */
+export function faithColor(hue: number): [number, number, number] {
+  return hslToRgb((240 + ((hue % 360 + 360) % 360) * 300 / 360) % 360, 0.7, 0.45);
+}
+
+/** The folk ways of a people's culture on the faith map: pale and neutral. */
+export const FOLK_COLOR: [number, number, number] = [214, 207, 190];
+
 /** An era's map colour as [r, g, b]. */
 export function eraColor(era: number): [number, number, number] {
   const hex = ERA_COLORS[era] ?? ERA_COLORS[0];

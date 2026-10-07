@@ -87,7 +87,8 @@ export function buildScore(view: PolityView, kind: Kind): Option & { targets: nu
     .filter(entry => !kind.perRegion || (!regions.has(entry.settlement.region) && regions.add(entry.settlement.region) !== undefined)).slice(0, batch);
   const weight = (tuning.purposeWeight as Record<string, number>)[kind.purpose] ?? 0;
   const worth = ranked.length ? ranked.reduce((sum, entry) => sum + entry.value, 0) / ranked.length : 0;
-  const benefit = weight * worth;
+  // A state religion of Monument builders raises shrines and temples (VISION.md "Tenets").
+  const benefit = weight * worth * (kind.purpose === 'faith' ? view.build.monuments : 1);
   // Each need's share of the benefit (what a completed building will cite): food splits into hard years and storage.
   const parts = new Map<string, number>();
   for (const { settlement } of ranked) {
@@ -132,7 +133,7 @@ export function bestWonder(view: PolityView): (Option & { targets: number[] }) |
     if (!city) continue;
     const motive = view.values[MOTIVE_VALUE[wonder.motive] ?? 'zeal'], greatness = Math.min(1, city.urban / tuning.wonderCity);
     // The motive is what it cites; the golden age and the city's greatness scale it (multipliers, never causes).
-    const drive = tuning.wonderWeight * motive * golden * greatness;
+    const drive = tuning.wonderWeight * motive * golden * greatness * view.build.monuments;
     // A wonder is paid for over decades: what it would take each year while it is built weighs against what the realm
     // can spend in a year.
     const cost = tuning.cost * wonder.cost * 12 / wonder.months / spendable(view.budget), upkeep = tuning.upkeepWeight * wonder.upkeep / headroom(view.budget);
@@ -140,6 +141,7 @@ export function bestWonder(view: PolityView): (Option & { targets: number[] }) |
       action: 'build' as const, score: drive - cost - upkeep, target: wonder.type, label: `${wonder.name} at ${city.name}`, targets: [city.id], wonder: true,
       factors: [
         { factor: wonder.motive, weight: round(drive) }, { factor: `${MULTIPLIER}goldenAge`, weight: round(golden) }, { factor: `${MULTIPLIER}greatness`, weight: round(greatness) },
+        ...(view.build.monuments !== 1 ? [{ factor: `${MULTIPLIER}monumentBuilders`, weight: round(view.build.monuments) }] : []),
         { factor: 'cost', weight: -round(cost) }, { factor: 'upkeep', weight: -round(upkeep) },
       ],
     };

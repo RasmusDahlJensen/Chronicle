@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 23;
+export const SIMULATION_PROTOCOL_VERSION = 24;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -33,7 +33,7 @@ export const EVENT_TYPES = [
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
   'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief', 'neglect',
-  'assimilation', 'traitEarned',
+  'assimilation', 'traitEarned', 'faithSpread',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -97,6 +97,12 @@ export const ObserverFrameSchema = Type.Object({
     id: id(), name: Type.String({ maxLength: 40 }), hue: Type.Number({ minimum: 0, maximum: 360 }), parent: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
     regions: Type.Integer({ minimum: 1 }), population: Type.Integer({ minimum: 0 }),
   }, { additionalProperties: false }), { maxItems: 2_000 }),
+  /** Living religions with followers, most people first, at most 500: id, name, map hue, the regions and people that
+   *  follow it, and the civilizations it is followed in (VISION.md "Religion"). */
+  religions: Type.Array(Type.Object({
+    id: id(), name: Type.String({ maxLength: 40 }), hue: Type.Number({ minimum: 0, maximum: 360 }), regions: Type.Integer({ minimum: 1 }),
+    population: Type.Integer({ minimum: 0 }), civs: Type.Integer({ minimum: 0 }),
+  }, { additionalProperties: false }), { maxItems: 500 }),
   /** The largest living polities by population (at most 10), for the map legend. */
   largest: Type.Array(Type.Object({
     id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]),
@@ -115,6 +121,8 @@ export const ObserverFrameSchema = Type.Object({
     eras: Type.Array(Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), { maxItems: 20_000 }),
     lineages: Type.Array(Type.Integer({ minimum: 0, maximum: 999 }), { maxItems: 20_000 }),
     cultures: Type.Array(id(), { maxItems: 20_000 }),
+    /** Each marker's people's faith: a religion's id, or −1 for the folk ways. */
+    faiths: Type.Array(Type.Integer({ minimum: -1, maximum: 2 ** 31 - 1 }), { maxItems: 20_000 }),
   }, { additionalProperties: false }),
   /** Living settlements as parallel arrays (id, cell, owner, capital 0/1, tier index into SETTLEMENT_TIERS, and the
    *  name of a town or larger, or of a capital, else ''), for settlement marks and labels. */
@@ -173,6 +181,12 @@ export const ObserverFrameSchema = Type.Object({
       ancestry: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), share: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 6 }),
       line: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), origin: OriginSchema, founded: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 6 }),
       values: ValuesSchema, cultureValues: ValuesSchema,
+      /** Their faith: a religion (its tenets, the year it began, the civilization that founded it, the religion it split
+       *  from, and whether this region is its holy land), or null for the folk ways of their culture. */
+      faith: Type.Union([Type.Null(), Type.Object({
+        name: Type.String({ maxLength: 40 }), tenets: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 8 }), founded: Type.Integer({ minimum: 0 }),
+        founder: Type.String({ maxLength: 40 }), parent: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]), holy: Type.Boolean(),
+      }, { additionalProperties: false })]),
     }, { additionalProperties: false })]),
     /** Whether its realm lets its buildings and roads go unkept this year (deferred maintenance; they wear). */
     neglected: Type.Boolean(),
@@ -206,6 +220,8 @@ export const ObserverFrameSchema = Type.Object({
     }, { additionalProperties: false }),
     polity: Type.Union([Type.Null(), Type.Object({
       id: id(), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]), name: Type.String({ maxLength: 40 }), culture: Type.String({ maxLength: 40 }),
+      /** Its state religion (its rulers' faith), or null for the folk ways. */
+      stateReligion: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
       /** Regions the polity holds (its bands) and its people in all of them; the other numbers below are this region's band. */
       regions: Type.Integer({ minimum: 1 }), totalPopulation: Type.Integer({ minimum: 0 }),
       /** The founding people it descends from (the culture name of its starting band). */
@@ -226,11 +242,12 @@ export const ObserverFrameSchema = Type.Object({
       /** Governance reach in travel-km, and this region's travel-km from the capital (null when cut off from it). */
       reachKm: Type.Number({ minimum: 0 }), capitalKm: Type.Union([Type.Null(), Type.Number({ minimum: 0 })]),
       /** A civilization region's stability (0–1, as last assessed), whether it is in unrest, and what lowers it now:
-       *  hunger, overextension, foreign rule, the strain of a large, old realm, taxes (below the customary rate they
-       *  raise it: a negative burden) and arrears. */
+       *  hunger, overextension, foreign rule, another faith than the realm's (an ascetic faith steadies: a negative
+       *  burden), the strain of a large, old realm, taxes (below the customary rate they raise it: a negative burden) and
+       *  arrears. */
       stability: Type.Union([Type.Null(), Type.Object({
         value: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Boolean(),
-        hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }),
+        hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }), faith: Type.Number(),
         strain: Type.Number({ minimum: 0 }), taxes: Type.Number(), arrears: Type.Number({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
@@ -302,8 +319,15 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   const frame = value as ObserverFrame;
   for (let at = 1; at < frame.events.length; at++) if (frame.events[at].id <= frame.events[at - 1].id) throw invalid();
   if (frame.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
-  const { ids, regions, populations, kinds, eras, lineages, cultures } = frame.markers;
-  if ([regions, populations, kinds, eras, lineages, cultures].some(array => array.length !== ids.length)) throw invalid();
+  const { ids, regions, populations, kinds, eras, lineages, cultures, faiths } = frame.markers;
+  if ([regions, populations, kinds, eras, lineages, cultures, faiths].some(array => array.length !== ids.length)) throw invalid();
+  // The religion list: each once, most people first, with exactly the regions and people its markers report; every
+  // marker's religion is listed unless the list is full.
+  const faithTally = new Map<number, { regions: number; population: number; civs: Set<number> }>();
+  faiths.forEach((faith, index) => { if (faith < 0) return; const entry = faithTally.get(faith) ?? { regions: 0, population: 0, civs: new Set<number>() }; entry.regions++; entry.population += populations[index]; if (kinds[index] === 1) entry.civs.add(ids[index]); faithTally.set(faith, entry); });
+  if (new Set(frame.religions.map(entry => entry.id)).size !== frame.religions.length || frame.religions.some((entry, at) => at > 0 && entry.population > frame.religions[at - 1].population)) throw invalid();
+  for (const entry of frame.religions) { const counted = faithTally.get(entry.id); if (!counted || counted.regions !== entry.regions || counted.population !== entry.population || counted.civs.size !== entry.civs) throw invalid(); }
+  if (frame.religions.length < 500 && faithTally.size !== frame.religions.length) throw invalid();
   if (lineages.some(lineage => lineage >= frame.lineages.length)) throw invalid();
   // The culture list: each culture once, most people first, with exactly the regions and people its markers report;
   // every marker's culture is listed unless the list is full.
