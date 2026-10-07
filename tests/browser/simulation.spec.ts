@@ -146,6 +146,17 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await page.getByLabel('By descent').check();
   await expect(legend).toContainText('regions · people');
   await expect(page.locator('#polity-lineage')).toContainText('Descended from the');
+  // By culture: each region the culture of its people, with a legend of the largest cultures; the inspector names the
+  // people's culture and its descent from the starting peoples.
+  await page.getByLabel('By culture').check();
+  await expect(canvas).toHaveAttribute('data-territory-regions', String(frame.markers.ids.length));
+  await expect(page.locator('#culture-legend').getByRole('listitem').first()).toContainText(frame.cultures[0].name);
+  const people = (await (await page.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${band.region}`)).json()).inspect.people;
+  await expect(page.locator('#people-culture')).toContainText(people.culture);
+  await expect(page.locator('#people-ancestry')).toContainText(/Descent from the starting peoples: \d+% \w+/);
+  await expect(page.locator('#people-ancestry')).toContainText(`lives in ${people.regions.toLocaleString('en')} region`);
+  expect(people.regions).toBeGreaterThan(0);
+  await expect(page.locator('#people-values')).toContainText('militarism');
   await page.getByLabel('By era').check();
   await expect(legend.getByRole('listitem').filter({ hasText: ERA_NAMES[frame.leadingEra] })).toContainText(/[1-9][\d,]*$/);
   await page.getByLabel('Hidden').check();

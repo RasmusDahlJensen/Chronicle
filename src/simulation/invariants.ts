@@ -6,7 +6,7 @@ import type { RegionPartition } from './regions.ts';
 import { cellNeighbors, type SimulationGeography } from './geography.ts';
 import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
 import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
-import type { Polity, RoadWork, Settlement, SimulationState } from './state.ts';
+import { VALUE_KEYS, type Polity, type RoadWork, type Settlement, type SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
 import { BUDGET_TUNING, BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING, SETTLEMENT_TUNING } from './tunables.ts';
 import { fieldLand } from './fields.ts';
@@ -106,10 +106,16 @@ export function checkInvariants(state: SimulationState) {
     if (wonder.status === 'building' && wonder.spent >= wonder.cost) fail(`wonder ${wonder.id} is paid for but not standing`);
   }
   for (const settlement of state.settlements) if (settlement.wonder !== null && !state.wonders.some(wonder => wonder.settlement === settlement.id && wonder.type === settlement.wonder && wonder.status === 'standing')) fail(`settlement ${settlement.id} names a wonder that does not stand there`);
+  for (const culture of state.cultures) {
+    if (culture.parents.length && Math.abs(culture.parents.reduce((sum, parent) => sum + parent.weight, 0) - 1) > 1e-9) fail(`culture ${culture.id}'s parents' weights do not sum to 1`);
+    if (culture.parents.some(parent => parent.id >= culture.id)) fail(`culture ${culture.id} names a later parent`);
+  }
   for (const id of state.living) {
     const polity = state.polities[id];
     if (!polity || polity.deathTick !== null) fail(`live polity list names ${id}`);
     if (!polity.groups.length || !polity.groups.includes(polity.core)) fail(`polity ${id} has no bands or its core band ${polity.core} is not one of them`);
+    // Its ruling culture is its heartland people's (VISION.md "Culture and lineage").
+    if (polity.culture !== state.groups[polity.core].culture) fail(`polity ${id}'s ruling culture ${polity.culture} is not its heartland's ${state.groups[polity.core].culture}`);
     const knowledge = polity.knowledge;
     if (knowledge.known.length !== TECHS.length || knowledge.progress.length !== TECHS.length || knowledge.target >= TECHS.length
       || (knowledge.target >= 0 && (knowledge.known[knowledge.target] || !(knowledge.progress[knowledge.target] >= 0)))) {
@@ -121,6 +127,9 @@ export function checkInvariants(state: SimulationState) {
       if (!Number.isInteger(group.size) || group.size <= 0) fail(`group ${groupId} of polity ${id} has size ${group.size}`);
       if (!Number.isInteger(group.store) || group.store < 0) fail(`group ${groupId} has food store ${group.store}`);
       if (!Number.isFinite(group.foodSecurity) || group.foodSecurity < 0) fail(`group ${groupId} has food security ${group.foodSecurity}`);
+      const culture = state.cultures[group.culture];
+      if (!culture || culture.deathTick !== null) fail(`group ${groupId} lives by culture ${group.culture}, which is gone`);
+      for (const key of VALUE_KEYS) if (!(group.values[key] >= 0 && group.values[key] <= 1)) fail(`group ${groupId} has ${key} ${group.values[key]}`);
       if (region < 0 || region >= regions) fail(`group ${groupId} is in missing region ${region}`);
       if (seen[region] >= 0) fail(`region ${region} holds bands of polities ${seen[region]} and ${id}`);
       if (state.occupant[region] !== id || state.groupAt[region] !== groupId) fail(`region ${region} does not record its band ${groupId} of polity ${id}`);

@@ -1,3 +1,4 @@
+import { CULTURE_ORIGIN_NAMES, VALUE_NAMES } from '../../shared/simulation.ts';
 import type { Chronicle } from './chronicle.ts';
 import type { FoodModel } from './food.ts';
 import type { Knowledge } from './knowledge.ts';
@@ -28,13 +29,24 @@ export const SYSTEMS = [
 ] as const;
 export type SystemKey = typeof SYSTEMS[number]['key'];
 
-export const VALUE_KEYS = ['militarism', 'zeal', 'openness', 'tradition', 'expansionism'] as const;
+export const VALUE_KEYS = VALUE_NAMES;
 export type CultureValues = Record<typeof VALUE_KEYS[number], number>;
 
-/** Cultures belong to people and are never deleted (VISION.md "Culture and lineage"). */
+/** How a culture began: one of the starting peoples, a band that broke away from its tribe, part of a culture that
+ *  grew apart from the rest (a split), or two cultures fused (a hybrid). */
+export type CultureOrigin = typeof CULTURE_ORIGIN_NAMES[number];
+
+/**
+ * Cultures belong to people and are never deleted (VISION.md "Culture and lineage"). Its values are its people's: the
+ * mean of the values of the groups it is the culture of, weighted by their people, as of its yearly refresh (frozen
+ * once nobody of it is left). Its hue (degrees) is its colour on the culture map; a child's lies near its parent's.
+ */
 export interface Culture {
   id: number; name: string; values: CultureValues; language: LanguageSeed;
   parents: { id: number; weight: number }[]; foundedTick: number;
+  origin: CultureOrigin; hue: number;
+  /** People of it and regions where it lives, at its last yearly refresh; the tick it was found without people. */
+  people: number; regions: number; deathTick: number | null;
 }
 
 /**
@@ -42,6 +54,8 @@ export interface Culture {
  * region it holds. Never deleted: dead polities keep their death tick.
  */
 export interface Polity {
+  /** `culture` is its ruling culture: the culture of its heartland's people (its core group), which its decisions
+   *  follow until M5 weighs all its people. */
   id: number; kind: 'band' | 'civ'; name: string; culture: number;
   foundedTick: number; deathTick: number | null; parent: number | null;
   /** Its living population groups, one per region, in the order they were founded. */
@@ -201,6 +215,9 @@ export interface FieldRanking {
 /** People of one polity, culture and region; integer size with fractional birth and death carries. */
 export interface PopulationGroup {
   id: number; polity: number; culture: number; region: number; size: number; deathTick: number | null;
+  /** Its people's values (VISION.md "Culture and lineage": drift and influence act on the people living here, so the
+   *  far parts of a culture can grow apart). */
+  values: CultureValues;
   /** Tick it was founded and tick it entered its current region (settling needs a long stay). */
   foundedTick: number; arrivedTick: number;
   /** Food store in integer units of 1/100 person-month. */
@@ -289,6 +306,11 @@ export interface CenturyStats {
    *  their condition, and of standing buildings worn below 80%; civilizations that began to let far regions go unkept
    *  so far. */
   regionsNeglected: number; roadsWorn: number; buildingsWorn: number; neglectBegun: number;
+  /** Living cultures (M4): cultures with people, culture splits so far (and of those, from the culture of a
+   *  civilization's people), how far cultures differ (the mean over the five values of their spread across living
+   *  cultures, people-weighted), how far the people of a culture differ from its heart (people-weighted mean), and the
+   *  share of civilizations' people whose culture is not their realm's. */
+  cultures: number; cultureSplits: number; civCultureSplits: number; valueSpread: number; cultureDivergence: number; foreignShare: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -363,6 +385,8 @@ export interface Metrics {
   unionsRefusedForStrain: number;
   /** Civilizations that began to let far regions go unkept (an event). */
   neglectBegun: number;
+  /** Cultures that split from another (an event), and of those, from the culture of a civilization's people. */
+  cultureSplits: number; civCultureSplits: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;
@@ -435,6 +459,8 @@ export interface SimulationState {
   /** Per region: how many farmers and herders it could feed at full game with Neolithic knowledge (static; what a
    *  civilization weighs when it looks for land). */
   landValue: Float64Array;
+  /** Per region: how harsh its land is (0–1, static; `culture.ts` `harshLand`), which pulls its people toward Tradition. */
+  harshness: Float64Array;
   /** Regions with food for some method at full game, and the landmasses that started with bands. */
   habitable: Uint8Array; settledLandmasses: number[];
   ledger: Ledger;

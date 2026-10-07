@@ -4,7 +4,8 @@ import { greatCircleKm } from './geography.ts';
 import { inheritKnowledge, learn, mergeKnowledge, newTechs, startingKnowledge, type Knowledge } from './knowledge.ts';
 import { TECH_INDEX } from './techs.ts';
 import { causes } from './causes.ts';
-import { createLanguage, createName } from './names.ts';
+import { createName } from './names.ts';
+import { blendValues, foundCulture, setGroupCulture } from './culture.ts';
 import { absorbMap, arrive, capitalKm, crosses, emptyMap, forgetMap, governable, hasHarbor, inheritContacts, joinView, lookAgain, seaFrom } from './perception.ts';
 import { relieve } from './relief.ts';
 import { loseWealth, produceWealth, regionFarm, regionOutput, regionSites, regionSpoilage, regionStore, wonderBonus } from './economy.ts';
@@ -115,22 +116,18 @@ function randomValues(rng: Rng): CultureValues {
   return values;
 }
 
-function newCulture(state: SimulationState, rng: Rng, parent: Culture | null): Culture {
-  const values = parent ? { ...parent.values } : randomValues(rng);
-  if (parent) for (const key of VALUE_KEYS) values[key] = Math.round(clamp(values[key] + (rng.next() - 0.5) * CULTURE_TUNING.mutation, 0, 1) * 1000) / 1000;
-  const language = parent ? parent.language : createLanguage(rng);
-  const culture: Culture = {
-    id: state.cultures.length, name: createName(rng, language), values, language,
-    parents: parent ? [{ id: parent.id, weight: 1 }] : [], foundedTick: state.tick,
-  };
-  state.cultures.push(culture);
-  return culture;
+/** A band that breaks away is a people of its own (VISION.md "Band fission"): a daughter of its people's culture, with
+ *  the band's values a little changed. */
+function breakawayCulture(state: SimulationState, rng: Rng, parent: Culture, values: CultureValues): Culture {
+  const changed = { ...values };
+  for (const key of VALUE_KEYS) changed[key] = Math.round(clamp(changed[key] + (rng.next() - 0.5) * CULTURE_TUNING.mutation, 0, 1) * 1000) / 1000;
+  return foundCulture(state, rng, 'breakaway', parent, changed);
 }
 
-/** A new population group of `polity` in a free region. */
-export function newGroup(state: SimulationState, polity: Polity, region: number, size: number): PopulationGroup {
+/** A new population group of `polity` in a free region, of its ruling culture, whose people hold `values`. */
+export function newGroup(state: SimulationState, polity: Polity, region: number, size: number, values: CultureValues): PopulationGroup {
   const group: PopulationGroup = {
-    id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, foundedTick: state.tick, arrivedTick: state.tick,
+    id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, values: { ...values }, foundedTick: state.tick, arrivedTick: state.tick,
     store: 0, planted: 0, birthCarry: 0, naturalCarry: 0, famineCarry: 0, foodSecurity: 1, birthsYear: 0, deathsYear: 0, lastBirths: 0, lastDeaths: 0,
     sizeAtYearStart: size, specialists: 0, farmShare: 0,
   };
@@ -158,7 +155,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
   if (parent) inheritContacts(state, polity, parent, state.tick);
-  newGroup(state, polity, region, size);
+  newGroup(state, polity, region, size, culture.values);
   return polity;
 }
 
@@ -190,7 +187,8 @@ export function spawnBands(state: SimulationState) {
   for (const [index, region] of chosen.entries()) {
     // Cultures and names draw from their own stream, so naming rules never shift where or how large bands start.
     const naming = createRng(state.seed, 0, 0x5ba6, index);
-    const tribe = newTribe(state, naming, region, sizes[index], newCulture(state, naming, null), null);
+    const values = randomValues(naming);
+    const tribe = newTribe(state, naming, region, sizes[index], foundCulture(state, naming, 'founding', null, values, CULTURE_TUNING.hueStart + index * CULTURE_TUNING.hueStep), null);
     state.lineages.push(state.cultures[tribe.culture].name);
     const size = sizes[index];
     state.groups[tribe.core].store = size * UNITS;
@@ -486,6 +484,7 @@ function migrate(state: SimulationState, polity: Polity) {
       const level = here > 0 && there > 0 ? (group.size / here - target.group.size / there) * here * there / (here + there) : 0;
       const people = Math.min(Math.floor(size * rate * target.gap / targets.length), Math.floor(level / 2), group.size - 1);
       if (people <= 0) continue;
+      blendValues(target.group, group.values, people);
       group.size -= people; target.group.size += people;
       state.ledger.migrantsOut[from] += people; state.ledger.migrantsIn[target.group.region] += people;
       state.metrics.migrants += people;
@@ -494,8 +493,8 @@ function migrate(state: SimulationState, polity: Polity) {
 }
 
 /** A group that dies out frees its region; its last stored food and crops are recorded as lost, and a civilization's
- *  settlements there fall to ruin. The polity ends with its last group. */
-function removeGroup(state: SimulationState, polity: Polity, group: PopulationGroup, tick: number) {
+ *  settlements there fall to ruin. The polity ends with its last group. (Exported for test fixtures.) */
+export function removeGroup(state: SimulationState, polity: Polity, group: PopulationGroup, tick: number) {
   const flows = state.ledger.food.get(group.id);
   if (flows) { flows.spoilage += group.store; flows.cropsLost += group.planted; }
   group.store = 0; group.planted = 0; group.size = 0; group.deathTick = tick;
@@ -559,6 +558,8 @@ export function transferGroup(state: SimulationState, rng: Rng, group: Populatio
 export function rehome(state: SimulationState, polity: Polity) {
   if (!polity.groups.includes(polity.core)) {
     polity.core = polity.groups.reduce((best, id) => state.groups[id].size > state.groups[best].size ? id : best, polity.groups[0]);
+    // Its ruling culture is its new heartland's people's.
+    polity.culture = state.groups[polity.core].culture;
   }
   if (polity.kind !== 'civ' || polity.capital === null || state.settlements[polity.capital].status === 'alive') return;
   // The new heartland's main settlement becomes the capital.
@@ -723,12 +724,13 @@ function split(state: SimulationState, context: TickContext, tribe: Polity, grou
   const from = group.region;
   let child: PopulationGroup, polity: Polity, culture: Culture | null = null;
   if (breaksAway) {
-    culture = newCulture(state, rng, state.cultures[tribe.culture]);
+    culture = breakawayCulture(state, rng, state.cultures[group.culture], group.values);
     polity = newTribe(state, rng, to, leaving, culture, tribe);
     child = state.groups[polity.core];
   } else {
     polity = tribe;
-    child = newGroup(state, tribe, to, leaving);
+    child = newGroup(state, tribe, to, leaving, group.values);
+    setGroupCulture(state, child, group.culture);
   }
   const carried = Math.floor(group.store * leaving / group.size);
   const parentFlows = state.ledger.food.get(group.id);

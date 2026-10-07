@@ -4,7 +4,8 @@ import { NAME_TUNING } from './tunables.ts';
 /**
  * A culture's language seed: a small phoneme inventory (VISION.md "Naming"). Names for bands, cultures and
  * settlements are drawn from it, so a culture's names sound alike. Consonant clusters only begin a name and codas
- * only end it, which keeps names pronounceable. M4 adds the visible descent of names by mutating a parent's seed.
+ * only end it, which keeps names pronounceable. A daughter culture's seed is its parent's with a few sounds changed,
+ * and its name keeps its parent's first syllable (M4: names visibly descend).
  */
 export interface LanguageSeed { initials: string[]; consonants: string[]; vowels: string[]; codas: string[] }
 
@@ -27,9 +28,11 @@ export function createLanguage(rng: Rng): LanguageSeed {
 }
 
 const pick = (rng: Rng, items: readonly string[]) => items[rng.int(items.length)];
+const isVowel = (letter: string) => 'aeiou'.includes(letter);
 
-/** A capitalized name of two or three syllables, within NAME_TUNING's length range. */
-export function createName(rng: Rng, language: LanguageSeed) {
+/** A capitalized name of two or three syllables, within NAME_TUNING's length range (and not in `taken`, lower-case,
+ *  when given: culture names are unique). */
+export function createName(rng: Rng, language: LanguageSeed, taken?: ReadonlySet<string>) {
   const shape = NAME_TUNING;
   for (let attempt = 0; attempt < 12; attempt++) {
     const syllables = rng.chance(shape.thirdSyllable) ? 3 : 2;
@@ -39,7 +42,56 @@ export function createName(rng: Rng, language: LanguageSeed) {
       name += pick(rng, language.vowels);
     }
     if (rng.chance(shape.coda)) name += pick(rng, language.codas);
-    if (name.length >= shape.minLength && name.length <= shape.maxLength) return name[0].toUpperCase() + name.slice(1);
+    if (name.length >= shape.minLength && name.length <= shape.maxLength && !taken?.has(name)) return name[0].toUpperCase() + name.slice(1);
   }
-  return 'Ana';
+  return unused(rng, 'ana', language, taken);
+}
+
+/** `stem` with syllables of `language` added until it is a name nobody has (a last resort for crowded names). */
+function unused(rng: Rng, stem: string, language: LanguageSeed, taken?: ReadonlySet<string>) {
+  let name = stem;
+  do {
+    if (isVowel(name[name.length - 1] ?? 'a')) name += pick(rng, language.consonants);
+    name += pick(rng, language.vowels);
+  } while (taken?.has(name) || name.length < NAME_TUNING.minLength);
+  return name[0].toUpperCase() + name.slice(1);
+}
+
+const SOUNDS = { initials: INITIALS, consonants: CONSONANTS, vowels: VOWELS, codas: CODAS } as const;
+const SOUND_KINDS = ['initials', 'consonants', 'vowels', 'codas'] as const;
+
+/** A daughter language: the parent's sounds with `changes` of them replaced by sounds it lacked. */
+export function mutateLanguage(rng: Rng, parent: LanguageSeed, changes: number): LanguageSeed {
+  const language: LanguageSeed = { initials: [...parent.initials], consonants: [...parent.consonants], vowels: [...parent.vowels], codas: [...parent.codas] };
+  for (let at = 0; at < changes; at++) {
+    const kind = SOUND_KINDS[rng.int(SOUND_KINDS.length)], sounds = language[kind];
+    const unused = [...new Set(SOUNDS[kind])].filter(sound => !sounds.includes(sound));
+    if (unused.length && sounds.length) sounds[rng.int(sounds.length)] = unused[rng.int(unused.length)];
+  }
+  return language;
+}
+
+/** A name's first syllable, lower-case: its opening consonants, its first vowels and the consonant after them. */
+export function nameStem(name: string) {
+  const lower = name.toLowerCase();
+  let at = 0;
+  while (at < lower.length && !isVowel(lower[at])) at++;
+  while (at < lower.length && isVowel(lower[at])) at++;
+  if (at < lower.length) at++;
+  return lower.slice(0, at);
+}
+
+/** A daughter culture's name: its parent's first syllable with a new ending in the daughter's language, not one in
+ *  `taken` (lower-case): kin share a first syllable, never a name. */
+export function descendName(rng: Rng, parent: string, language: LanguageSeed, taken?: ReadonlySet<string>) {
+  const stem = nameStem(parent), shape = NAME_TUNING;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    let name = stem;
+    if (isVowel(name[name.length - 1] ?? 'a')) name += pick(rng, language.consonants);
+    name += pick(rng, language.vowels);
+    if (rng.chance(shape.coda)) name += pick(rng, language.codas);
+    else if (rng.chance(shape.thirdSyllable)) name += pick(rng, language.consonants) + pick(rng, language.vowels);
+    if (name.length >= shape.minLength && name.length <= shape.maxLength && name !== parent.toLowerCase() && !taken?.has(name)) return name[0].toUpperCase() + name.slice(1);
+  }
+  return unused(rng, stem, language, new Set([...(taken ?? []), parent.toLowerCase(), stem]));
 }

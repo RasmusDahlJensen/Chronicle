@@ -17,7 +17,7 @@ import { BUDGET_TUNING, STABILITY_TUNING, UNITE_TUNING } from '../src/simulation
 import { refreshRemoteness } from '../src/simulation/budget.ts';
 import { wealthFlows } from '../src/simulation/economy.ts';
 import { createRng, type Rng } from '../src/simulation/rng.ts';
-import { polityPopulation, refuge, settle } from '../src/simulation/bands.ts';
+import { polityPopulation, refuge, removeGroup, settle } from '../src/simulation/bands.ts';
 import { edgeBetween, roadKey, roadUpkeep } from '../src/simulation/roads.ts';
 import { WONDERS } from '../src/simulation/wonders.ts';
 import { fieldLand } from '../src/simulation/fields.ts';
@@ -194,7 +194,9 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   stepSimulation(state);
   const moved = state.chronicle.events.slice(from).filter(event => event.type === 'capitalMoved' && event.actors[0].id === civ.id);
   assert.equal(moved.length, 1, 'the capital moved once');
-  assert.equal(oldCapital.status, 'ruined');
+  // Its old capital fell to ruin; expansion may resettle the ruins the same month, as an ordinary village.
+  assert.ok(oldCapital.status === 'ruined' || (!oldCapital.capital && state.chronicle.events.slice(from).some(event => event.type === 'ruinsResettled' && event.settlement === oldCapital.id)),
+    `the old capital is in ruins or resettled: ${oldCapital.status}, owner ${oldCapital.owner}, capital ${oldCapital.capital}`);
   assert.ok(civ.core !== oldCore && state.settlements[civ.capital!].region === state.groups[civ.core].region, 'the new capital is in the new heartland');
   const villages = civ.groups.length;
   for (const groupId of civ.groups) dying(groupId);
@@ -237,6 +239,10 @@ test('a polity on another landmass without Sailing (rail is not Sailing), a civi
     band.kind = 'civ'; for (const group of band.groups) state.owner[state.groups[group].region] = band.id;
   }, /has no village there/);
   tamper(state => { state.groups[state.polities[state.living[3]].core].planted += 100; }, /crops in the field/);
+  // M4.1: a polity's ruling culture is its heartland people's; a people lives by a living culture, with values in 0–1.
+  tamper(state => { const band = state.polities[state.living[3]]; band.culture = state.polities[state.living[4]].culture; }, /ruling culture/);
+  tamper(state => { const band = state.polities[state.living[3]]; state.cultures[band.culture].deathTick = state.tick; }, /which is gone/);
+  tamper(state => { state.groups[state.polities[state.living[3]].core].values.zeal = 1.2; }, /has zeal 1.2/);
   // A civilization's townspeople must all live in its settlements there, within their housing.
   tamper(state => {
     const band = state.polities[state.living[4]];
@@ -346,8 +352,24 @@ function exerciseExpansion(state: ReturnType<typeof createSimulation>) {
     }
   }
   const tribeAt = (region: number) => state.polities[state.occupant[region]];
-  const replaceable = pairs.find(pair => refuge(state, tribeAt(pair.target), state.groups[state.groupAt[pair.target]], pair.target) >= 0 && state.groups[state.groupAt[pair.from]].size > 1000);
-  const blocked = pairs.find(pair => pair !== replaceable && pair.target !== replaceable?.target);
+  const movable = (pair: typeof pairs[number]) => refuge(state, tribeAt(pair.target), state.groups[state.groupAt[pair.target]], pair.target) >= 0 && state.groups[state.groupAt[pair.from]].size > 1000;
+  let replaceable = pairs.find(movable);
+  // The land is usually full by the time civilizations arise, so a band beside one rarely has land to go to: make some.
+  // Between months, a band of another tribe beside it (not that tribe's heartland) dies out, leaving its region free.
+  if (!replaceable && pairs.length > 1) {
+    for (const pair of pairs) {
+      if (state.groups[state.groupAt[pair.from]].size <= 1000) continue;
+      const tribe = tribeAt(pair.target);
+      const beside = state.partition.regions[pair.target].neighbors.map(edge => edge.region).find(region => {
+        const other = state.occupant[region];
+        return region !== pair.from && other >= 0 && other !== tribe.id && state.polities[other].kind === 'band' && state.polities[other].core !== state.groupAt[region] && state.habitable[region] === 1;
+      });
+      if (beside === undefined) continue;
+      removeGroup(state, state.polities[state.occupant[beside]], state.groups[state.groupAt[beside]], state.tick);
+      if (movable(pair)) { replaceable = pair; break; }
+    }
+  }
+  const blocked = pairs.find(pair => pair !== replaceable && pair.target !== replaceable?.target && state.occupant[pair.target] >= 0 && state.polities[state.occupant[pair.target]].kind === 'band');
   if (!replaceable || !blocked) return false;
   // Settlers cannot come (too few people to spare): the band is taken in, not driven out for nothing.
   const source = state.groups[state.groupAt[blocked.from]], kept = source.size;

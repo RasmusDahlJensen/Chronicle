@@ -1,4 +1,4 @@
-import { simulationDate, type KnowledgeReport, type ObserverFrame, type PoliticsReport } from '../../shared/simulation.ts';
+import { CULTURE_ORIGIN_NAMES, simulationDate, type KnowledgeReport, type ObserverFrame, type PoliticsReport } from '../../shared/simulation.ts';
 import { coreRegion, isWaterRegion, landValues, populate, produce, regionCapacity, spawnBands } from './bands.ts';
 import { Chronicle } from './chronicle.ts';
 import { decide } from './decide.ts';
@@ -13,22 +13,23 @@ import { edgeBetween, roadCoverage } from './roads.ts';
 import { construct } from './construction.ts';
 import { environment } from './environment.ts';
 import { cultivatedCells, rankFarmland } from './fields.ts';
+import { cultureStats, cultureYear, harshLand } from './culture.ts';
 import { ageFactor, costsOf, realmYears, settlementAccount, sizeFactor, totalCosts } from './budget.ts';
 import { wealthFlows, wonderBonus } from './economy.ts';
-import { ACTIONS, SYSTEMS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
+import { ACTIONS, SYSTEMS, VALUE_KEYS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
 import type { RegionPartition } from './regions.ts';
 import { seedFromText, systemStream } from './rng.ts';
 import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 19;
+export const SIMULATION_RULES_VERSION = 20;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
 /** Rules per system. Empty systems keep their slot, cadence and timing until a milestone fills them. */
 const RUNS: Record<SystemKey, SystemRun> = {
-  environment, production: produce, population: populate, knowledge: research, culture: () => {},
+  environment, production: produce, population: populate, knowledge: research, culture: cultureYear,
   stability: stabilize, decisions: decide, construction: construct, diplomacy: () => {}, war: () => {}, fracture: () => {},
   chronicle: (state, context) => state.chronicle.flush(context.tick),
 };
@@ -49,7 +50,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     weather: new Float64Array(regions).fill(1), harvestFactor: new Float64Array(regions).fill(1), drought: new Uint8Array(regions), famineRecent: new Float64Array(regions), famine: new Uint8Array(regions),
     farmBonus: new Float64Array(regions).fill(1), droughtShield: new Float64Array(regions), storeBonus: new Float64Array(regions).fill(1), spoilageBonus: new Float64Array(regions).fill(1),
     fields: new Float64Array(regions), fieldRanking: rankFarmland(geography, partition), famineWatches: [],
-    famineSince: new Int32Array(regions).fill(-1), fieldShare: new Float64Array(regions).fill(1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), calm: new Float64Array(regions).fill(1), remoteness: new Float64Array(regions), remoteOwner: new Int32Array(regions).fill(-1), reliefTick: new Int32Array(regions).fill(-1), neglected: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions),
+    famineSince: new Int32Array(regions).fill(-1), fieldShare: new Float64Array(regions).fill(1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), calm: new Float64Array(regions).fill(1), remoteness: new Float64Array(regions), remoteOwner: new Int32Array(regions).fill(-1), reliefTick: new Int32Array(regions).fill(-1), neglected: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions), harshness: new Float64Array(regions),
     lineages: [],
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1), groupAt: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
@@ -59,12 +60,13 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0, settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0,
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
-      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
+      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
   state.affinity = regionAffinities(state);
   state.landValue = landValues(state);
+  state.harshness = harshLand(state);
   spawnBands(state);
   state.settledLandmasses = [...new Set(state.living.map(id => partition.regions[coreRegion(state, state.polities[id])].landmass))].sort((a, b) => a - b);
   state.chronicle.flush(0);
@@ -100,6 +102,11 @@ export function worldPopulation(state: SimulationState) {
   let total = 0;
   for (const id of state.living) for (const groupId of state.polities[id].groups) total += state.groups[groupId].size;
   return total;
+}
+
+function roundedCultureStats(state: SimulationState) {
+  const stats = cultureStats(state), round = (value: number) => Math.round(value * 1000) / 1000;
+  return { cultures: stats.cultures, valueSpread: round(stats.valueSpread), cultureDivergence: round(stats.cultureDivergence), foreignShare: round(stats.foreignShare) };
 }
 
 /** Story health's dominance rule (VISION.md: the largest polity holds at most 35% of the world's people, except for up
@@ -208,6 +215,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     unionsRefusedForStrain: m.unionsRefusedForStrain, longestDominance: m.longestDominance, dominanceYears: m.dominanceYears,
     ...neglectStats(state), neglectBegun: m.neglectBegun,
     ...famineByWealth(state),
+    ...roundedCultureStats(state), cultureSplits: m.cultureSplits, civCultureSplits: m.civCultureSplits,
   };
 }
 
@@ -326,9 +334,20 @@ export function stateHash(state: SimulationState) {
   for (const value of state.partition.regionOf) partition = Math.imul(partition ^ (value + 1), 16777619);
   const add = (value: number) => { hash = Math.imul(hash ^ (value | 0), 16777619); hash = Math.imul(hash ^ Math.round((value % 1) * 1e9), 16777619); };
   add(state.tick);
-  for (const group of state.groups) { add(group.size); add(group.region); add(group.arrivedTick); add(group.store); add(group.planted); add(group.birthCarry); add(group.naturalCarry); add(group.famineCarry); add(group.specialists); add(group.foodSecurity * 1e6); }
+  for (const group of state.groups) {
+    add(group.size); add(group.region); add(group.arrivedTick); add(group.store); add(group.planted); add(group.birthCarry); add(group.naturalCarry); add(group.famineCarry); add(group.specialists); add(group.foodSecurity * 1e6);
+    add(group.culture); for (const key of VALUE_KEYS) add(group.values[key] * 1e9);
+  }
+  // Names and languages feed later names (and so the chronicle).
+  const text = (value: string) => { add(value.length); for (let at = 0; at < value.length; at++) add(value.charCodeAt(at)); };
+  for (const culture of state.cultures) {
+    add(culture.deathTick ?? -1); add(culture.people); add(culture.regions); add(culture.hue * 1e6); for (const key of VALUE_KEYS) add(culture.values[key] * 1e9);
+    text(culture.name); add(CULTURE_ORIGIN_NAMES.indexOf(culture.origin)); add(culture.foundedTick);
+    for (const parent of culture.parents) { add(parent.id); add(parent.weight * 1e9); }
+    for (const sounds of [culture.language.initials, culture.language.consonants, culture.language.vowels, culture.language.codas]) { add(sounds.length); for (const sound of sounds) text(sound); }
+  }
   for (const polity of state.polities) {
-    add(polity.kind === 'civ' ? 1 : 0); add(polity.core); add(polity.capital ?? -1); add(polity.homeLandmass); add(polity.knowledge.target);
+    add(polity.kind === 'civ' ? 1 : 0); add(polity.core); add(polity.culture); add(polity.capital ?? -1); add(polity.homeLandmass); add(polity.knowledge.target);
     for (const group of polity.groups) add(group);
     for (const points of polity.knowledge.progress) if (points) add(points);
     for (const known of polity.knowledge.known) add(known);

@@ -1,4 +1,5 @@
 import type { WorldBiome } from '../../shared/generated-world.ts';
+import { VALUE_NAMES } from '../../shared/simulation.ts';
 
 /**
  * Every tunable simulation number (VISION.md rule 5). Values are starting points recorded in the active brief;
@@ -496,8 +497,53 @@ export const FIELD_TUNING = {
   shrinkYears: 10, shrinkMargin: 0.02, watchYears: 100,
 } as const;
 
-/** Culture values of new cultures (0–1 sliders) and how far a daughter culture's values drift from its parent's. */
-export const CULTURE_TUNING = { valueMin: 0.15, valueSpan: 0.7, mutation: 0.1 } as const;
+/**
+ * Cultures (VISION.md "Culture and lineage"). Starting peoples' values (0–1 sliders) and how far a band that breaks
+ * away strays from its people's. Living cultures (M4), once a year:
+ * - each group's values drift toward what its conditions pull them to (`CULTURE_PULLS`) at `driftRate`, and blend
+ *   toward the people it is in contact with at `influenceRate` (toward their weighted mean, scaled down while the
+ *   weights add up to less than 1: a lone weak contact pulls less): neighbouring groups (of another polity at
+ *   `foreignContact`), each weighted by its polity's prestige against its own (2P ÷ (P + P′), where P is √people ×
+ *   (1 + `prestigeEra` × era) × (1 + `prestigeWonder` × standing wonders) × (1 + `prestigeCity` × cities and
+ *   metropolises) × (1 + `prestigeWealth` × its treasury per person ÷ `wealthPerPerson`, at most 1)) and by how alike
+ *   they already are (1 − difference ÷ `confidence`, none beyond it: peoples far apart hardly sway each other, so
+ *   distinct cultures last), and a civilization's heartland at `heartPull` × e^(−remoteness);
+ * - each culture's people take a common random step of up to `fashion` in each value (its own way of going).
+ * Part of a culture whose people's values differ from its heart's by more than `splitDivergence` (the mean over the
+ * five values), over at least `splitRegions` neighbouring regions, splits off as a new culture, with a chance a year of
+ * `splitRate` × how far beyond (in units of `splitDivergence`, at most 1); its event names the values it has more and
+ * less of by at least `splitNote` × `splitDivergence`. A daughter's language changes `languageChanges` sounds, and its
+ * colour turns by up to `hueShift` degrees; the starting peoples' colours lie `hueStep` degrees apart from `hueStart`
+ * (as the observer's lineage colours do).
+ */
+export const CULTURE_TUNING = {
+  valueMin: 0.15, valueSpan: 0.7, mutation: 0.1,
+  driftRate: 0.005, influenceRate: 0.03, foreignContact: 0.25, confidence: 0.25, heartPull: 2, fashion: 0.03,
+  prestigeEra: 0.25, prestigeWonder: 0.5, prestigeCity: 0.1, prestigeWealth: 0.5, wealthPerPerson: 0.2, townShare: 0.25, seaShare: 0.5,
+  splitDivergence: 0.07, splitRegions: 3, splitRate: 0.05, splitNote: 0.25, languageChanges: 2, hueShift: 20, hueStart: 20, hueStep: 137.508,
+} as const;
+
+/** What a group's conditions are measured by (0–1 each; `culture.ts`). */
+export const PULL_MEASURES = ['harshLand', 'frontier', 'townsAndSea', 'hardship', 'openLand'] as const;
+export type PullMeasure = typeof PULL_MEASURES[number];
+
+/**
+ * What pulls a people's values (VISION.md "Drift": harsh land raises Tradition, frontier pressure Militarism): each
+ * value drifts toward `base` + Σ `weight` × measure (kept within 0–1); the bases put the people-weighted mean of each value near 0.5, where
+ * the starting peoples' values centre, so values in decisions keep their meaning. Harsh land: how far its land feeds fewer farmers and herders per
+ * km² than the median habitable region; frontier: the share of its neighbouring regions where other peoples live;
+ * towns and sea: `seaShare` for a coast its people can sail from, the rest for townspeople (full at `townShare` of its
+ * people);
+ * hardship: the memory of hunger; open land: the share of its neighbouring regions that could feed people and where
+ * nobody lives (a frontier of opportunity, which fades as the land fills).
+ */
+export const CULTURE_PULLS: Record<typeof VALUE_NAMES[number], { base: number; pulls: { measure: PullMeasure; weight: number }[] }> = {
+  militarism: { base: 0.45, pulls: [{ measure: 'frontier', weight: 0.6 }] },
+  zeal: { base: 0.45, pulls: [{ measure: 'hardship', weight: 0.6 }] },
+  openness: { base: 0.42, pulls: [{ measure: 'townsAndSea', weight: 0.6 }] },
+  tradition: { base: 0.32, pulls: [{ measure: 'harshLand', weight: 0.6 }] },
+  expansionism: { base: 0.48, pulls: [{ measure: 'openLand', weight: 0.6 }] },
+};
 
 /** Name shapes: a third syllable, an initial consonant cluster, an initial consonant and a final coda, by chance. */
 export const NAME_TUNING = { thirdSyllable: 0.3, initialCluster: 0.25, initialConsonant: 0.85, coda: 0.55, minLength: 3, maxLength: 11 } as const;
@@ -549,6 +595,12 @@ export function validateTunables() {
   if (!(b.splitSpan > 0 && b.splitSizeWeight >= 0 && b.splitPressureWeight >= 0 && b.choiceSharpness > 0 && b.maxChance > 0 && b.maxChance <= 1 && b.minFoodPerPerson > 0 && b.pushBase >= 0 && b.pushBase <= 1)) problems.push('band choice weights are invalid');
   const c = CULTURE_TUNING;
   if (!(c.valueMin >= 0 && c.valueSpan > 0 && c.valueMin + c.valueSpan <= 1 && c.mutation >= 0)) problems.push('culture value ranges are invalid');
+  if (![c.driftRate, c.influenceRate, c.splitRate].every(rate => rate >= 0 && rate <= 1) || !(c.foreignContact >= 0 && c.confidence > 0 && c.heartPull >= 0 && c.fashion >= 0 && c.fashion < 0.5 && c.prestigeEra >= 0 && c.prestigeWonder >= 0 && c.prestigeCity >= 0 && c.prestigeWealth >= 0 && c.wealthPerPerson > 0 && c.townShare > 0 && c.townShare <= 1 && c.seaShare >= 0 && c.seaShare <= 1 && c.splitNote >= 0 && c.hueStep > 0)) problems.push('culture drift and influence rates are invalid');
+  if (!(c.splitDivergence > 0 && c.splitDivergence < 1 && Number.isInteger(c.splitRegions) && c.splitRegions >= 1 && Number.isInteger(c.languageChanges) && c.languageChanges >= 0 && c.hueShift >= 0 && c.hueShift <= 180)) problems.push('culture splitting settings are invalid');
+  for (const key of VALUE_NAMES) {
+    const pull = CULTURE_PULLS[key];
+    if (!pull || !(pull.base >= 0 && pull.base <= 1) || pull.pulls.some(entry => !PULL_MEASURES.includes(entry.measure) || !(Math.abs(entry.weight) <= 1))) problems.push(`the pulls on ${key} need a base within 0–1 and known measures with weights within ±1`);
+  }
   const n = NAME_TUNING;
   if (![n.thirdSyllable, n.initialCluster, n.initialConsonant, n.coda].every(value => value >= 0 && value <= 1) || !(n.minLength >= 1 && n.maxLength >= n.minLength)) problems.push('name shapes are invalid');
   if (!(Number.isInteger(SERIES_YEARS) && SERIES_YEARS >= 1)) problems.push('the chart series step must be whole years');

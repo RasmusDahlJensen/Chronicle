@@ -10,11 +10,12 @@ import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { capitalKm, knownRegionCount } from './perception.ts';
 import { stabilityOf } from './stability.ts';
-import type { Polity, SimulationState } from './state.ts';
+import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState } from './state.ts';
+import { ancestry, lineOf } from './culture.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'fields' | 'wonders' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'fields' | 'wonders' | 'series' | 'inspect'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -30,7 +31,8 @@ function worn(state: SimulationState, settlement: SimulationState['settlements']
  * state; it never changes the simulation.
  */
 export function observerView(state: SimulationState, inspect: number | null): View {
-  const ids: number[] = [], regions: number[] = [], populations: number[] = [], kinds: number[] = [], eras: number[] = [], lineages: number[] = [];
+  const ids: number[] = [], regions: number[] = [], populations: number[] = [], kinds: number[] = [], eras: number[] = [], lineages: number[] = [], cultureIds: number[] = [];
+  const living = new Map<number, { regions: number; population: number }>();
   let population = 0, civs = 0, specialists = 0, leadingEra = 0;
   const sizes: { id: number; people: number }[] = [];
   for (const id of state.living) {
@@ -38,7 +40,9 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     let people = 0;
     for (const groupId of polity.groups) {
       const group = state.groups[groupId];
-      ids.push(id); regions.push(group.region); populations.push(group.size); kinds.push(polity.kind === 'civ' ? 1 : 0); eras.push(polity.knowledge.era); lineages.push(polity.lineage);
+      ids.push(id); regions.push(group.region); populations.push(group.size); kinds.push(polity.kind === 'civ' ? 1 : 0); eras.push(polity.knowledge.era); lineages.push(polity.lineage); cultureIds.push(group.culture);
+      const culture = living.get(group.culture) ?? { regions: 0, population: 0 };
+      culture.regions++; culture.population += group.size; living.set(group.culture, culture);
       people += group.size; specialists += group.specialists;
     }
     population += people; leadingEra = Math.max(leadingEra, polity.knowledge.era); sizes.push({ id, people });
@@ -73,17 +77,21 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
   return {
     population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest, civList,
-    markers: { ids, regions, populations, kinds, eras, lineages }, settlements, roads, fields, series,
+    cultures: [...living].sort(([a, x], [b, y]) => y.population - x.population || a - b).slice(0, 2_000).map(([id, entry]) => {
+      const culture = state.cultures[id];
+      return { id, name: culture.name, hue: round(culture.hue, 2), parent: culture.parents.length ? heaviestParent(state, culture).name : null, ...entry };
+    }),
+    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds }, settlements, roads, fields, series,
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
-    }), inspect: inspect === null ? null : inspectRegion(state, inspect),
+    }), inspect: inspect === null ? null : inspectRegion(state, inspect, living),
   };
 }
 
 const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 10 ** digits;
 
-function inspectRegion(state: SimulationState, region: number): ObserverFrame['inspect'] {
+function inspectRegion(state: SimulationState, region: number, living: Map<number, { regions: number; population: number }>): ObserverFrame['inspect'] {
   if (!Number.isInteger(region) || region < 0 || region >= state.partition.regions.length) return null;
   const occupant = state.occupant[region];
   const polity = occupant >= 0 ? state.polities[occupant] : null, group = state.groupAt[region] >= 0 ? state.groups[state.groupAt[region]] : null;
@@ -177,6 +185,7 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
   });
   return {
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews, neglected: state.neglected[region] === 1,
+    people: group ? peopleView(state, group, living.get(group.culture)!) : null,
     weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)), relief: state.reliefTick[region] >= 0 && state.tick - state.reliefTick[region] <= 1 },
     fields: (() => {
       const land = fieldLand(state.fieldRanking, region);
@@ -184,6 +193,25 @@ function inspectRegion(state: SimulationState, region: number): ObserverFrame['i
     })(),
     food: { forage: output(0), hunt: output(1), fish: output(2), herd: output(3), farm: output(4) },
     polity: view,
+  };
+}
+
+function heaviestParent(state: SimulationState, culture: Culture) {
+  return state.cultures[culture.parents.reduce((best, entry) => entry.weight > best.weight ? entry : best).id];
+}
+
+const roundValues = (values: CultureValues) => Object.fromEntries(VALUE_KEYS.map(key => [key, round(values[key])])) as CultureValues;
+
+/** The people of a region for the inspector: their culture, its origin and descent, and their values; where and how
+ *  many live by it now (`living`, counted from the groups as the map is). */
+function peopleView(state: SimulationState, group: PopulationGroup, living: { regions: number; population: number }): NonNullable<ObserverFrame['inspect']>['people'] {
+  const culture = state.cultures[group.culture];
+  return {
+    culture: culture.name, origin: culture.origin, parent: culture.parents.length ? heaviestParent(state, culture).name : null, founded: culture.foundedTick,
+    regions: living.regions, population: living.population,
+    ancestry: ancestry(state, culture.id).slice(0, 6).map(entry => ({ name: state.cultures[entry.id].name, share: round(entry.share) })),
+    line: lineOf(state, culture.id, 6).map(entry => ({ name: entry.name, origin: entry.origin, founded: entry.foundedTick })),
+    values: roundValues(group.values), cultureValues: roundValues(culture.values),
   };
 }
 

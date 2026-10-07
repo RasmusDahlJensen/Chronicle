@@ -58,7 +58,7 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   secession: '{@rebels} secedes from {@civ}.',
   civilWar: 'Civil war breaks out in {@civ}.',
   civDestroyed: 'The {name} civilization comes to an end, and {capital} is left in ruins.',
-  cultureSplit: 'The {culture} culture splits from {parent}.',
+  cultureSplit: 'In {regions} regions of the {polity}{?others| and beyond}, {population} people have grown apart from the {parent} and become the {culture}{?both|, with more {more} and less {less} than their forebears}{?onlyMore|, with more {more} than their forebears}{?onlyLess|, with less {less} than their forebears}.',
   hybridCulture: 'A new {culture} culture forms from {parents}.',
   religionFounded: '{religion} is founded in region {region}.',
   schism: '{religion} splits from {parent}.',

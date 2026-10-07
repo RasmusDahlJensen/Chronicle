@@ -178,6 +178,16 @@ function storyHealth(rows: SeedResult[]) {
     const percent = (share: number) => `${Math.round(share * 1000) / 10}%`;
     lines.push(`| ${result.seed} | ${each(row => percent(row.regionsNeglected))} · ${last.neglectBegun} | ${each(row => percent(row.roadsWorn))} · ${last.roadsLost} | ${each(row => percent(row.buildingsWorn))} · ${last.buildingsLost} |`);
   }
+  // M4.1 (VISION.md "Culture and lineage"): living cultures, splits, and how far peoples differ.
+  lines.push('', '| Seed | Living cultures at 1,000 / 2,000 / 3,000 | Culture splits by 1,000 / 2,000 / 3,000 (of those from a culture that rules a civilization; M4: ≥ 1 by 2,000) | First split from a culture that rules a civilization: year, parent → daughter | Spread of values between cultures · divergence within them, at 1,000 / 2,000 / 3,000 | Civilizations\' people not of their realm\'s culture at 1,000 / 2,000 / 3,000 |',
+    '| --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year);
+    const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    const percent = (share: number) => `${Math.round(share * 1000) / 10}%`;
+    const first = ((result.report.events ?? []) as { type: string; tick: number; data: Record<string, unknown> }[]).find(event => event.type === 'cultureSplit' && event.data.fromCiv === true);
+    lines.push(`| ${result.seed} | ${each(row => String(row.cultures))} | ${each(row => `${row.cultureSplits} (${row.civCultureSplits})`)} | ${first ? `${Math.floor(first.tick / 12)}: ${first.data.parent} → ${first.data.culture}` : '—'} | ${each(row => `${row.valueSpread.toFixed(3)} · ${row.cultureDivergence.toFixed(3)}`)} | ${each(row => percent(row.foreignShare))} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');

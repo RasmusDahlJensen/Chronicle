@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 21;
+export const SIMULATION_PROTOCOL_VERSION = 22;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -37,6 +37,12 @@ export const EVENT_TYPES = [
 export type EventType = typeof EVENT_TYPES[number];
 
 const id = () => Type.Integer({ minimum: 0, maximum: 2 ** 31 - 1 });
+
+/** How a culture began (`OriginSchema` lists the same names), and a people's five values (0–1). */
+export const CULTURE_ORIGIN_NAMES = ['founding', 'breakaway', 'split', 'hybrid'] as const;
+export const VALUE_NAMES = ['militarism', 'zeal', 'openness', 'tradition', 'expansionism'] as const;
+const OriginSchema = Type.Union([Type.Literal('founding'), Type.Literal('breakaway'), Type.Literal('split'), Type.Literal('hybrid')]);
+const ValuesSchema = Type.Object(Object.fromEntries(VALUE_NAMES.map(key => [key, Type.Number({ minimum: 0, maximum: 1 })])) as Record<typeof VALUE_NAMES[number], ReturnType<typeof Type.Number>>, { additionalProperties: false });
 export const SimulationControlSchema = Type.Union([
   Type.Object({ action: Type.Literal('play') }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal('pause') }, { additionalProperties: false }),
@@ -83,6 +89,13 @@ export const ObserverFrameSchema = Type.Object({
   leadingEra: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
   /** Peoples by descent: the culture name of each starting band, indexed by lineage. */
   lineages: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 1_000 }),
+  /** Living cultures where people live (VISION.md "Culture and lineage"), most people first, at most 2,000: id, name,
+   *  map hue (degrees; a daughter's lies near its parent's), its heaviest parent's name, and the regions and people
+   *  where it is the people's culture. */
+  cultures: Type.Array(Type.Object({
+    id: id(), name: Type.String({ maxLength: 40 }), hue: Type.Number({ minimum: 0, maximum: 360 }), parent: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
+    regions: Type.Integer({ minimum: 1 }), population: Type.Integer({ minimum: 0 }),
+  }, { additionalProperties: false }), { maxItems: 2_000 }),
   /** The largest living polities by population (at most 10), for the map legend. */
   largest: Type.Array(Type.Object({
     id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]),
@@ -93,13 +106,14 @@ export const ObserverFrameSchema = Type.Object({
     id: id(), name: Type.String({ maxLength: 40 }), regions: Type.Integer({ minimum: 1 }), population: Type.Integer({ minimum: 0 }),
     era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), capital: Type.String({ maxLength: 40 }), capitalCell: id(),
   }, { additionalProperties: false }), { maxItems: 100 }),
-  /** Living bands (one per region) as parallel arrays: their polity's id, region, population, the polity's kind (0 tribe / 1 civilization), era index and lineage; for map markers and territories. */
+  /** Living bands (one per region) as parallel arrays: their polity's id, region, population, the polity's kind (0 tribe / 1 civilization), era index and lineage, and the culture of the people there; for map markers and territories. */
   markers: Type.Object({
     ids: Type.Array(id(), { maxItems: 20_000 }), regions: Type.Array(id(), { maxItems: 20_000 }),
     populations: Type.Array(Type.Integer({ minimum: 1 }), { maxItems: 20_000 }),
     kinds: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 20_000 }),
     eras: Type.Array(Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), { maxItems: 20_000 }),
     lineages: Type.Array(Type.Integer({ minimum: 0, maximum: 999 }), { maxItems: 20_000 }),
+    cultures: Type.Array(id(), { maxItems: 20_000 }),
   }, { additionalProperties: false }),
   /** Living settlements as parallel arrays (id, cell, owner, capital 0/1, tier index into SETTLEMENT_TIERS, and the
    *  name of a town or larger, or of a capital, else ''), for settlement marks and labels. */
@@ -144,6 +158,18 @@ export const ObserverFrameSchema = Type.Object({
     weather: Type.Object({
       harvest: Type.Number({ minimum: 0 }), drought: Type.Integer({ minimum: 0 }), famine: Type.Boolean(), irrigation: Type.Number({ minimum: 1 }), relief: Type.Boolean(),
     }, { additionalProperties: false }),
+    /** The people living here (null for empty land): their culture, how it began (and its heaviest parent), the tick
+     *  it began (`founded`, as for each entry of its line), where and how many live by it now, its descent from the
+     *  starting peoples (shares summing to 1, largest first), its line back through its heaviest parents, and the values
+     *  of the people here and of the whole culture. */
+    people: Type.Union([Type.Null(), Type.Object({
+      culture: Type.String({ maxLength: 40 }), origin: OriginSchema,
+      parent: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]), founded: Type.Integer({ minimum: 0 }),
+      regions: Type.Integer({ minimum: 0 }), population: Type.Integer({ minimum: 0 }),
+      ancestry: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), share: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 6 }),
+      line: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), origin: OriginSchema, founded: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 6 }),
+      values: ValuesSchema, cultureValues: ValuesSchema,
+    }, { additionalProperties: false })]),
     /** Whether its realm lets its buildings and roads go unkept this year (deferred maintenance; they wear). */
     neglected: Type.Boolean(),
     /** Its cultivated land: the share of its farmland's labour under cultivation (0–1) and the cells it covers. */
@@ -272,9 +298,17 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   const frame = value as ObserverFrame;
   for (let at = 1; at < frame.events.length; at++) if (frame.events[at].id <= frame.events[at - 1].id) throw invalid();
   if (frame.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
-  const { ids, regions, populations, kinds, eras, lineages } = frame.markers;
-  if ([regions, populations, kinds, eras, lineages].some(array => array.length !== ids.length)) throw invalid();
+  const { ids, regions, populations, kinds, eras, lineages, cultures } = frame.markers;
+  if ([regions, populations, kinds, eras, lineages, cultures].some(array => array.length !== ids.length)) throw invalid();
   if (lineages.some(lineage => lineage >= frame.lineages.length)) throw invalid();
+  // The culture list: each culture once, most people first, with exactly the regions and people its markers report;
+  // every marker's culture is listed unless the list is full.
+  const listed = new Map(frame.cultures.map(entry => [entry.id, entry]));
+  if (listed.size !== frame.cultures.length || frame.cultures.some((entry, at) => at > 0 && entry.population > frame.cultures[at - 1].population)) throw invalid();
+  const tally = new Map<number, { regions: number; population: number }>();
+  cultures.forEach((culture, index) => { const entry = tally.get(culture) ?? { regions: 0, population: 0 }; entry.regions++; entry.population += populations[index]; tally.set(culture, entry); });
+  for (const entry of frame.cultures) { const counted = tally.get(entry.id); if (!counted || counted.regions !== entry.regions || counted.population !== entry.population) throw invalid(); }
+  if (frame.cultures.length < 2_000 && tally.size !== frame.cultures.length) throw invalid();
   const settlements = frame.settlements;
   if ([settlements.cells, settlements.owners, settlements.capitals, settlements.tiers, settlements.names, settlements.features].some(array => array.length !== settlements.ids.length)) throw invalid();
   // One marker per region; all of a polity's markers agree on its kind.

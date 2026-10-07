@@ -62,7 +62,7 @@ export function expand(state: SimulationState, context: Pick<TickContext, 'tick'
     move(state, context, tribe, band, to, { displaced: 1 });
     state.metrics.displaced++;
   } else if (settling !== null) return settling;
-  const group = newGroup(state, civ, target, settlers);
+  const group = newGroup(state, civ, target, settlers, source.values);
   const carried = Math.floor(source.store * settlers / source.size);
   const flows = state.ledger.food.get(source.id);
   if (flows) flows.carriedOut += carried;

@@ -42,6 +42,16 @@ export function polityColor(id: number): [number, number, number] {
   return hslToRgb(hue, id % 2 ? 0.5 : 0.68, [0.4, 0.52, 0.62][id % 3]);
 }
 
+/**
+ * A culture's map colour as [r, g, b] from its hue (a daughter's lies near its parent's, so families of cultures share
+ * a colour family), in three lightness steps by id so neighbours differ. The hue circle is squeezed evenly into the
+ * colours outside the blues of seas and lakes (180–240°), so nearby hues stay nearby (except across 0°).
+ */
+export function cultureColor(hue: number, id: number): [number, number, number] {
+  const shown = (240 + ((hue % 360 + 360) % 360) * 300 / 360) % 360;
+  return hslToRgb(shown, 0.6, [0.42, 0.5, 0.58][id % 3]);
+}
+
 /** An era's map colour as [r, g, b]. */
 export function eraColor(era: number): [number, number, number] {
   const hex = ERA_COLORS[era] ?? ERA_COLORS[0];

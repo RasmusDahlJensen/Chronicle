@@ -14,8 +14,8 @@ import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { describeEvent } from '../observer/events.ts';
-import { ERA_NAMES, RIVER_TIERS, simulationDate, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
-import { cssColor, ERA_COLORS, eraColor, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
+import { ERA_NAMES, RIVER_TIERS, simulationDate, VALUE_NAMES, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
+import { cssColor, cultureColor, ERA_COLORS, eraColor, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -59,6 +59,17 @@ function BudgetDetail({ wealth }: { wealth: NonNullable<NonNullable<Inspected['p
   const income = revenue.trades + revenue.farms + revenue.sites, spending = costs.administration + costs.services + costs.upkeep + costs.roads, balance = income - spending;
   const works = [wealth.projects ? `${number.format(wealth.projects)} ${wealth.projects === 1 ? 'building' : 'buildings'}` : '', wealth.roadWorks ? `${number.format(wealth.roadWorks)} ${wealth.roadWorks === 1 ? 'road' : 'roads'}` : ''].filter(Boolean).join(' and ');
   return <p className="atlas-panel-note" id="polity-wealth">Treasury {number.format(wealth.treasury)} · taxes {Math.round(wealth.taxRate * 100)}% of what its people produce · revenue {number.format(income)} a year (trades {number.format(revenue.trades)}, farms {number.format(revenue.farms)}{revenue.sites ? `, mines and quarries ${number.format(revenue.sites)}` : ''}) · costs {number.format(spending)} a year (administration {number.format(costs.administration)}, services {number.format(costs.services)}, upkeep {number.format(costs.upkeep)}{costs.roads ? `, roads ${number.format(costs.roads)}` : ''}) · {balance >= 0 ? 'a surplus' : 'a deficit'} of {number.format(Math.abs(balance))} a year{wealth.arrears >= 0.005 ? ` · in arrears: ${Math.round(wealth.arrears * 100)}% of its costs unpaid, so its buildings and roads wear and its far regions grow restless` : ''}{works ? ` · ${works} under construction` : ''}.</p>;
+}
+
+/** The people of the inspected region (VISION.md "Ancestry query"): their culture, how it began, its descent and their values. */
+function PeopleDetail({ people }: { people: NonNullable<Inspected['people']> }) {
+  const origin = people.origin === 'founding' ? 'one of the starting peoples' : people.origin === 'breakaway' ? `a band that broke away from the ${people.parent}`
+    : people.origin === 'split' ? `grew apart from the ${people.parent}` : `formed from the ${people.parent} and others`;
+  return <div className="world-cell-band" role="group" aria-label="People of this region">
+    <p className="atlas-detail-label">People</p><h3 id="people-culture">{people.culture} <span>· {origin}, year {simulationDate(people.founded).year}</span></h3>
+    <p className="atlas-panel-note" id="people-ancestry">Descent from the starting peoples: {people.ancestry.map(entry => `${Math.round(entry.share * 100)}% ${entry.name}`).join(', ')}{people.line.length ? `. Line: ${people.line.map(entry => entry.name).join(' ← ')}` : ''}. The culture lives in {number.format(people.regions)} {people.regions === 1 ? 'region' : 'regions'} ({formatPeople(people.population)} people).</p>
+    <p className="atlas-panel-note" id="people-values">Values here (the whole culture's): {VALUE_NAMES.map(key => `${key} ${people.values[key].toFixed(2)} (${people.cultureValues[key].toFixed(2)})`).join(' · ')}.</p>
+  </div>;
 }
 
 /** A band or civilization in the inspected region: people, food, specialists and knowledge (VISION.md M2 inspection). */
@@ -175,7 +186,7 @@ export function GeneratedWorldLab() {
   const [showFields, setShowFields] = useState(true);
   // Territories of the peoples living on the land, coloured by polity (each tribe or civilization), by descent (which
   // starting band) or by era.
-  const [peoples, setPeoples] = useState<'polity' | 'descent' | 'era' | 'off'>('polity');
+  const [peoples, setPeoples] = useState<'polity' | 'descent' | 'culture' | 'era' | 'off'>('polity');
   const [regions, setRegions] = useState<{ map: RegionMap; cells: Uint16Array; fieldRank: Uint16Array } | null>(null);
   const [regionError, setRegionError] = useState<string | null>(null);
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
@@ -310,9 +321,11 @@ export function GeneratedWorldLab() {
     if (!renderer.current) return;
     if (peoples === 'off' || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
     const fill = new Uint32Array(regions.map.regions.length);
-    const { ids, regions: at, kinds, eras, lineages } = frame.markers;
+    const { ids, regions: at, kinds, eras, lineages, cultures } = frame.markers;
+    const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue]));
     for (let index = 0; index < at.length; index++) {
-      const color = peoples === 'era' ? eraColor(eras[index]) : peoples === 'descent' ? lineageColor(lineages[index]) : polityColor(ids[index]);
+      const color = peoples === 'era' ? eraColor(eras[index]) : peoples === 'descent' ? lineageColor(lineages[index])
+        : peoples === 'culture' ? cultureColor(hues.get(cultures[index]) ?? 0, cultures[index]) : polityColor(ids[index]);
       if (at[index] < fill.length) fill[at[index]] = packColor(color, kinds[index] === 1 ? TERRITORY_ALPHA.civ : TERRITORY_ALPHA.band);
     }
     renderer.current.setTerritories(fill);
@@ -391,9 +404,9 @@ export function GeneratedWorldLab() {
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
             <ul className="world-resource-legend" aria-label="Resource site legend">{RESOURCE_IDS.map(resource => <li key={resource} title={`Extraction: ${RESOURCE_RULES[resource].extractionTechnology}`}><ResourceIcon resource={resource} />{RESOURCES[resource].label}</li>)}</ul>
             <fieldset className="world-peoples-options"><legend>Peoples</legend>
-              {([['polity', 'Political'], ['descent', 'By descent'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
+              {([['polity', 'Political'], ['descent', 'By descent'], ['culture', 'By culture'], ['era', 'By era'], ['off', 'Hidden']] as const).map(([value, label]) => <label key={value}><input type="radio" name="world-peoples" value={value} checked={peoples === value} onChange={() => setPeoples(value)} /> {label}</label>)}
             </fieldset>
-            <p className="atlas-panel-note">Every region a tribe's band or a civilization's village lives in is filled: lighter for roaming tribes, stronger for settled civilizations. Political: each civilization or tribe has its own colour, with capitals as stars; by descent, each of the starting peoples and all who broke away from it share one.</p>
+            <p className="atlas-panel-note">Every region a tribe's band or a civilization's village lives in is filled: lighter for roaming tribes, stronger for settled civilizations. Political: each civilization or tribe has its own colour, with capitals as stars; by descent, each of the starting peoples and all who broke away from it share one; by culture, each region shows the culture of the people living there.</p>
           </section>
           {peoples !== 'off' && frame && <section className="atlas-panel-section world-peoples-legend" aria-label="Peoples legend">
             {peoples === 'polity' ? <><div className="atlas-section-heading"><h2>Largest polities</h2><span>regions · people</span></div>
@@ -403,6 +416,10 @@ export function GeneratedWorldLab() {
               <ul>{peopleSummary.lineages.slice(0, 10).map(entry => <li key={entry.lineage}><span><span className="atlas-biome-swatch" style={{ backgroundColor: cssColor(lineageColor(entry.lineage)) }} aria-hidden="true" />{entry.name}</span><span>{number.format(entry.regions)} · {formatPeople(entry.population)}</span></li>)}</ul>
               {peopleSummary.lineages.length > 10 && <p className="atlas-panel-note">and {peopleSummary.lineages.length - 10} more {peopleSummary.lineages.length - 10 === 1 ? 'people' : 'peoples'}.</p>}
               <p className="atlas-panel-note">Each is named after the culture of its starting band; daughters keep their founders' colour.</p></>
+              : peoples === 'culture' ? <><div className="atlas-section-heading"><h2>Cultures</h2><span>regions · people</span></div>
+              <ul id="culture-legend">{frame.cultures.slice(0, 10).map(entry => <li key={entry.id}><span><span className="atlas-biome-swatch" style={{ backgroundColor: cssColor(cultureColor(entry.hue, entry.id)) }} aria-hidden="true" />{entry.name}{entry.parent ? <span className="world-polity-kind">from the {entry.parent}</span> : null}</span><span>{number.format(entry.regions)} · {formatPeople(entry.population)}</span></li>)}</ul>
+              {frame.cultures.length > 10 && <p className="atlas-panel-note">and {frame.cultures.length - 10} more {frame.cultures.length - 10 === 1 ? 'culture' : 'cultures'}.</p>}
+              <p className="atlas-panel-note">A culture belongs to its people, not to a realm. Where its people grow apart it splits, and the daughter keeps a colour near its parent's.</p></>
               : <><div className="atlas-section-heading"><h2>Eras</h2><span>polities</span></div>
               <ul>{ERA_NAMES.map((era, index) => peopleSummary.eras[index] ? <li key={era}><span><span className="atlas-biome-swatch" style={{ backgroundColor: ERA_COLORS[index] }} aria-hidden="true" />{era}</span><span>{number.format(peopleSummary.eras[index])}</span></li> : null)}</ul></>}
           </section>}
@@ -459,6 +476,7 @@ export function GeneratedWorldLab() {
                 {inspected && <div><dt>Last harvest</dt><dd id="region-harvest">{Math.round(inspected.weather.harvest * 100)}% of the crops{inspected.weather.drought ? ` · drought, ${inspected.weather.drought} months left` : ''}{inspected.weather.famine ? ' · famine' : ''}{inspected.weather.relief ? ' · relief food arriving' : ''}{inspected.weather.irrigation > 1 ? ` · irrigated (farming ×${inspected.weather.irrigation.toFixed(2)})` : ''}</dd></div>}
               </dl>
               {inspected && <p className="atlas-panel-note">At capacity this land yields about {number.format(inspected.food.forage)} from foraging, {number.format(inspected.food.hunt)} from hunting, {number.format(inspected.food.fish)} from fishing{inspected.food.herd || inspected.food.farm ? `, ${number.format(inspected.food.herd)} from herding and ${number.format(inspected.food.farm)} from farming` : ''} (people fed per year), for the people who live here or, on empty land, for foragers. Capacity is the population whose food equals its need at the current game stock.</p>}
+              {inspected?.people && <PeopleDetail people={inspected.people} />}
               {inspected?.polity ? <PolityDetail polity={inspected.polity} /> : inspected && <p className="atlas-panel-note">No one lives here.</p>}
               {inspected && inspected.settlements.length > 0 && <SettlementList settlements={inspected.settlements} />}
             </section>}
