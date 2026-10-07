@@ -54,17 +54,23 @@ function beginDroughts(state: SimulationState, context: TickContext) {
       state.drought[edge.region] = years * 12;
       struck.push(edge.region);
     }
-    state.metrics.droughts++;
-    const peoples = [...new Set(struck.map(at => state.occupant[at]).filter(id => id >= 0))];
-    if (!peoples.length) continue;
-    let people = 0;
-    for (const at of struck) if (state.groupAt[at] >= 0) people += state.groups[state.groupAt[at]].size;
-    state.chronicle.emit({
-      type: 'drought', actors: peoples.slice(0, 8).map(id => ({ id, role: 'polity' })), region, settlement: null,
-      causes: [{ factor: arid ? 'dryLand' : 'weather', weight: 1 }], importance: Math.min(0.3, 0.04 + people / 2_000_000),
-      data: { name: state.polities[peoples[0]].name, others: peoples.length > 1, more: struck.length - 1, oneMore: struck.length === 2, moreRegions: struck.length > 2, years, oneYear: years === 1, severalYears: years > 1, people },
-    });
+    strikeDrought(state, struck, years, arid ? 'dryLand' : 'weather');
   }
+}
+
+/** A drought begins for `years` in `struck` (where it began, then those it spread to): an event where it touches people. */
+export function strikeDrought(state: SimulationState, struck: number[], years: number, cause: string) {
+  for (const at of struck) state.drought[at] = years * 12;
+  state.metrics.droughts++;
+  const peoples = [...new Set(struck.map(at => state.occupant[at]).filter(id => id >= 0))];
+  if (!peoples.length) return;
+  let people = 0;
+  for (const at of struck) if (state.groupAt[at] >= 0) people += state.groups[state.groupAt[at]].size;
+  state.chronicle.emit({
+    type: 'drought', actors: peoples.slice(0, 8).map(id => ({ id, role: 'polity' })), region: struck[0], settlement: null,
+    causes: [{ factor: cause, weight: 1 }], importance: Math.min(0.3, 0.04 + people / 2_000_000),
+    data: { name: state.polities[peoples[0]].name, others: peoples.length > 1, more: struck.length - 1, oneMore: struck.length === 2, moreRegions: struck.length > 2, years, oneYear: years === 1, severalYears: years > 1, people },
+  });
 }
 
 /** The share of its crops a region's harvest comes in at now: the weather, and less in drought (irrigation softens it). */

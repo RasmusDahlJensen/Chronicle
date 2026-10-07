@@ -509,6 +509,8 @@ export interface SimulationState {
   series: [number, number, number][];
   /** Highest event id already checked by the invariants. */
   checkedEvents: number;
+  /** Development controls used on this history (Dev 02's scenario triggers; 0 in every history left to its rules). */
+  devActions: number;
 }
 /**
  * What a system sees of the current tick. `stream(entity)` returns a fresh generator keyed by (seed, tick, system,

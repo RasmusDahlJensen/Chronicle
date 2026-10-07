@@ -39,6 +39,8 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   assimilation: '{?one|In region {region}}{?more|In {regions} regions} of the {civ}, {population} people of the {culture} have taken up the ways of the {ruling}.',
   faithSpread: 'The {religion} faith spreads to {?one|region {region}}{?more|{regions} regions} of the {polity}, {population} people.',
   traitEarned: 'The {culture} are now known as {trait}, for the life most of them have led for {years} years.',
+  // Conditionals cannot nest: `unready` is only set with `foundReligion`.
+  devScenario: 'Development control (test only): {?drought|a drought is set off in region {region}}{?research|the {polity} are made to finish their research}{?foundReligion|the {polity} are made to found a religion}{?unready|, before they know Organized religion}{?splitCulture|the people of region {region} and their neighbours are made to split off from their culture}.',
   neglect: '{?begun|The {civ} can no longer keep up all their realm: the buildings and roads of {regions} of their far regions go unkept.}{?ended|The {civ} keep up all their buildings and roads again.}',
   arrears: '{?begun|The {civ} can no longer pay for running their realm: their buildings and roads go unkept, and their far provinces grow restless.}{?ended|The {civ} pay their way again.}',
   knowledgeShared: 'The {name} and the {other} agree to share what they know for {years} years.',

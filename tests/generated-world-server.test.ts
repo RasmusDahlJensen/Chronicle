@@ -5,7 +5,7 @@ import { readBackendConfig } from '../server/config.ts';
 import { parseWorldManifest, parseWorldTile, inspectWorldCell, decodeWorldSurface, MAX_WORLD_MANIFEST_BYTES, MAX_WORLD_TILE_BYTES } from '../shared/generated-world.ts';
 
 test('large generated world travels through actual workers, manifest, cache and exact cell tiles', async t => {
-  const app = await buildApp({ logger: false, config: { ...readBackendConfig({}), workers: 1 } });
+  const app = await buildApp({ logger: false, config: { ...readBackendConfig({ CHRONICLE_CHECKPOINTS: 'off' }), workers: 1 } });
   t.after(() => app.close());
   const query = '?seed=Chronicle&size=large';
   const responses = await Promise.all([app.inject(`/api/world${query}`), app.inject(`/api/world${query}`)]);
@@ -58,7 +58,7 @@ test('world routes reject malformed and out-of-range inputs before consuming com
 });
 
 test('cache eviction and host restarts reproduce the same seed and climate', async t => {
-  const app = await buildApp({ logger: false, config: { ...readBackendConfig({}), workers: 1 } });
+  const app = await buildApp({ logger: false, config: { ...readBackendConfig({ CHRONICLE_CHECKPOINTS: 'off' }), workers: 1 } });
   t.after(() => app.close());
   const first = await app.inject('/api/world?seed=Repeat&size=standard');
   assert.equal(first.statusCode, 200);
@@ -66,7 +66,7 @@ test('cache eviction and host restarts reproduce the same seed and climate', asy
   assert.equal((await app.inject('/api/world?seed=Repeat&size=standard')).body, first.body);
   assert.equal((await app.inject('/api/ready')).json().compute.completed, 4);
   await app.close();
-  const restarted = await buildApp({ logger: false, config: { ...readBackendConfig({}), workers: 1 } });
+  const restarted = await buildApp({ logger: false, config: { ...readBackendConfig({ CHRONICLE_CHECKPOINTS: 'off' }), workers: 1 } });
   t.after(() => restarted.close());
   assert.equal((await restarted.inject('/api/world?seed=Repeat&size=standard')).body, first.body);
 });

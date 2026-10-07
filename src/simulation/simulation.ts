@@ -62,7 +62,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
       faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
-    timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0,
+    timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
   state.affinity = regionAffinities(state);
@@ -341,6 +341,8 @@ export function stateHash(state: SimulationState) {
   for (const value of state.partition.regionOf) partition = Math.imul(partition ^ (value + 1), 16777619);
   const add = (value: number) => { hash = Math.imul(hash ^ (value | 0), 16777619); hash = Math.imul(hash ^ Math.round((value % 1) * 1e9), 16777619); };
   add(state.tick);
+  // Development controls used (Dev 02); unaltered histories hash as they did before the counter existed.
+  if (state.devActions) add(state.devActions);
   for (const group of state.groups) {
     add(group.size); add(group.region); add(group.arrivedTick); add(group.store); add(group.planted); add(group.birthCarry); add(group.naturalCarry); add(group.famineCarry); add(group.specialists); add(group.foodSecurity * 1e6);
     add(group.culture); add(group.faith); add(group.faithApart); for (const key of VALUE_KEYS) add(group.values[key] * 1e9);

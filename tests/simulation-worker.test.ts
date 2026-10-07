@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { checkpointPath, openCheckpointStore } from '../server/workers/checkpoints.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { buildApp } from '../server/app.ts';
 import { readBackendConfig } from '../server/config.ts';
@@ -34,11 +39,72 @@ test('the dedicated worker steps, plays, pauses, runs to a year and resets its c
   const arrived = await simulation.frame(0);
   assert.equal(arrived.playing, false);
   assert.equal(arrived.runTo, null);
+  assert.deepEqual(arrived.dev, { actions: 0, refused: null, checkpoints: null, loadedFrom: null });
+  // Development controls (Dev 02): a scenario trigger acts now, between months, and the frame says the history was altered.
+  const band = arrived.markers.regions[arrived.markers.kinds.indexOf(0)];
+  const altered = parseObserverFrame(await simulation.control({ action: 'scenario', scenario: 'drought', region: band }, arrived.eventCount));
+  assert.equal(altered.tick, arrived.tick, 'no month passes');
+  assert.deepEqual(altered.dev, { actions: 1, refused: null, checkpoints: null, loadedFrom: null });
+  assert.deepEqual(altered.events.slice(0, 2).map(event => event.type), ['devScenario', 'drought']);
+  const refused = await simulation.control({ action: 'scenario', scenario: 'foundReligion', region: band });
+  assert.match(refused.dev.refused ?? '', /tribe/);
+  assert.equal(refused.dev.actions, 1, 'a refused control changes nothing');
+  assert.equal(refused.eventCount, altered.eventCount);
   assert.equal((await simulation.control({ action: 'reset' })).tick, 0);
+  assert.deepEqual((await simulation.frame(0)).dev, { actions: 0, refused: null, checkpoints: null, loadedFrom: null }, 'a reset history is unaltered again');
+  assert.match((await simulation.control({ action: 'load', year: 100 })).dev.refused ?? '', /keeps no checkpoints/, 'without checkpoints Load year says why');
   assert.equal((await simulation.frame(0)).instance.runId, start.instance.runId, 'a manual reset keeps the same running simulation');
   const report = await simulation.report();
   assert.equal(report.tick, 0);
   assert.deepEqual(report.timing.map(entry => entry.system).slice(0, 3), ['environment', 'production', 'population']);
+});
+
+test('Load year restores a kept checkpoint, runs on to the year and keeps it (development tooling)', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'chronicle-lab-checkpoints-'));
+  const host = createSimulationHost({ loadWorld: world, checkpoints: root });
+  t.after(async () => { await host.close(); await rm(root, { recursive: true, force: true }); });
+  const simulation = await host.attach(settings);
+  assert.deepEqual((await simulation.frame(0)).dev.checkpoints, []);
+  // A history left to its rules keeps a checkpoint every 250 years.
+  assert.equal(await simulation.runTo(260), 3120);
+  const kept = async (year: number) => { for (let wait = 0; wait < 100 && !(await simulation.frame(0)).dev.checkpoints?.includes(year); wait++) await delay(100); return (await simulation.frame(0)).dev.checkpoints; };
+  assert.deepEqual(await kept(250), [250]);
+  const original = parseObserverFrame(await simulation.frame(0));
+  // Altered, then loaded: the checkpoint at 250 is restored (a new epoch, unaltered) and the history runs on to 255.
+  await simulation.control({ action: 'scenario', scenario: 'drought', region: original.markers.regions[0] });
+  const loading = parseObserverFrame(await simulation.control({ action: 'load', year: 255 }));
+  assert.equal(loading.epoch, original.epoch + 1);
+  assert.deepEqual({ actions: loading.dev.actions, loadedFrom: loading.dev.loadedFrom, refused: loading.dev.refused }, { actions: 0, loadedFrom: 250, refused: null });
+  for (let wait = 0; wait < 200 && (await simulation.frame(0)).tick < 255 * 12; wait++) await delay(50);
+  const loaded = parseObserverFrame(await simulation.frame(0));
+  assert.equal(loaded.tick, 255 * 12);
+  assert.equal(loaded.playing, false, 'it stops at the year');
+  assert.deepEqual(await kept(255), [250, 255], 'the year it ran to is kept too');
+  // Loading an earlier year than the history restores from year 0 when no checkpoint is earlier.
+  const early = parseObserverFrame(await simulation.control({ action: 'load', year: 10 }));
+  assert.equal(early.dev.loadedFrom, null);
+  assert.equal(early.epoch, loaded.epoch + 1);
+  for (let wait = 0; wait < 200 && (await simulation.frame(0)).tick < 120; wait++) await delay(50);
+  assert.equal((await simulation.frame(0)).tick, 120);
+});
+
+test('Load year sets aside a checkpoint it cannot use and runs from year 0 instead', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'chronicle-lab-checkpoints-'));
+  // A damaged checkpoint at year 100 of this world, from this code.
+  const store = openCheckpointStore(root, settings.seed, settings.size);
+  mkdirSync(dirname(checkpointPath(store, 100)), { recursive: true });
+  writeFileSync(checkpointPath(store, 100), 'not a checkpoint');
+  const host = createSimulationHost({ loadWorld: world, checkpoints: root });
+  t.after(async () => { await host.close(); await rm(root, { recursive: true, force: true }); });
+  const simulation = await host.attach(settings);
+  await simulation.control({ action: 'step' });
+  assert.deepEqual((await simulation.frame(0)).dev.checkpoints, [100]);
+  const loading = parseObserverFrame(await simulation.control({ action: 'load', year: 110 }));
+  assert.equal(loading.dev.loadedFrom, null);
+  assert.match(loading.dev.refused ?? '', /^The checkpoint at year 100 could not be used, so this history runs from year 0/);
+  assert.deepEqual(loading.dev.checkpoints, [], 'it is no longer offered');
+  for (let wait = 0; wait < 200 && (await simulation.frame(0)).tick < 110 * 12; wait++) await delay(50);
+  assert.equal((await simulation.frame(0)).tick, 110 * 12, 'the simulation lives on');
 });
 
 test('the host reuses a world\'s simulation, bounds live workers and replaces a stopped worker at year 0', async t => {
@@ -64,7 +130,7 @@ test('the host reuses a world\'s simulation, bounds live workers and replaces a 
 });
 
 test('simulation routes validate controls, report method errors and serve frames and region maps', async t => {
-  const app = await buildApp({ logger: false, config: { ...readBackendConfig({}), workers: 1 } });
+  const app = await buildApp({ logger: false, config: { ...readBackendConfig({ CHRONICLE_CHECKPOINTS: 'off' }), workers: 1 } });
   t.after(() => app.close());
   const query = '?seed=Routes&size=standard';
   const frame = await app.inject(`/api/simulation/frame${query}&cursor=0`);
@@ -74,7 +140,8 @@ test('simulation routes validate controls, report method errors and serve frames
   const step = await app.inject({ method: 'POST', url: `/api/simulation/control${query}`, payload: { action: 'step' } });
   assert.equal(step.statusCode, 200);
   assert.equal(parseObserverFrame(step.json()).tick, 1);
-  for (const payload of [{ action: 'warp' }, { action: 'runTo', year: -1 }, { action: 'runTo', year: 5001 }, { action: 'speed', speed: 'fast' }, { action: 'step', extra: 1 }]) {
+  for (const payload of [{ action: 'warp' }, { action: 'runTo', year: -1 }, { action: 'runTo', year: 5001 }, { action: 'speed', speed: 'fast' }, { action: 'step', extra: 1 },
+    { action: 'scenario', scenario: 'plague', region: 0 }, { action: 'scenario', scenario: 'drought' }, { action: 'scenario', scenario: 'drought', region: -1 }, { action: 'load', year: -1 }]) {
     const rejected = await app.inject({ method: 'POST', url: `/api/simulation/control${query}`, payload });
     assert.equal(rejected.statusCode, 400, JSON.stringify(payload));
   }

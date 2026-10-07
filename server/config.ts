@@ -1,4 +1,9 @@
 import { availableParallelism } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** The lab's checkpoints, beside the fork tool's (`server/workers/checkpoints.ts` uses the same folder). */
+const DEFAULT_CHECKPOINTS = join(fileURLToPath(new URL('..', import.meta.url)), '.chronicle', 'checkpoints');
 
 export interface BackendConfig {
   workers: number;
@@ -9,6 +14,8 @@ export interface BackendConfig {
   /** Live world simulations kept at once (each in its own worker) and in-flight simulation requests. */
   simulations: number;
   simulationRequests: number;
+  /** Where simulation workers keep checkpoints for the lab's Load year (Dev 02), or null for none. */
+  checkpoints: string | null;
 }
 
 /** Explicit limits keep a default launch small and malformed configuration fails early. */
@@ -36,5 +43,6 @@ export function readBackendConfig(env: NodeJS.ProcessEnv = process.env): Backend
     logLevel,
     simulations: integer('CHRONICLE_SIMULATIONS', 2, 1, 8),
     simulationRequests: integer('CHRONICLE_SIMULATION_REQUESTS', 16, 1, 256),
+    checkpoints: env.CHRONICLE_CHECKPOINTS === 'off' ? null : resolve(env.CHRONICLE_CHECKPOINTS || DEFAULT_CHECKPOINTS),
   };
 }

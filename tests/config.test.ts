@@ -18,4 +18,8 @@ test('backend configuration has finite defaults and rejects unsafe or ambiguous 
   assert.deepEqual(readBackendConfig({ CHRONICLE_WORKERS: '1', CHRONICLE_QUEUE_LIMIT: '0', CHRONICLE_LOG_LEVEL: 'silent' }), {
     ...defaults, workers: 1, maxQueue: 0, logLevel: 'silent',
   });
+  // Checkpoints for the lab's Load year (Dev 02): the project's .chronicle folder by default, another folder, or none.
+  assert.match(defaults.checkpoints ?? '', /\.chronicle\/checkpoints$/);
+  assert.equal(readBackendConfig({ CHRONICLE_CHECKPOINTS: '/tmp/chronicle-checkpoints' }).checkpoints, '/tmp/chronicle-checkpoints');
+  assert.equal(readBackendConfig({ CHRONICLE_CHECKPOINTS: 'off' }).checkpoints, null);
 });

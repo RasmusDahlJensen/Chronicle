@@ -73,12 +73,22 @@ export function regionCapacity(state: SimulationState, region: number, knowledge
  * Per region: the people its land could feed at full game with Neolithic farming and herding — static, the value a
  * civilization weighs when it looks for land (its own techs scale all land alike).
  */
-export function landValues(state: SimulationState) {
+export function landValues(state: Pick<SimulationState, 'partition' | 'food'>) {
   let knowledge = startingKnowledge();
   for (const name of ['Pottery', 'Agriculture', 'Animal husbandry']) knowledge = learn(knowledge, TECH_INDEX.get(name)!);
   return Float64Array.from(state.partition.regions, region => {
     regionYields(state.food, 1, yields, region.id, knowledge);
     return capacity(state.food.labor, region.id * METHOD_COUNT, yields);
+  });
+}
+
+/** Per region: 1 where its food can feed anyone at full game without knowledge or buildings (what `createSimulation`
+ *  marks habitable through `regionCapacity`, without touching any state). */
+export function habitableRegions(food: SimulationState['food'], regions: number) {
+  const into = new Float64Array(METHOD_COUNT);
+  return Uint8Array.from({ length: regions }, (_, region) => {
+    regionYields(food, 1, into, region, undefined, 1);
+    return capacity(food.labor, region * METHOD_COUNT, into) > 0 ? 1 : 0;
   });
 }
 

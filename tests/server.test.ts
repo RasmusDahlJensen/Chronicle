@@ -9,7 +9,7 @@ import { MAX_WORLD_BUNDLE_BYTES, type WorldSettings } from '../shared/generated-
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 
-const config = { ...readBackendConfig({}), workers: 1, maxQueue: 0 };
+const config = { ...readBackendConfig({ CHRONICLE_CHECKPOINTS: 'off' }), workers: 1, maxQueue: 0 };
 const controlledWorker = new URL('./fixtures/compute-controlled.ts', import.meta.url);
 async function appFor(t: TestContext, compute?: TerrainCompute) {
   const app = await buildApp({ config, compute, logger: false });

@@ -115,7 +115,7 @@ test('determinism: the same world and seed give identical history, systems run i
 test('observer frames reject events newer than the frame or out of order', () => {
   const frame = {
     protocolVersion: SIMULATION_PROTOCOL_VERSION, instance: { key: 'k', worldKey: 'w', partitionVersion: 1, rulesVersion: 1, seed: 's', runId: 'r' },
-    tick: 5, playing: false, speed: 'year', epoch: 0, runTo: null, eventCount: 2, counters: { regions: 1, landmasses: 1 },
+    tick: 5, playing: false, speed: 'year', epoch: 0, runTo: null, dev: { actions: 0, refused: null, checkpoints: null, loadedFrom: null }, eventCount: 2, counters: { regions: 1, landmasses: 1 },
     population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [],
     largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }], civList: [],

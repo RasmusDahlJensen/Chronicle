@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 24;
+export const SIMULATION_PROTOCOL_VERSION = 25;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -33,7 +33,7 @@ export const EVENT_TYPES = [
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
   'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief', 'neglect',
-  'assimilation', 'traitEarned', 'faithSpread',
+  'assimilation', 'traitEarned', 'faithSpread', 'devScenario',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -44,6 +44,12 @@ export const CULTURE_ORIGIN_NAMES = ['founding', 'breakaway', 'split', 'hybrid']
 export const VALUE_NAMES = ['militarism', 'zeal', 'openness', 'tradition', 'expansionism'] as const;
 const OriginSchema = Type.Union([Type.Literal('founding'), Type.Literal('breakaway'), Type.Literal('split'), Type.Literal('hybrid')]);
 const ValuesSchema = Type.Object(Object.fromEntries(VALUE_NAMES.map(key => [key, Type.Number({ minimum: 0, maximum: 1 })])) as Record<typeof VALUE_NAMES[number], ReturnType<typeof Type.Number>>, { additionalProperties: false });
+/**
+ * DEVELOPMENT CONTROLS (Dev 02), not product features: scenario triggers that make something happen in a region now,
+ * through the real rules, to try a feature without simulating until it happens. A history they were used on says so.
+ */
+export const DEV_SCENARIOS = ['drought', 'research', 'foundReligion', 'splitCulture'] as const;
+export type DevScenario = typeof DEV_SCENARIOS[number];
 export const SimulationControlSchema = Type.Union([
   Type.Object({ action: Type.Literal('play') }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal('pause') }, { additionalProperties: false }),
@@ -51,6 +57,9 @@ export const SimulationControlSchema = Type.Union([
   Type.Object({ action: Type.Literal('speed'), speed: Type.Enum(SIMULATION_SPEEDS) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal('runTo'), year: Type.Integer({ minimum: 0, maximum: MAX_SIMULATION_YEAR }) }, { additionalProperties: false }),
   Type.Object({ action: Type.Literal('reset') }, { additionalProperties: false }),
+  Type.Object({ action: Type.Literal('scenario'), scenario: Type.Enum(DEV_SCENARIOS), region: id() }, { additionalProperties: false }),
+  // DEVELOPMENT CONTROL (Dev 02): restore the latest checkpoint at or before `year` and run on to it.
+  Type.Object({ action: Type.Literal('load'), year: Type.Integer({ minimum: 0, maximum: MAX_SIMULATION_YEAR }) }, { additionalProperties: false }),
 ]);
 export type SimulationControl = Static<typeof SimulationControlSchema>;
 
@@ -80,6 +89,14 @@ export const ObserverFrameSchema = Type.Object({
   /** Counts manual resets of this run, so every observer can tell a reset history from a continuing one. */
   epoch: Type.Integer({ minimum: 0 }),
   runTo: Type.Union([Type.Integer({ minimum: 0, maximum: MAX_SIMULATION_YEAR }), Type.Null()]),
+  /** Development controls (Dev 02): how many were used on this history, why the last one used was refused (null when
+   *  it was not, or none was used since the last reset), the years this world has checkpoints for (null when the host
+   *  keeps none) and the year this history was loaded from (null when it ran from year 0). */
+  dev: Type.Object({
+    actions: Type.Integer({ minimum: 0 }), refused: Type.Union([Type.String({ maxLength: 200 }), Type.Null()]),
+    checkpoints: Type.Union([Type.Array(Type.Integer({ minimum: 0, maximum: MAX_SIMULATION_YEAR }), { maxItems: 256 }), Type.Null()]),
+    loadedFrom: Type.Union([Type.Integer({ minimum: 0, maximum: MAX_SIMULATION_YEAR }), Type.Null()]),
+  }, { additionalProperties: false }),
   eventCount: Type.Integer({ minimum: 0 }),
   /** Events with id ≥ the requested cursor, oldest first, at most MAX_FRAME_EVENTS (the newest ones when more exist). */
   events: Type.Array(ChronicleEventSchema, { maxItems: MAX_FRAME_EVENTS }),
@@ -445,4 +462,8 @@ export type SimulationReply =
   /** A run to a year ended, at the target or because a control interrupted it. */
   | { kind: 'arrived'; tick: number }
   | { kind: 'failed'; message: string };
-export interface SimulationInit { manifest: string; tiles: string[]; seed: string; runId: string }
+export interface SimulationInit {
+  manifest: string; tiles: string[]; seed: string; runId: string;
+  /** Where the worker keeps this world's checkpoints (Dev 02), or null for none. */
+  checkpoints: string | null;
+}

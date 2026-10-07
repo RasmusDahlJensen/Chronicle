@@ -201,35 +201,7 @@ export function research(state: SimulationState, context: TickContext) {
     // The partner that helped is named now, before anyone's discoveries this month take effect.
     if (remaining(knowledge) <= 0) learned.push({ id, tech, teacher: knowledge.taught[tech] > 0 ? teacherOf(state, polity, tech) : -1 });
   }
-  for (const { id, tech, teacher } of learned) {
-    const polity = state.polities[id], before = polity.knowledge;
-    const reasons = before.reasons, total = Math.max(before.progress[tech], 1e-9);
-    const taught = before.taught[tech] / total, caught = before.caught[tech] / total;
-    const sea = before.sea;
-    polity.knowledge = learn(polity.knowledge, tech);
-    // A fresh sea reach makes exploring attractive, once there is a harbor to sail from.
-    if (polity.knowledge.sea > sea && hasHarbor(state, polity)) polity.seaTick = context.tick;
-    if (tech === AGRICULTURE && before.taught[tech] === 0) state.metrics.agricultureInventions++;
-    const first = !state.firsts.some(entry => entry.tech === tech);
-    const place = discoveryRegion(state, polity, tech);
-    if (first) state.firsts.push({ tech, tick: context.tick, polity: id, region: place });
-    state.metrics.discoveries++;
-    // Why it was chosen (its positive weight factors), then how it was reached: the shares of its progress from its own
-    // research, from a sharing partner's help and from catching up.
-    const causes = reasons.filter(reason => reason.weight > 0 && reason.factor !== 'sharedKnowledge').slice(0, RESEARCH_TUNING.reasonCount).map(reason => ({ factor: reason.factor, weight: reason.weight }));
-    const share = (value: number) => Math.round(value * 1000) / 1000;
-    causes.push({ factor: 'ownResearch', weight: Math.max(0.001, share(1 - taught - caught)) });
-    if (taught > 0) causes.push({ factor: 'sharedKnowledge', weight: Math.max(0.001, share(taught)) });
-    if (caught > 0) causes.push({ factor: 'catchUp', weight: Math.max(0.001, share(caught)) });
-    // The partner that helped, when one still shares with it (an exchange can run out before the tech is learned).
-    const actors = teacher >= 0 ? [{ id, role: 'polity' }, { id: teacher, role: 'teacher' }] : [{ id, role: 'polity' }];
-    state.chronicle.emit({
-      type: 'techDiscovered', actors, region: place, causes, importance: first ? 0.7 : 0.03,
-      data: { tech: TECHS[tech].name, era: TECHS[tech].era, name: polity.name, first, taught: teacher >= 0, ...(teacher >= 0 ? { teacher: state.polities[teacher].name } : {}) },
-    });
-    // The next target right away (a stream of its own), so no month of research is lost.
-    chooseTarget(polity.knowledge, contextFor(state, polity), context.stream(id, 1));
-  }
+  for (const { id, tech, teacher } of learned) discover(state, context, id, tech, teacher);
   // When farming takes hold: a quarter of the world's people live in polities that know Agriculture (VISION.md M2,
   // changed after the M3 review at the user's decision; it counted polities before).
   if (state.agricultureQuarterYear < 0 && state.living.length) {
@@ -240,6 +212,38 @@ export function research(state: SimulationState, context: TickContext) {
     }
     if (people > 0 && farmers * 4 >= people) state.agricultureQuarterYear = context.tick / 12;
   }
+}
+
+/** A polity learns `tech`, its target, reached through its research (`teacher`: the partner that helped, or −1): the
+ *  discovery's effects, its event with how it was reached, and the next target. */
+export function discover(state: SimulationState, context: TickContext, id: number, tech: number, teacher: number) {
+  const polity = state.polities[id], before = polity.knowledge;
+  const reasons = before.reasons, total = Math.max(before.progress[tech], 1e-9);
+  const taught = before.taught[tech] / total, caught = before.caught[tech] / total;
+  const sea = before.sea;
+  polity.knowledge = learn(polity.knowledge, tech);
+  // A fresh sea reach makes exploring attractive, once there is a harbor to sail from.
+  if (polity.knowledge.sea > sea && hasHarbor(state, polity)) polity.seaTick = context.tick;
+  if (tech === AGRICULTURE && before.taught[tech] === 0) state.metrics.agricultureInventions++;
+  const first = !state.firsts.some(entry => entry.tech === tech);
+  const place = discoveryRegion(state, polity, tech);
+  if (first) state.firsts.push({ tech, tick: context.tick, polity: id, region: place });
+  state.metrics.discoveries++;
+  // Why it was chosen (its positive weight factors), then how it was reached: the shares of its progress from its own
+  // research, from a sharing partner's help and from catching up.
+  const causes = reasons.filter(reason => reason.weight > 0 && reason.factor !== 'sharedKnowledge').slice(0, RESEARCH_TUNING.reasonCount).map(reason => ({ factor: reason.factor, weight: reason.weight }));
+  const share = (value: number) => Math.round(value * 1000) / 1000;
+  causes.push({ factor: 'ownResearch', weight: Math.max(0.001, share(1 - taught - caught)) });
+  if (taught > 0) causes.push({ factor: 'sharedKnowledge', weight: Math.max(0.001, share(taught)) });
+  if (caught > 0) causes.push({ factor: 'catchUp', weight: Math.max(0.001, share(caught)) });
+  // The partner that helped, when one still shares with it (an exchange can run out before the tech is learned).
+  const actors = teacher >= 0 ? [{ id, role: 'polity' }, { id: teacher, role: 'teacher' }] : [{ id, role: 'polity' }];
+  state.chronicle.emit({
+    type: 'techDiscovered', actors, region: place, causes, importance: first ? 0.7 : 0.03,
+    data: { tech: TECHS[tech].name, era: TECHS[tech].era, name: polity.name, first, taught: teacher >= 0, ...(teacher >= 0 ? { teacher: state.polities[teacher].name } : {}) },
+  });
+  // The next target right away (a stream of its own), so no month of research is lost.
+  chooseTarget(polity.knowledge, contextFor(state, polity), context.stream(id, 1));
 }
 
 /** Living polities that know a tech, for statistics. */

@@ -92,7 +92,7 @@ export function blendValues(into: PopulationGroup, values: CultureValues, people
  * Per region, how harsh its land is (0–1, static): how far it feeds fewer farmers and herders per km² (at full game,
  * with Neolithic knowledge) than the median habitable region; 1 where it feeds none.
  */
-export function harshLand(state: SimulationState) {
+export function harshLand(state: Pick<SimulationState, 'partition' | 'landValue'>) {
   const regions = state.partition.regions, density = regions.map(region => state.landValue[region.id] / Math.max(1, region.areaKm2));
   const fed = density.filter(value => value > 0).sort((a, b) => a - b), median = fed.length ? fed[Math.floor(fed.length / 2)] : 1;
   return Float64Array.from(density, value => 1 - Math.min(1, value / median));
@@ -310,7 +310,8 @@ function earnTraits(state: SimulationState, culture: Culture, groups: Population
 }
 
 /** A culture's values, people and regions from its groups. */
-function summarize(culture: Culture, groups: PopulationGroup[]) {
+/** A culture's values and numbers from its people now. */
+export function summarize(culture: Culture, groups: PopulationGroup[]) {
   let people = 0;
   const sums = [0, 0, 0, 0, 0];
   for (const group of groups) { people += group.size; VALUE_KEYS.forEach((key, at) => { sums[at] += group.values[key] * group.size; }); }
@@ -348,13 +349,14 @@ function splitOff(state: SimulationState, rng: Rng, culture: Culture, groups: Po
     const mean = total > 0 ? area.reduce((sum, entry) => sum + entry.distance * entry.group.size, 0) / total : 0;
     if (!rng.chance(tuning.splitRate * Math.min(1, (mean - tuning.splitDivergence) / tuning.splitDivergence))) continue;
     const gone = new Set(area.map(entry => entry.group));
-    split(state, rng, culture, heart, [...gone]);
+    splitCulture(state, rng, culture, heart, [...gone]);
     return groups.filter(group => !gone.has(group));
   }
   return null;
 }
 
-function split(state: SimulationState, rng: Rng, parent: Culture, heart: PopulationGroup, area: PopulationGroup[]) {
+/** `area`'s people split off from `parent` (whose heart is `heart`) as a daughter culture with their mean values: an event. */
+export function splitCulture(state: SimulationState, rng: Rng, parent: Culture, heart: PopulationGroup, area: PopulationGroup[]) {
   const values = {} as CultureValues;
   let people = 0;
   for (const key of VALUE_KEYS) values[key] = 0;

@@ -43,7 +43,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
   const compute = options.compute ?? createTerrainCompute(config);
   const generatedWorlds = createGeneratedWorldStore(compute);
   // Simulation workers receive the same validated geography bundle the lab is served.
-  const simulations = createSimulationHost({ loadWorld: (settings, signal) => generatedWorlds.get(settings, signal), maxInstances: config.simulations });
+  const simulations = createSimulationHost({ loadWorld: (settings, signal) => generatedWorlds.get(settings, signal), maxInstances: config.simulations, checkpoints: config.checkpoints });
   const controllers = new Set<AbortController>();
   const admissionLimit = config.workers + config.maxQueue;
   let stopping = false;

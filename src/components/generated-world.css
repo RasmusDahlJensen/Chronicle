@@ -99,6 +99,21 @@
 .world-history-controls input { width: 5.5rem; }
 .world-history-controls label { display: flex; gap: .35rem; align-items: center; }
 .world-history-reset { margin-left: auto; }
+.world-dev-controls { margin: .4rem 0; padding: .35rem .6rem; border: 1px dashed #b08a4a; border-radius: 4px; font-size: .7rem; }
+.world-dev-controls summary { cursor: pointer; font-weight: 600; font-size: .78rem; color: #6b4f3a; }
+.world-dev-controls summary span { color: var(--atlas-muted); font-weight: 400; }
+.world-dev-controls p { margin: .4rem 0; }
+.world-dev-controls [role="group"] { display: flex; flex-wrap: wrap; gap: .4rem; }
+.world-dev-controls button { padding: .3rem .6rem; border: 1px solid #b08a4a; border-radius: 4px; background: #fffaf0; cursor: pointer; font: inherit; }
+.world-dev-controls button:disabled { opacity: .45; cursor: default; }
+.world-dev-refused { color: #8a3b2a; }
+.world-dev-load { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .4rem 0; }
+.world-dev-load label { display: flex; gap: .35rem; align-items: center; }
+.world-dev-load input { width: 5.5rem; }
+.world-dev-load span { color: var(--atlas-muted); }
+.world-dev-controls .world-dev-year { padding: .15rem .45rem; }
+.world-dev-loaded { color: var(--atlas-muted); }
+.world-dev-altered { margin: .4rem 0; font-size: .72rem; color: #8a3b2a; }
 .world-history-events h3 { display: flex; justify-content: space-between; font-size: .8rem; margin: .8rem 0 .4rem; }
 .world-history-events h3 span { font-weight: 400; color: #687064; }
 .world-history-events ol { list-style: none; margin: 0; padding: 0; max-height: 16rem; overflow-y: auto; font-size: .7rem; }

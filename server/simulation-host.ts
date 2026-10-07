@@ -20,6 +20,8 @@ interface HostOptions {
   setupTimeoutMs?: number;
   /** After a world's simulation fails to start, further attempts are refused for this long. */
   failureBackoffMs?: number;
+  /** Where workers keep checkpoints for Load year (Dev 02); none when absent. */
+  checkpoints?: string | null;
 }
 
 export interface SimulationReport {
@@ -33,7 +35,7 @@ export interface SimulationReport {
   partition: Record<string, number>;
 }
 
-interface WorkerOptions { filename: URL; requestTimeoutMs: number; setupTimeoutMs: number }
+interface WorkerOptions { filename: URL; requestTimeoutMs: number; setupTimeoutMs: number; checkpoints: string | null }
 type Outgoing = SimulationRequest extends infer Request ? Request extends unknown ? Omit<Request, 'id'> : never : never;
 
 /** One world's dedicated simulation worker (VISION.md "Host-side simulation"). */
@@ -49,7 +51,7 @@ export class SimulationWorker {
 
   constructor(bundle: WorldBundle, seed: string, options: WorkerOptions) {
     this.options = options;
-    const init: SimulationInit = { manifest: bundle.manifest, tiles: bundle.tiles, seed, runId: randomUUID() };
+    const init: SimulationInit = { manifest: bundle.manifest, tiles: bundle.tiles, seed, runId: randomUUID(), checkpoints: options.checkpoints };
     this.worker = new Worker(options.filename, { workerData: init, resourceLimits: { maxOldGenerationSizeMb: 1536, maxYoungGenerationSizeMb: 64 } });
     this.ready = new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(this.fail('The simulation took too long to start.')), options.setupTimeoutMs);
@@ -123,7 +125,7 @@ export class SimulationWorker {
 /** Live simulations by world identity: created on first use, replaced after a crash, bounded in number. */
 export function createSimulationHost(options: HostOptions) {
   const filename = options.filename ?? new URL('./workers/simulation-worker.ts', import.meta.url);
-  const workerOptions = { filename, requestTimeoutMs: options.requestTimeoutMs ?? 10_000, setupTimeoutMs: options.setupTimeoutMs ?? 120_000 };
+  const workerOptions = { filename, requestTimeoutMs: options.requestTimeoutMs ?? 10_000, setupTimeoutMs: options.setupTimeoutMs ?? 120_000, checkpoints: options.checkpoints ?? null };
   const maxInstances = options.maxInstances ?? 2, backoffMs = options.failureBackoffMs ?? 30_000;
   const live = new Map<string, Promise<SimulationWorker>>();
   const failures = new Map<string, { at: number; message: string }>();

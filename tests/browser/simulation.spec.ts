@@ -171,8 +171,27 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await page.getByLabel('Political').check();
   await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/band of [\d,]+ people/);
   await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(/stays with its tribe, now [\d,]+ bands/);
+  // Development controls (Dev 02, test only): a scenario trigger in the selected region adds its events now and marks
+  // the history altered; one that cannot apply says why and changes nothing.
+  // Open by default, so they are easy to find.
+  await expect(history(page).locator('.world-dev-controls')).toContainText(`In region ${band.region}, now, through the real rules:`);
+  await history(page).getByRole('button', { name: 'Drought here and around' }).click();
+  const events = history(page).getByRole('list', { name: 'Chronicle events' });
+  await expect(events.getByRole('listitem').filter({ hasText: `Development control (test only): a drought is set off in region ${band.region}` })).toHaveCount(1);
+  await expect(events.getByRole('listitem').filter({ hasText: `Drought strikes region ${band.region}` }).first()).toBeVisible();
+  await expect(history(page).getByRole('note')).toHaveText('This history was altered: development controls were used once.');
+  await history(page).getByRole('button', { name: 'Found a religion' }).click();
+  await expect(history(page).locator('.world-dev-refused')).toContainText('only civilizations found religions');
+  await expect(history(page).getByRole('note')).toHaveText('This history was altered: development controls were used once.');
+  // Load year: the altered history is replaced by one left to its rules, run to that year (from the nearest checkpoint
+  // at or before it, or from year 0).
+  await history(page).getByLabel('Load year').fill('100');
+  await history(page).getByRole('button', { name: 'Load', exact: true }).click();
+  await expect(history(page)).toHaveAttribute('data-tick', String(100 * 12), { timeout: 60_000 });
+  await expect(history(page).getByRole('note')).toHaveCount(0);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
+  await expect(history(page).getByRole('note')).toHaveCount(0);
 });
 
 test('farming bands settle into civilizations with villages, specialists, research the inspector explains, and roads', async ({ page }) => {

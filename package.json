@@ -19,6 +19,7 @@
     "test:browser": "npm run build && playwright test",
     "bench:world": "node scripts/bench-world.ts",
     "study:history": "node scripts/study-history.ts",
+    "fork": "node scripts/fork.ts",
     "build:tectonics": "node scripts/build-platec.ts",
     "check:tectonics": "node scripts/build-platec.ts --check"
   },

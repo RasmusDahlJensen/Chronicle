@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { worldKey, type WorldSettings } from '../../shared/generated-world.ts';
-import { ERA_NAMES, MAX_SIMULATION_YEAR, SIMULATION_SPEEDS, simulationDate, type ChronicleEvent, type ObserverFrame, type SimulationControl, type SimulationSpeed } from '../../shared/simulation.ts';
+import { DEV_SCENARIOS, ERA_NAMES, MAX_SIMULATION_YEAR, SIMULATION_SPEEDS, simulationDate, type ChronicleEvent, type DevScenario, type ObserverFrame, type SimulationControl, type SimulationSpeed } from '../../shared/simulation.ts';
 import { fetchObserverFrame, sendSimulationControl } from '../api/simulation.ts';
 import { describeEvent, MONTH_NAMES } from '../observer/events.ts';
 import { cssColor, polityColor } from '../observer/palettes.ts';
 
 const SPEED_LABELS: Record<SimulationSpeed, string> = { month: '1 month/s', year: '1 year/s', decade: '10 years/s', max: 'Fastest' };
+/** DEVELOPMENT CONTROLS (Dev 02), not product features: scenario triggers in the selected region. */
+const DEV_LABELS: Record<DevScenario, string> = { drought: 'Drought here and around', research: 'Finish their research', foundReligion: 'Found a religion', splitCulture: 'Split off their culture' };
 // A paused simulation changes only through controls, so it is polled less often than a playing one.
 const POLL_PLAYING_MS = 250, POLL_PAUSED_MS = 1000, EVENT_LIMIT = 300;
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The simulation is unavailable. Try again.';
@@ -68,6 +70,9 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
   const [error, setError] = useState<string | null>(null);
   const [restarted, setRestarted] = useState(false);
   const [targetYear, setTargetYear] = useState('100');
+  const [loadYear, setLoadYear] = useState('1000');
+  /** Where the last development control was used: a region, or 'load' (its refusal is shown only there). */
+  const [devUsed, setDevUsed] = useState<number | 'load' | null>(null);
   const latest = useRef({ key: '', sequence: 0, applied: 0, runId: '', epoch: -1, cursor: 0, playing: false });
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
@@ -151,6 +156,14 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
     const year = Number(targetYear);
     if (Number.isInteger(year) && year >= 0 && year <= MAX_SIMULATION_YEAR) void send({ action: 'runTo', year });
   }
+  function load(year: number) {
+    if (!Number.isInteger(year) || year < 0 || year > MAX_SIMULATION_YEAR) return;
+    setDevUsed('load'); void send({ action: 'load', year });
+  }
+  function trigger(scenario: DevScenario) {
+    if (inspect === null) return;
+    setDevUsed(inspect); void send({ action: 'scenario', scenario, region: inspect });
+  }
 
   const date = frame ? simulationDate(frame.tick) : null;
   const ended = frame ? frame.tick >= MAX_SIMULATION_YEAR * 12 : false;
@@ -173,6 +186,22 @@ export function SimulationPanel({ settings, startFresh = false, inspect = null, 
       <button type="button" className="world-history-reset" disabled={!frame} onClick={() => void send({ action: 'reset' })}>Reset to year 0</button>
     </div>
     {error && <p className="atlas-error" role="alert">{error}</p>}
+    <details className="world-dev-controls" open>
+      <summary>Testing tools: development controls <span>test only · they change this history</span></summary>
+      {frame?.dev.checkpoints && <form className="world-dev-load" onSubmit={event => { event.preventDefault(); load(Number(loadYear)); }}>
+        <label>Load year <input aria-label="Load year" type="number" min={0} max={MAX_SIMULATION_YEAR} value={loadYear} onChange={event => setLoadYear(event.target.value)} /></label>
+        <button type="submit" disabled={!frame}>Load</button>
+        <span>{frame.dev.checkpoints.length ? 'Saved:' : 'Starts from the nearest saved year before it and runs on; years are saved every 250 years of a history left to its rules.'}</span>
+        {frame.dev.checkpoints.map(year => <button key={year} type="button" className="world-dev-year" onClick={() => { setLoadYear(String(year)); load(year); }}>{year.toLocaleString('en')}</button>)}
+      </form>}
+      <p>{frame?.tick === 0 ? 'Nothing has happened yet: run the history a little first.' : inspect === null ? 'Select a region on the map to use these there.' : `In region ${inspect}, now, through the real rules:`} A religion needs a civilization (from about year 1,000).</p>
+      <div role="group" aria-label="Scenario triggers">{DEV_SCENARIOS.map(scenario => <button key={scenario} type="button" disabled={!frame || frame.tick === 0 || inspect === null}
+        onClick={() => trigger(scenario)}>{DEV_LABELS[scenario]}</button>)}</div>
+      {frame && frame.dev.checkpoints === null && <p className="world-dev-loaded">Load year is off on this host (CHRONICLE_CHECKPOINTS).</p>}
+      {frame?.dev.refused && devUsed !== null && (devUsed === 'load' || devUsed === inspect) && <p className="world-dev-refused" role="status">{frame.dev.refused}</p>}
+      {frame && frame.dev.loadedFrom !== null && <p className="world-dev-loaded">This history was loaded from the checkpoint at year {frame.dev.loadedFrom.toLocaleString('en')}.</p>}
+    </details>
+    {frame && frame.dev.actions > 0 && <p className="world-dev-altered" role="note">This history was altered: development controls were used {frame.dev.actions === 1 ? 'once' : `${frame.dev.actions.toLocaleString('en')} times`}.</p>}
     {frame && <p className="world-history-totals" id="world-population">{frame.population.toLocaleString('en')} people in {(frame.polities - frame.civs).toLocaleString('en')} {frame.polities - frame.civs === 1 ? 'tribe' : 'tribes'} ({bands.toLocaleString('en')} {bands === 1 ? 'band' : 'bands'}) and {frame.civs.toLocaleString('en')} {frame.civs === 1 ? 'civilization' : 'civilizations'} · {settlementSummary(frame)} · {frame.specialists.toLocaleString('en')} townspeople · most advanced: {ERA_NAMES[frame.leadingEra]} era</p>}
     {frame && <WorldChart series={frame.series} />}
     {frame && frame.civList.length > 0 && <details className="world-civ-list" open>

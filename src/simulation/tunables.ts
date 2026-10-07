@@ -6,6 +6,8 @@ import { TENETS } from './religions.ts';
 /**
  * Every tunable simulation number (VISION.md rule 5). Values are starting points recorded in the active brief;
  * acceptance thresholds live in tests and briefs, never here. `validateTunables` runs before any simulation starts.
+ * Read them where they are used, not into module-level constants: the fork tool (`scripts/fork-core.ts`) overrides
+ * them at run time. The food unit (`FOOD_TUNING.unitsPerPersonMonth`) is the exception: stores are counted in it.
  */
 export const REGION_TUNING = {
   /** Region area range (VISION.md: 20,000–60,000 km²) and the spacing target between region seeds. */

@@ -13,7 +13,7 @@ import { TRAITS } from './traits.ts';
 import { fieldLand } from './fields.ts';
 
 /** The least share of its crops a harvest can come in at: the worst weather in drought without irrigation. */
-const lowestHarvest = ENVIRONMENT_TUNING.harvestMin * (1 - ENVIRONMENT_TUNING.droughtFarmLoss);
+const lowestHarvest = () => ENVIRONMENT_TUNING.harvestMin * (1 - ENVIRONMENT_TUNING.droughtFarmLoss);
 
 /** Thrown when a tick leaves the world in an impossible state; the scenario and tick are in the message. */
 export class InvariantError extends Error {}
@@ -72,7 +72,7 @@ export function checkInvariants(state: SimulationState) {
   }
   // The environment: weather and harvests within their bounds, droughts no longer than they last, famine as a flag.
   for (let region = 0; region < regions; region++) {
-    if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowestHarvest && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
+    if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowestHarvest() && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
     if (state.drought[region] > ENVIRONMENT_TUNING.droughtYears * 12 || state.famine[region] > 1 || !(state.famineRecent[region] >= 0)) fail(`region ${region} has drought ${state.drought[region]}, famine ${state.famine[region]} and recent famine deaths ${state.famineRecent[region]}`);
     // Cultivated land lies within the region's farmland (VISION.md "Cultivated land").
     if (!(state.fields[region] >= 0 && state.fields[region] <= fieldLand(state.fieldRanking, region))) fail(`region ${region} has ${state.fields[region]} fields on ${fieldLand(state.fieldRanking, region)} of farmland`);
@@ -156,7 +156,7 @@ export function checkInvariants(state: SimulationState) {
         fail(`group ${groupId}'s food store ${group.store} is not explained by its flows ${JSON.stringify(flows)}`);
       } else if (!Number.isInteger(group.planted) || group.planted < 0 || group.planted !== flows.plantedBefore + flows.sown - flows.harvested - flows.cropsLost) {
         fail(`group ${groupId}'s crops in the field ${group.planted} are not explained by its flows ${JSON.stringify(flows)}`);
-      } else if (!(flows.factor >= lowestHarvest && flows.factor <= ENVIRONMENT_TUNING.harvestMax) || flows.weather !== Math.round(flows.harvested * flows.factor) - flows.harvested) {
+      } else if (!(flows.factor >= lowestHarvest() && flows.factor <= ENVIRONMENT_TUNING.harvestMax) || flows.weather !== Math.round(flows.harvested * flows.factor) - flows.harvested) {
         fail(`group ${groupId}'s harvest gained ${flows.weather} from the weather on ${flows.harvested} harvested at ${flows.factor}, not what that share gives`);
       }
     }
