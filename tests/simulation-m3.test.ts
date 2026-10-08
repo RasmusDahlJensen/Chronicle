@@ -158,7 +158,8 @@ test('M3 acceptance: a civilization alone on Chronicle\'s largest landmass keeps
   // Every expansion is an event citing why, and the civilization holds land only within reach of its capital.
   const expansions = state.chronicle.events.filter(event => event.type === 'expansion');
   assert.equal(expansions.length, state.metrics.expansions);
-  assert.ok(expansions.every(event => event.causes.length > 0 && event.causes.some(cause => cause.factor === 'landPressure' || cause.factor === 'opportunity' || cause.factor === 'landValue')));
+  // (M5.3: land holding a resource it lacks is a reason too.)
+  assert.ok(expansions.every(event => event.causes.length > 0 && event.causes.some(cause => cause.factor === 'landPressure' || cause.factor === 'opportunity' || cause.factor === 'landValue' || cause.factor === 'resource')));
   const view = decisionView(state, civ);
   assert.ok(civ.decisions.length > 0 && civ.decisions.every(step => step.options.some(option => option.action === 'nothing')), 'Do nothing is always weighed');
   assert.ok(view.reachKm > 0);
@@ -186,7 +187,7 @@ function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] =
     reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
     budget: { rate: 0.2, output: 0, sites: 0, costs: 0, treasury: 0, revenue: 0, surplus: 0, strain: 0, tradition: 0.5, calm: 0.9 },
     build: { monuments: 1, piety: 1, regions: 4, catalog: [], settlements: [], wonders: [], stability: 0.9, roads: { tier: 0, one: '', many: '', routes: [] } },
-    candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, ...entry })),
+    candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, short: 0, ...entry })),
     ...overrides,
   };
 }

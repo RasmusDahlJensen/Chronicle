@@ -42,6 +42,7 @@ export function decide(state: SimulationState, context: TickContext) {
     else if (chosen.action === 'build' && chosen.wonder) outcome = beginWonder(state, context.tick, polity, chosen.target!, chosen.targets![0], cited);
     else if (chosen.action === 'build') outcome = startProjects(state, context.tick, polity, chosen.target!, chosen.targets ?? [], cited);
     state.metrics.chosen[chosen.action]++;
+    if (chosen.action === 'expand' && (chosen.factors.find(entry => entry.factor === 'resource')?.weight ?? 0) > 0) state.metrics.resourceExpansions++;
     const weighed = beliefs[options.indexOf(chosen)];
     if (weighed?.length) {
       state.metrics.beliefDecisions++;

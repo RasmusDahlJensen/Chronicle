@@ -11,6 +11,7 @@ import { CostHeap } from './heap.ts';
 import { edgeKm, edgeTravel, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
 import { landPressure } from './pressure.ts';
 import { beliefBias, estimate, truthOf } from './relations.ts';
+import { reliefThere, shortfallFor } from './supply.ts';
 import { effectiveValues } from './values.ts';
 export { effectiveValues };
 import { NEED_NAMES, type BeliefKind, type CultureValues, type MapKnowledge, type NeedName, type Polity, type SimulationState } from './state.ts';
@@ -298,6 +299,8 @@ export interface Candidate {
   capitalKm: number;
   /** The land's value (static farming capacity) and whether a tribe's band lives there, as it knows. */
   value: number; tribe: boolean;
+  /** How much of what it lacks the land would make good (0–1; `supply.ts` `reliefThere`; M5.3). */
+  short: number;
 }
 
 /**
@@ -535,7 +538,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     if (current && state.groups[state.groupAt[current.from]].size >= size) return;
     found.set(region, {
       region, from, fromPeople: size, pressure: landPressure(size, state.capacity[from]), crossingKm: crossing, capitalKm: Number.POSITIVE_INFINITY,
-      value: state.landValue[region], tribe: view.occupant >= 0,
+      value: state.landValue[region], tribe: view.occupant >= 0, short: reliefThere(state, polity, region),
     });
   };
   for (const region of own) {
@@ -626,8 +629,8 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
  * A civilization's needs (VISION.md "Needs"; M5.2), each 0–1, from its own state and what it believes of the
  * civilizations it has met whose land touches its own (NEED_TUNING): hunger and land pressure; threat from a neighbour
  * it believes stronger and does not like; unrest; friction with neighbours of a rival faith; opportunity from better
- * land or a neighbour it believes weaker or richer; infrastructure (`infrastructureNeed`). Resource shortage (M5.3)
- * and grievance (M6) are 0 until their milestones.
+ * land or a neighbour it believes weaker or richer; infrastructure (`infrastructureNeed`); resource shortage, its largest
+ * shortfall (M5.3). Grievance is 0 until M6.
  */
 function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: Set<number>): PolityView['needs'] {
   const bordering = new Set<number>();
@@ -650,8 +653,10 @@ function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: 
   }
   let land = 0;
   for (const candidate of view.candidates) if (view.ownValue > 0) land = Math.max(land, candidate.value / view.ownValue - 1);
+  let shortage = 0;
+  for (let resource = 0; resource < polity.demand.length; resource++) shortage = Math.max(shortage, shortfallFor(polity, resource));
   return {
-    hunger: clamp01(view.hunger), landPressure: clamp01(view.landPressure), shortage: 0, threat, unrest: unrestOf(view.unrestShare, view.stability),
+    hunger: clamp01(view.hunger), landPressure: clamp01(view.landPressure), shortage, threat, unrest: unrestOf(view.unrestShare, view.stability),
     friction: frictionOf(bordering.size ? rivals / bordering.size : 0, view.values.zeal, secularity(polity)),
     opportunity: clamp01(Math.max(land, chance)), grievance: 0, infrastructure: infrastructureNeed(view),
   };

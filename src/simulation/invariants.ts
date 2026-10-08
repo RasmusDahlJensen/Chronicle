@@ -149,6 +149,15 @@ export function checkInvariants(state: SimulationState) {
     // Its ruling culture is its heartland people's (VISION.md "Culture and lineage").
     if (polity.culture !== state.groups[polity.core].culture) fail(`polity ${id}'s ruling culture ${polity.culture} is not its heartland's ${state.groups[polity.core].culture}`);
     const knowledge = polity.knowledge;
+    // Resources (M5.3): supply and demand are counts of units; access is 1 for a tribe and where nothing is demanded,
+    // otherwise within (0, 1] and never below the share actually met (the floor only raises it; a fork that changes the
+    // floor takes effect at each civilization's next yearly assessment).
+    for (let resource = 0; resource < knowledge.access.length; resource++) {
+      const access = knowledge.access[resource], supply = polity.supply[resource], demand = polity.demand[resource];
+      if (!(supply >= 0) || !(demand >= 0) || !(access > 0 && access <= 1) || ((polity.kind === 'band' || demand === 0) && access !== 1) || (demand > 0 && access < Math.min(1, supply / demand))) {
+        fail(`polity ${id} has resource ${resource} supplied ${supply} of ${demand} at access ${access}`);
+      }
+    }
     if (knowledge.known.length !== TECHS.length || knowledge.progress.length !== TECHS.length || knowledge.target >= TECHS.length
       || (knowledge.target >= 0 && (knowledge.known[knowledge.target] || !(knowledge.progress[knowledge.target] >= 0)))) {
       fail(`polity ${id} has inconsistent knowledge (target ${knowledge.target})`);

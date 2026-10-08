@@ -23,7 +23,8 @@ export function expansionScore(view: PolityView, candidate: Candidate): Option {
   const relative = view.ownValue > 0 ? candidate.value / view.ownValue : 1;
   const opportunity = clamp01(relative - 1);
   // The crowding of the region the settlers would leave drives it (VISION.md: settled from the source region).
-  const drive = clamp01(candidate.pressure + tuning.hungerWeight * view.hunger + tuning.opportunityWeight * opportunity);
+  // M5.3: land holding a resource it lacks draws it too.
+  const drive = clamp01(candidate.pressure + tuning.hungerWeight * view.hunger + tuning.opportunityWeight * opportunity + tuning.resourceWeight * candidate.short);
   const value = Math.min(1, relative) ** tuning.valuePower * (candidate.tribe ? tuning.occupiedValue : 1);
   const culture = (tuning.expansionismBase + view.values.expansionism) / (tuning.expansionismBase + 1);
   const distance = tuning.distancePerKm * candidate.crossingKm;
@@ -40,7 +41,7 @@ export function expansionScore(view: PolityView, candidate: Candidate): Option {
     action: 'expand', score: feasible && Number.isFinite(score) ? score : Number.NEGATIVE_INFINITY, target: candidate.region, label: null,
     factors: [
       { factor: 'landPressure', weight: round(candidate.pressure * scale) }, { factor: 'hunger', weight: round(tuning.hungerWeight * view.hunger * scale) },
-      { factor: 'opportunity', weight: round(tuning.opportunityWeight * opportunity * scale) },
+      { factor: 'opportunity', weight: round(tuning.opportunityWeight * opportunity * scale) }, { factor: 'resource', weight: round(tuning.resourceWeight * candidate.short * scale) },
       { factor: `${MULTIPLIER}landValue`, weight: round(value) }, { factor: `${MULTIPLIER}expansionism`, weight: round(culture) },
       { factor: 'distance', weight: -round(distance) }, { factor: 'governanceReach', weight: Number.isFinite(reach) ? -round(reach) : -1 },
       { factor: 'administration', weight: -round(administration) },
@@ -63,13 +64,15 @@ export function explorationScore(view: PolityView): Option {
   const curiosity = clamp01(view.unknownFrontier / tuning.frontierScale);
   const culture = tuning.opennessWeight * view.values.openness + tuning.expansionismWeight * view.values.expansionism;
   const fresh = view.seaTick >= 0 && view.tick - view.seaTick < tuning.freshYears * 12 ? tuning.freshMobility : 0;
-  const push = tuning.base + view.landPressure, score = curiosity * culture * push + (curiosity > 0 ? fresh : 0);
+  // New land may hold what it lacks (VISION.md "Exploration": resource shortage raises it; M5.3).
+  const push = tuning.base + view.landPressure + tuning.shortageWeight * view.needs.shortage, score = curiosity * culture * push + (curiosity > 0 ? fresh : 0);
   return {
     action: 'explore', score, target: null, label: null,
     factors: [
       { factor: 'openness', weight: round(curiosity * tuning.opennessWeight * view.values.openness * push) },
       { factor: 'expansionism', weight: round(curiosity * tuning.expansionismWeight * view.values.expansionism * push) },
-      { factor: 'landPressure', weight: round(curiosity * culture * view.landPressure) }, { factor: 'newSeaReach', weight: round(curiosity > 0 ? fresh : 0) },
+      { factor: 'landPressure', weight: round(curiosity * culture * view.landPressure) }, { factor: 'resourceShortage', weight: round(curiosity * culture * tuning.shortageWeight * view.needs.shortage) },
+      { factor: 'newSeaReach', weight: round(curiosity > 0 ? fresh : 0) },
       { factor: `${MULTIPLIER}unknownLand`, weight: round(curiosity) },
     ],
   };

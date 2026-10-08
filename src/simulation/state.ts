@@ -130,6 +130,9 @@ export interface Polity {
   /** A civilization's relations with the living peoples it has met (VISION.md "Relations and memory", M5.1), by their
    *  id; read through `perception.ts` (`relations.ts` keeps them). */
   relations: Map<number, Relation>;
+  /** A civilization's resources this year (VISION.md "Supply and demand"; M5.3), units a year by index into
+   *  `RESOURCE_IDS`: what it works in its own land, and what its known techs demand for its people (`supply.ts`). */
+  supply: Float64Array; demand: Float64Array;
 }
 
 /**
@@ -381,6 +384,10 @@ export interface CenturyStats {
    *  those that logged fewer than two causes though two or more factors were nonzero. */
   needHunger: number; needLandPressure: number; needShortage: number; needThreat: number; needUnrest: number; needFriction: number;
   needOpportunity: number; needGrievance: number; needInfrastructure: number; decisionSteps: number; causesShort: number;
+  /** Resources (M5.3): the share of civilizations short of something (a shortfall above 10%), and how much of the
+   *  demand for copper, tin, iron, timber and stone is met on average among the civilizations demanding it (−1: none
+   *  does); expansions chosen partly for a resource so far. */
+  shortCivs: number; metCopper: number; metTin: number; metIron: number; metTimber: number; metStone: number; resourceExpansions: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -468,6 +475,8 @@ export interface Metrics {
   /** Decision steps taken, and those that logged fewer than two causes though two or more factors were nonzero (M5.2:
    *  never). */
   decisionSteps: number; causesShort: number;
+  /** Expansions chosen with land holding a resource it lacked among their reasons (M5.3). */
+  resourceExpansions: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;

@@ -1,4 +1,4 @@
-import type { Resource } from '../../shared/atlas.ts';
+import { RESOURCE_IDS, type Resource } from '../../shared/atlas.ts';
 import { ERA_NAMES } from '../../shared/simulation.ts';
 
 /**
@@ -30,6 +30,9 @@ export interface TechEffects {
   /** Food methods this tech makes available (beyond foraging, hunting and fishing). */
   methods?: ('herd' | 'farm')[];
   reveal?: Resource[]; extract?: Resource[]; use?: Resource[];
+  /** Resources the tech needs supplied beyond those it `use`s (which also gate deposits): timber for boats, stone for
+   *  building (VISION.md "Supply and demand"; M5.3). Its multipliers count only as far as all of these are supplied. */
+  demand?: Resource[];
   mobility?: Mobility;
   /** Governments, buildings, wonders, infrastructure, actions and treaties used by later milestones. */
   unlocks?: string[];
@@ -58,8 +61,8 @@ export const TECHS: readonly TechDefinition[] = [
   tech('Pottery', 'Neolithic', ['Fire'], 600, ['storage', 'economy'], { multiply: { storeMonths: 14, spoilage: 0.08, specialistCap: 1.5 } }, { riverOrLake: 1.5, grainSite: 1.3 }),
   tech('Agriculture', 'Neolithic', ['Pottery', 'Foraging'], 6_000, ['food', 'economy'], { methods: ['farm'], extract: ['grain'], multiply: { specialistCap: 2 } }, { fertileRiver: 40, riverOrLake: 1.5, grainSite: 4 }, false, 0.05),
   tech('Animal husbandry', 'Neolithic', ['Hunting'], 7_000, ['food', 'economy'], { methods: ['herd'], multiply: { specialistCap: 1.3 } }, { grassland: 20, gameSite: 2, arid: 1.5, fertileRiver: 2, riverOrLake: 1.2 }, false, 0.05),
-  tech('Boatbuilding', 'Neolithic', ['Fishing', 'Fire'], 900, ['sailing', 'food'], { mobility: 'riverBoats', multiply: { fishYield: 1.15 } }, { riverOrLake: 2.5, coastal: 2, fishSite: 1.3 }),
-  tech('Masonry', 'Neolithic', ['Fire'], 1_000, ['construction'], { extract: ['stone'], unlocks: ['granary', 'walls', 'shrine'] }, { rough: 1.8 }),
+  tech('Boatbuilding', 'Neolithic', ['Fishing', 'Fire'], 900, ['sailing', 'food'], { mobility: 'riverBoats', multiply: { fishYield: 1.15 }, demand: ['timber'] }, { riverOrLake: 2.5, coastal: 2, fishSite: 1.3 }),
+  tech('Masonry', 'Neolithic', ['Fire'], 1_000, ['construction'], { extract: ['stone'], unlocks: ['granary', 'walls', 'shrine'], demand: ['stone'] }, { rough: 1.8 }),
   // Bronze.
   tech('Mining', 'Bronze', ['Masonry'], 96_000_000, ['mining', 'economy'], { extract: ['iron', 'copper', 'gold', 'tin'], unlocks: ['mine'] }, { rough: 2 }),
   tech('Copper working', 'Bronze', ['Mining'], 115_200_000, ['metal', 'military'], { use: ['copper'], multiply: { military: 1.15, farmYield: 1.05 } }),
@@ -73,13 +76,13 @@ export const TECHS: readonly TechDefinition[] = [
   tech('Horseback riding', 'Bronze', ['Animal husbandry', 'Wheel'], 124_800_000, ['military'], { multiply: { military: 1.15, reach: 1.1 } }, { grassland: 2 }),
   // Iron.
   tech('Iron working', 'Iron', ['Bronze working'], 345_600_000, ['metal', 'military'], { use: ['iron'], multiply: { military: 1.3, farmYield: 1.1 }, unlocks: ['quarry'] }),
-  tech('Sailing', 'Iron', ['Boatbuilding'], 268_800_000, ['sailing', 'trade'], { mobility: 'coastalSailing', multiply: { fishYield: 1.15, tradeRange: 1.3 }, unlocks: ['harbor'] }, { coastal: 3, fishSite: 1.3 }),
+  tech('Sailing', 'Iron', ['Boatbuilding'], 268_800_000, ['sailing', 'trade'], { mobility: 'coastalSailing', multiply: { fishYield: 1.15, tradeRange: 1.3 }, unlocks: ['harbor'], demand: ['timber'] }, { coastal: 3, fishSite: 1.3 }),
   tech('Currency', 'Iron', ['Writing', 'Bronze working'], 307_200_000, ['trade', 'economy'], { multiply: { tradeRange: 1.3 }, unlocks: ['market'] }),
   tech('Mathematics', 'Iron', ['Writing'], 307_200_000, ['scholarship'], { multiply: { research: 1.15 } }),
   tech('Forestry', 'Iron', ['Iron working'], 268_800_000, ['economy'], { extract: ['timber'] }, { forest: 2.5 }),
   tech('Shipbuilding', 'Iron', ['Sailing', 'Forestry'], 326_400_000, ['sailing', 'trade'], { multiply: { fishYield: 1.1, tradeRange: 1.2 } }, { coastal: 2 }),
   // Classical.
-  tech('Engineering', 'Classical', ['Mathematics', 'Masonry', 'Iron working'], 505_600_000, ['construction'], { unlocks: ['pavedRoad', 'bridge', 'aqueduct', 'canal', 'fortress'] }, undefined, true),
+  tech('Engineering', 'Classical', ['Mathematics', 'Masonry', 'Iron working'], 505_600_000, ['construction'], { unlocks: ['pavedRoad', 'bridge', 'aqueduct', 'canal', 'fortress'], demand: ['stone'] }, undefined, true),
   tech('Philosophy', 'Classical', ['Mathematics'], 460_800_000, ['scholarship'], { multiply: { research: 1.1 }, unlocks: ['republic'] }),
   tech('Administration', 'Classical', ['Writing', 'Currency'], 505_600_000, ['governance'], { multiply: { reach: 1.3, specialistCap: 1.2 }, unlocks: ['dictatorship'] }, undefined, true),
   // Priesthoods arose with writing; Theology needs Philosophy. M4.3: with Philosophy too, and at Philosophy's cost,
@@ -130,6 +133,8 @@ export const TECHS: readonly TechDefinition[] = [
 
 export const STARTING_TECHS = ['Foraging', 'Fire', 'Hunting', 'Fishing'] as const;
 export const TECH_INDEX = new Map(TECHS.map((definition, index) => [definition.id, index]));
+/** For each tech, the resources it needs supplied (by index into `RESOURCE_IDS`): what it uses and what it demands. */
+export const TECH_NEEDS: readonly (readonly number[])[] = TECHS.map(definition => [...new Set([...(definition.effects.use ?? []), ...(definition.effects.demand ?? [])])].map(resource => RESOURCE_IDS.indexOf(resource)));
 
 /**
  * The era a polity is in (eras are labels, never gates): the latest era up to which it knows a tech of every era. A

@@ -48,8 +48,9 @@ export const CLOCK_TUNING = {
   sliceMs: 40,
   /** A polity's capacity is solved yearly (staggered by id), on arrival, and monthly while its people exceed
    *  `capacityRefresh` × the last solve or its region's game stock has moved more than `capacityGameDrift` since then.
-   *  Knowledge only raises capacity, so between solves the cached value is within a few percent of a fresh one and the
-   *  1.1× over-capacity check reads the same. */
+   *  Knowledge mostly raises capacity, so between solves the cached value is within a few percent of a fresh one and the
+   *  1.1× over-capacity check reads the same. (Since M5.3 a resource shortfall can lower a civilization's farm and fish
+   *  yields at its yearly assessment, by at most the techs' own bonuses; its capacity follows at the next solve.) */
   capacityRefresh: 1.04, capacityGameDrift: 0.01,
 } as const;
 
@@ -254,7 +255,8 @@ export const REACH_TUNING = {
 /**
  * Expansion (VISION.md "Expansion", no threshold): a candidate's score is drive × value × culture − distance − reach −
  * administration (BUDGET_TUNING.adminWeight's).
- * drive = the source region's land pressure + hungerWeight × hunger + opportunityWeight × opportunity (at most 1), where opportunity is how
+ * drive = the source region's land pressure + hungerWeight × hunger + opportunityWeight × opportunity + resourceWeight × the
+ * largest shortfall among the resources whose sites it knows there (M5.3) (at most 1), where opportunity is how
  * much better the best land it knows is than its own (at most 1); value = (the land's farming capacity over the mean of
  * the civilization's own regions, at most 1)^valuePower, so poorer land keeps some worth to people short of land,
  * × occupiedValue where a tribe's band lives; culture = (expansionismBase +
@@ -266,7 +268,7 @@ export const REACH_TUNING = {
  * 0.5) − absorbTradition × (the band's Tradition − 0.5), within [absorbMin, absorbMax]; otherwise it moves on.
  */
 export const EXPAND_TUNING = {
-  hungerWeight: 0.5, opportunityWeight: 0.5, valuePower: 0.5, occupiedValue: 0.7, expansionismBase: 0.5, distancePerKm: 0.00003, reachWeight: 0.05, reachPower: 4,
+  hungerWeight: 0.5, opportunityWeight: 0.5, resourceWeight: 0.3, valuePower: 0.5, occupiedValue: 0.7, expansionismBase: 0.5, distancePerKm: 0.00003, reachWeight: 0.05, reachPower: 4,
   settlerShare: 0.15, settlerRoom: 0.5, minSettlers: 20,
   absorbBase: 0.5, absorbSize: 0.6, absorbTradition: 0.6, absorbMin: 0.1, absorbMax: 0.95,
 } as const;
@@ -327,13 +329,14 @@ export const MIGRATION_TUNING = { rate: 0.1 } as const;
 
 /**
  * Exploration (VISION.md "Exploration"): score = curiosity × (opennessWeight × Openness + expansionismWeight ×
- * Expansionism) × (base + land pressure), plus `freshMobility` within `freshYears` of a new sea reach. Curiosity is the
+ * Expansionism) × (base + land pressure + shortageWeight × its shortage need: new land may hold what it lacks; M5.3), plus
+ * `freshMobility` within `freshYears` of a new sea reach. Curiosity is the
  * number of unknown regions next to its sight over `frontierScale` (at most 1). An expedition walks `range[sea]`
  * steps (foot, coastal sailing, ocean navigation) from the own region with the most unknown neighbours, mapping
  * what it passes and meeting who lives there.
  */
 export const EXPLORE_TUNING = {
-  opennessWeight: 0.5, expansionismWeight: 0.5, base: 0.3, frontierScale: 8, freshMobility: 0.3, freshYears: 50,
+  opennessWeight: 0.5, expansionismWeight: 0.5, base: 0.3, shortageWeight: 0.3, frontierScale: 8, freshMobility: 0.3, freshYears: 50,
   range: [3, 5, 8],
 } as const;
 
@@ -648,9 +651,20 @@ export const RELATION_TUNING = {
  * - infrastructure: the largest of the share of its towns and cities in regions its roads do not reach, the share of
  *   its settlements going hungry (hardship of at least `hungry`) with no granary or silo, and 1 for a coast with
  *   somewhere to sail to but no harbor once it could sail and build one.
- * Resource shortage (M5.3) and grievance (M6) are 0 until their milestones.
+ * Resource shortage is the largest shortfall of what its techs demand (M5.3); grievance is 0 until M6.
  */
 export const NEED_TUNING = { threatScale: 2, hostileAt: 50, calmStability: 0.8, weak: 0.5, rich: 0.3, hungry: 0.2 } as const;
+
+/**
+ * Resources (VISION.md "Supply and demand"; M5.3): each resource a known tech needs is demanded at its people ÷
+ * `peoplePerSite` units a year; a usable site worked by its mine (a quarry for stone; timber once Forestry is known)
+ * supplies `siteUnits`, and forested and rough land supply timber and stone at a unit per `forestKm2` and `roughKm2`. A
+ * tech's multipliers count only as far as its scarcest resource is supplied, never below `floor`.
+ * `peoplePerSite` is scaled to this simulation's peoples (realms of tens of millions): VISION.md's 50,000 would leave
+ * every realm short of everything (the user's decision, 8 October 2026). At 40 million a world's ~30 copper sites cover
+ * about as many people as live then (unevenly: trade evens it out), and its ~9 tin sites a third of them.
+ */
+export const RESOURCE_TUNING = { peoplePerSite: 40_000_000, siteUnits: 1, forestKm2: 50_000, roughKm2: 50_000, floor: 0.25 } as const;
 
 /** Story health measures (VISION.md "Story health"): the largest polity's share of the world's people it may hold except
  *  for a while. */
@@ -783,6 +797,8 @@ export function validateTunables() {
   const st2 = STABILITY_TUNING;
   if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.strain >= 0 && st2.strainCore >= 0 && st2.strainCore <= 1 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   if (!(STORY_TUNING.dominantShare > 0 && STORY_TUNING.dominantShare < 1)) problems.push('story health settings are invalid');
+  const rs = RESOURCE_TUNING;
+  if (!(rs.peoplePerSite > 0 && rs.siteUnits > 0 && rs.forestKm2 > 0 && rs.roughKm2 > 0 && rs.floor >= 0 && rs.floor <= 1)) problems.push('resource settings are invalid');
   const nt = NEED_TUNING;
   if (!(nt.threatScale > 1 && nt.hostileAt > 0 && nt.hostileAt <= 100 && nt.calmStability > 0 && nt.calmStability <= 1 && nt.weak >= 0 && nt.rich >= 0 && nt.hungry >= 0 && nt.hungry <= 1)) problems.push('need settings are invalid');
   const rt = RELATION_TUNING;

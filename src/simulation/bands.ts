@@ -1,3 +1,4 @@
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { capacity, FARM_METHOD, gameChange, harvest, HERD_METHOD, METHOD_COUNT, monthsToHarvest, regionYields, sow } from './food.ts';
 import { greatCircleKm } from './geography.ts';
@@ -159,7 +160,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     homeLandmass: parent ? parent.homeLandmass : state.partition.regions[region].landmass, contacts: [], frontierEra: 0,
     exchanges: new Map(), exchangeRefused: new Map(), capital: null, settledTick: null,
     map: emptyMap(state.partition.regions.length), met: new Map(), together: -1, togetherRuling: -1, togetherYears: 0, stateReligion: faith,
-    decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(), relations: new Map(),
+    decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(), relations: new Map(), supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length),
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
     taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,
   };

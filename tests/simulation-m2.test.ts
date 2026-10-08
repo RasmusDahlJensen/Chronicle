@@ -15,6 +15,7 @@ import { assess } from '../src/simulation/stability.ts';
 import { edgeKm } from '../src/simulation/perception.ts';
 import { BUDGET_TUNING, RELATION_TUNING, STABILITY_TUNING, UNITE_TUNING } from '../src/simulation/tunables.ts';
 import { judge, truthOf } from '../src/simulation/relations.ts';
+import { accessOf } from '../src/simulation/supply.ts';
 import { refreshRemoteness } from '../src/simulation/budget.ts';
 import { wealthFlows } from '../src/simulation/economy.ts';
 import { createRng, type Rng } from '../src/simulation/rng.ts';
@@ -436,6 +437,12 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
     assert.ok(nonzero < 2 || step.causes.length >= 2, `${step.chosen} at ${step.tick}: ${JSON.stringify(step.causes)}`);
   }
   assert.equal(state.metrics.causesShort, 0);
+  // M5.3: civilizations are assessed: what they demand, and access exactly as supply over demand gives it.
+  assert.ok(civs.some(id => state.polities[id].demand.some(demand => demand > 0)), 'some civilization demands resources');
+  for (const id of civs) {
+    const polity = state.polities[id];
+    polity.demand.forEach((demand, resource) => { if (demand > 0) assert.equal(polity.knowledge.access[resource], accessOf(polity.supply[resource], demand)); });
+  }
   // The view: all its people's values; threats only from neighbours it has met, believes stronger and dislikes.
   for (const id of civs) {
     const polity = state.polities[id], seen = decisionView(state, polity);

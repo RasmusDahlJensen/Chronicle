@@ -251,12 +251,15 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(weighed).toContainText('Do nothing');
   expect(await weighed.getByRole('listitem').count()).toBeGreaterThanOrEqual(2);
   // M5.2: the decision shows the needs it weighed and the effective values it was taken with (all its people's).
-  await expect(page.locator('#polity-needs')).toContainText(/Needs: hunger \d\.\d\d · land pressure \d\.\d\d · shortage 0\.00 · threat \d\.\d\d/);
+  await expect(page.locator('#polity-needs')).toContainText(/Needs: hunger \d\.\d\d · land pressure \d\.\d\d · shortage \d\.\d\d · threat \d\.\d\d/);
   await expect(page.locator('#polity-values')).toContainText(/Decided by all its people's values: militarism \d\.\d\d/);
   await expect(page.locator('#polity-causes')).toContainText(/^(Because of [a-zA-Z]+ \+\d\.\d\d|Chosen)/);
   // M5.1: its Diplomacy: the peoples it knows best, with its opinion of them and why, its beliefs and their intimacy.
   const inspected = (await (await page.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${civ.region}`)).json()).inspect.polity;
   expect(inspected.diplomacy.length).toBeGreaterThan(0);
+  // M5.3: its resources, worked against what its techs demand (every civilization knows Neolithic stone or boat work).
+  expect(inspected.resources.length).toBeGreaterThan(0);
+  await expect(details.getByRole('region', { name: 'Resources' })).toContainText(inspected.resources[0].resource);
   const relations = details.getByRole('list', { name: 'Relations' });
   await expect(relations.getByRole('listitem')).toHaveCount(inspected.diplomacy.length);
   await expect(relations.getByRole('listitem').first()).toContainText(inspected.diplomacy[0].name);

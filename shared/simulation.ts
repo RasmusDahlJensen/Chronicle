@@ -1,12 +1,13 @@
 import { Type, type Static } from 'typebox';
 import { Check } from 'typebox/value';
+import { RESOURCE_IDS } from './atlas.ts';
 import { WORLD_SIZES } from './generated-world.ts';
 
 /**
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 27;
+export const SIMULATION_PROTOCOL_VERSION = 28;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -295,6 +296,10 @@ export const ObserverFrameSchema = Type.Object({
        *  what it thinks of them (−100 to 100) and its strongest reasons, how intimate they are (0–1, how sure its
        *  beliefs are), their population and strength as it believes them, whether they share knowledge, and the year
        *  they met. Empty for a tribe. */
+      /** A civilization's resources this year (M5.3; empty for a tribe): each it demands or works, units a year (three
+       *  significant digits) of what it has and what its known techs demand for its people, and the share of the demand
+       *  met (1 when nothing is demanded). */
+      resources: Type.Array(Type.Object({ resource: Type.Enum(RESOURCE_IDS), supply: Type.Number({ minimum: 0 }), demand: Type.Number({ minimum: 0 }), met: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 16 }),
       diplomacy: Type.Array(Type.Object({
         id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]),
         opinion: Type.Number({ minimum: -100, maximum: 100 }),

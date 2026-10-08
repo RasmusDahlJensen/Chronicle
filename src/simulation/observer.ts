@@ -1,3 +1,4 @@
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import type { ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { cultivatedCells, fieldLand } from './fields.ts';
@@ -9,6 +10,7 @@ import { regionFarm, wonderBonus } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { believe, capitalKm, knownRegionCount } from './perception.ts';
+import { available, metFor } from './supply.ts';
 import { stabilityOf } from './stability.ts';
 import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState } from './state.ts';
 import { ancestry, lineOf } from './culture.ts';
@@ -101,6 +103,8 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
 }
 
 const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 10 ** digits;
+/** Three significant digits (resource units run from thousandths to hundreds). */
+const significant = (value: number) => value === 0 ? 0 : Number(value.toPrecision(3));
 
 function inspectRegion(state: SimulationState, region: number, living: Map<number, { regions: number; population: number }>): ObserverFrame['inspect'] {
   if (!Number.isInteger(region) || region < 0 || region >= state.partition.regions.length) return null;
@@ -135,6 +139,8 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
       reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: Math.round(kmFromCapital),
       lastDecision: lastDecision(polity),
+      resources: polity.kind !== 'civ' ? [] : RESOURCE_IDS.flatMap((resource, at) => polity.supply[at] > 0 || polity.demand[at] > 0
+        ? [{ resource, supply: significant(available(polity, at)), demand: significant(polity.demand[at]), met: round(metFor(polity, at)) }] : []),
       diplomacy: polity.kind !== 'civ' ? [] : [...polity.relations].filter(([other]) => state.polities[other].deathTick === null)
         .sort((a, b) => b[1].intimacy - a[1].intimacy || b[1].opinion - a[1].opinion || a[0] - b[0]).slice(0, 24).map(([other, relation]) => {
           const them = state.polities[other];

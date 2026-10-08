@@ -9,6 +9,8 @@ import { checkInvariants } from './invariants.ts';
 import { edgeKm, knownRegionCount } from './perception.ts';
 import { regionAffinities, research, shareKnowing } from './research.ts';
 import { relationStats, relationsYear } from './relations.ts';
+import { metFor, resourcesYear, shortfallFor } from './supply.ts';
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { byWater } from './settlements.ts';
 import { edgeBetween, roadCoverage } from './roads.ts';
 import { construct } from './construction.ts';
@@ -25,14 +27,14 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 25;
+export const SIMULATION_RULES_VERSION = 26;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
 /** Rules per system. Empty systems keep their slot, cadence and timing until a milestone fills them. */
 const RUNS: Record<SystemKey, SystemRun> = {
   environment, production: produce, population: populate, knowledge: research, culture: cultureYear,
-  stability: stabilize, decisions: decide, construction: construct, diplomacy: relationsYear, war: () => {}, fracture: () => {},
+  stability: stabilize, decisions: decide, construction: construct, diplomacy: (state, context) => { resourcesYear(state, context); relationsYear(state, context); }, war: () => {}, fracture: () => {},
   chronicle: (state, context) => state.chronicle.flush(context.tick),
 };
 
@@ -62,7 +64,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0, settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0,
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
-      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, decisionSteps: 0, causesShort: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
+      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, decisionSteps: 0, causesShort: 0, resourceExpansions: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -126,6 +128,27 @@ function needStats(state: SimulationState) {
     needHunger: mean('hunger'), needLandPressure: mean('landPressure'), needShortage: mean('shortage'), needThreat: mean('threat'), needUnrest: mean('unrest'),
     needFriction: mean('friction'), needOpportunity: mean('opportunity'), needGrievance: mean('grievance'), needInfrastructure: mean('infrastructure'),
     decisionSteps: state.metrics.decisionSteps, causesShort: state.metrics.causesShort,
+  };
+}
+
+/** Resources (M5.3): who is short of something, and how much of each demand is met among those demanding it. */
+function resourceStats(state: SimulationState) {
+  const watched = ['copper', 'tin', 'iron', 'timber', 'stone'] as const, met = watched.map(() => [0, 0]);
+  let civs = 0, short = 0;
+  for (const id of state.living) {
+    const polity = state.polities[id];
+    if (polity.kind !== 'civ') continue;
+    civs++;
+    if (polity.demand.some((_, at) => shortfallFor(polity, at) > 0.1)) short++;
+    watched.forEach((name, at) => {
+      const resource = RESOURCE_IDS.indexOf(name);
+      if (polity.demand[resource] > 0) { met[at][0] += metFor(polity, resource); met[at][1]++; }
+    });
+  }
+  const mean = ([sum, count]: number[]) => count ? Math.round(sum / count * 1000) / 1000 : -1;
+  return {
+    shortCivs: civs ? Math.round(short / civs * 1000) / 1000 : 0, metCopper: mean(met[0]), metTin: mean(met[1]), metIron: mean(met[2]), metTimber: mean(met[3]), metStone: mean(met[4]),
+    resourceExpansions: state.metrics.resourceExpansions,
   };
 }
 
@@ -241,7 +264,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     ...neglectStats(state), neglectBegun: m.neglectBegun,
     ...famineByWealth(state),
     ...roundedCultureStats(state), cultureSplits: m.cultureSplits, civCultureSplits: m.civCultureSplits, assimilations: m.assimilations, hybrids: m.hybrids, traitsEarned: m.traitsEarned,
-    ...relationStats(state), ...needStats(state), ...roundedFaithStats(state), religionsFounded: m.religionsFounded, conversions: m.conversions, stateReligionChanges: m.stateReligionChanges, schisms: m.schisms,
+    ...relationStats(state), ...needStats(state), ...resourceStats(state), ...roundedFaithStats(state), religionsFounded: m.religionsFounded, conversions: m.conversions, stateReligionChanges: m.stateReligionChanges, schisms: m.schisms,
   };
 }
 
@@ -387,6 +410,8 @@ export function stateHash(state: SimulationState) {
     for (const region of polity.map.observed) add(region);
     for (const [region, snapshot] of polity.map.snapshots) { add(region); add(snapshot.occupant); add(snapshot.owner); add(snapshot.tick); }
     add(polity.lastExpansion ?? -1); add(polity.longestExpansionGap); add(polity.seaTick);
+    // Resources (M5.3): what it works and demands, and how fully its techs' needs are met.
+    for (let resource = 0; resource < polity.supply.length; resource++) { add(polity.supply[resource] * 1e6); add(polity.demand[resource] * 1e6); add(polity.knowledge.access[resource] * 1e6); }
     for (const [civ, tick] of polity.rebuffed) { add(civ); add(tick); }
     add(polity.wealth); add(polity.wealthCarry * 1e6); add(polity.upkeepCarry * 1e6); add(polity.repairing ? 1 : 0);
     for (const project of polity.projects) { add(project.settlement); add(project.type); add(project.spent); add(project.waited); }

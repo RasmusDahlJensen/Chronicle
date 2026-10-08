@@ -1,4 +1,5 @@
-import { ERAS, eraOf, MOBILITY, STARTING_TECHS, TECH_INDEX, TECHS, type Affinity, type Coefficient } from './techs.ts';
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
+import { ERAS, eraOf, MOBILITY, STARTING_TECHS, TECH_INDEX, TECH_NEEDS, TECHS, type Affinity, type Coefficient } from './techs.ts';
 import type { Rng } from './rng.ts';
 import { FAITH_TUNING, RESEARCH_TUNING } from './tunables.ts';
 
@@ -17,6 +18,10 @@ export interface Knowledge {
   reasons: { factor: string; weight: number }[];
   /** The few strongest candidates at the last choice, with their weights (inspection). */
   candidates: { tech: number; weight: number }[];
+  /** How fully each resource it needs is supplied (by index into `RESOURCE_IDS`, within [floor, 1]; M5.3): a tech's
+   *  multipliers count only as far as the scarcest resource it needs is supplied. Set yearly for a civilization
+   *  (`supply.ts`); 1 for everything else. */
+  access: Float64Array;
   multipliers: Record<Coefficient, number>;
   methods: { herd: boolean; farm: boolean };
   /** Highest mobility level of any known tech (display), and sea reach from the techs that give it: 0 none,
@@ -33,7 +38,7 @@ const REQUIRES = TECHS.map(definition => definition.requires.map(name => TECH_IN
 const AFFINITIES = TECHS.map(definition => Object.entries(definition.affinity ?? {}) as [Affinity, number][]);
 const FOOD = TECHS.map(definition => definition.tags.includes('food')), ECONOMY = TECHS.map(definition => definition.tags.includes('economy')), RELIGION = TECHS.map(definition => definition.tags.includes('religion'));
 
-const fresh = () => ({ target: -1, progress: new Float64Array(TECHS.length), taught: new Float64Array(TECHS.length), caught: new Float64Array(TECHS.length), reasons: [], candidates: [] });
+const fresh = () => ({ target: -1, progress: new Float64Array(TECHS.length), taught: new Float64Array(TECHS.length), caught: new Float64Array(TECHS.length), reasons: [], candidates: [], access: new Float64Array(RESOURCE_IDS.length).fill(1) });
 
 export function startingKnowledge(): Knowledge {
   const known = new Uint8Array(TECHS.length);
@@ -55,7 +60,7 @@ export function mergeKnowledge(into: Knowledge, from: Knowledge): Knowledge {
   const known = into.known.slice(), progress = into.progress.slice(), taught = into.taught.slice(), caught = into.caught.slice();
   for (let tech = 0; tech < TECHS.length; tech++) if (from.known[tech] && !known[tech]) { known[tech] = 1; progress[tech] = 0; taught[tech] = 0; caught[tech] = 0; }
   const target = into.target >= 0 && !known[into.target] ? into.target : -1;
-  return derive({ known, target, progress, taught, caught, reasons: target >= 0 ? into.reasons : [], candidates: target >= 0 ? into.candidates : [] });
+  return derive({ known, target, progress, taught, caught, reasons: target >= 0 ? into.reasons : [], candidates: target >= 0 ? into.candidates : [], access: into.access });
 }
 
 /** Techs `from` knows that `into` does not. */
@@ -65,7 +70,7 @@ export function newTechs(into: Knowledge, from: Knowledge) {
   return count;
 }
 
-function derive(base: Pick<Knowledge, 'known' | 'target' | 'progress' | 'taught' | 'caught' | 'reasons' | 'candidates'>): Knowledge {
+function derive(base: Pick<Knowledge, 'known' | 'target' | 'progress' | 'taught' | 'caught' | 'reasons' | 'candidates' | 'access'>): Knowledge {
   const available: number[] = [];
   for (let index = 0; index < TECHS.length; index++) if (!base.known[index] && REQUIRES[index].every(requirement => base.known[requirement])) available.push(index);
   const multipliers = Object.fromEntries(COEFFICIENTS.map(key => [key, 1])) as Record<Coefficient, number>;
@@ -73,7 +78,10 @@ function derive(base: Pick<Knowledge, 'known' | 'target' | 'progress' | 'taught'
   for (let index = 0; index < TECHS.length; index++) {
     if (!base.known[index]) continue;
     const effects = TECHS[index].effects;
-    for (const [key, value] of Object.entries(effects.multiply ?? {})) multipliers[key as Coefficient] *= value;
+    // Counted only as far as the scarcest resource it needs is supplied (exactly its value when fully supplied).
+    let scale = 1;
+    for (const resource of TECH_NEEDS[index]) scale = Math.min(scale, base.access[resource]);
+    for (const [key, value] of Object.entries(effects.multiply ?? {})) multipliers[key as Coefficient] *= scale === 1 ? value : 1 + (value - 1) * scale;
     if (effects.mobility) mobility = Math.max(mobility, MOBILITY.indexOf(effects.mobility));
     if (effects.mobility === 'coastalSailing' && sea < 1) sea = 1;
     if (effects.mobility === 'oceanNavigation') sea = 2;
@@ -88,7 +96,13 @@ export function knows(knowledge: Knowledge, name: string) { return knowledge.kno
 export function learn(knowledge: Knowledge, tech: number): Knowledge {
   const known = knowledge.known.slice(), progress = knowledge.progress.slice(), taught = knowledge.taught.slice(), caught = knowledge.caught.slice();
   known[tech] = 1; progress[tech] = 0; taught[tech] = 0; caught[tech] = 0;
-  return derive({ known, target: -1, progress, taught, caught, reasons: [], candidates: [] });
+  return derive({ known, target: -1, progress, taught, caught, reasons: [], candidates: [], access: knowledge.access });
+}
+
+/** The same knowledge with its resources supplied as `access` says (M5.3): its multipliers recomputed. */
+export function withAccess(knowledge: Knowledge, access: Float64Array): Knowledge {
+  const { known, target, progress, taught, caught, reasons, candidates } = knowledge;
+  return derive({ known, target, progress, taught, caught, reasons, candidates, access });
 }
 
 /** Techs whose prerequisites are all known and that are not known yet. */

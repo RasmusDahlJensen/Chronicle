@@ -190,7 +190,7 @@ test('a realm pays its costs month by month, to the unit; one that cannot falls 
 });
 
 test('a realm whose costs outrun its customary taxes is loath to expand, far land most; one with a surplus is not held back', () => {
-  const candidate = (capitalKm: number) => ({ region: 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm, value: 100_000, tribe: false });
+  const candidate = (capitalKm: number) => ({ region: 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm, value: 100_000, tribe: false, short: 0 });
   const view = (strain: number) => ({
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
     reachKm: 1_500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,

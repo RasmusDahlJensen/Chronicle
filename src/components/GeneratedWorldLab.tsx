@@ -117,6 +117,16 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
         </li>)}</ol>
       </> : <p className="atlas-panel-note">No decision yet: a civilization weighs expanding, exploring, uniting, sharing knowledge or doing nothing every six months.</p>}
     </section>}
+    {civ && polity.resources.length > 0 && <section className="world-polity-resources" aria-label="Resources">
+      <p className="atlas-detail-label">Resources · worked in its land against what its techs demand, a year</p>
+      <ul className="world-resources" id="polity-resources">{polity.resources.map(entry => {
+        const short = entry.demand > 0 && entry.met < 0.9;
+        return <li key={entry.resource} className={short ? 'world-resource-short' : undefined}>
+          <span>{entry.resource}{short ? ' · short' : ''}</span> <span>{units(entry.supply)}{entry.demand > 0 ? ` of ${units(entry.demand)} needed (${Math.round(entry.met * 100)}%)` : ' (not needed)'}</span>
+        </li>;
+      })}</ul>
+      <p className="atlas-panel-note">A shortfall weakens the techs that need the resource (never below a quarter of their effect); trade will bring imports (M5.4).</p>
+    </section>}
     {civ && polity.diplomacy.length > 0 && <section className="world-polity-diplomacy" aria-label="Diplomacy">
       <p className="atlas-detail-label">Diplomacy · the peoples it knows best</p>
       <ol className="world-diplomacy" aria-label="Relations">{polity.diplomacy.map(row => <li key={row.id}>
@@ -147,6 +157,9 @@ function causeText(causes: { factor: string; weight: number }[]) {
   const despite = causes.filter(cause => cause.weight < 0).map(cause => `${cause.factor} ${cause.weight.toFixed(2)}`);
   return `${why.length ? `Because of ${why.join(', ')}` : 'Chosen'}${despite.length ? `, despite ${despite.join(', ')}` : ''}.`;
 }
+
+/** Resource units, readable from thousandths to hundreds. */
+const units = (value: number) => value === 0 ? '0' : value >= 10 ? value.toFixed(0) : value >= 1 ? value.toFixed(1) : value.toPrecision(2);
 
 const NEED_LABELS = [['hunger', 'hunger'], ['landPressure', 'land pressure'], ['shortage', 'shortage'], ['threat', 'threat'], ['unrest', 'unrest'], ['friction', 'friction'],
   ['opportunity', 'opportunity'], ['grievance', 'grievance'], ['infrastructure', 'infrastructure']] as const;
