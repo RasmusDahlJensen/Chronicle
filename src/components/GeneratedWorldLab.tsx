@@ -11,7 +11,7 @@ import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
 import { describeEvent, frameNames } from '../observer/events.ts';
-import { ACTION_NAMES, AGREEMENT_NAMES, BELIEF_NAMES, causeText, DECISION_LABELS, decisionTarget, NEED_LABELS, REASON_NAMES, STATUS_NAMES, units } from '../observer/labels.ts';
+import { ACTION_NAMES, AGREEMENT_NAMES, BELIEF_NAMES, causeText, COST_KINDS, COST_NAMES, DECISION_LABELS, decisionTarget, NEED_LABELS, REASON_NAMES, STATUS_NAMES, totalCost, units } from '../observer/labels.ts';
 import { ERA_NAMES, RIVER_TIERS, simulationDate, VALUE_NAMES, type ObserverFrame } from '../../shared/simulation.ts';
 import { cssColor, cultureColor, ERA_COLORS, faithColor, lineageColor, polityColor } from '../observer/palettes.ts';
 import { useRegionMap, useWorldMap, type PeoplesLens } from '../observer/useWorldMap.ts';
@@ -56,9 +56,9 @@ function settlementBalance(account: NonNullable<Inspected['settlements'][number]
 /** A civilization's budget (VISION.md "Wealth"). */
 function BudgetDetail({ wealth }: { wealth: NonNullable<NonNullable<Inspected['polity']>['wealth']> }) {
   const { revenue, costs } = wealth;
-  const income = revenue.trades + revenue.farms + revenue.sites + wealth.agreements, spending = costs.administration + costs.services + costs.upkeep + costs.roads, balance = income - spending;
+  const income = revenue.trades + revenue.farms + revenue.sites + wealth.agreements, spending = totalCost(costs), balance = income - spending;
   const works = [wealth.projects ? `${number.format(wealth.projects)} ${wealth.projects === 1 ? 'building' : 'buildings'}` : '', wealth.roadWorks ? `${number.format(wealth.roadWorks)} ${wealth.roadWorks === 1 ? 'road' : 'roads'}` : ''].filter(Boolean).join(' and ');
-  return <p className="atlas-panel-note" id="polity-wealth">Treasury {number.format(wealth.treasury)} · taxes {Math.round(wealth.taxRate * 100)}% of what its people produce · revenue {number.format(income)} a year (trades {number.format(revenue.trades)}, farms {number.format(revenue.farms)}{revenue.sites ? `, mines and quarries ${number.format(revenue.sites)}` : ''}{wealth.agreements ? `, trade agreements ${wealth.agreements > 0 ? '+' : '−'}${number.format(Math.abs(wealth.agreements))}` : ''}) · costs {number.format(spending)} a year (administration {number.format(costs.administration)}, services {number.format(costs.services)}, upkeep {number.format(costs.upkeep)}{costs.roads ? `, roads ${number.format(costs.roads)}` : ''}) · {balance >= 0 ? 'a surplus' : 'a deficit'} of {number.format(Math.abs(balance))} a year{wealth.arrears >= 0.005 ? ` · in arrears: ${Math.round(wealth.arrears * 100)}% of its costs unpaid, so its buildings and roads wear and its far regions grow restless` : ''}{works ? ` · ${works} under construction` : ''}.</p>;
+  return <p className="atlas-panel-note" id="polity-wealth">Treasury {number.format(wealth.treasury)} · taxes {Math.round(wealth.taxRate * 100)}% of what its people produce · revenue {number.format(income)} a year (trades {number.format(revenue.trades)}, farms {number.format(revenue.farms)}{revenue.sites ? `, mines and quarries ${number.format(revenue.sites)}` : ''}{wealth.agreements ? `, trade agreements ${wealth.agreements > 0 ? '+' : '−'}${number.format(Math.abs(wealth.agreements))}` : ''}) · costs {number.format(spending)} a year ({COST_KINDS.map(cost => `${COST_NAMES[cost]} ${number.format(costs[cost])}`).join(', ')}) · {balance >= 0 ? 'a surplus' : 'a deficit'} of {number.format(Math.abs(balance))} a year{wealth.arrears >= 0.005 ? ` · in arrears: ${Math.round(wealth.arrears * 100)}% of its costs unpaid, so its buildings and roads wear and its far regions grow restless` : ''}{works ? ` · ${works} under construction` : ''}.</p>;
 }
 
 /** The people of the inspected region (VISION.md "Ancestry query"): their culture, how it began, its descent and their values. */
@@ -113,7 +113,7 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
         <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map((option, index) => <li key={index}>
           <span>{ACTION_NAMES[option.action]} {option.score.toFixed(2)}</span>
           <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
-          {option.beliefs?.map(belief => <span key={`${belief.polity}-${belief.kind}`} className="world-decision-belief">believed {BELIEF_NAMES[belief.kind]} {number.format(belief.estimate)} (truly {number.format(belief.truth)})</span>)}
+          {option.beliefs?.map(belief => <span key={`${belief.polity}-${belief.kind}`} className="world-decision-belief">believed {BELIEF_NAMES[belief.kind]} of the {belief.name} {number.format(belief.estimate)} (truly {number.format(belief.truth)})</span>)}
         </li>)}</ol>
       </> : <p className="atlas-panel-note">No decision yet: every six months a civilization weighs expanding, exploring, uniting, sharing knowledge, building, trading, treaties, voyages or doing nothing.</p>}
     </section>}

@@ -19,6 +19,8 @@ export interface BandMarker { x: number; y: number; population: number; color: s
 /** A settlement mark at its cell, by tier (0 village, 1 town, 2 city, 3 metropolis); capitals are stars. `name` is
  *  empty for places the map does not label. */
 export interface SettlementMark { x: number; y: number; capital: boolean; tier: number; name: string; features?: number }
+/** Ruins (U.7): where a settlement was abandoned, or razed (crossed out). */
+export interface RuinMark { x: number; y: number; name: string; razed: boolean }
 /** A road between two places in world cell coordinates (the main settlements, or centres, of the regions it joins), by
  *  tier (1 road, 2 paved road, 3 railway, 4 highway), and whether a bridge carries it over a river. */
 export interface RoadMark { x1: number; y1: number; x2: number; y2: number; tier: number; bridge: boolean; condition: number }
@@ -96,7 +98,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let resources = true;
   let rivers = true;
   let regionCells: Uint16Array | null = null, regionBorders: Path2D | null = null, regionBorderCount = 0, showRegions = false;
-  let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' }, roads: RoadMark[] = [], trades: TradeMark[] = [];
+  let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' }, roads: RoadMark[] = [], trades: TradeMark[] = [], ruins: RuinMark[] = [];
   // Territories: one pixel per world cell, coloured by the people living in its region (drawn scaled on the overlay).
   let territoryFill: Uint32Array | null = null, territoryImage: HTMLCanvasElement | null = null, territoryCount = 0;
   // Cultivated land: one pixel per world cell (1 where cultivated), drawn as wheat-coloured furrows over the territories.
@@ -366,16 +368,36 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
       target.restore();
     }
+    // Ruins (U.7), once a region is a few pixels across: a small grey square with a gap, crossed out where razed; named
+    // up close, after the living places (their names come first).
+    let ruinMarks = 0;
+    const ruinNames: PlaceLabel[] = [];
+    if (ruins.length && m.scale >= 2) {
+      target.save(); target.strokeStyle = '#4a443c'; target.fillStyle = 'rgba(214, 207, 190, 0.75)'; target.lineWidth = 1;
+      const half = Math.max(2, Math.min(5, m.scale * 0.45));
+      for (let copy = startCopy; copy <= endCopy; copy++) for (const ruin of ruins) {
+        const x = left + (copy * world.width + ruin.x + 0.5) * m.scale, y = top + (ruin.y + 0.5) * m.scale;
+        if (x < -half || x > m.width + half || y < -half || y > m.height + half) continue;
+        target.fillRect(x - half, y - half, half * 2, half * 2);
+        target.beginPath(); target.moveTo(x - half, y - half * 0.2); target.lineTo(x - half, y - half); target.lineTo(x + half, y - half); target.lineTo(x + half, y + half); target.lineTo(x - half * 0.2, y + half); target.stroke();
+        if (ruin.razed) { target.beginPath(); target.moveTo(x - half, y - half); target.lineTo(x + half, y + half); target.moveTo(x + half, y - half); target.lineTo(x - half, y + half); target.stroke(); }
+        ruinMarks++;
+        if (ruin.name && m.scale >= 6) ruinNames.push({ x: x + half + 3, y, name: ruin.name, tier: -1, capital: false });
+      }
+      target.restore();
+    }
+    canvas.dataset.ruinMarks = String(ruins.length);
+    canvas.dataset.ruinsDrawn = String(ruinMarks);
     // Settlements on their own cells, by tier: villages (small diamonds) once a region is a few pixels across, towns
     // (larger diamonds) a little sooner, cities and metropolises (rings) at every zoom; capitals as stars, larger with
     // their tier, so the political map shows where each civilization is governed from. Names follow as the map zooms:
     // metropolises and cities first, then towns and capitals.
     let capitalMarks = 0, labels = 0, features = 0, worn = 0;
+    const named: PlaceLabel[] = [];
     if (villages.length) {
       target.save(); target.fillStyle = villageStyle.fill; target.strokeStyle = villageStyle.stroke; target.lineWidth = 1;
       const base = Math.max(2.5, Math.min(7, m.scale * 0.6)), star = Math.max(3.5, Math.min(8, m.scale * 0.9));
       const shownFrom = [1.5, 1, 0, 0], labelFrom = [Number.POSITIVE_INFINITY, 4, 2, 1.2], growth = [0.7, 1, 1.35, 1.7];
-      const named: PlaceLabel[] = [];
       for (let copy = startCopy; copy <= endCopy; copy++) for (const village of villages) {
         if (!village.capital && m.scale < shownFrom[village.tier]) continue;
         const x = left + (copy * world.width + village.x + 0.5) * m.scale, y = top + (village.y + 0.5) * m.scale;
@@ -408,15 +430,18 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
         }
         if (village.name && m.scale >= Math.min(labelFrom[village.tier], village.capital ? 2 : Number.POSITIVE_INFINITY)) named.push({ x: x + half + 3, y, name: village.name, tier: village.tier, capital: village.capital });
       }
-      // Capitals first, then larger places; a name that would overlap one already placed is left out, so the map stays
-      // readable where towns crowd (zooming in brings the rest).
-      target.textBaseline = 'middle'; target.lineJoin = 'round';
-      const font = (label: PlaceLabel) => `${label.tier >= 2 ? 600 : 500} ${label.tier >= 2 ? 12 : 11}px system-ui, sans-serif`;
-      for (const label of placeLabels(named, label => { target.font = font(label); return target.measureText(label.name).width; })) {
-        target.font = font(label);
-        target.lineWidth = 3; target.strokeStyle = 'rgba(244, 239, 224, 0.92)'; target.strokeText(label.name, label.x, label.y);
-        target.fillStyle = '#2b1d12'; target.fillText(label.name, label.x, label.y);
-        labels++;
+      target.restore();
+    }
+    // Names: capitals first, then larger places, ruins (tier −1, in italics) last; a name that would overlap one already
+    // placed is left out, so the map stays readable where towns crowd (zooming in brings the rest).
+    if (named.length || ruinNames.length) {
+      target.save(); target.textBaseline = 'middle'; target.lineJoin = 'round';
+      const font = (label: PlaceLabel) => label.tier < 0 ? 'italic 500 11px system-ui, sans-serif' : `${label.tier >= 2 ? 600 : 500} ${label.tier >= 2 ? 12 : 11}px system-ui, sans-serif`;
+      for (const label of placeLabels([...named, ...ruinNames], label => { target.font = font(label); return target.measureText(label.name).width; })) {
+        target.font = font(label); target.lineWidth = 3;
+        target.strokeStyle = label.tier < 0 ? 'rgba(244, 239, 224, 0.8)' : 'rgba(244, 239, 224, 0.92)'; target.strokeText(label.name, label.x, label.y);
+        target.fillStyle = label.tier < 0 ? '#5a5248' : '#2b1d12'; target.fillText(label.name, label.x, label.y);
+        if (label.tier >= 0) labels++;
       }
       target.restore();
     }
@@ -611,6 +636,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     setTrades(next: TradeMark[]) { trades = next; safe(() => overlay ? drawOverlay() : draw()); },
     /** Settlement marks in world cell coordinates, in the observer's palette; replaces the previous set. */
     setSettlements(next: SettlementMark[], style: { fill: string; stroke: string }) { villages = next; villageStyle = style; safe(() => overlay ? drawOverlay() : draw()); },
+    /** Ruins in world cell coordinates (U.7); replaces the previous set. */
+    setRuins(next: RuinMark[]) { ruins = next; safe(() => overlay ? drawOverlay() : draw()); },
     /** Region index from the simulation (region id + 1, 0 for water); null clears it. */
     setRegions(cells: Uint16Array | null, visible: boolean) {
       if (cells !== regionCells) {
@@ -629,7 +656,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       canvas.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointercancel', pointerCancel);
       canvas.removeEventListener('lostpointercapture', pointerCancel); canvas.removeEventListener('wheel', wheel); canvas.removeEventListener('keydown', keydown);
       if (gesture && canvas.hasPointerCapture(gesture.id)) canvas.releasePointerCapture(gesture.id);
-      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; markers = []; villages = []; territoryFill = null; territoryImage = null; canvas.style.touchAction = '';
+      textures.clear(); riverReaches.length = 0; tiles = []; overview = null; terrain = undefined; regionBorders = null; regionCells = null; markers = []; villages = []; ruins = []; territoryFill = null; territoryImage = null; canvas.style.touchAction = '';
       if (overlay) overlay.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
     },
   };

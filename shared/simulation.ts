@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 38;
+export const SIMULATION_PROTOCOL_VERSION = 39;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -16,6 +16,8 @@ export const MAX_SIMULATION_YEAR = 5000;
 export const MAX_FRAME_EVENTS = 200;
 /** The most peoples a frame names (U.1; far above what 200 events and an inspected region's settlements hold). */
 export const MAX_FRAME_NAMES = 1024;
+/** The most ruins a frame carries (U.7): those that fell last. */
+export const MAX_FRAME_RUINS = 4_000;
 
 /** Settlement tiers by urban population (VISION.md "Settlements"); a settlement's tier is its index here. */
 export const SETTLEMENT_TIERS = ['village', 'town', 'city', 'metropolis'] as const;
@@ -189,6 +191,13 @@ export const ObserverFrameSchema = Type.Object({
      *  buildings or wonder go unkept or are worn (a bitmask). */
     features: Type.Array(Type.Integer({ minimum: 0, maximum: 31 }), { maxItems: 50_000 }),
   }, { additionalProperties: false }),
+  /** (U.7) Ruins (VISION.md "Settlements and infrastructure"): settlements left in ruins or razed, as parallel arrays of
+   *  its cell, its name and whether it was razed (1) rather than abandoned (0); the MAX_FRAME_RUINS that fell last when
+   *  there are more (frames are polled several times a second). */
+  ruins: Type.Object({
+    cells: Type.Array(id(), { maxItems: MAX_FRAME_RUINS }), names: Type.Array(Type.String({ maxLength: 40 }), { maxItems: MAX_FRAME_RUINS }),
+    razed: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: MAX_FRAME_RUINS }),
+  }, { additionalProperties: false }),
   /** Standing roads as parallel arrays, in the order first built: the two regions of the land edge it lies on (the
    *  lower id first), its tier (an index into ROAD_TIER_NAMES plus one: 1 road, 2 paved road, 3 railway, 4 highway) and
    *  whether a bridge carries it over the river there (0/1), and its condition in percent (worn roads look worn); for
@@ -328,7 +337,8 @@ export const ObserverFrameSchema = Type.Object({
       knownEras: Type.Array(Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), { maxItems: 200 }),
       /** Its map: regions it knows (in sight or remembered), regions in sight, and polities it has met. */
       regionsKnown: Type.Integer({ minimum: 1 }), regionsInSight: Type.Integer({ minimum: 1 }), met: Type.Integer({ minimum: 0 }),
-      /** Governance reach in travel-km, and this region's travel-km from the capital (null when cut off from it). */
+      /** Governance reach in travel-km, and this region's travel-km from the capital (never null now: a region cut off by
+       *  land is measured over the sea; the null is kept for the contract's sake). */
       reachKm: Type.Number({ minimum: 0 }), capitalKm: Type.Union([Type.Null(), Type.Number({ minimum: 0 })]),
       /** A civilization region's stability (0–1, as last assessed), whether it is in unrest, and what lowers it now:
        *  hunger, overextension, foreign rule, another faith than the realm's (an ascetic faith steadies: a negative
@@ -355,8 +365,8 @@ export const ObserverFrameSchema = Type.Object({
            *  Build the building type, the wonder type or the road tier (and what is built where, as the label). */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
           factors: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 8 }),
-          /** The beliefs about other peoples it weighed (M5.1): whom, of what, what it believed and the truth then. */
-          beliefs: Type.Optional(Type.Array(Type.Object({ polity: id(), kind: Type.Enum(BELIEF_KINDS), estimate: Type.Number({ minimum: 0 }), truth: Type.Number({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 4 })),
+          /** The beliefs about other peoples it weighed (M5.1): whom (and their name, U.7), of what, what it believed and the truth then. */
+          beliefs: Type.Optional(Type.Array(Type.Object({ polity: id(), name: Type.String({ maxLength: 40 }), kind: Type.Enum(BELIEF_KINDS), estimate: Type.Number({ minimum: 0 }), truth: Type.Number({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 4 })),
         }, { additionalProperties: false }), { maxItems: 4 }),
       }, { additionalProperties: false })]),
       /** A civilization's relations (M5.1, VISION.md "Diplomacy" view): the peoples it has met that it knows best, with
@@ -507,6 +517,7 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
     if (held !== entry.regions || people !== entry.population || (entry.kind === 'civ') !== civs.has(entry.id)) throw invalid();
   }
   if (settlements.ids.length !== frame.settlementCount || eras.some(era => era > frame.leadingEra)) throw invalid();
+  if (frame.ruins.names.length !== frame.ruins.cells.length || frame.ruins.razed.length !== frame.ruins.cells.length) throw invalid();
   // Each road lies on an edge between two regions of this world, named once, lower id first.
   const roads = frame.roads, edges = new Set<string>();
   if ([roads.b, roads.tiers, roads.bridges, roads.conditions].some(array => array.length !== roads.a.length)) throw invalid();

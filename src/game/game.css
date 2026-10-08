@@ -92,7 +92,10 @@
 .game-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--game-muted); font-family: var(--game-display); font-size: 24px; }
 .game-alerts { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; gap: 6px; max-width: min(640px, calc(100% - 32px)); }
 .game-error { margin: 0; padding: 8px 12px; border: 1px solid #8a3a2b; border-radius: 4px; background: #2a1410; color: #f1c3b6; }
-.game-error button { margin-left: 8px; }
+.game-error button, .game-notice button { margin-left: 8px; }
+.game-notice { margin: 0; padding: 8px 12px; border: 1px solid var(--game-accent-line); border-radius: 4px; background: #1d1a12; color: var(--game-text); }
+/* A history changed by development controls says so (they are not part of the game). */
+.game-altered { padding: 2px 8px; border: 1px dashed #8a6a3b; border-radius: 3px; color: #e0b878; font-size: 12px; }
 .game-danger { border-color: #8a3a2b !important; background: #2a1410 !important; color: #f1c3b6 !important; }
 
 .game-panel {
@@ -296,6 +299,16 @@
 .game .game-chronicle-show { min-height: 32px; font-size: 12px; white-space: nowrap; }
 .game-chronicle-more { margin: 12px 0 0; color: var(--game-muted); }
 .game-ledger-view[hidden] { display: none; }
+
+.game-small-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px; }
+.game-small-table th, .game-small-table td { padding: 3px 6px; border-bottom: 1px solid #1c252d; text-align: left; }
+.game-small-table thead th { color: var(--game-muted); font-weight: 600; }
+.game-small-table .game-numeric { text-align: right; }
+.game-weighed { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.game-weighed li { padding: 4px 8px; border-left: 2px solid var(--game-line); }
+.game-weighed li.game-weighed-chosen { border-left-color: var(--game-accent); }
+.game-weighed .game-row-head .game-bar-value { margin-left: auto; }
+.game-tabs-panel h4 { margin: 0 0 4px; font-size: 14px; }
 
 /* The diplomacy lens's key (U.4). */
 .game-lens-key { margin: -4px 0 10px; font-size: 12px; color: var(--game-muted); }

@@ -1,5 +1,5 @@
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
-import { CHRONICLE_SCAN, MAX_CHRONICLE_PAGE, MAX_FRAME_NAMES, type ChronicleEvent, type ChronicleQuery, type ObserverFrame } from '../../shared/simulation.ts';
+import { CHRONICLE_SCAN, MAX_CHRONICLE_PAGE, MAX_FRAME_NAMES, MAX_FRAME_RUINS, type ChronicleEvent, type ChronicleQuery, type ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { cultivatedCells, fieldLand } from './fields.ts';
 import { speedOf } from './knowledge.ts';
@@ -15,7 +15,7 @@ import { keeperOf, roadUnkept } from './roads.ts';
 import { available, metFor } from './supply.ts';
 import { stabilityOf } from './stability.ts';
 import { storiesView } from './stories.ts';
-import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TradeTreaty } from './state.ts';
+import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TradeTreaty } from './state.ts';
 import { tradeIncome, treatyBetween } from './treaties.ts';
 import { ancestry, lineOf } from './culture.ts';
 import { TRAITS } from './traits.ts';
@@ -23,7 +23,7 @@ import { TENETS } from './religions.ts';
 import { ERAS, TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'ruins' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -90,13 +90,17 @@ export function observerView(state: SimulationState, inspect: number | null, per
     };
   });
   const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[], tiers: [] as number[], names: [] as string[], features: [] as number[] };
+  const fallen: Settlement[] = [];
   for (const settlement of state.settlements) {
-    if (settlement.status !== 'alive') continue;
+    if (settlement.status !== 'alive') { fallen.push(settlement); continue; }
     settlements.ids.push(settlement.id); settlements.cells.push(settlement.cell); settlements.owners.push(settlement.owner); settlements.capitals.push(settlement.capital ? 1 : 0);
     // Names only for the places a map labels: towns and larger, and capitals.
     settlements.tiers.push(settlement.tier); settlements.names.push(settlement.tier > 0 || settlement.capital ? settlement.name : '');
     settlements.features.push((settlement.bonus.harbor ? 1 : 0) | (settlement.bonus.mine ? 2 : 0) | (settlement.bonus.quarry ? 4 : 0) | (settlement.wonder !== null ? 8 : 0) | (worn(state, settlement) ? 16 : 0));
   }
+  // Ruins: the MAX_FRAME_RUINS that fell last, in settlement order.
+  const kept = fallen.length <= MAX_FRAME_RUINS ? fallen : [...fallen].sort((a, b) => (b.ruinedTick ?? 0) - (a.ruinedTick ?? 0) || b.id - a.id).slice(0, MAX_FRAME_RUINS).sort((a, b) => a.id - b.id);
+  const ruins = { cells: kept.map(settlement => settlement.cell), names: kept.map(settlement => settlement.name), razed: kept.map(settlement => settlement.status === 'razed' ? 1 : 0) };
   const roads = { a: [] as number[], b: [] as number[], tiers: [] as number[], bridges: [] as number[], conditions: [] as number[] };
   for (const road of state.roads.values()) { roads.a.push(road.a); roads.b.push(road.b); roads.tiers.push(road.tier); roads.bridges.push(road.bridge ? 1 : 0); roads.conditions.push(Math.round(road.condition * 100)); }
   const trades = { from: [] as number[], to: [] as number[], resources: [] as number[], sea: [] as number[] };
@@ -125,7 +129,7 @@ export function observerView(state: SimulationState, inspect: number | null, per
       const religion = state.religions[id];
       return { id, name: religion.name, hue: round(religion.hue, 2), regions: entry.regions, population: entry.population, civs: entry.civs.size };
     }),
-    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds, faiths }, settlements, roads, trades, fields, series,
+    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds, faiths }, settlements, ruins, roads, trades, fields, series,
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
@@ -203,7 +207,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       knownEras: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => ERAS.indexOf(definition.era)),
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
       reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: Math.round(kmFromCapital),
-      lastDecision: lastDecision(polity),
+      lastDecision: lastDecision(state, polity),
       resources: polity.kind !== 'civ' ? [] : RESOURCE_IDS.flatMap((resource, at) => polity.supply[at] > 0 || polity.demand[at] > 0 || polity.imports[at] > 0
         ? [{ resource, supply: significant(available(polity, at)), demand: significant(polity.demand[at]), met: round(metFor(polity, at)) }] : []),
       treaties: polity.kind !== 'civ' ? [] : state.treaties.filter((treaty): treaty is TradeTreaty => treaty.type === 'trade' && treaty.endTick === null && (treaty.exporter === polity.id || treaty.importer === polity.id)).slice(0, 32).map(treaty => ({
@@ -434,7 +438,7 @@ function peopleView(state: SimulationState, group: PopulationGroup, living: { re
 }
 
 /** The polity's last decision step for the inspector: each option's strongest factors (by size), best option first. */
-function lastDecision(polity: Polity): NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision'] {
+function lastDecision(state: SimulationState, polity: Polity): NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision'] {
   const step = polity.decisions.at(-1);
   if (!step) return null;
   return {
@@ -444,7 +448,7 @@ function lastDecision(polity: Polity): NonNullable<NonNullable<ObserverFrame['in
     options: step.options.slice(0, 4).map(option => ({
       action: option.action, score: option.score, target: option.target, label: option.label,
       factors: option.factors.filter(entry => entry.weight !== 0).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).slice(0, 8),
-      ...(option.beliefs ? { beliefs: option.beliefs.slice(0, 4) } : {}),
+      ...(option.beliefs ? { beliefs: option.beliefs.slice(0, 4).map(belief => ({ ...belief, name: state.polities[belief.polity].name })) } : {}),
     })),
   };
 }

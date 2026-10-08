@@ -1,4 +1,4 @@
-/** A place name to draw: where its text starts (left, vertical middle), its tier and whether it is a capital. */
+/** A place name to draw: where its text starts (left, vertical middle), its tier (−1 for ruins, placed last) and whether it is a capital. */
 export interface PlaceLabel { x: number; y: number; name: string; tier: number; capital: boolean }
 
 /**

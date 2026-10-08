@@ -9,6 +9,7 @@ import { actorNames, chroniclePage, HISTORY_IMPORTANCE, HISTORY_LENGTH, HISTORY_
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { truthOf } from '../src/simulation/relations.ts';
 import { keeperOf, roadUnkept } from '../src/simulation/roads.ts';
+import { ruinSettlements } from '../src/simulation/settlements.ts';
 import { createSimulation, stepSimulation } from '../src/simulation/simulation.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
 import { TENETS } from '../src/simulation/religions.ts';
@@ -146,7 +147,7 @@ function frameOf(state: SimulationState, region: number): ObserverFrame {
     tick: state.tick, playing: false, speed: 'year', epoch: 0, runTo: null, dev: { actions: 0, refused: null, checkpoints: null, loadedFrom: null }, eventCount: state.chronicle.events.length,
     counters: { regions: state.partition.regions.length, landmasses: 1 }, population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [], largest: [], civList: [], treaties: [], census: { years: [], civs: [], ids: [], people: [] },
-    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
+    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] }, ruins: { cells: [], names: [], razed: [] },
     roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], wonders: [], names: [], events: [], perspective: null, ...storiesView(state),
     inspect: observerView(state, region).inspect,
   } as ObserverFrame;
@@ -538,4 +539,33 @@ test('the density lens shows each region\'s people over its area, from dark at 0
   assert.ok(scale.every((value, at) => at === 0 || value >= scale[at - 1]), 'brighter the denser');
   assert.deepEqual(densityColor(0.001), densityColor(DENSITY_RANGE[0]));
   assert.deepEqual(densityColor(3000), densityColor(DENSITY_RANGE[1]));
+});
+
+test('the frame\'s ruins are the history\'s ruined and razed settlements, and the weighed beliefs name their peoples', () => {
+  const state = copied();
+  // No ruins arise by year 1,000 here, so two regions away from any capital fall: one to ruin, one razed.
+  const capitals = new Set(state.living.map(id => state.polities[id].capital));
+  const regions = [...new Set(state.settlements.filter(settlement => settlement.status === 'alive').map(settlement => settlement.region))]
+    .filter(region => state.regionSettlements[region].every(id => !capitals.has(id))).slice(0, 2);
+  assert.equal(regions.length, 2, 'two settled regions without a capital');
+  for (const region of regions) ruinSettlements(state, region, state.tick);
+  for (const id of state.regionSettlements[regions[1]]) state.settlements[id].status = 'razed';
+  const view = observerView(state, regions[0]), fallen = state.settlements.filter(settlement => settlement.status !== 'alive');
+  assert.ok(fallen.some(settlement => settlement.status === 'ruined') && fallen.some(settlement => settlement.status === 'razed'), 'a ruin of each kind');
+  assert.deepEqual(view.ruins.cells, fallen.map(settlement => settlement.cell));
+  assert.deepEqual(view.ruins.names, fallen.map(settlement => settlement.name));
+  assert.deepEqual(view.ruins.razed, fallen.map(settlement => settlement.status === 'razed' ? 1 : 0));
+  assert.equal(view.settlements.ids.length + view.ruins.cells.length, state.settlements.length, 'every settlement, standing or in ruins');
+  // The region's panel lists its ruins, and the frame passes the contract; arrays that do not line up are refused.
+  assert.deepEqual(view.inspect!.settlements.filter(settlement => settlement.status === 'ruined').map(settlement => settlement.id), state.regionSettlements[regions[0]]);
+  const frame = { ...frameOf(state, regions[0]), ruins: view.ruins };
+  assert.deepEqual(parseObserverFrame(structuredClone(frame)).ruins, view.ruins);
+  assert.throws(() => parseObserverFrame({ ...frame, ruins: { ...view.ruins, names: view.ruins.names.slice(1) } }));
+  assert.throws(() => parseObserverFrame({ ...frame, ruins: { ...view.ruins, razed: view.ruins.razed.map(() => 2) } }));
+  // Each belief a decision weighed is named.
+  for (const id of state.living) {
+    const polity = state.polities[id];
+    if (polity.kind !== 'civ') continue;
+    for (const option of observerView(state, state.groups[polity.groups[0]].region).inspect!.polity!.lastDecision?.options ?? []) for (const belief of option.beliefs ?? []) assert.equal(belief.name, state.polities[belief.polity].name);
+  }
 });

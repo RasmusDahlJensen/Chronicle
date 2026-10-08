@@ -2,9 +2,11 @@ import { ERA_NAMES, SETTLEMENT_TIERS, simulationDate, VALUE_NAMES, type Observer
 import type { RegionSummary } from '../../shared/simulation.ts';
 import { describeEvent } from '../observer/events.ts';
 import {
-  AGREEMENT_NAMES, BELIEF_NAMES, causeText, DECISION_LABELS, decisionTarget, factorName, NEED_LABELS, STATUS_NAMES, units, type InspectedPolity,
+  ACTION_NAMES, AGREEMENT_NAMES, BELIEF_NAMES, causeText, COST_KINDS, COST_NAMES, DECISION_LABELS, decisionTarget, factorName, NEED_LABELS, STATUS_NAMES, totalCost, units,
+  type InspectedPolity,
 } from '../observer/labels.ts';
 import { cssColor, polityColor } from '../observer/palettes.ts';
+import type { ReactNode } from 'react';
 import { Tabs } from './Tabs.tsx';
 
 const number = new Intl.NumberFormat('en');
@@ -62,12 +64,14 @@ export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab
       {onViewAs && <button type="button" className="game-view-as" aria-pressed={viewing} onClick={() => onViewAs({ id: polity.id, name: polity.name })}>View as the {polity.name}</button>}
     </section>
     <Tabs id="game-realm" label={civ ? 'About the realm' : 'About the tribe'} tabs={tabs} names={TAB_LABELS} chosen={shown} onChoose={onTab} busy={stale}>
-      {shown === 'overview' ? <Overview polity={polity} />
-        : shown === 'diplomacy' ? <Diplomacy polity={polity} />
-        : shown === 'economy' ? <Economy polity={polity} />
-        : shown === 'knowledge' ? <Knowledge polity={polity} />
-        : shown === 'history' ? <History polity={polity} names={names} />
-        : <RegionDetail inspected={stale ? null : inspected} region={region} biome={biome} names={names} />}
+      {({
+        overview: () => <Overview polity={polity} />,
+        diplomacy: () => <Diplomacy polity={polity} />,
+        economy: () => <Economy polity={polity} />,
+        knowledge: () => <Knowledge polity={polity} />,
+        history: () => <History polity={polity} names={names} />,
+        region: () => <RegionDetail inspected={stale ? null : inspected} region={region} biome={biome} names={names} />,
+      } satisfies Record<RealmTab, () => ReactNode>)[shown]()}
     </Tabs>
   </>;
 }
@@ -93,6 +97,14 @@ function Overview({ polity }: { polity: InspectedPolity }) {
         {decision.causes.length > 0 && <p className="game-muted">{causeText(decision.causes, factorName)}</p>}
         <Bars label="Needs" entries={NEED_LABELS.map(([need, name]) => ({ name, value: decision.needs[need] }))} />
         <Bars label="Values" entries={VALUE_NAMES.map(name => ({ name, value: decision.values[name] }))} />
+        <h3>Its strongest options</h3>
+        <ol className="game-weighed" aria-label="What it weighed">{decision.options.map((option, at) => <li key={at} className={at === decision.pick ? 'game-weighed-chosen' : undefined}>
+          <p className="game-row-head"><strong>{ACTION_NAMES[option.action]}{option.label ? ` · ${option.label}` : option.target !== null && option.action === 'expand' ? ` · region ${option.target}` : ''}</strong>
+            {at === decision.pick && <span className="game-standing">chosen</span>}{option.score < 0 ? <span className="game-muted game-bar-value">ruled out</span> : <span className="game-bar-value">{option.score.toFixed(2)}</span>}</p>
+          {option.factors.length > 0 && <p className="game-muted">{option.factors.slice(0, 4).map(entry => `${factorName(entry.factor)} ${entry.weight >= 0 ? '+' : '−'}${Math.abs(entry.weight).toFixed(2)}`).join(', ')}</p>}
+          {option.beliefs?.map(belief => <p key={`${belief.polity}-${belief.kind}`} className="game-muted">Believed the {belief.name}'s {BELIEF_NAMES[belief.kind]} {belief.kind === 'era' ? ERA_NAMES[Math.round(belief.estimate)] ?? '?' : people(belief.estimate)} (truly {belief.kind === 'era' ? ERA_NAMES[Math.round(belief.truth)] ?? '?' : people(belief.truth)}).</p>)}
+        </li>)}</ol>
+        <p className="game-muted">The options it weighed highest. It picks among its best three by chance, weighted by score; doing nothing is always weighed, and an option scored below zero is ruled out.</p>
       </> : <p className="game-muted">No decision yet: every six months it weighs expanding, exploring, uniting, sharing knowledge, building, trading, treaties, voyages or doing nothing.</p>}
     </section>}
     {realm ? <section aria-label="At a glance" id="game-realm-glance">
@@ -153,7 +165,7 @@ function Economy({ polity }: { polity: InspectedPolity }) {
   const wealth = polity.wealth;
   if (!wealth) return null;
   const { revenue, costs } = wealth;
-  const income = revenue.trades + revenue.farms + revenue.sites + wealth.agreements, spending = costs.administration + costs.services + costs.upkeep + costs.roads;
+  const income = revenue.trades + revenue.farms + revenue.sites + wealth.agreements, spending = totalCost(costs);
   const line = (name: string, value: number) => <div key={name}><dt>{name}</dt><dd>{number.format(Math.round(value))}</dd></div>;
   return <>
     <section aria-label="The purse" id="game-economy-purse">
@@ -164,7 +176,7 @@ function Economy({ polity }: { polity: InspectedPolity }) {
           {line('trades', revenue.trades)}{line('farms', revenue.farms)}{revenue.sites > 0 && line('mines and quarries', revenue.sites)}
           {wealth.agreements !== 0 && <div><dt>trade agreements</dt><dd>{signed(wealth.agreements)}</dd></div>}</dl>
         <dl aria-label="Costs"><dt className="game-ledger-head">Costs</dt><dd className="game-ledger-head">{number.format(Math.round(spending))}</dd>
-          {line('administration', costs.administration)}{line('services', costs.services)}{line('upkeep', costs.upkeep)}{costs.roads > 0 && line('roads', costs.roads)}</dl>
+          {COST_KINDS.map(cost => line(COST_NAMES[cost], costs[cost]))}</dl>
       </div>
       <p id="game-economy-balance" className={income >= spending ? 'game-warm' : 'game-cold'}>{income >= spending ? 'A surplus' : 'A deficit'} of {number.format(Math.round(Math.abs(income - spending)))} a year.</p>
       {wealth.arrears >= 0.005 && <p className="game-cold">In arrears: {percent(wealth.arrears)} of its costs unpaid, so its buildings and roads wear and its far regions grow restless.</p>}
@@ -197,10 +209,13 @@ function Knowledge({ polity }: { polity: InspectedPolity }) {
   return <>
     <section aria-label="Research">
       <h3>Research · {polity.researchPerYear.toLocaleString('en', { maximumFractionDigits: 1 })} points a year</h3>
+      {polity.contacts > 0 && <p className="game-muted">Quickened by {plural(polity.contacts, 'people', 'peoples')} it has met within two regions of its land.</p>}
       {research ? <>
         <p id="game-research"><strong>{research.tech}</strong> <span className="game-muted">{percent(share)}</span></p>
         <span className="game-bar-track game-progress" aria-hidden="true"><span style={{ width: `${share * 100}%` }} /></span>
         {research.reasons.length > 0 && <p className="game-muted">Chosen for {research.reasons.map(reason => `${factorName(reason.factor)} ${reason.weight >= 0 ? '+' : ''}${reason.weight.toFixed(2)}`).join(', ')}.</p>}
+        {research.candidates.length > 0 && <Bars label="Research options" entries={research.candidates.map(option => ({ name: option.tech, value: option.weight / Math.max(1e-9, ...research.candidates.map(entry => entry.weight)) }))} />}
+        {research.candidates.length > 0 && <p className="game-muted">The strongest options at its last choice, by weight against the strongest: it picks by chance, weighted, among everything it could research, and keeps its target unless another grows much stronger.</p>}
         {(research.sharedBy || research.catchUp > 1) && <p className="game-muted">Faster{research.sharedBy ? ` ×${research.shareSpeed.toFixed(1)} while the ${research.sharedBy} share what they know` : ''}{research.sharedBy && research.catchUp > 1 ? ' and' : ''}{research.catchUp > 1 ? ` ×${research.catchUp.toFixed(2)} catching up on an older era` : ''}.</p>}
       </> : <p className="game-muted">Nothing left to research.</p>}
       {polity.exchanges.length > 0 && <p className="game-muted">Shares knowledge with {polity.exchanges.map(entry => `the ${entry.name} (until year ${number.format(entry.until)})`).join(', ')}.</p>}
@@ -253,7 +268,7 @@ function HistoryEvent({ entry, names }: { entry: InspectedPolity['history'][numb
  *  and (in a civilization) its stability with what lowers it. */
 export function RegionDetail({ inspected, region, biome, names }: { inspected: Inspected | null; region: RegionSummary; biome: string | null; names: (id: number) => string }) {
   const people = inspected?.people, polity = inspected?.polity, stability = polity?.stability;
-  const settlements = inspected?.settlements.filter(settlement => settlement.status === 'alive') ?? [];
+  const settlements = inspected?.settlements.filter(settlement => settlement.status === 'alive') ?? [], ruins = inspected?.settlements.filter(settlement => settlement.status !== 'alive') ?? [];
   const burdens = stability ? ([['hunger', stability.hunger], ['overextension', stability.overextension], ['foreign rule', stability.foreignRule], ['another faith', stability.faith],
     ['strain of a large, old realm', stability.strain], ['taxes', stability.taxes], ['arrears', stability.arrears]] as const).filter(([, weight]) => weight > 0.005) : [];
   const water = [region.coastal && 'coast', region.openLake && 'lake', region.riverTier === 3 ? 'great river' : region.riverTier === 2 ? 'river' : region.riverTier === 1 ? 'stream' : ''].filter(Boolean).join(', ');
@@ -262,20 +277,65 @@ export function RegionDetail({ inspected, region, biome, names }: { inspected: I
     <p className="game-muted">{number.format(Math.round(region.areaKm2))} km²{water ? ` · ${water}` : ''}{region.island ? ' · an island' : ''}</p>
     {inspected ? <>
       {polity ? <p id="game-region-people">{number.format(polity.population)} people live here{people ? `, of the ${people.culture}` : ''}{inspected.weather.famine ? ', in famine' : ''}.</p> : <p>No one lives here.</p>}
-      {people && <p className="game-muted">{people.faith ? `The ${people.faith.name} faith${people.faith.holy ? ' (its holy land)' : ''}` : `The folk ways of the ${people.culture}`}{people.traits.length ? ` · known as ${people.traits.join(', ')}` : ''}.</p>}
-      {people && <Bars label="Values here" entries={VALUE_NAMES.map(name => ({ name, value: people.values[name] }))} />}
+      {people && <PeopleHere people={people} />}
+      {polity && <FoodHere inspected={inspected} polity={polity} />}
       {stability && <p id="game-region-stability" className={stability.unrest ? 'game-cold' : undefined}>Stability {stability.value.toFixed(2)}{stability.unrest ? ', in unrest' : ''}{burdens.length ? `, lowered by ${burdens.map(([factor, weight]) => `${factor} −${weight.toFixed(2)}`).join(', ')}` : ''}{stability.taxes < -0.005 ? `; light taxes +${(-stability.taxes).toFixed(2)}` : ''}{stability.faith < -0.005 ? `; an ascetic faith +${(-stability.faith).toFixed(2)}` : ''}.</p>}
       {inspected.neglected && <p className="game-cold">Let go unkept by its realm: its buildings and roads wear.</p>}
       {settlements.length > 0 && <ul className="game-settlements" aria-label="Settlements here">{settlements.map(settlement => <li key={settlement.id}>
-        <span className="game-settlement-name">{settlement.capital ? '★ ' : ''}{settlement.name}</span> <span>{SETTLEMENT_TIERS[settlement.tier]}{settlement.capital ? ', capital' : ''} · {number.format(settlement.urban)} townspeople of {number.format(settlement.housing)} it can house · founded year {year(settlement.founded)}</span>
+        <span className="game-settlement-name">{settlement.capital ? '★ ' : ''}{settlement.name}</span> <span>{SETTLEMENT_TIERS[settlement.tier]}{settlement.capital ? ', capital' : ''} · {number.format(settlement.urban)} townspeople of {number.format(settlement.housing)} it can house · founded year {year(settlement.founded)}{settlement.formerName ? ` · once ${settlement.formerName}` : ''}</span>
         {settlement.wonder && <p>{settlement.wonder.standing ? `Home of ${settlement.wonder.name}.` : `${settlement.wonder.name[0].toUpperCase()}${settlement.wonder.name.slice(1)} is being built here (${percent(settlement.wonder.progress)} paid).`}</p>}
+        {settlement.account && <p className="game-muted game-account">{accountText(settlement.account)}</p>}
         {(settlement.buildings.length > 0 || settlement.building.length > 0) && <p className="game-muted game-buildings">{[
           ...settlement.buildings.map(building => building.condition < 0.995 ? `${building.name} (${percent(building.condition)} kept up)` : building.name),
           ...settlement.building.map(work => `${work.name} being built (${percent(work.progress)} paid)`)].join(' · ')}</p>}
         {settlement.events.length > 0 && <ol className="game-settlement-history" aria-label={`The history of ${settlement.name}`}>{settlement.events.map(event =>
           <li key={event.id}><span className="game-event-year">{year(event.tick)}</span> {describeEvent(event, names)}</li>)}</ol>}
       </li>)}</ul>}
-      <p className="game-muted">Last harvest {percent(inspected.weather.harvest)} of the crops{inspected.weather.drought ? ` · drought, ${inspected.weather.drought} months left` : ''}{inspected.weather.relief ? ' · relief food arriving' : ''}{inspected.fields.cells > 0 ? ` · ${percent(inspected.fields.share)} of its farmland cultivated` : ''}.</p>
+      {ruins.length > 0 && <ul className="game-settlements game-ruins" aria-label="Ruins here" id="game-region-ruins">{ruins.map(ruin => <li key={ruin.id}>
+        <span className="game-settlement-name">{ruin.status === 'razed' ? `${ruin.name}, razed` : `The ruins of ${ruin.name}`}</span> <span>founded year {year(ruin.founded)}{ruin.formerName ? ` · once ${ruin.formerName}` : ''} · {ruin.status === 'razed' ? 'razed to the ground' : 'abandoned'}; a people settling here may build on them</span>
+        {ruin.events.length > 0 && <ol className="game-settlement-history" aria-label={`The history of ${ruin.name}`}>{ruin.events.map(event =>
+          <li key={event.id}><span className="game-event-year">{year(event.tick)}</span> {describeEvent(event, names)}</li>)}</ol>}
+      </li>)}</ul>}
+      <p className="game-muted">Last harvest {percent(inspected.weather.harvest)} of the crops{inspected.weather.drought ? ` · drought, ${inspected.weather.drought} months left` : ''}{inspected.weather.famine ? ' · famine' : ''}{inspected.weather.relief ? ' · relief food arriving' : ''}{inspected.weather.irrigation > 1 ? ` · irrigated (farming ×${inspected.weather.irrigation.toFixed(2)})` : ''}{inspected.fields.cells > 0 ? ` · ${percent(inspected.fields.share)} of its farmland cultivated` : ''}.</p>
     </> : <p className="game-muted" role="status">Reading the land…</p>}
   </section>;
+}
+
+/** The people of the region (U.7; VISION.md "Ancestry query"): how its culture began, its descent from the starting
+ *  peoples, its line and traits, its values beside the whole culture's, and its faith. */
+function PeopleHere({ people }: { people: NonNullable<Inspected['people']> }) {
+  const origin = people.origin === 'founding' ? 'one of the starting peoples' : people.origin === 'breakaway' ? `a band that broke away from the ${people.parent}`
+    : people.origin === 'split' ? `grown apart from the ${people.parent}` : `formed from the ${people.parents.map(entry => `${entry.name} (${percent(entry.weight)})`).join(' and ')}`;
+  const faith = people.faith;
+  return <section aria-label="Its people" id="game-region-culture">
+    <h4>The {people.culture} <span className="game-muted">· {origin}, year {year(people.founded)}</span></h4>
+    <p className="game-muted">Descent: {people.ancestry.map(entry => `${percent(entry.share)} ${entry.name}`).join(', ')}{people.line.length ? `. Line: ${people.line.map(entry => entry.name).join(' ← ')}` : ''}. The culture lives in {plural(people.regions, 'region', 'regions')} ({plural(people.population, 'person', 'people')}){people.traits.length ? `, known as ${people.traits.join(', ')}` : ''}.</p>
+    <p className="game-muted" id="game-region-faith">{faith ? `The ${faith.name} faith (${faith.tenets.join(', ') || 'no tenets'}), founded by the ${faith.founder} in year ${year(faith.founded)}${faith.parent ? `, a sect of the ${faith.parent}` : ''}${faith.holy ? '. This is its holy land' : ''}.` : `The folk ways of the ${people.culture}.`}</p>
+    <Bars label="Values here" entries={VALUE_NAMES.map(name => ({ name, value: people.values[name] }))} />
+    <p className="game-muted">The whole culture: {VALUE_NAMES.map(name => `${name} ${people.cultureValues[name].toFixed(2)}`).join(' · ')}.</p>
+  </section>;
+}
+
+/** The region's land and its people's food (U.7): what the land can feed, how they live and fare, and the realm's reach. */
+function FoodHere({ inspected, polity }: { inspected: Inspected; polity: InspectedPolity }) {
+  const food = inspected.food, civ = polity.kind === 'civ';
+  return <section aria-label="Food and people" id="game-region-food">
+    <dl className="game-facts">
+      <div><dt>Capacity</dt><dd>{plural(Math.round(inspected.capacity), 'person', 'people')} at the current game stock ({percent(inspected.gameStock)})</dd></div>
+      <div><dt>At capacity</dt><dd>feeds {[['foraging', food.forage], ['hunting', food.hunt], ['fishing', food.fish], ['herding', food.herd], ['farming', food.farm]].filter(([, fed]) => (fed as number) > 0).map(([method, fed]) => `${number.format(Math.round(fed as number))} by ${method}`).join(', ') || 'no one'}</dd></div>
+      <div><dt>Births</dt><dd>{number.format(polity.birthsThisYear)} this year (last year {number.format(polity.birthsLastYear)})</dd></div>
+      <div><dt>Deaths</dt><dd>{number.format(polity.deathsThisYear)} this year (last year {number.format(polity.deathsLastYear)})</dd></div>
+      <div><dt>Food</dt><dd>security {polity.foodSecurity.toFixed(2)} · {polity.foodStoreMonths.toFixed(1)} months stored{polity.cropsMonths > 0 ? ` · ${polity.cropsMonths.toFixed(1)} months in the fields` : ''} · {percent(polity.farmShare)} farmed or herded</dd></div>
+      <div><dt>{civ ? 'Townspeople' : 'Specialists'}</dt><dd>{number.format(polity.specialists)}{civ ? `; ${number.format(polity.population - polity.specialists)} rural` : ''}</dd></div>
+      {civ && <div><dt>Reach</dt><dd>{number.format(polity.capitalKm ?? 0)} km of travel from the capital; the realm governs within {number.format(polity.reachKm)} km</dd></div>}
+      <div><dt>Here since</dt><dd>year {year(polity.arrived)}{civ && polity.capital ? `; the realm settled by year ${year(polity.capital.settled)}` : ''}</dd></div>
+    </dl>
+    <p className="game-muted">Food security is expected food over need: below 1, or when stores run out before the harvest, people go hungry. Capacity is the people whose food equals their need here.</p>
+  </section>;
+}
+
+/** What a settlement pays and costs its realm a year (VISION.md "Wealth": not every place pays). */
+function accountText(account: NonNullable<Inspected['settlements'][number]['account']>) {
+  const pays = account.trades + account.farms + account.sites, costs = account.administration + account.services + account.upkeep, balance = pays - costs;
+  return `Pays ${number.format(Math.round(pays))} a year (trades ${number.format(Math.round(account.trades))}${account.seat ? `, farm taxes ${number.format(Math.round(account.farms))}${account.sites ? `, mines and quarries ${number.format(Math.round(account.sites))}` : ''}` : ''}); costs ${number.format(Math.round(costs))} (${account.seat ? `administration ${number.format(Math.round(account.administration))}, ` : ''}services ${number.format(Math.round(account.services))}, upkeep ${number.format(Math.round(account.upkeep))}): ${balance >= 0 ? 'a profit' : 'a loss'} of ${number.format(Math.round(Math.abs(balance)))}${account.seat ? ' (the seat of the region)' : ''}.`;
 }

@@ -29,6 +29,11 @@ export const REASON_NAMES: Record<string, string> = {
 /** A people's standing with a civilization and the treaties they may hold (M5.5). */
 export const STATUS_NAMES: Record<typeof DIPLOMATIC_STATUSES[number], string> = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' };
 export const AGREEMENT_NAMES: Record<typeof AGREEMENT_KINDS[number], string> = { alliance: 'alliance', nonAggression: 'pact', road: 'joint road', trade: 'trade' };
+/** A realm's yearly costs in words, in the budget's order (a typed record: a new cost needs its name). */
+export const COST_NAMES: Record<keyof NonNullable<InspectedPolity['wealth']>['costs'], string> = { administration: 'administration', services: 'services', upkeep: 'upkeep', roads: 'roads' };
+export const COST_KINDS = Object.keys(COST_NAMES) as (keyof typeof COST_NAMES)[];
+/** The sum of a realm's yearly costs. */
+export const totalCost = (costs: Record<keyof typeof COST_NAMES, number>) => Object.values(costs).reduce((sum, value) => sum + value, 0);
 
 /** A factor's code in words ("landPressure" → "land pressure"). */
 export const factorName = (factor: string) => REASON_NAMES[factor] ?? factor.replace(/([A-Z])/g, ' $1').toLowerCase();

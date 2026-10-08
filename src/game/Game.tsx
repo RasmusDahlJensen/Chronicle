@@ -10,7 +10,7 @@ import { WORLD_BIOME_STYLE } from '../renderer/generated-world.ts';
 import { curate, runKey, type CuratedEntry } from '../observer/chronicle.ts';
 import { describeEvent, MONTH_NAMES } from '../observer/events.ts';
 import { factorName } from '../observer/labels.ts';
-import { cssColor, DENSITY_GRADIENT, DENSITY_RANGE, polityColor, STANDING_COLORS } from '../observer/palettes.ts';
+import { cssColor, cultureColor, DENSITY_GRADIENT, DENSITY_RANGE, ERA_COLORS, faithColor, FOLK_COLOR, lineageColor, polityColor, STANDING_COLORS, type StandingKey } from '../observer/palettes.ts';
 import { useObserver } from '../observer/useObserver.ts';
 import { useRegionMap, useWorldMap, type PeoplesLens, type Perspective, type Standing } from '../observer/useWorldMap.ts';
 import { chosenWorld, rememberWorld } from '../observer/world-choice.ts';
@@ -73,6 +73,7 @@ export function Game() {
 
   const { regions, regionError } = useRegionMap(world);
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
+  const [restartSeen, setRestartSeen] = useState(false);
   useEffect(() => { setFrame(null); }, [world]);
   const story = chosen ? frame?.stories.find(entry => entry.id === chosen.id) ?? chosen : null;
   // The highlight changes only when the story's regions do, not with every frame.
@@ -90,6 +91,7 @@ export function Game() {
   const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight, standings, perspective });
   const region = map.cellRegion;
   const observer = useObserver({ settings: world?.settings ?? null, startFresh: shown.current.fresh, inspect: region?.id ?? null, view: viewAs?.id ?? null, onFrame: setFrame });
+  useEffect(() => { if (!observer.restarted) setRestartSeen(false); }, [observer.restarted]);
   const names = observer.names;
   const inspected = frame?.inspect && region && frame.inspect.region === region.id ? frame.inspect : null;
   // The realm last shown stays (dimmed) while newly chosen land is read, so the panel neither flickers nor loses focus.
@@ -129,6 +131,9 @@ export function Game() {
       <div className="game-clock" role="region" aria-label="Time" data-tick={frame?.tick ?? ''} data-playing={frame ? String(frame.playing) : ''}>
       <h1 className="game-date" id="game-date">{date ? `Year ${number.format(date.year)} · ${MONTH_NAMES[date.month - 1]}` : 'Year —'}</h1>
       {frame && <span className="game-era">{ERA_NAMES[frame.leadingEra]} age</span>}
+      {frame && (frame.dev.actions > 0 || frame.dev.loadedFrom !== null) && <span className="game-altered" id="game-altered" role="note">{frame.dev.actions > 0
+        ? `Altered: development controls used ${frame.dev.actions === 1 ? 'once' : `${number.format(frame.dev.actions)} times`}` : ''}{frame.dev.actions > 0 && frame.dev.loadedFrom !== null ? ' · ' : ''}{frame.dev.loadedFrom !== null
+        ? `loaded from year ${number.format(frame.dev.loadedFrom)}` : ''}</span>}
       <div className="game-time" role="group" aria-label="Time controls">
         {frame?.playing
           ? <button type="button" onClick={() => void observer.send({ action: 'pause' })}>Pause</button>
@@ -173,6 +178,7 @@ export function Game() {
         {map.canvasError && <p className="game-error" role="alert">{map.canvasError} <button type="button" onClick={map.retryCanvas}>Retry</button></p>}
         {map.tileError && <p className="game-error" role="alert">{map.tileError} <button type="button" onClick={map.retryDetail}>Retry detail</button></p>}
         {regionError && <p className="game-error" role="alert">The simulation's regions could not be read: {regionError}</p>}
+        {observer.restarted && !restartSeen && <p className="game-notice" role="status">This world's history started again at year 0: Chronicle restarted or the simulation was stopped. <button type="button" onClick={() => setRestartSeen(true)}>Dismiss</button></p>}
       </div>
 
       {chronicleOpened && frame && world && <ChronicleView settings={world.settings} frame={frame} regions={regions} hidden={view !== 'chronicle'}
@@ -227,6 +233,7 @@ export function Game() {
         </div>
         {viewAs && <p className="game-view-chip"><span role="status">The world as the {seenBy?.name ?? viewAs.name} know it{frame && !frame.markers.ids.includes(viewAs.id) ? ' (they are gone)' : ''}: fog where they have never been, muted where they remember.</span>
           <button type="button" onClick={() => setViewAs(null)}>Leave their view</button></p>}
+        {frame && <LensKey lens={lens} frame={frame} />}
         {lens === 'diplomacy' && <DiplomacyKey realm={standings?.name ?? null} />}
         {lens === 'density' && <div className="game-lens-key" role="group" aria-label="Density lens"><p>People per km² in each region:</p>
           <div className="game-density-scale"><span className="game-density-bar" style={{ background: DENSITY_GRADIENT }} aria-hidden="true" />
@@ -240,13 +247,49 @@ export function Game() {
   </div>;
 }
 
-const STANDING_KEY: [keyof typeof STANDING_COLORS, string][] = [['self', 'the realm'], ['allied', 'allied'], ['pact', 'pact'], ['trade', 'trade partner'], ['rival', 'rival'], ['neutral', 'neutral'], ['unknown', 'not met']];
+/** The lens key's words for each colour (a typed record: every standing the palette colours needs its word). */
+const STANDING_WORDS: Record<StandingKey, string> = { self: 'the realm', allied: 'allied', pact: 'pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', unknown: 'not met' };
+const STANDING_KEY = Object.keys(STANDING_COLORS) as StandingKey[];
+
+/** What the political, culture, faith, era and descent lenses' colours mean (U.7), from the frame: the largest first. */
+function LensKey({ lens, frame }: { lens: PeoplesLens; frame: ObserverFrame }) {
+  const { entries, more } = useMemo((): { entries: { key: string; color: string; name: string; note: string }[]; more: number } => {
+    const regions = (count: number) => `${number.format(count)} ${count === 1 ? 'region' : 'regions'}`;
+    if (lens === 'polity') return { entries: frame.largest.map(entry => ({ key: String(entry.id), color: cssColor(polityColor(entry.id)), name: `The ${entry.name}`, note: `${entry.kind === 'civ' ? 'civilization' : 'tribe'} · ${people(entry.population)}` })), more: Math.max(0, frame.polities - frame.largest.length) };
+    if (lens === 'culture') return { entries: frame.cultures.slice(0, 10).map(entry => ({ key: String(entry.id), color: cssColor(cultureColor(entry.hue, entry.id)), name: `The ${entry.name}`, note: `${people(entry.population)} in ${regions(entry.regions)}` })), more: Math.max(0, frame.cultures.length - 10) };
+    if (lens === 'faith') {
+      // The folk ways are keyed only while some people keeps them (a marker with no faith).
+      let folk = 0, folkRegions = 0;
+      frame.markers.faiths.forEach((faith, at) => { if (faith < 0) { folk += frame.markers.populations[at]; folkRegions++; } });
+      return { entries: [...frame.religions.slice(0, 9).map(entry => ({ key: String(entry.id), color: cssColor(faithColor(entry.hue)), name: `The ${entry.name} faith`, note: `${people(entry.population)} in ${regions(entry.regions)}` })),
+        ...folk > 0 ? [{ key: 'folk', color: cssColor(FOLK_COLOR), name: 'The folk ways', note: `of each people's own culture · ${people(folk)} in ${regions(folkRegions)}` }] : []], more: Math.max(0, frame.religions.length - 9) };
+    }
+    if (lens === 'era') {
+      const counted = new Map<number, Set<number>>();
+      frame.markers.eras.forEach((era, at) => { const polities = counted.get(era) ?? new Set<number>(); polities.add(frame.markers.ids[at]); counted.set(era, polities); });
+      return { entries: [...counted].sort((a, b) => b[0] - a[0]).map(([era, polities]) => ({ key: String(era), color: ERA_COLORS[era], name: `${ERA_NAMES[era]} age`, note: `${number.format(polities.size)} ${polities.size === 1 ? 'people' : 'peoples'}` })), more: 0 };
+    }
+    if (lens === 'descent') {
+      const peoples = new Map<number, number>();
+      frame.markers.lineages.forEach((lineage, at) => peoples.set(lineage, (peoples.get(lineage) ?? 0) + frame.markers.populations[at]));
+      return { entries: [...peoples].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 10).map(([lineage, count]) => ({ key: String(lineage), color: cssColor(lineageColor(lineage)), name: `Of the ${frame.lineages[lineage] ?? '?'}`, note: people(count) })), more: Math.max(0, peoples.size - 10) };
+    }
+    return { entries: [], more: 0 };
+  }, [lens, frame]);
+  if (!entries.length) return null;
+  const intro = { polity: 'Each people its own colour, the largest:', culture: 'The culture of the people living in each region, the largest:', faith: 'The faith of the people in each region:', era: 'Each people by the era it has reached:', descent: 'Each people by the starting people it descends from:' } as Record<string, string>;
+  return <div className="game-lens-key" role="group" aria-label={`${LENSES.find(entry => entry.lens === lens)?.label ?? ''} lens`}>
+    <p>{intro[lens]}</p>
+    <ul>{entries.map(entry => <li key={entry.key}><span className="game-swatch" style={{ backgroundColor: entry.color }} aria-hidden="true" />{entry.name} <span className="game-muted">{entry.note}</span></li>)}</ul>
+    {more > 0 && <p className="game-muted">And {number.format(more)} more.</p>}
+  </div>;
+}
 
 /** The diplomacy lens's key (U.4): whose standings the map shows, and each standing's colour. */
 function DiplomacyKey({ realm }: { realm: string | null }) {
   return <div className="game-lens-key" role="group" aria-label="Diplomacy lens">
     <p>{realm ? `Every people by its standing with the ${realm}:` : 'Select a civilization\'s land to see its standing with every people.'}</p>
-    <ul>{STANDING_KEY.map(([standing, label]) => <li key={standing}><span className="game-swatch" style={{ backgroundColor: `rgb(${STANDING_COLORS[standing].join(' ')})` }} aria-hidden="true" />{label}</li>)}</ul>
+    <ul>{STANDING_KEY.map(standing => <li key={standing}><span className="game-swatch" style={{ backgroundColor: `rgb(${STANDING_COLORS[standing].join(' ')})` }} aria-hidden="true" />{STANDING_WORDS[standing]}</li>)}</ul>
   </div>;
 }
 

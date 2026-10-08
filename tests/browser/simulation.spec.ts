@@ -262,6 +262,11 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await expect(events.getByRole('listitem').filter({ hasText: `Development control (test only): a drought is set off in region ${band.region}` })).toHaveCount(1);
   await expect(events.getByRole('listitem').filter({ hasText: `Drought strikes region ${band.region}` }).first()).toBeVisible();
   await expect(history(page).getByRole('note')).toHaveText('This history was altered: development controls were used once.');
+  // U.7: the game says so too.
+  const game = await page.context().newPage();
+  await openGame(game);
+  await expect(game.locator('#game-altered')).toHaveText('Altered: development controls used once');
+  await game.close();
   await history(page).getByRole('button', { name: 'Found a religion' }).click();
   await expect(history(page).locator('.world-dev-refused')).toContainText('only civilizations found religions');
   await expect(history(page).getByRole('note')).toHaveText('This history was altered: development controls were used once.');
@@ -477,6 +482,60 @@ test('farming bands settle into civilizations with villages, specialists, resear
   for (const building of seat.buildings) await expect(buildings).toContainText(building.condition < 0.995 ? `${building.name} (${Math.round(building.condition * 100)}% kept up)` : building.name);
   await expect(place.getByRole('list', { name: `The history of ${seat.name}` }).getByRole('listitem').first()).toBeVisible();
   await expect(place.locator('#game-region')).toContainText('it can house');
+  // U.7: the rest of M1–M5. Each lens says what its colours mean.
+  const lensKey = (name: string) => game.getByRole('group', { name: `${name} lens` });
+  await game.getByRole('group', { name: 'Map lens' }).getByRole('button', { name: 'Political', exact: true }).click();
+  await expect(lensKey('Political')).toContainText(`The ${frame.largest[0].name}`);
+  await game.getByRole('group', { name: 'Map lens' }).getByRole('button', { name: 'Culture', exact: true }).click();
+  await expect(lensKey('Culture')).toContainText(`The ${frame.cultures[0].name}`);
+  await game.getByRole('group', { name: 'Map lens' }).getByRole('button', { name: 'Faith', exact: true }).click();
+  await expect(lensKey('Faith')).toContainText('The folk ways');
+  await game.getByRole('group', { name: 'Map lens' }).getByRole('button', { name: 'Era', exact: true }).click();
+  await expect(lensKey('Era')).toContainText(`${ERA_NAMES[frame.leadingEra]} age`);
+  const lineagePeople = new Map<number, number>();
+  frame.markers.lineages.forEach((lineage: number, at: number) => lineagePeople.set(lineage, (lineagePeople.get(lineage) ?? 0) + frame.markers.populations[at]));
+  const topLineage = [...lineagePeople].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
+  await game.getByRole('group', { name: 'Map lens' }).getByRole('button', { name: 'Descent', exact: true }).click();
+  await expect(lensKey('Descent')).toContainText(`Of the ${frame.lineages[topLineage]}`);
+  // Ruins are drawn as the frame reports them (none arise before M6's razing on this world).
+  await expect(mapCanvasNow).toHaveAttribute('data-ruin-marks', String(frame.ruins.cells.length));
+  // The realm panel: every option weighed, the research options, and the region's people, food and accounts.
+  const largest = (await (await game.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${regionOfCell(viewer.capitalCell)}`)).json()).inspect;
+  await powers.getByRole('button').first().click();
+  await expect(place.locator('#game-realm-name')).toHaveText(`The ${largest.polity.name}`);
+  const realmTabs = place.getByRole('tablist', { name: 'About the realm' });
+  await realmTabs.getByRole('tab', { name: 'Overview' }).click();
+  // The seed is fixed: by year 650 the largest realm has decided and has research options.
+  const decision = largest.polity.lastDecision, candidates = largest.polity.research?.candidates ?? [];
+  expect(decision).toBeTruthy();
+  expect(candidates.length).toBeGreaterThan(0);
+  const options = place.getByRole('list', { name: 'What it weighed' }).getByRole('listitem');
+  await expect(options).toHaveCount(decision.options.length);
+  await expect(options.nth(decision.pick)).toContainText('chosen');
+  await expect(options.first()).toContainText(decision.options[0].score.toFixed(2));
+  await realmTabs.getByRole('tab', { name: 'Knowledge' }).click();
+  await expect(place.getByRole('list', { name: 'Research options' }).getByRole('listitem')).toHaveCount(candidates.length);
+  await expect(place.getByRole('list', { name: 'Research options' }).getByRole('listitem').first()).toContainText(candidates[0].tech);
+  await realmTabs.getByRole('tab', { name: 'Region' }).click();
+  await expect(place.locator('#game-region-culture')).toContainText(`The ${largest.people.culture}`);
+  await expect(place.locator('#game-region-culture')).toContainText('Descent:');
+  await expect(place.locator('#game-region-faith')).toContainText(largest.people.faith ? `The ${largest.people.faith.name} faith` : `The folk ways of the ${largest.people.culture}`);
+  await expect(place.locator('#game-region-food')).toContainText(`${Math.round(largest.capacity).toLocaleString('en')} people`);
+  await expect(place.locator('.game-account').first()).toContainText(/^Pays [\d,]+ a year/);
+  // The ledger: the world now, the wonders, the largest cultures and the religions.
+  await game.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Ledger' }).click();
+  await expect(game.locator('#game-world-now')).toContainText(`${frame.civs.toLocaleString('en')} civilization`);
+  await expect(game.locator('#game-world-now')).toContainText(`${frame.settlements.tiers.filter((tier: number) => tier === 0).length.toLocaleString('en')} village`);
+  const wonders = game.getByRole('region', { name: 'Wonders of the world' });
+  if (frame.wonders.length) await expect(wonders).toContainText(`at ${frame.wonders[0].city}, of the ${frame.wonders[0].civ}`);
+  else await expect(wonders).toContainText('No wonder stands or is being built yet.');
+  await expect(game.locator('#game-cultures tbody tr')).toHaveCount(Math.min(12, frame.cultures.length));
+  await expect(game.locator('#game-cultures tbody tr').first()).toContainText(frame.cultures[0].name);
+  if (frame.religions.length) {
+    await expect(game.locator('#game-religions tbody tr')).toHaveCount(Math.min(12, frame.religions.length));
+    await expect(game.locator('#game-religions tbody tr').first()).toContainText(`The ${frame.religions[0].name} faith`);
+  } else await expect(game.getByRole('region', { name: 'Cultures and religions' })).toContainText('No religion has been founded yet');
+  await game.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Map' }).click();
   await game.waitForTimeout(2_500);
   for (const text of await game.getByRole('list', { name: 'Latest in the chronicle' }).getByRole('listitem').allTextContents()) expect(text).not.toMatch(/#\d/);
   await game.close();

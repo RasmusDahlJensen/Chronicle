@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { ERA_NAMES, type ObserverFrame } from '../../shared/simulation.ts';
+import { ERA_NAMES, SETTLEMENT_TIERS, type ObserverFrame } from '../../shared/simulation.ts';
 import { AGREEMENT_NAMES } from '../observer/labels.ts';
-import { cssColor, polityColor, TREATY_COLORS } from '../observer/palettes.ts';
+import { cssColor, cultureColor, faithColor, polityColor, TREATY_COLORS } from '../observer/palettes.ts';
 import type { RegionData } from '../observer/useWorldMap.ts';
 import { people } from './RealmPanel.tsx';
 
@@ -20,6 +20,11 @@ export function Ledger({ frame, regions, width, height, onChoose }: { frame: Obs
       <CountsChart frame={frame} />
     </div>
     <RealmTable civs={frame.civList} total={frame.civs} onChoose={onChoose} />
+    <div className="game-ledger-charts">
+      <WorldNow frame={frame} />
+      <Wonders frame={frame} />
+      <Peoples frame={frame} />
+    </div>
     <TreatyWeb frame={frame} regions={regions} width={width} height={height} onChoose={onChoose} />
   </section>;
 }
@@ -123,6 +128,60 @@ function RealmTable({ civs, total, onChoose }: { civs: Civ[]; total: number; onC
           <span className="game-swatch" style={{ backgroundColor: cssColor(polityColor(civ.id)) }} aria-hidden="true" />{civ.name}</button></th>
         : <td key={column.key} className={column.numeric ? 'game-numeric' : undefined}>{column.format(civ)}</td>)}</tr>)}</tbody>
     </table></div> : <p className="game-muted">No civilization has risen yet.</p>}
+  </section>;
+}
+
+const TIER_PLURALS = ['villages', 'towns', 'cities', 'metropolises'] as const;
+const count = (value: number, one: string, many: string) => `${number.format(value)} ${value === 1 ? one : many}`;
+
+/** The world now (U.7): its people, peoples and realms, settlements by tier and ruins, fields, roads and trade. */
+function WorldNow({ frame }: { frame: ObserverFrame }) {
+  const tiers = SETTLEMENT_TIERS.map((_, tier) => frame.settlements.tiers.filter(value => value === tier).length);
+  const razed = frame.ruins.razed.filter(Boolean).length, bridges = frame.roads.bridges.filter(Boolean).length, bySea = frame.trades.sea.filter(Boolean).length;
+  const fields = frame.fields.cells.reduce((sum, cells) => sum + cells, 0);
+  return <section className="game-ledger-card" aria-label="The world now">
+    <h2>The world now</h2>
+    <dl className="game-facts" id="game-world-now">
+      <div><dt>People</dt><dd>{people(frame.population)}{frame.specialists ? `, ${people(frame.specialists)} of them townspeople and specialists` : ''}</dd></div>
+      <div><dt>Peoples</dt><dd>{count(frame.civs, 'civilization', 'civilizations')} and {count(frame.polities - frame.civs, 'tribe', 'tribes')} in {count(frame.markers.regions.length, 'region', 'regions')} of {number.format(frame.counters.regions)}</dd></div>
+      <div><dt>Settlements</dt><dd>{tiers.some(Boolean) ? tiers.map((value, tier) => value ? count(value, SETTLEMENT_TIERS[tier], TIER_PLURALS[tier]) : '').filter(Boolean).reverse().join(' · ') : 'none yet'}{frame.ruins.cells.length ? ` · ${count(frame.ruins.cells.length, 'ruin', 'ruins')}${razed ? `, ${number.format(razed)} razed` : ''}` : ''}</dd></div>
+      <div><dt>Fields</dt><dd>{fields ? `${count(fields, 'cell', 'cells')} of farmland cultivated in ${count(frame.fields.regions.length, 'region', 'regions')}` : 'none yet'}</dd></div>
+      <div><dt>Roads</dt><dd>{frame.roads.a.length ? `${count(frame.roads.a.length, 'stretch', 'stretches')}${bridges ? `, ${count(bridges, 'bridge', 'bridges')}` : ''}` : 'none yet'}</dd></div>
+      <div><dt>Trade</dt><dd>{frame.trades.from.length ? `${count(frame.trades.from.length, 'route', 'routes')} of trade agreements${bySea ? `, ${number.format(bySea)} by sea` : ''}` : 'no trade agreements yet'}</dd></div>
+      <div><dt>Faiths</dt><dd>{count(frame.cultures.length, 'culture', 'cultures')} and {count(frame.religions.length, 'religion', 'religions')}</dd></div>
+    </dl>
+  </section>;
+}
+
+/** The wonders of the world (U.7): those standing, and those being built, with where and by whom. */
+function Wonders({ frame }: { frame: ObserverFrame }) {
+  const standing = frame.wonders.filter(wonder => wonder.built !== null), building = frame.wonders.filter(wonder => wonder.built === null);
+  const line = (wonder: ObserverFrame['wonders'][number]) => <li key={`${wonder.name}-${wonder.city}`}><strong>{wonder.name[0].toUpperCase()}{wonder.name.slice(1)}</strong> <span className="game-muted">at {wonder.city}, of the {wonder.civ} · {wonder.built !== null ? `completed in year ${number.format(wonder.built)}` : `begun in year ${number.format(wonder.begun)}`}</span></li>;
+  return <section className="game-ledger-card" aria-label="Wonders of the world">
+    <h2>Wonders of the world</h2>
+    {frame.wonders.length ? <>
+      {standing.length > 0 && <ul className="game-list" id="game-wonders">{standing.map(line)}</ul>}
+      {building.length > 0 && <><h3>Being built</h3><ul className="game-list">{building.map(line)}</ul></>}
+    </> : <p className="game-muted">No wonder stands or is being built yet.</p>}
+  </section>;
+}
+
+/** The largest cultures and the religions (U.7), with their regions and people. */
+function Peoples({ frame }: { frame: ObserverFrame }) {
+  return <section className="game-ledger-card" aria-label="Cultures and religions">
+    <h2>Cultures and religions</h2>
+    <table className="game-small-table" id="game-cultures"><caption className="game-sr-only">The largest cultures</caption>
+      <thead><tr><th scope="col">Culture</th><th scope="col" className="game-numeric">Regions</th><th scope="col" className="game-numeric">People</th></tr></thead>
+      <tbody>{frame.cultures.slice(0, 12).map(entry => <tr key={entry.id}><th scope="row"><span className="game-swatch" style={{ backgroundColor: cssColor(cultureColor(entry.hue, entry.id)) }} aria-hidden="true" /> {entry.name}{entry.parent ? <span className="game-muted"> · from the {entry.parent}</span> : null}</th>
+        <td className="game-numeric">{number.format(entry.regions)}</td><td className="game-numeric">{people(entry.population)}</td></tr>)}</tbody>
+    </table>
+    {frame.cultures.length > 12 && <p className="game-muted">And {number.format(frame.cultures.length - 12)} more cultures.</p>}
+    {frame.religions.length ? <table className="game-small-table" id="game-religions"><caption className="game-sr-only">The religions</caption>
+      <thead><tr><th scope="col">Religion</th><th scope="col" className="game-numeric">Realms</th><th scope="col" className="game-numeric">Regions</th><th scope="col" className="game-numeric">People</th></tr></thead>
+      <tbody>{frame.religions.slice(0, 12).map(entry => <tr key={entry.id}><th scope="row"><span className="game-swatch" style={{ backgroundColor: cssColor(faithColor(entry.hue)) }} aria-hidden="true" /> The {entry.name} faith</th>
+        <td className="game-numeric">{number.format(entry.civs)}</td><td className="game-numeric">{number.format(entry.regions)}</td><td className="game-numeric">{people(entry.population)}</td></tr>)}</tbody>
+    </table> : <p className="game-muted">No religion has been founded yet: every people keeps the folk ways of its culture.</p>}
+    {frame.religions.length > 12 && <p className="game-muted">And {number.format(frame.religions.length - 12)} more religions.</p>}
   </section>;
 }
 
