@@ -356,6 +356,33 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(tabs.getByRole('tab', { name: 'Region' })).toBeFocused();
   await expect(place.locator('#game-region')).toContainText(`Region ${capitalRegion}`);
   await expect(place.locator('#game-region')).toContainText(frame.civList[0].capital);
+  // U.4: the diplomacy lens colours every people by its standing with the selected realm (its own land as itself).
+  const mapCanvasNow = game.locator('#game-map-canvas');
+  await game.getByRole('group', { name: 'Map lens' }).getByRole('button', { name: 'Diplomacy' }).click();
+  await expect(game.getByLabel('Diplomacy lens')).toContainText(`standing with the ${frame.civList[0].name}`);
+  // Each region by its people's standing (as the frame for the realm's capital reports them), the rest not met.
+  const standingOf = new Map<number, string>(realm.standings.map((entry: { id: number; status: string }) => [entry.id, entry.status]));
+  const expectedCounts: Record<string, number> = { self: 0, allied: 0, pact: 0, trade: 0, rival: 0, neutral: 0, unknown: 0 };
+  for (const id of frame.markers.ids as number[]) expectedCounts[id === realm.id ? 'self' : standingOf.get(id) ?? 'unknown']++;
+  expect(expectedCounts.self).toBe(frame.civList[0].regions);
+  expect(expectedCounts.unknown).toBeLessThan(frame.markers.ids.length - expectedCounts.self);
+  await expect(mapCanvasNow).toHaveAttribute('data-standings', Object.entries(expectedCounts).map(([standing, count]) => `${standing}:${count}`).join(' '));
+  // The ledger: the world over time, the realms (sortable; a row returns to the map at that realm) and the treaty web.
+  await game.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Ledger' }).click();
+  const ledger = game.getByRole('region', { name: 'Ledger' });
+  await expect(ledger.getByRole('img', { name: /The world's people/ })).toBeVisible();
+  await expect(ledger.getByRole('img', { name: /largest realms/ })).toBeVisible();
+  const table = ledger.getByRole('region', { name: 'Realms' }).getByRole('table');
+  await expect(table.getByRole('row')).toHaveCount(frame.civList.length + 1);
+  await table.getByRole('button', { name: 'Regions' }).click();
+  await expect(table.getByRole('columnheader', { name: /Regions/ })).toHaveAttribute('aria-sort', 'descending');
+  const widest = [...frame.civList].sort((a: { regions: number; id: number }, b: { regions: number; id: number }) => b.regions - a.regions || a.id - b.id)[0];
+  await expect(table.getByRole('row').nth(1).getByRole('rowheader')).toHaveText(widest.name);
+  const listed = new Set(frame.civList.map((civ: { id: number }) => civ.id));
+  await expect(ledger.getByRole('region', { name: 'Treaty web' }).locator('svg')).toHaveAttribute('data-treaties', String(frame.treaties.filter((treaty: { a: number; b: number }) => listed.has(treaty.a) && listed.has(treaty.b)).length));
+  await table.getByRole('row').nth(1).getByRole('button').click();
+  await expect(ledger).toHaveCount(0);
+  await expect(game.locator('#game-realm-name')).toHaveText(`The ${widest.name}`);
   await game.waitForTimeout(2_500);
   for (const text of await game.getByRole('list', { name: 'Latest in the chronicle' }).getByRole('listitem').allTextContents()) expect(text).not.toMatch(/#\d/);
   await game.close();

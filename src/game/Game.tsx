@@ -9,11 +9,12 @@ import { loadGeneratedWorld } from '../api/generated-world.ts';
 import { WORLD_BIOME_STYLE } from '../renderer/generated-world.ts';
 import { describeEvent, MONTH_NAMES } from '../observer/events.ts';
 import { factorName } from '../observer/labels.ts';
-import { cssColor, polityColor } from '../observer/palettes.ts';
+import { cssColor, polityColor, STANDING_COLORS } from '../observer/palettes.ts';
 import { useObserver } from '../observer/useObserver.ts';
-import { useRegionMap, useWorldMap, type PeoplesLens } from '../observer/useWorldMap.ts';
+import { useRegionMap, useWorldMap, type PeoplesLens, type Standing } from '../observer/useWorldMap.ts';
 import { chosenWorld, rememberWorld } from '../observer/world-choice.ts';
 import { people, RealmPanel, RegionDetail, type RealmTab } from './RealmPanel.tsx';
+import { Ledger } from './Ledger.tsx';
 import { Ages, StoryRail } from './StoryRail.tsx';
 import { Tabs } from './Tabs.tsx';
 import './game.css';
@@ -23,7 +24,7 @@ const message = (cause: unknown) => cause instanceof Error ? cause.message : 'Th
 const SPEED_LABELS: Record<SimulationSpeed, string> = { month: 'month', year: 'year', decade: 'decade', max: 'fastest' };
 const LENSES: { lens: PeoplesLens; label: string }[] = [
   { lens: 'polity', label: 'Political' }, { lens: 'culture', label: 'Culture' }, { lens: 'faith', label: 'Faith' },
-  { lens: 'era', label: 'Era' }, { lens: 'descent', label: 'Descent' }, { lens: 'off', label: 'Terrain' },
+  { lens: 'era', label: 'Era' }, { lens: 'descent', label: 'Descent' }, { lens: 'diplomacy', label: 'Diplomacy' }, { lens: 'off', label: 'Terrain' },
 ];
 /** Events shown in the ticker: the notable ones (`importance`), newest first. */
 const TICKER_IMPORTANCE = 0.1, TICKER_LENGTH = 5;
@@ -50,6 +51,8 @@ export function Game() {
   // The right-hand panel's tab, and the story chosen to be shown on the map: followed by its id into each new frame (its
   // regions grow and change as it goes on), and kept as last told when the rail no longer tells it.
   const [side, setSide] = useState<typeof SIDE_TABS[number]>('stories');
+  // The stage: the map, or the ledger over it (U.4).
+  const [view, setView] = useState<'map' | 'ledger'>('map');
   const [chosen, setStory] = useState<Story | null>(null);
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
   const shown = useRef<{ key: string; fresh: boolean }>({ key: '', fresh: false });
@@ -71,7 +74,9 @@ export function Game() {
   // The highlight changes only when the story's regions do, not with every frame.
   const storyRegions = story?.regions.join(',') ?? '';
   const highlight = useMemo(() => storyRegions ? new Set(storyRegions.split(',').map(Number)) : null, [storyRegions]);
-  const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight });
+  // The diplomacy lens (U.4): the standings of the civilization the place panel shows (set below, once it is known).
+  const [standings, setStandings] = useState<{ self: number; name: string; of: ReadonlyMap<number, Standing> } | null>(null);
+  const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight, standings });
   const region = map.cellRegion;
   const observer = useObserver({ settings: world?.settings ?? null, startFresh: shown.current.fresh, inspect: region?.id ?? null, onFrame: setFrame });
   const names = observer.names;
@@ -81,6 +86,14 @@ export function Game() {
   if (inspected?.polity) lastRealm.current = inspected;
   else if (inspected || !region) lastRealm.current = null;
   const realmShown = inspected?.polity ? inspected : region ? lastRealm.current : null;
+  // The lens follows the realm in the place panel (kept, like the panel, while newly chosen land is read); it changes
+  // only when its realm or standings do.
+  const lensRealm = realmShown?.polity?.kind === 'civ' ? realmShown.polity : null;
+  const lensKey = lensRealm ? `${lensRealm.id}|${lensRealm.standings.map(entry => `${entry.id}:${entry.status}`).join(',')}` : '';
+  useEffect(() => {
+    setStandings(lensRealm ? { self: lensRealm.id, name: lensRealm.name, of: new Map<number, Standing>(lensRealm.standings.map(entry => [entry.id, entry.status])) } : null);
+  // The key identifies the lens's realm and standings.
+  }, [lensKey]);
 
   const date = frame ? simulationDate(frame.tick) : null;
   const powers = frame ? frame.civList.slice(0, 10) : [];
@@ -112,6 +125,10 @@ export function Game() {
           disabled={!frame} onClick={() => void observer.send({ action: 'speed', speed })}>{SPEED_LABELS[speed]}</button>)}</div>
       </div>
       </div>
+      <div className="game-views" role="group" aria-label="View">
+        <button type="button" aria-pressed={view === 'map'} onClick={() => setView('map')}>Map</button>
+        <button type="button" aria-pressed={view === 'ledger'} disabled={!frame} onClick={() => setView('ledger')}>Ledger</button>
+      </div>
       {frame && <dl className="game-totals" aria-label="The world">
         <div><dt>people</dt><dd id="game-people">{people(frame.population)}</dd></div>
         <div><dt>civilizations</dt><dd>{number.format(frame.civs)}</dd></div>
@@ -128,7 +145,7 @@ export function Game() {
     </header>
 
     <main className="game-stage" aria-label="The world">
-      {world ? <div className="game-map">
+      {world ? <div className="game-map" inert={view === 'ledger'}>
         <canvas ref={map.canvas} id="game-map-canvas" tabIndex={0} role="img" aria-label="The world: its peoples, settlements, roads and trade routes. Click land to see who lives there." aria-describedby="game-map-keys" />
         <canvas ref={map.overlay} className="game-map-overlay" aria-hidden="true" />
         <p id="game-map-keys" className="game-sr-only">Keyboard: arrows move the selection, Enter selects, Shift and arrows pan, plus and minus zoom, Home fits the world, Escape clears.</p>
@@ -143,6 +160,10 @@ export function Game() {
         {regionError && <p className="game-error" role="alert">The simulation's regions could not be read: {regionError}</p>}
       </div>
 
+      {view === 'ledger' && frame && world && <Ledger frame={frame} regions={regions} width={world.width} height={world.height}
+        onChoose={cell => { setView('map'); map.focusCell(cell); requestAnimationFrame(() => map.canvas.current?.focus()); }} />}
+
+      {view === 'map' && <>
       {(map.cell || map.inspecting) && <aside className="game-panel game-place" aria-label="Selected place">
         <button type="button" className="game-close" aria-label="Close" onClick={map.clearSelection}>×</button>
         <div className="game-place-body">
@@ -184,11 +205,23 @@ export function Game() {
             <button type="button" onClick={map.fit}>Fit</button>
           </div>
         </div>
+        {lens === 'diplomacy' && <DiplomacyKey realm={standings?.name ?? null} />}
         {frame && <Ages ages={frame.ages} year={Math.floor(frame.tick / 12)} />}
         {ticker.length ? <ol className="game-events" aria-label="Latest in the chronicle">{ticker.map(event => <TickerEvent key={event.id} event={event} names={names} />)}</ol>
           : <p className="game-muted">{frame?.tick === 0 ? 'Press Play: the first bands are about to wander.' : 'Nothing notable among the latest events.'}</p>}
       </section>
+      </>}
     </main>
+  </div>;
+}
+
+const STANDING_KEY: [keyof typeof STANDING_COLORS, string][] = [['self', 'the realm'], ['allied', 'allied'], ['pact', 'pact'], ['trade', 'trade partner'], ['rival', 'rival'], ['neutral', 'neutral'], ['unknown', 'not met']];
+
+/** The diplomacy lens's key (U.4): whose standings the map shows, and each standing's colour. */
+function DiplomacyKey({ realm }: { realm: string | null }) {
+  return <div className="game-lens-key" role="group" aria-label="Diplomacy lens">
+    <p>{realm ? `Every people by its standing with the ${realm}:` : 'Select a civilization\'s land to see its standing with every people.'}</p>
+    <ul>{STANDING_KEY.map(([standing, label]) => <li key={standing}><span className="game-swatch" style={{ backgroundColor: `rgb(${STANDING_COLORS[standing].join(' ')})` }} aria-hidden="true" />{label}</li>)}</ul>
   </div>;
 }
 

@@ -228,6 +228,49 @@
 .game-event-year { color: var(--game-accent); font-weight: 600; }
 .game-event-cause { color: var(--game-muted); font-size: 12px; white-space: nowrap; }
 
+/* The view switch, and the ledger (U.4): the world over time, the realms and the treaty web, over the map. */
+.game-views { display: flex; gap: 2px; }
+.game-views button { min-height: 32px; }
+.game-ledger-view { position: absolute; inset: 0; z-index: 4; overflow-y: auto; padding: 16px; display: grid; gap: 16px; align-content: start; background: var(--game-ground); }
+.game-ledger-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; }
+.game-ledger-card { margin: 0; min-width: 0; padding: 14px 16px; border: 1px solid var(--game-line); border-radius: 6px; background: #0e161c; }
+.game-ledger-card h2 { margin: 0 0 4px; font-family: var(--game-display); font-size: 22px; font-weight: 700; color: var(--game-text); }
+.game-ledger-card figcaption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-bottom: 6px; }
+.game-chart { display: block; width: 100%; height: auto; }
+.game-chart-axis { stroke: var(--game-line); }
+.game-chart-age { stroke: var(--game-accent-line); stroke-dasharray: 3 3; }
+.game-chart-label { fill: var(--game-muted); font-size: 11px; }
+.game-chart-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 0; padding: 0; font-size: 12px; color: var(--game-muted); }
+.game-chart-legend li { display: flex; align-items: center; gap: 6px; }
+.game-table-scroll { max-height: 560px; overflow: auto; }
+.game-ledger-table table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.game-ledger-table th, .game-ledger-table td { padding: 4px 8px; border-bottom: 1px solid #1c252d; text-align: left; white-space: nowrap; }
+.game-ledger-table .game-numeric { text-align: right; }
+.game-ledger-table thead th { position: sticky; top: 0; background: #0e161c; }
+.game .game-ledger-table thead button { min-height: 30px; padding: 0; border: none; background: transparent; color: var(--game-muted); font-weight: 600; }
+.game-ledger-table thead th[aria-sort='ascending'] button, .game-ledger-table thead th[aria-sort='descending'] button { color: var(--game-accent-strong); }
+.game-ledger-table thead th[aria-sort='ascending'] button::after { content: ' ▲'; }
+.game-ledger-table thead th[aria-sort='descending'] button::after { content: ' ▼'; }
+.game .game-ledger-table tbody th button { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 4px; border: none; background: transparent; font-weight: 600; text-align: left; }
+.game .game-ledger-table tbody th button:hover { color: var(--game-accent-strong); }
+.game-ledger-table tbody tr:hover { background: #131d24; }
+.game-web-choose { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--game-muted); }
+.game-web-choose select { min-height: 32px; padding: 0 8px; border: 1px solid var(--game-line); border-radius: 4px; background: #111a21; color: var(--game-text); }
+.game-web-map { display: block; width: 100%; height: auto; border-radius: 4px; }
+.game-web-sea { fill: #0f2230; }
+.game-web-land circle { fill: #2f3b33; }
+.game-web-node { cursor: pointer; }
+.game-web-partners { margin-top: 10px; }
+.game-web-partners h3 { margin: 0 0 6px; font-size: 15px; }
+.game-web-partners ul { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.game-web-partners li { display: flex; align-items: baseline; gap: 8px; }
+
+/* The diplomacy lens's key (U.4). */
+.game-lens-key { margin: -4px 0 10px; font-size: 12px; color: var(--game-muted); }
+.game-lens-key p { margin: 0 0 4px; }
+.game-lens-key ul { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0; padding: 0; }
+.game-lens-key li { display: flex; align-items: center; gap: 6px; }
+
 /* Middling windows: the chronicle spans the bottom, under the selected place (top left) and the stories (top right). */
 @media (max-width: 1280px) {
   .game-ticker { left: 16px; right: 16px; max-height: 36%; }

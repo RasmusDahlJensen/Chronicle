@@ -142,7 +142,7 @@ function frameOf(state: SimulationState, region: number): ObserverFrame {
     protocolVersion: SIMULATION_PROTOCOL_VERSION, instance: { key: 'k', worldKey: 'w', partitionVersion: 1, rulesVersion: 1, seed: 's', runId: 'r' },
     tick: state.tick, playing: false, speed: 'year', epoch: 0, runTo: null, dev: { actions: 0, refused: null, checkpoints: null, loadedFrom: null }, eventCount: state.chronicle.events.length,
     counters: { regions: state.partition.regions.length, landmasses: 1 }, population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
-    cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [], largest: [], civList: [],
+    cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [], largest: [], civList: [], treaties: [], census: { years: [], civs: [], ids: [], people: [] },
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
     roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], wonders: [], names: [], events: [], ...storiesView(state),
     inspect: observerView(state, region).inspect,
@@ -334,4 +334,83 @@ test('a frame\'s stories and ages are validated', () => {
   assert.throws(() => parseObserverFrame(altered(copy => { copy.stories[0].regions = [copy.counters.regions]; })), 'regions of this world');
   assert.throws(() => parseObserverFrame(altered(copy => { copy.ages.push({ ...copy.ages[0] }); })), 'each later age once');
   assert.throws(() => parseObserverFrame(altered(copy => { copy.ages[0].year = Math.floor(copy.tick / 12) + 1; })), 'ages within the history');
+});
+
+test('the ledger\'s table, treaty web and census series, and the diplomacy lens\'s standings, match the simulation', () => {
+  const state = copied(), civ = largestCiv(state)!;
+  // Treaties of every kind in force between living realms, so the web has each.
+  const others = state.living.filter(id => id !== civ.id && state.polities[id].kind === 'civ').slice(0, 2);
+  assert.ok(others.length > 0);
+  state.treaties.push({ id: state.treaties.length, type: 'trade', exporter: civ.id, importer: others[0], resource: 0, amount: 1, barter: -1, barterAmount: 0, price: 1, carry: 0, hubs: [0, 0], startTick: state.tick, endTick: null, endCause: null });
+  state.treaties.push({ id: state.treaties.length, type: 'trade', exporter: others[0], importer: civ.id, resource: 1, amount: 1, barter: -1, barterAmount: 0, price: 1, carry: 0, hubs: [0, 0], startTick: state.tick, endTick: null, endCause: null });
+  state.treaties.push({ id: state.treaties.length, type: 'alliance', parties: [civ.id, others[0]], startTick: state.tick, endTick: null, endCause: null });
+  state.treaties.push({ id: state.treaties.length, type: 'nonAggression', parties: [others[0], civ.id], startTick: state.tick, endTick: state.tick, endCause: 'relationsSoured' });
+  const view = observerView(state, state.groups[civ.groups[0]].region);
+  // The table: each realm's settlements, culture, faith, treasury, stability, unrest and treaties.
+  for (const row of view.civList) {
+    const polity = state.polities[row.id], regions = polity.groups.map(id => state.groups[id].region);
+    assert.equal(row.settlements, state.settlements.filter(settlement => settlement.status === 'alive' && settlement.owner === row.id).length);
+    assert.deepEqual([row.culture, row.faith], [state.cultures[polity.culture].name, polity.stateReligion >= 0 ? state.religions[polity.stateReligion].name : null]);
+    assert.equal(row.treasury, Math.floor(polity.wealth));
+    assert.ok(Math.abs(row.stability - regions.reduce((sum, region) => sum + state.stability[region], 0) / regions.length) < 0.001);
+    assert.equal(row.unrest, regions.filter(region => state.unrest[region]).length);
+    assert.equal(row.trade, state.treaties.filter(treaty => treaty.type === 'trade' && treaty.endTick === null && (treaty.exporter === row.id || treaty.importer === row.id)).length);
+    assert.deepEqual([row.roads, row.pacts, row.allies], [polity.roadPartners.length, polity.pacts.length, polity.allies.length]);
+  }
+  // The web: exactly the treaties in force between living civilizations, each pair and kind once, trade counted.
+  const expected = new Map<string, number>();
+  for (const treaty of state.treaties) {
+    if (treaty.endTick !== null) continue;
+    const [one, other] = treaty.type === 'trade' ? [treaty.exporter, treaty.importer] : treaty.parties;
+    if (state.polities[one].deathTick !== null || state.polities[other].deathTick !== null) continue;
+    const key = `${Math.min(one, other)},${Math.max(one, other)},${treaty.type}`;
+    expected.set(key, (expected.get(key) ?? 0) + 1);
+  }
+  assert.deepEqual(new Map(view.treaties.map(treaty => [`${treaty.a},${treaty.b},${treaty.kind}`, treaty.count])), expected);
+  const pair = `${Math.min(civ.id, others[0])},${Math.max(civ.id, others[0])}`;
+  assert.equal(expected.get(`${pair},trade`)! >= 2, true);
+  assert.ok(expected.has(`${pair},alliance`));
+  // The census series: each year's civilizations, and the largest realms' people from their census.
+  assert.deepEqual(view.census.ids, view.civList.slice(0, 8).map(row => row.id));
+  for (const [step, year] of view.census.years.entries()) {
+    const sample = state.census.find(entry => entry.year === year)!;
+    assert.equal(view.census.civs[step], sample.ids.length);
+    for (const [index, id] of view.census.ids.entries()) assert.equal(view.census.people[index][step], sample.ids.includes(id) ? sample.people[sample.ids.indexOf(id)] : 0);
+  }
+  assert.equal(view.census.years.at(-1), state.census.at(-1)!.year);
+  // Standings: every living people it has met (judged yet or not), by the strongest treaty, else rival at −50 or below,
+  // else neutral. A people met this year, before it has an opinion of them, is neutral.
+  const fresh = state.living.find(id => id !== civ.id && !civ.met.has(id))!;
+  assert.ok(fresh !== undefined, 'a people it has not met');
+  civ.met.set(fresh, state.tick);
+  const panel = observerView(state, state.groups[civ.groups[0]].region).inspect!.polity!;
+  const met = [...civ.met.keys()].filter(other => other !== civ.id && state.polities[other].deathTick === null).sort((a, b) => a - b);
+  assert.deepEqual(panel.standings.map(entry => entry.id), met);
+  assert.ok(!civ.relations.has(fresh));
+  assert.equal(panel.standings.find(entry => entry.id === fresh)!.status, 'neutral');
+  for (const entry of panel.standings) {
+    const opinion = civ.relations.get(entry.id)?.opinion ?? 0;
+    const status = civ.allies.includes(entry.id) ? 'allied' : civ.pacts.includes(entry.id) ? 'pact' : civ.trading.includes(entry.id) ? 'trade' : opinion <= -50 ? 'rival' : 'neutral';
+    assert.equal(entry.status, status, `standing with ${entry.id}`);
+  }
+  // A tribe has no standings.
+  const tribe = state.living.map(id => state.polities[id]).find(polity => polity.kind === 'band');
+  if (tribe) assert.deepEqual(observerView(state, state.groups[tribe.groups[0]].region).inspect!.polity!.standings, []);
+  // A long history's census is thinned to at most 300 years, in order, the latest kept.
+  const long = copied();
+  long.census = Array.from({ length: 601 }, (_, at) => ({ year: (at + 1) * 10, ids: [], people: [], regions: [] }));
+  const thinned = observerView(long, null).census.years;
+  assert.ok(thinned.length <= 300 && thinned.length > 150);
+  assert.ok(thinned.every((at, index) => index === 0 || at > thinned[index - 1]));
+  assert.equal(thinned.at(-1), 6_010);
+  // The contract: a frame with them passes, and an inconsistent one is refused.
+  const frame = { ...frameOf(state, state.groups[civ.groups[0]].region), ...view } as ObserverFrame;
+  const parsed = parseObserverFrame(structuredClone(frame));
+  assert.equal(parsed.treaties.length, view.treaties.length);
+  const altered = (change: (copy: ObserverFrame) => void) => { const copy = structuredClone(frame); change(copy); return copy; };
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.treaties.push({ ...copy.treaties[0] }); })), 'each pair and kind once');
+  assert.throws(() => parseObserverFrame(altered(copy => { const first = copy.treaties[0]; copy.treaties[0] = { ...first, a: first.b, b: first.a }; })), 'the lower id first');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.treaties.push({ a: 0, b: 999_999, kind: 'alliance', count: 1 }); })), 'living civilizations');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.census.people[0].pop(); })), 'a value for each year');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.census.years.reverse(); })), 'years in order');
 });

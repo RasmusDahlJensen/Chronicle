@@ -153,7 +153,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
     tick: 5, playing: false, speed: 'year', epoch: 0, runTo: null, dev: { actions: 0, refused: null, checkpoints: null, loadedFrom: null }, eventCount: 2, counters: { regions: 1, landmasses: 1 },
     population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [],
-    largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }], civList: [],
+    largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }], civList: [], treaties: [], census: { years: [], civs: [], ids: [], people: [] },
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
     roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], inspect: null, wonders: [], names: [], stories: [], ages: [],
     events: [
@@ -183,7 +183,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
   assert.throws(() => parseObserverFrame({ ...frame, largest: [{ ...frame.largest[0], regions: 2 }] }), 'the legend counts the polity\'s regions');
   assert.throws(() => parseObserverFrame({ ...frame, largest: [{ ...frame.largest[0], id: 1 }] }), 'the legend names living polities');
   const civFrame = { ...frame, civs: 1, largest: [], markers: { ...frame.markers, kinds: [1] }, settlements: { ids: [0], cells: [3], owners: [0], capitals: [1], tiers: [1], names: ['Kesh'], features: [1] }, settlementCount: 1 };
-  const listed = { id: 0, name: 'Vaeli', regions: 1, population: 30, era: 0, capital: 'Kesh', capitalCell: 3 };
+  const listed = { id: 0, name: 'Vaeli', regions: 1, population: 30, era: 0, capital: 'Kesh', capitalCell: 3, settlements: 1, culture: 'Vaeli', faith: null, treasury: 0, stability: 1, unrest: 0, trade: 0, roads: 0, pacts: 0, allies: 0 };
   assert.equal(parseObserverFrame({ ...civFrame, civList: [listed] }).civList.length, 1);
   assert.throws(() => parseObserverFrame({ ...civFrame, civList: [] }), 'every civilization is listed while there are at most 100');
   assert.throws(() => parseObserverFrame({ ...civFrame, civList: [{ ...listed, regions: 2 }] }), 'the list reports the regions its markers hold');

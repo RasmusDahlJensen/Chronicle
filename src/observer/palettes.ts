@@ -20,6 +20,14 @@ export const SETTLEMENT_STROKE = '#2b1d12';
 
 /** Territory opacity: bands roam lightly over their land; settled civilizations hold theirs. */
 export const TERRITORY_ALPHA = { band: 0.55, civ: 0.78 } as const;
+/** The diplomacy lens (U.4; VISION.md "Diplomacy lens"): each people by its standing with the chosen realm, the realm
+ *  itself in brass and peoples it has not met in dark grey. Each standing has its own hue, and their lightness differs
+ *  too (CIE L*: not met 21, rival 41, trade partner 54, neutral 59, allied 69, pact 76, the realm 82). Also the treaty
+ *  web's colours by kind of treaty. */
+export const STANDING_COLORS: Record<'self' | 'allied' | 'pact' | 'trade' | 'rival' | 'neutral' | 'unknown', [number, number, number]> = {
+  self: [238, 200, 118], allied: [96, 186, 112], pact: [110, 200, 210], trade: [92, 124, 222], rival: [176, 52, 44], neutral: [150, 140, 122], unknown: [46, 52, 58],
+};
+export const TREATY_COLORS: Record<'alliance' | 'nonAggression' | 'trade' | 'road', string> = { alliance: '#60ba70', nonAggression: '#40a0b0', trade: '#6f8ff0', road: '#d8c79a' };
 /** A chosen story's regions (U.3): the rest of the map's territories fade to this share of their alpha, its own are
  *  drawn fully, and its land no one holds now in this brass colour. */
 export const HIGHLIGHT = { fade: 0.25, alpha: 0.9, empty: [226, 189, 114] as [number, number, number], emptyAlpha: 0.6 } as const;

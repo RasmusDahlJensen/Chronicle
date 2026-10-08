@@ -23,7 +23,7 @@ import { TENETS } from './religions.ts';
 import { ERAS, TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'inspect'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -65,9 +65,29 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     const polity = state.polities[id];
     return { id, name: polity.name, kind: polity.kind, regions: polity.groups.length, population: people };
   });
+  // The treaty web (U.4): each pair of civilizations and kind of treaty between them now, trade counted.
+  const trading = new Map<number, number>(), web = new Map<string, { a: number; b: number; kind: 'alliance' | 'nonAggression' | 'road' | 'trade'; count: number }>();
+  for (const treaty of state.treaties) {
+    if (treaty.endTick !== null) continue;
+    const [one, other] = treaty.type === 'trade' ? [treaty.exporter, treaty.importer] : treaty.parties;
+    if (state.polities[one].deathTick !== null || state.polities[other].deathTick !== null) continue;
+    const a = Math.min(one, other), b = Math.max(one, other), key = `${a},${b},${treaty.type}`, held = web.get(key);
+    if (held) held.count++; else web.set(key, { a, b, kind: treaty.type, count: 1 });
+    if (treaty.type === 'trade') for (const party of [one, other]) trading.set(party, (trading.get(party) ?? 0) + 1);
+  }
+  const owned = new Map<number, number>();
+  for (const settlement of state.settlements) if (settlement.status === 'alive') owned.set(settlement.owner, (owned.get(settlement.owner) ?? 0) + 1);
   const civList = sizes.filter(({ id }) => state.polities[id].kind === 'civ').slice(0, 100).map(({ id, people }) => {
     const polity = state.polities[id], capital = state.settlements[polity.capital!];
-    return { id, name: polity.name, regions: polity.groups.length, population: people, era: polity.knowledge.era, capital: capital.name, capitalCell: capital.cell };
+    let stability = 0, unrest = 0;
+    for (const group of polity.groups) { const region = state.groups[group].region; stability += state.stability[region]; if (state.unrest[region]) unrest++; }
+    return {
+      id, name: polity.name, regions: polity.groups.length, population: people, era: polity.knowledge.era, capital: capital.name, capitalCell: capital.cell,
+      settlements: owned.get(id) ?? 0, culture: state.cultures[polity.culture].name, faith: polity.stateReligion >= 0 ? state.religions[polity.stateReligion].name : null,
+      treasury: Math.max(0, Math.floor(polity.wealth)), stability: polity.groups.length ? round(stability / polity.groups.length) : 1, unrest,
+      trade: trading.get(id) ?? 0,
+      roads: polity.roadPartners.length, pacts: polity.pacts.length, allies: polity.allies.length,
+    };
   });
   const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[], tiers: [] as number[], names: [] as string[], features: [] as number[] };
   for (const settlement of state.settlements) {
@@ -96,6 +116,7 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
   return {
     population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest, civList,
+    treaties: [...web.values()].sort((x, y) => x.a - y.a || x.b - y.b || x.kind.localeCompare(y.kind)), census: censusSeries(state, civList.slice(0, 8).map(entry => entry.id)),
     cultures: [...living].sort(([a, x], [b, y]) => y.population - x.population || a - b).slice(0, 2_000).map(([id, entry]) => {
       const culture = state.cultures[id];
       return { id, name: culture.name, hue: round(culture.hue, 2), parent: culture.parents.length ? heaviestParent(state, culture).name : null, ...entry };
@@ -113,6 +134,17 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
 }
 
 const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 10 ** digits;
+
+/** The census over time for the ledger's charts (U.4): at most 300 years (thinned evenly, the latest kept), how many
+ *  civilizations lived in each, and the people of the given civilizations in each (0 where one was not yet one). */
+function censusSeries(state: SimulationState, ids: number[]): ObserverFrame['census'] {
+  const step = Math.max(1, Math.ceil(state.census.length / 300));
+  const kept = state.census.filter((_, at) => at % step === 0 || at === state.census.length - 1).slice(-300);
+  return {
+    years: kept.map(entry => entry.year), civs: kept.map(entry => entry.ids.length), ids,
+    people: ids.map(id => kept.map(entry => { const at = entry.ids.indexOf(id); return at >= 0 ? entry.people[at] : 0; })),
+  };
+}
 /** Three significant digits (resource units run from thousandths to hundreds). */
 const significant = (value: number) => value === 0 ? 0 : Number(value.toPrecision(3));
 
@@ -205,6 +237,9 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       })(),
       realm: polity.kind === 'civ' ? realmSummary(state, polity) : null,
       history: historyOf(state, polity), unmet: polity.kind === 'civ' ? unmetNear(state, polity) : [],
+      // Every living people it has met, judged or not yet (opinion is formed yearly; until then it is neutral).
+      standings: polity.kind !== 'civ' ? [] : [...polity.met.keys()].filter(other => other !== polity.id && state.polities[other].deathTick === null).sort((a, b) => a - b)
+        .map(other => ({ id: other, status: standingOf(state, polity, other, polity.relations.get(other)?.opinion ?? 0).status })),
       exchanges: [...polity.exchanges].filter(([other, until]) => until > state.tick && state.polities[other].deathTick === null).slice(0, 64)
         .map(([other, until]) => ({ id: other, name: state.polities[other].name, until: Math.floor(until / 12) })),
       research: target < 0 || !speed ? null : {

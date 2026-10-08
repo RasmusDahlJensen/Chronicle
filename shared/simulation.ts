@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 35;
+export const SIMULATION_PROTOCOL_VERSION = 36;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -150,7 +150,23 @@ export const ObserverFrameSchema = Type.Object({
   civList: Type.Array(Type.Object({
     id: id(), name: Type.String({ maxLength: 40 }), regions: Type.Integer({ minimum: 1 }), population: Type.Integer({ minimum: 0 }),
     era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), capital: Type.String({ maxLength: 40 }), capitalCell: id(),
+    /** (U.4, the ledger's table) Its living settlements, ruling culture and state religion (null for the folk ways),
+     *  treasury, its regions' mean stability and how many are in unrest, and its trade agreements, joint-road partners,
+     *  pacts and allies now. */
+    settlements: Type.Integer({ minimum: 0 }), culture: Type.String({ maxLength: 40 }), faith: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
+    treasury: Type.Integer({ minimum: 0 }), stability: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Integer({ minimum: 0 }),
+    trade: Type.Integer({ minimum: 0 }), roads: Type.Integer({ minimum: 0 }), pacts: Type.Integer({ minimum: 0 }), allies: Type.Integer({ minimum: 0 }),
   }, { additionalProperties: false }), { maxItems: 100 }),
+  /** (U.4) The treaty web: each pair of living civilizations (lower id first) with the kinds of treaty between them now
+   *  (for trade, how many agreements). */
+  treaties: Type.Array(Type.Object({ a: id(), b: id(), kind: Type.Enum(AGREEMENT_KINDS), count: Type.Integer({ minimum: 1 }) }, { additionalProperties: false }), { maxItems: 10_000 }),
+  /** (U.4) The census over time for the ledger's charts: its years (at most 300, thinned evenly), how many
+   *  civilizations lived in each, and the people in each year of the largest civilizations now (`ids`, at most 8; 0
+   *  where one did not yet live as a civilization). */
+  census: Type.Object({
+    years: Type.Array(Type.Integer({ minimum: 0 }), { maxItems: 300 }), civs: Type.Array(Type.Integer({ minimum: 0 }), { maxItems: 300 }),
+    ids: Type.Array(id(), { maxItems: 8 }), people: Type.Array(Type.Array(Type.Integer({ minimum: 0 }), { maxItems: 300 }), { maxItems: 8 }),
+  }, { additionalProperties: false }),
   /** Living bands (one per region) as parallel arrays: their polity's id, region, population, the polity's kind (0 tribe / 1 civilization), era index and lineage, and the culture of the people there; for map markers and territories. */
   markers: Type.Object({
     ids: Type.Array(id(), { maxItems: 20_000 }), regions: Type.Array(id(), { maxItems: 20_000 }),
@@ -389,6 +405,9 @@ export const ObserverFrameSchema = Type.Object({
       /** (U.2) Its own chronicle: the latest notable events it acts in, newest first, each run of events of one type
        *  as one entry: the newest of them, how many more there were and the tick of the first. */
       history: Type.Array(Type.Object({ event: ChronicleEventSchema, more: Type.Integer({ minimum: 0 }), from: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 40 }),
+      /** (U.4) Its standing with every living people it has met (the diplomacy lens; neutral until it has formed an
+       *  opinion of them), by id; empty for a tribe. */
+      standings: Type.Array(Type.Object({ id: id(), status: Type.Enum(DIPLOMATIC_STATUSES) }, { additionalProperties: false }), { maxItems: 20_000 }),
       /** (U.2) The god view: the nearest peoples it has not met yet, within three regions of its land (how many away),
        *  nearest first, so the observer sees who is about to meet whom. Empty for a tribe. */
       unmet: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]), away: Type.Integer({ minimum: 1, maximum: 3 }) }, { additionalProperties: false }), { maxItems: 6 }),
@@ -504,6 +523,17 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
     if (story.from > story.to || story.to > year || (at > 0 && story.weight > frame.stories[at - 1].weight)) throw invalid();
     if (story.regions.some(region => region >= frame.counters.regions) || story.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
   }
+  // (U.4) The treaty web: living civilizations of the list, lower id first, each pair and kind once.
+  const pairs = new Set<string>();
+  for (const treaty of frame.treaties) {
+    const key = `${treaty.a},${treaty.b},${treaty.kind}`;
+    if (treaty.a >= treaty.b || !civs.has(treaty.a) || !civs.has(treaty.b) || pairs.has(key) || (treaty.kind !== 'trade' && treaty.count !== 1)) throw invalid();
+    pairs.add(key);
+  }
+  // The census series: years in order within the history, one count and one value per year for each civilization.
+  const census = frame.census;
+  if (census.civs.length !== census.years.length || census.people.length !== census.ids.length || census.people.some(row => row.length !== census.years.length)) throw invalid();
+  if (census.years.some((at, index) => at > year || (index > 0 && at <= census.years[index - 1]))) throw invalid();
   // The ages: later eras, each reached no earlier than the one before.
   if (frame.ages.some((age, at) => age.year > year || (at > 0 && (age.era <= frame.ages[at - 1].era || age.year < frame.ages[at - 1].year)))) throw invalid();
   return frame;

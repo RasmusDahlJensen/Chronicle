@@ -4,12 +4,13 @@ import type { ObserverFrame, RegionMap } from '../../shared/simulation.ts';
 import { createWorldTileClient } from '../api/generated-world.ts';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { createGeneratedWorldRenderer, type WorldCoordinate, type WorldLayer } from '../renderer/generated-world.ts';
-import { cultureColor, ERA_COLORS, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from './palettes.ts';
+import { cultureColor, ERA_COLORS, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, STANDING_COLORS, TERRITORY_ALPHA } from './palettes.ts';
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
 
 /** How the peoples' territories are coloured: by polity, by descent (starting band), culture, faith or era, or not at all. */
-export type PeoplesLens = 'polity' | 'descent' | 'culture' | 'faith' | 'era' | 'off';
+export type PeoplesLens = 'polity' | 'descent' | 'culture' | 'faith' | 'era' | 'diplomacy' | 'off';
+export type Standing = 'allied' | 'pact' | 'trade' | 'rival' | 'neutral';
 /** The simulation's region partition for a world: the region map, cell → region id + 1, and cell → farmland rank. */
 export interface RegionData { map: RegionMap; cells: Uint16Array; fieldRank: Uint16Array }
 
@@ -41,6 +42,8 @@ export interface WorldMapOptions {
   background?: string;
   /** Regions to show above the rest (a chosen story's, U.3): the other territories fade. */
   highlight?: ReadonlySet<number> | null;
+  /** The diplomacy lens's realm (U.4) and its standing with each people it has met; null when none is chosen. */
+  standings?: { self: number; of: ReadonlyMap<number, Standing> } | null;
 }
 
 /**
@@ -48,7 +51,7 @@ export interface WorldMapOptions {
  * and the simulation's marks drawn on its overlay from each frame (polity markers, territories, settlements, roads,
  * trade routes and cultivated land). Attach `canvas` and `overlay` to the page's canvases.
  */
-export function useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields, showRoads = true, background, highlight = null }: WorldMapOptions) {
+export function useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields, showRoads = true, background, highlight = null, standings = null }: WorldMapOptions) {
   const [canvasRevision, setCanvasRevision] = useState(0);
   const [tileError, setTileError] = useState<string | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(null);
@@ -165,16 +168,26 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
     const fill = new Uint32Array(regions.map.regions.length);
     const { ids, regions: at, kinds, eras, lineages, cultures, faiths } = frame.markers;
     const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue])), faithHues = new Map(frame.religions.map(entry => [entry.id, entry.hue]));
+    // The diplomacy lens: the regions of each standing, counted on the canvas.
+    const standingCounts: Record<string, number> = { self: 0, allied: 0, pact: 0, trade: 0, rival: 0, neutral: 0, unknown: 0 };
     if (peoples !== 'off') for (let index = 0; index < at.length; index++) {
+      if (peoples === 'diplomacy') {
+        const standing = !standings ? 'unknown' : ids[index] === standings.self ? 'self' : standings.of.get(ids[index]) ?? 'unknown';
+        standingCounts[standing]++;
+        if (at[index] < fill.length) fill[at[index]] = packColor(STANDING_COLORS[standing], standing === 'unknown' ? TERRITORY_ALPHA.band : TERRITORY_ALPHA.civ);
+        continue;
+      }
       const color = peoples === 'era' ? eraColor(eras[index]) : peoples === 'descent' ? lineageColor(lineages[index])
         : peoples === 'culture' ? cultureColor(hues.get(cultures[index]) ?? 0, cultures[index])
         : peoples === 'faith' ? (faiths[index] < 0 ? FOLK_COLOR : faithColor(faithHues.get(faiths[index]) ?? 0)) : polityColor(ids[index]);
       const alpha = kinds[index] === 1 ? TERRITORY_ALPHA.civ : TERRITORY_ALPHA.band;
       if (at[index] < fill.length) fill[at[index]] = packColor(color, !shown ? alpha : shown.has(at[index]) ? HIGHLIGHT.alpha : alpha * HIGHLIGHT.fade);
     }
-    if (shown) for (const region of shown) if (region < fill.length && (peoples === 'off' || !fill[region])) fill[region] = packColor(HIGHLIGHT.empty, HIGHLIGHT.emptyAlpha);
+    // (Not in the diplomacy lens, whose brass is the chosen realm's own land.)
+    if (shown && peoples !== 'diplomacy') for (const region of shown) if (region < fill.length && (peoples === 'off' || !fill[region])) fill[region] = packColor(HIGHLIGHT.empty, HIGHLIGHT.emptyAlpha);
+    if (canvas.current) canvas.current.dataset.standings = peoples === 'diplomacy' ? Object.entries(standingCounts).map(([standing, count]) => `${standing}:${count}`).join(' ') : '';
     renderer.current.setTerritories(fill);
-  }, [frame, regions, world, peoples, canvasRevision, highlight]);
+  }, [frame, regions, world, peoples, canvasRevision, highlight, standings]);
 
   /** The simulation region of the selected cell (null when none is selected or the region map is not in yet). */
   const cellRegion = cell && regions ? regions.map.regions[regions.cells[cell.id] - 1] ?? null : null;
