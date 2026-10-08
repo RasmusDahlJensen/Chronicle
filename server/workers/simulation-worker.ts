@@ -12,7 +12,7 @@ import { decodeGeography } from '../../src/simulation/geography.ts';
 import { checkInvariants, checkPartition } from '../../src/simulation/invariants.ts';
 import { partitionRegions, partitionStats, REGION_PARTITION_VERSION } from '../../src/simulation/regions.ts';
 import { createSimulation, frameCounters, knowledgeReport, politicsReport, SIMULATION_RULES_VERSION, stateHash, stepSimulation } from '../../src/simulation/simulation.ts';
-import { observerView } from '../../src/simulation/observer.ts';
+import { actorNames, observerView } from '../../src/simulation/observer.ts';
 import { applyScenario } from '../../src/simulation/scenarios.ts';
 import { restoreCheckpoint, takeCheckpoint } from '../../src/simulation/snapshot.ts';
 import { SYSTEMS } from '../../src/simulation/state.ts';
@@ -151,10 +151,11 @@ function load(year: number) {
 }
 
 function frame(cursor: number, inspect: number | null = null): ObserverFrame {
+  const events = state.chronicle.since(cursor, MAX_FRAME_EVENTS), view = observerView(state, inspect);
   return {
     protocolVersion: SIMULATION_PROTOCOL_VERSION, instance, tick: state.tick, playing, speed, epoch,
     runTo: target === null ? null : target / 12, dev: { actions: state.devActions, refused: devRefused, checkpoints: store ? [...saved].sort((a, b) => a - b).slice(-256) : null, loadedFrom }, eventCount: state.chronicle.events.length,
-    events: state.chronicle.since(cursor, MAX_FRAME_EVENTS), counters: frameCounters(state), ...observerView(state, inspect),
+    events, names: actorNames(state, [...events, ...(view.inspect?.settlements.flatMap(settlement => settlement.events) ?? [])]), counters: frameCounters(state), ...view,
   };
 }
 

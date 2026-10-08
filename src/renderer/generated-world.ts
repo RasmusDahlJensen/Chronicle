@@ -49,6 +49,8 @@ interface Callbacks {
   onSelect: (cell: WorldCoordinate | null) => void;
   onView: (view: WorldView) => void;
   onError: (cause: unknown) => void;
+  /** The colour around the world, beyond the poles (the lab's pale ground unless given). */
+  background?: string;
 }
 type Rgb = readonly [number, number, number];
 const temperatureStops: readonly (readonly [number, Rgb])[] = [
@@ -183,7 +185,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     const pixelWidth = Math.round(m.width * m.ratio), pixelHeight = Math.round(m.height * m.ratio);
     if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) { canvas.width = pixelWidth; canvas.height = pixelHeight; }
     ctx.setTransform(m.ratio, 0, 0, m.ratio, 0, 0);
-    ctx.fillStyle = '#d9e0d9'; ctx.fillRect(0, 0, m.width, m.height);
+    ctx.fillStyle = callbacks.background ?? '#d9e0d9'; ctx.fillRect(0, 0, m.width, m.height);
     const left = m.width / 2 - centerX * m.scale, top = m.height / 2 - centerY * m.scale;
     const background = layer === 'biomes'
       ? (terrain ??= createWorldTerrainTexture(world, biomeColors)).plate

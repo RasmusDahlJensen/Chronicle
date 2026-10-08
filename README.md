@@ -4,6 +4,8 @@ A living-world atlas, built one small, reviewable slice at a time.
 
 Chronicle is intended to grow into a substantial simulation project. Features arrive gradually, with shared modules, established infrastructure packages, and automated checks protecting the architecture as it grows.
 
+Opening Chronicle shows **the game**: the world's map fills the window, with a time bar (play, pause, step, speed), map lenses (political, culture, faith, era, descent, or bare terrain, with trade routes and roads), the great powers by their share of the world's people (each leads to its capital), the realm and region you select, and a ticker of the latest notable events in the peoples' names. The **World** menu chooses a seed and size or starts the history again; **Lab** opens the developer lab described below (`/?lab`), with the geography layers, the full inspector and the testing tools.
+
 The React + TypeScript + Vite browser lab opens a **seeded world preview** with varied continent sizes and coastlines, mixed island groups, localized mountain ranges, cold northern and southern poles, and warmer tropical regions. The large preset has **1,024 × 512 cells (524,288)**; standard has 512 × 256. Biomes follow annual temperature and moisture, with elevation cooling and mountain rain shadows. Inspect the biome, temperature, moisture and fertility layers and exact cell data.
 
 A local Node/Fastify backend generates and validates geography in a bounded worker pool. The browser first receives full-resolution terrain for the overview, then requests climate and resource detail tiles as needed. Most cells have no special resource site. Scattered sites have terrain-appropriate locations and extraction requirements; tin forms a few rare upland clusters and oil a few lowland basins. In the geography itself, sites are only marked; the History simulation decides who can see and work them as its peoples learn the techs that reveal and extract each resource, and build the mines and quarries that work them. Deterministic rivers, tributaries, inland lakes and frozen lakes add surface water to the geography. The geography's climate is annual; the History simulation adds each harvest's weather and droughts.
@@ -33,7 +35,7 @@ npm ci
 
 The plate generator is already bundled for Node 24. You do not need Python, a C++ compiler, or Emscripten to install or run Chronicle. Its pinned source, licenses and rebuild instructions are in [vendor/platec](vendor/platec/README.md).
 
-## Start the lab
+## Start Chronicle
 
 From the Chronicle folder, run:
 
@@ -41,7 +43,7 @@ From the Chronicle folder, run:
 npm start
 ```
 
-Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chronicle ready**. Startup includes worker warmup; the first world takes several seconds to generate. This one command starts the terrain backend and frontend together. Keep the terminal running while you use the lab; press **Ctrl+C** in that terminal to stop both and their workers. `npm run dev` starts the same setup.
+Open **http://127.0.0.1:5173/** in your browser after the terminal prints **Chronicle ready**: the game. The developer lab is **http://127.0.0.1:5173/?lab** (or **Lab** in the game's top bar). Startup includes worker warmup; the first world takes several seconds to generate. This one command starts the terrain backend and frontend together. Keep the terminal running while you use Chronicle; press **Ctrl+C** in that terminal to stop both and their workers. `npm run dev` starts the same setup.
 
 The development backend chooses its own local port automatically. No extra terminal, port configuration, account, API key, Docker, or database installation is needed. Both servers listen on this PC only.
 
@@ -112,6 +114,7 @@ Extend the suite alongside each change, especially when data crosses a module or
 | RNG streams, chronicle, tunables, determinism, invariants, event templates | `tests/simulation-core.test.ts` |
 | Host → simulation worker → clock, controls, frames, region map, routes and admission | `tests/simulation-worker.test.ts` |
 | Time controls and region overlay in the lab | `tests/browser/simulation.spec.ts` |
+| The game page: time bar, lenses, great powers, selection, named chronicle, the lab link | `tests/browser/simulation.spec.ts` (on the same history as the lab's scenarios) |
 | Simulation rule edits → restarted worker at year 0 | `tests/dev-reload.test.ts` |
 
 `npm run check:tectonics` verifies that the vendored source, compiler settings and generated artifact match their recorded hashes; it is included in `npm run check`. Maintainers changing the C++ core or compiler settings need Emscripten 6.0.5 and `npm run build:tectonics`; those changes reach the running lab after the artifact is rebuilt. See the vendor instructions.
@@ -127,7 +130,7 @@ npm run build
 npm run serve
 ```
 
-Open **http://127.0.0.1:4173/**. Fastify serves the built frontend and terrain API directly, with no Vite runtime. `npm run preview` is an alias for this same built-app mode. Rebuild and restart to include later source changes. Press **Ctrl+C** to stop the host and workers. This mode still listens on this PC only; remote access and unattended hosting are not configured.
+Open **http://127.0.0.1:4173/** for the game (the lab is **http://127.0.0.1:4173/?lab**). Fastify serves the built frontend and terrain API directly, with no Vite runtime. `npm run preview` is an alias for this same built-app mode. Rebuild and restart to include later source changes. Press **Ctrl+C** to stop the host and workers. This mode still listens on this PC only; remote access and unattended hosting are not configured.
 
 ## Backend diagnostics and limits
 
@@ -217,7 +220,9 @@ For calibrating, without rerunning whole studies. Each seed's history is restore
 ## Code map
 
 - `src/main.tsx`: React entry point.
-- `src/App.tsx`: renders the generated-world page.
+- `src/App.tsx`: renders the game, or the lab at `?lab`.
+- `src/game/Game.tsx` and `src/game/game.css`: the game page (milestone U).
+- `src/observer/useObserver.ts`, `src/observer/useWorldMap.ts` and `src/observer/world-choice.ts`: what the game and the lab share: polling frames and sending controls, the map's renderer and the simulation's marks on it, and the world chosen in the tab.
 - `src/components/GeneratedWorldLab.tsx`, `src/api/generated-world.ts`, and `src/renderer/generated-world.ts`: world preview controls, bounded tile loading, and map rendering.
 - `src/components/ResourceIcon.tsx`: legend pictograms drawn with the map's resource icons.
 - `scripts/start.ts`: combined development launcher and standalone built-app launcher.

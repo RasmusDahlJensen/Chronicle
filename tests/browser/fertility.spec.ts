@@ -28,7 +28,7 @@ async function snapshot(canvas: Locator) {
 }
 
 test('actual fertility layer shows exact growing potential and excludes water', async ({ page }, testInfo) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const fertility = page.getByRole('radio', { name: 'Fertility', exact: true });
   await expect(fertility).toBeVisible({ timeout: 5000 });
   const canvas = page.locator('#generated-world-canvas');
@@ -91,7 +91,7 @@ async function pixel(canvas: Locator, x: number, y: number) {
 }
 
 test('fertility colours use sampled scores until exact tiles arrive and survive layer changes', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const world = await (await page.request.get('/api/world?seed=Chronicle&size=large')).json() as WorldManifest;
@@ -133,7 +133,7 @@ test('fertility colours use sampled scores until exact tiles arrive and survive 
 });
 
 test('malformed fertility retains the previous view and retry loads the requested world', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   await page.getByRole('radio', { name: 'Fertility', exact: true }).check();

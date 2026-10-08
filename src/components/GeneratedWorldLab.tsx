@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import {
-  DEFAULT_WORLD_SETTINGS, WORLD_BIOMES, inspectWorldCell, type InspectedWorldCell, type WorldManifest, type WorldSettings,
-} from '../../shared/generated-world.ts';
-import { createWorldTileClient, loadGeneratedWorld } from '../api/generated-world.ts';
+import { WORLD_BIOMES, type WorldManifest, type WorldSettings } from '../../shared/generated-world.ts';
+import { loadGeneratedWorld } from '../api/generated-world.ts';
 import type { FertilityFacts } from '../../shared/fertility.ts';
 import {
-  FERTILITY_GRADIENT, FERTILITY_WATER_COLOR, MOISTURE_GRADIENT, TEMPERATURE_GRADIENT, WORLD_BIOME_STYLE, createGeneratedWorldRenderer, type WorldCoordinate, type WorldLayer,
+  FERTILITY_GRADIENT, FERTILITY_WATER_COLOR, MOISTURE_GRADIENT, TEMPERATURE_GRADIENT, WORLD_BIOME_STYLE, type WorldLayer,
 } from '../renderer/generated-world.ts';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { RESOURCES } from '../world/atlas.ts';
 import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
-import { fetchRegionMap } from '../api/simulation.ts';
-import { describeEvent } from '../observer/events.ts';
-import { ERA_NAMES, RIVER_TIERS, simulationDate, VALUE_NAMES, type ObserverFrame, type RegionMap } from '../../shared/simulation.ts';
-import { cssColor, cultureColor, ERA_COLORS, eraColor, faithColor, FOLK_COLOR, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from '../observer/palettes.ts';
+import { describeEvent, frameNames } from '../observer/events.ts';
+import { ERA_NAMES, RIVER_TIERS, simulationDate, VALUE_NAMES, type ObserverFrame } from '../../shared/simulation.ts';
+import { cssColor, cultureColor, ERA_COLORS, faithColor, lineageColor, polityColor } from '../observer/palettes.ts';
+import { useRegionMap, useWorldMap, type PeoplesLens } from '../observer/useWorldMap.ts';
+import { chosenWorld, rememberWorld } from '../observer/world-choice.ts';
 import './generated-world.css';
 
 const number = new Intl.NumberFormat('en');
@@ -25,7 +24,7 @@ const soilLabels: Record<FertilityFacts['soil'], string> = { none: 'None', rocky
 const TIER_LABELS = ['Village', 'Town', 'City', 'Metropolis'] as const;
 
 /** The settlement inspector (VISION.md "Observer views"): the region's settlements, their tier, townspeople and housing, and their history. */
-function SettlementList({ settlements }: { settlements: NonNullable<ObserverFrame['inspect']>['settlements'] }) {
+function SettlementList({ settlements, names }: { settlements: NonNullable<ObserverFrame['inspect']>['settlements']; names: (id: number) => string }) {
   return <section className="world-settlements" aria-label="Settlements here">
     <p className="atlas-detail-label">Settlements here</p>
     <ul className="world-settlement-list">{settlements.map(settlement => <li key={settlement.id} data-settlement-tier={settlement.tier} data-settlement-status={settlement.status}>
@@ -37,7 +36,7 @@ function SettlementList({ settlements }: { settlements: NonNullable<ObserverFram
         ...settlement.building.map(work => `${work.name} being built (${Math.round(work.progress * 100)}% paid)`),
       ].join(' · ')}</p>}
       {settlement.account && <p className="atlas-panel-note world-settlement-account">{settlementBalance(settlement.account)}</p>}
-      {settlement.events.length > 0 && <ol className="world-settlement-history">{settlement.events.map(event => <li key={event.id}>Year {simulationDate(event.tick).year}: {describeEvent(event)}</li>)}</ol>}
+      {settlement.events.length > 0 && <ol className="world-settlement-history">{settlement.events.map(event => <li key={event.id}>Year {simulationDate(event.tick).year}: {describeEvent(event, names)}</li>)}</ol>}
     </li>)}</ul>
   </section>;
 }
@@ -230,14 +229,11 @@ function FertilityDetail({ facts, expanded }: { facts: FertilityFacts; expanded:
 
 export function GeneratedWorldLab() {
   const [world, setWorld] = useState<WorldManifest | null>(null);
-  const [seed, setSeed] = useState(DEFAULT_WORLD_SETTINGS.seed);
-  const [size, setSize] = useState<WorldSettings['size']>(DEFAULT_WORLD_SETTINGS.size);
-  const [request, setRequest] = useState({ settings: DEFAULT_WORLD_SETTINGS, revision: 0 });
+  const [seed, setSeed] = useState(() => chosenWorld().seed);
+  const [size, setSize] = useState<WorldSettings['size']>(() => chosenWorld().size);
+  const [request, setRequest] = useState(() => ({ settings: chosenWorld(), revision: 0 }));
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tileError, setTileError] = useState<string | null>(null);
-  const [canvasError, setCanvasError] = useState<string | null>(null);
-  const [canvasRevision, setCanvasRevision] = useState(0);
   const [layer, setLayer] = useState<WorldLayer>('biomes');
   const [resources, setResources] = useState(true);
   const [rivers, setRivers] = useState(true);
@@ -246,30 +242,17 @@ export function GeneratedWorldLab() {
   const [showTrade, setShowTrade] = useState(true);
   // Territories of the peoples living on the land, coloured by polity (each tribe or civilization), by descent (which
   // starting band) or by era.
-  const [peoples, setPeoples] = useState<'polity' | 'descent' | 'culture' | 'faith' | 'era' | 'off'>('polity');
-  const [regions, setRegions] = useState<{ map: RegionMap; cells: Uint16Array; fieldRank: Uint16Array } | null>(null);
-  const [regionError, setRegionError] = useState<string | null>(null);
+  const [peoples, setPeoples] = useState<PeoplesLens>('polity');
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
   const shown = useRef<{ key: string; fresh: boolean }>({ key: '', fresh: false });
   if (world && shown.current.key !== world.worldKey) shown.current = { key: world.worldKey, fresh: shown.current.key !== '' };
-  const [view, setView] = useState({ zoom: 1, detail: false });
-  const [cell, setCell] = useState<InspectedWorldCell | null>(null);
-  const [inspecting, setInspecting] = useState(false);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const overlay = useRef<HTMLCanvasElement>(null);
-  const renderer = useRef<ReturnType<typeof createGeneratedWorldRenderer> | null>(null);
-  const client = useRef<ReturnType<typeof createWorldTileClient> | null>(null);
-  const visible = useRef<WorldCoordinate[]>([]);
-  const selected = useRef<WorldCoordinate | null>(null);
-  const retryDetail = useRef<() => void>(() => {});
-  const clearSelection = useRef<() => void>(() => {});
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setLoadError(null);
     void loadGeneratedWorld(request.settings, controller.signal).then(manifest => {
       if (controller.signal.aborted) return;
-      setWorld(manifest); setLoading(false);
+      setWorld(manifest); setLoading(false); rememberWorld(manifest.settings);
     }).catch(cause => {
       if (controller.signal.aborted) return;
       setLoadError(message(cause)); setLoading(false);
@@ -277,125 +260,12 @@ export function GeneratedWorldLab() {
     return () => controller.abort();
   }, [request]);
 
-  useEffect(() => {
-    if (!world || !canvas.current) return;
-    let alive = true;
-    let selectionRevision = 0;
-    const tileClient = createWorldTileClient(world);
-    client.current = tileClient;
-    selected.current = null; visible.current = [];
-    setCell(null); setInspecting(false); setTileError(null); setCanvasError(null);
-    function updateTiles() {
-      if (alive) renderer.current?.setTiles(tileClient.tiles);
-    }
-    function detailFailure(cause: unknown) { if (alive) setTileError(message(cause)); }
-    function requestVisible() {
-      for (const coordinate of visible.current) void tileClient.request(coordinate.x, coordinate.y).then(updateTiles).catch(detailFailure);
-    }
-    function inspect(coordinate: WorldCoordinate | null) {
-      const revision = ++selectionRevision;
-      selected.current = coordinate; setCell(null); setInspecting(coordinate !== null);
-      if (!coordinate) return;
-      void tileClient.request(Math.floor(coordinate.x / 128), Math.floor(coordinate.y / 128)).then(tile => {
-        if (!alive || revision !== selectionRevision) return;
-        setCell(inspectWorldCell(world!, tile, coordinate.x, coordinate.y)); setInspecting(false); updateTiles();
-      }).catch(cause => { if (alive && revision === selectionRevision) { setInspecting(false); detailFailure(cause); } });
-    }
-    retryDetail.current = () => {
-      tileClient.retryFailures(); setTileError(null); requestVisible();
-      if (selected.current) inspect(selected.current);
-    };
-    clearSelection.current = () => renderer.current?.clearSelection();
-    try {
-      renderer.current = createGeneratedWorldRenderer(canvas.current, world, {
-        onSelect: inspect,
-        onView: next => {
-          if (!alive) return;
-          setView({ zoom: next.zoom, detail: next.detail }); visible.current = next.tiles;
-          tileClient.setVisibleTiles(next.tiles); requestVisible();
-        },
-        onError: cause => { if (alive) setCanvasError(message(cause)); },
-      }, overlay.current ?? undefined);
-    } catch (cause) { setCanvasError(message(cause)); }
-    return () => {
-      alive = false; selectionRevision++; tileClient.destroy(); client.current = null;
-      renderer.current?.destroy(); renderer.current = null;
-    };
-  }, [world, canvasRevision]);
-
-  useEffect(() => { renderer.current?.setLayer(layer, resources, rivers); }, [layer, resources, rivers, world, canvasRevision]);
-  // The simulation's region partition for the displayed world (a separate versioned contract from geography).
-  useEffect(() => {
-    if (!world) return;
-    const controller = new AbortController();
-    setRegions(null); setRegionError(null);
-    void fetchRegionMap(world.settings, controller.signal).then(next => {
-      if (!controller.signal.aborted && next.map.worldKey === world.worldKey) setRegions(next);
-    }).catch(cause => { if (!controller.signal.aborted) setRegionError(message(cause)); });
-    return () => controller.abort();
-  }, [world]);
-  useEffect(() => { renderer.current?.setRegions(regions?.cells ?? null, showRegions); }, [regions, showRegions, world, canvasRevision]);
-  const cellRegion = cell && regions ? regions.map.regions[regions.cells[cell.id] - 1] ?? null : null;
+  const { regions, regionError } = useRegionMap(world);
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
   useEffect(() => { setFrame(null); }, [world]);
-  // Polity markers sit at their region's centre cell, coloured by era; villages on their own cells.
-  useEffect(() => {
-    if (!renderer.current) return;
-    if (!frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setBands([]); renderer.current.setSettlements([], { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE }); renderer.current.setRoads([]); return; }
-    const { regions: at, populations, kinds, eras } = frame.markers;
-    renderer.current.setBands(at.map((region, index) => {
-      const centroid = regions.map.regions[region]?.centroid ?? 0;
-      return { x: centroid % world.width, y: Math.floor(centroid / world.width), population: populations[index], color: ERA_COLORS[eras[index]] ?? ERA_COLORS[0], settled: kinds[index] === 1 };
-    }));
-    renderer.current.setSettlements(frame.settlements.cells.map((cell, index) => ({
-      x: cell % world.width, y: Math.floor(cell / world.width), capital: frame.settlements.capitals[index] === 1, tier: frame.settlements.tiers[index], name: frame.settlements.names[index],
-      features: frame.settlements.features[index],
-    })),
-      { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE });
-    // Roads join the regions' main places: a capital, else the largest settlement, else the region's centre.
-    const anchor = new Map<number, { cell: number; rank: number }>();
-    frame.settlements.cells.forEach((cell, index) => {
-      const region = regions.cells[cell] - 1, rank = frame.settlements.capitals[index] * 10 + frame.settlements.tiers[index], held = anchor.get(region);
-      if (region >= 0 && (!held || rank > held.rank)) anchor.set(region, { cell, rank });
-    });
-    const place = (region: number) => anchor.get(region)?.cell ?? regions.map.regions[region]?.centroid ?? 0;
-    renderer.current.setRoads(frame.roads.a.map((a, index) => {
-      const from = place(a), to = place(frame.roads.b[index]);
-      return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), tier: frame.roads.tiers[index], bridge: frame.roads.bridges[index] === 1, condition: frame.roads.conditions[index] / 100 };
-    }));
-    // Trade routes (M5.4) between the two hubs of each active agreement.
-    renderer.current.setTrades(showTrade ? frame.trades.from.map((from, index) => {
-      const to = frame.trades.to[index];
-      return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), sea: frame.trades.sea[index] === 1 };
-    }) : []);
-  }, [frame, regions, world, canvasRevision, showTrade]);
-  // Cultivated land: a region's farmland cells ranked below its cultivated count (VISION.md "Cultivated land").
-  const fieldKey = frame && showFields ? `${frame.fields.regions.join(',')}:${frame.fields.cells.join(',')}` : '';
-  useEffect(() => {
-    if (!renderer.current) return;
-    if (!showFields || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setFields(null); return; }
-    const counts = new Uint16Array(regions.map.regions.length);
-    frame.fields.regions.forEach((region, index) => { counts[region] = frame.fields.cells[index]; });
-    const cells = new Uint8Array(regions.cells.length);
-    for (let cell = 0; cell < cells.length; cell++) { const region = regions.cells[cell]; if (region && regions.fieldRank[cell] < counts[region - 1]) cells[cell] = 1; }
-    renderer.current.setFields(cells);
-    // Recomputed only when the cultivated counts change (`fieldKey` follows them), not with every frame.
-  }, [fieldKey, regions, world, showFields, canvasRevision]);
-  // Each occupied region filled with its people's colour; bands lighter than settled civilizations.
-  useEffect(() => {
-    if (!renderer.current) return;
-    if (peoples === 'off' || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
-    const fill = new Uint32Array(regions.map.regions.length);
-    const { ids, regions: at, kinds, eras, lineages, cultures, faiths } = frame.markers;
-    const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue])), faithHues = new Map(frame.religions.map(entry => [entry.id, entry.hue]));
-    for (let index = 0; index < at.length; index++) {
-      const color = peoples === 'era' ? eraColor(eras[index]) : peoples === 'descent' ? lineageColor(lineages[index])
-        : peoples === 'culture' ? cultureColor(hues.get(cultures[index]) ?? 0, cultures[index])
-        : peoples === 'faith' ? (faiths[index] < 0 ? FOLK_COLOR : faithColor(faithHues.get(faiths[index]) ?? 0)) : polityColor(ids[index]);
-      if (at[index] < fill.length) fill[at[index]] = packColor(color, kinds[index] === 1 ? TERRITORY_ALPHA.civ : TERRITORY_ALPHA.band);
-    }
-    renderer.current.setTerritories(fill);
-  }, [frame, regions, world, peoples, canvasRevision]);
+  const map = useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields });
+  const { canvas, overlay, view, cell, cellRegion, inspecting, tileError, canvasError } = map;
+  const names = frameNames(frame?.names ?? []);
   // The largest peoples by descent for the legend: regions held and people.
   const peopleSummary = useMemo(() => {
     if (!frame) return { lineages: [], eras: [] as number[] };
@@ -429,7 +299,7 @@ export function GeneratedWorldLab() {
   return <div className="regional-atlas generated-world-lab">
     <header className="atlas-header">
       <a className="atlas-brand" href="/" aria-label="Chronicle home"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" /><path d="M16 2v28M2 16h28M10 22l4-8 8-4-4 8Z" /></svg>Chronicle</a>
-      <span className="atlas-header-study">The living world <span aria-hidden="true">/</span> History lab</span>
+      <span className="atlas-header-study">The living world <span aria-hidden="true">/</span> History lab · <a href="/">Back to the game</a></span>
     </header>
     <main>
       <div className="atlas-intro">
@@ -504,10 +374,10 @@ export function GeneratedWorldLab() {
         <section className="atlas-map-stage" aria-label="Generated world map" aria-busy={loading}>
           <div className="atlas-map-card">
             <div className="atlas-map-toolbar"><span className="atlas-map-mode"><span aria-hidden="true" />{layer === 'biomes' ? 'Biome' : layerLabels[layer]} atlas</span><div className="atlas-zoom-controls" role="group" aria-label="Map view">
-              <button type="button" aria-label="Zoom out" disabled={!world || !!canvasError} onClick={() => renderer.current?.zoomBy(1 / 1.6)}>−</button>
+              <button type="button" aria-label="Zoom out" disabled={!world || !!canvasError} onClick={() => map.zoomBy(1 / 1.6)}>−</button>
               <span className="atlas-zoom-value">{Math.round(view.zoom * 100)}%</span>
-              <button type="button" aria-label="Zoom in" disabled={!world || !!canvasError} onClick={() => renderer.current?.zoomBy(1.6)}>+</button>
-              <button type="button" className="atlas-fit-button" disabled={!world || !!canvasError} onClick={() => renderer.current?.fit()}>Fit map</button>
+              <button type="button" aria-label="Zoom in" disabled={!world || !!canvasError} onClick={() => map.zoomBy(1.6)}>+</button>
+              <button type="button" className="atlas-fit-button" disabled={!world || !!canvasError} onClick={map.fit}>Fit map</button>
             </div></div>
             {world ? <div className="atlas-canvas-frame"><canvas ref={canvas} id="generated-world-canvas" tabIndex={0} role="img" aria-label="Generated planet: biomes, rivers, lakes, temperature, moisture, fertility and natural resource sites. Click to inspect a cell." aria-describedby="world-map-help">This world preview requires Canvas 2D support.</canvas><canvas ref={overlay} className="world-map-overlay" aria-hidden="true" /><span className="atlas-north-mark" aria-hidden="true"><span>N</span>↑</span></div>
               : <div className="atlas-loading-map"><span className="atlas-loading-compass" aria-hidden="true">✦</span><p>{loadError ? 'The world is unavailable.' : 'A new geography is forming…'}</p><span>{loadError ? 'Use Retry generation to try again.' : 'Preparing continents, climate, and resource sites on the local host.'}</span></div>}
@@ -516,14 +386,14 @@ export function GeneratedWorldLab() {
           <div className="atlas-map-caption"><span>Equal-area atlas <span aria-hidden="true">·</span> East–west wrapping</span><span>{view.detail ? 'Full-resolution detail' : layer === 'biomes' ? 'Terrain overview' : layer === 'fertility' ? 'Sampled fertility overview' : 'Sampled climate overview'}</span></div>
           <div className="atlas-status-row"><p id="world-status" role="status" aria-live="polite">{status}</p>{loadError && <button className="atlas-reset-button" type="button" onClick={() => setRequest(current => ({ ...current, revision: current.revision + 1 }))}>Retry generation</button>}</div>
           {loadError && <p className="atlas-error" role="alert">{loadError}</p>}
-          {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={() => retryDetail.current()}>Retry detail</button></div>}
-          {canvasError && <div className="world-inline-error"><p className="atlas-error" role="alert">{canvasError}</p><button className="atlas-reset-button" type="button" onClick={() => setCanvasRevision(current => current + 1)}>Retry canvas</button></div>}
+          {tileError && <div className="world-inline-error"><p className="atlas-error" role="alert">{tileError}</p><button className="atlas-reset-button" type="button" onClick={map.retryDetail}>Retry detail</button></div>}
+          {canvasError && <div className="world-inline-error"><p className="atlas-error" role="alert">{canvasError}</p><button className="atlas-reset-button" type="button" onClick={map.retryCanvas}>Retry canvas</button></div>}
           <SimulationPanel settings={world?.settings ?? null} startFresh={shown.current.fresh} inspect={cellRegion?.id ?? null} onFrame={setFrame}
-            onFocusCell={cell => { if (world) renderer.current?.focusCell({ x: cell % world.width, y: Math.floor(cell / world.width) }); }} />
+            onFocusCell={map.focusCell} />
           <div className="world-climate-note"><span aria-hidden="true">◌</span><p>Rivers connect their catchments to lakes and seas, while weak outflows may end in dry basins. Inland water may have an outlet or lie in a closed basin. The simulation runs on this PC; the page only observes it.</p></div>
         </section>
         <aside className="atlas-inspector" aria-labelledby="world-inspector-title">
-          <p className="atlas-section-index">03 / Inspect</p><div className="atlas-section-heading"><h2 id="world-inspector-title">{cell || inspecting ? 'Cell detail' : 'Read the landscape'}</h2>{(cell || inspecting) && <button className="atlas-clear-selection" type="button" aria-label="Clear selection" onClick={() => clearSelection.current()}>×</button>}</div>
+          <p className="atlas-section-index">03 / Inspect</p><div className="atlas-section-heading"><h2 id="world-inspector-title">{cell || inspecting ? 'Cell detail' : 'Read the landscape'}</h2>{(cell || inspecting) && <button className="atlas-clear-selection" type="button" aria-label="Clear selection" onClick={map.clearSelection}>×</button>}</div>
           {cell && world ? <div className="world-selected-cell" data-selected-cell={cell.id} aria-live="polite">
             <div className="atlas-cell-biome" style={{ borderColor: WORLD_BIOME_STYLE[cell.biome].color }}><p>Cell {number.format(cell.id)}</p><h3>{WORLD_BIOME_STYLE[cell.biome].label}</h3></div>
             <dl className="atlas-cell-facts world-cell-facts">
@@ -550,7 +420,7 @@ export function GeneratedWorldLab() {
               {inspected && <p className="atlas-panel-note">At capacity this land yields about {number.format(inspected.food.forage)} from foraging, {number.format(inspected.food.hunt)} from hunting, {number.format(inspected.food.fish)} from fishing{inspected.food.herd || inspected.food.farm ? `, ${number.format(inspected.food.herd)} from herding and ${number.format(inspected.food.farm)} from farming` : ''} (people fed per year), for the people who live here or, on empty land, for foragers. Capacity is the population whose food equals its need at the current game stock.</p>}
               {inspected?.people && <PeopleDetail people={inspected.people} />}
               {inspected?.polity ? <PolityDetail polity={inspected.polity} /> : inspected && <p className="atlas-panel-note">No one lives here.</p>}
-              {inspected && inspected.settlements.length > 0 && <SettlementList settlements={inspected.settlements} />}
+              {inspected && inspected.settlements.length > 0 && <SettlementList settlements={inspected.settlements} names={names} />}
             </section>}
             <FertilityDetail facts={cell.fertility} expanded={layer === 'fertility'} />
             <section className="world-cell-water" aria-label="Selected cell water">

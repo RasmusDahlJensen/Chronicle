@@ -38,6 +38,10 @@ test('the dedicated worker steps, plays, pauses, runs to a year and resets its c
   assert.equal(await simulation.runTo(250), 3000, 'run to year stops at January of that year');
   const arrived = await simulation.frame(0);
   assert.equal(arrived.playing, false);
+  // U.1: the frame names every polity acting in its events, so they read "the Vraye", not "#12".
+  const named = new Set(arrived.names.map(([id]) => id));
+  assert.ok(arrived.events.length > 0 && arrived.events.every(event => event.actors.every(actor => named.has(actor.id))), 'every actor named');
+  assert.ok(arrived.names.every(([, name]) => name.length > 0));
   assert.equal(arrived.runTo, null);
   assert.deepEqual(arrived.dev, { actions: 0, refused: null, checkpoints: null, loadedFrom: null });
   // Development controls (Dev 02): a scenario trigger acts now, between months, and the frame says the history was altered.

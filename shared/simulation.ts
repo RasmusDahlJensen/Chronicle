@@ -7,13 +7,15 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 32;
+export const SIMULATION_PROTOCOL_VERSION = 33;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
 export const SPEED_MONTHS_PER_SECOND: Record<SimulationSpeed, number> = { month: 1, year: 12, decade: 120, max: Number.POSITIVE_INFINITY };
 export const MAX_SIMULATION_YEAR = 5000;
 export const MAX_FRAME_EVENTS = 200;
+/** The most peoples a frame names (U.1; far above what 200 events and an inspected region's settlements hold). */
+export const MAX_FRAME_NAMES = 1024;
 
 /** Settlement tiers by urban population (VISION.md "Settlements"); a settlement's tier is its index here. */
 export const SETTLEMENT_TIERS = ['village', 'town', 'city', 'metropolis'] as const;
@@ -111,6 +113,9 @@ export const ObserverFrameSchema = Type.Object({
   eventCount: Type.Integer({ minimum: 0 }),
   /** Events with id ≥ the requested cursor, oldest first, at most MAX_FRAME_EVENTS (the newest ones when more exist). */
   events: Type.Array(ChronicleEventSchema, { maxItems: MAX_FRAME_EVENTS }),
+  /** (U.1) The name of every polity acting in this frame's events (and in the inspected settlements' events), by id,
+   *  so the events read with the peoples' names. */
+  names: Type.Array(Type.Tuple([id(), Type.String({ maxLength: 40 })]), { maxItems: MAX_FRAME_NAMES }),
   counters: Type.Object({ regions: Type.Integer({ minimum: 0 }), landmasses: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
   population: Type.Integer({ minimum: 0 }), polities: Type.Integer({ minimum: 0 }),
   /** Living civilizations, living settlements, specialists and the most advanced era any polity has reached. */

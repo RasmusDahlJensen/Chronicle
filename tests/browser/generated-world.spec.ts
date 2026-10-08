@@ -4,7 +4,7 @@ import { worldKey } from '../../shared/generated-world.ts';
 test('generated world draws real climate layers, exact cells, and a reproducible reset', async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   await expect(page.locator('#world-resolution')).toHaveText('1,024 × 512');
@@ -42,7 +42,7 @@ test('generated world draws real climate layers, exact cells, and a reproducible
 });
 
 test('failed replacement preserves the map and retry loads the requested seed', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const original = await canvas.evaluate((element: HTMLCanvasElement) => element.toDataURL());
@@ -58,7 +58,7 @@ test('failed replacement preserves the map and retry loads the requested seed', 
 });
 
 test('tile failure keeps overview visible and retries only when requested', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   let requests = 0;
@@ -76,7 +76,7 @@ test('tile failure keeps overview visible and retries only when requested', asyn
 });
 
 test('a later seed wins over a delayed earlier response', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-rendered', 'true');
   let release: (() => void) | undefined;
   let started: (() => void) | undefined;
@@ -108,7 +108,7 @@ test('canvas failure offers a retry and narrow layout stays within the viewport'
       return Reflect.apply(original, this, args);
     } as typeof original;
   });
-  await page.goto('/');
+  await page.goto('/?lab');
   await expect(page.getByRole('alert')).toContainText('canvas');
   await page.getByRole('button', { name: 'Retry canvas' }).click();
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-rendered', 'true');
@@ -117,7 +117,7 @@ test('canvas failure offers a retry and narrow layout stays within the viewport'
 });
 
 test('real resource glyph edges select the site and hidden glyphs do not capture adjacent cells', async ({ page }, testInfo) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const tile = await (await page.request.get('/api/world/tile?seed=Chronicle&size=large&x=3&y=1')).json();
@@ -162,7 +162,7 @@ test('real resource glyph edges select the site and hidden glyphs do not capture
 });
 
 test('the legend and inspector show the tin and oil sites added in G1', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const legend = page.getByRole('list', { name: 'Resource site legend' });
@@ -192,7 +192,7 @@ test('the legend and inspector show the tin and oil sites added in G1', async ({
 });
 
 test('keyboard panning wraps longitude, clamps polar edges, and fits the world again', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   await canvas.focus();
@@ -217,7 +217,7 @@ test('keyboard panning wraps longitude, clamps polar edges, and fits the world a
 });
 
 test('a delayed inspected tile cannot overwrite a newer cell selection', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   let release: (() => void) | undefined;
@@ -238,7 +238,7 @@ test('a delayed inspected tile cannot overwrite a newer cell selection', async (
 });
 
 test('delayed offscreen tiles cannot evict a stationary viewport after panning away and back', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   // Biomes now retain full terrain independently of tiles. Temperature still needs exact detail,

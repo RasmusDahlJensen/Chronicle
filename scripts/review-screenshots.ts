@@ -23,7 +23,8 @@ await mkdir(values.out, { recursive: true });
 const browser = await chromium.launch();
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
-  await page.goto(values.url);
+  // The lab page (the game is the main page since U.1): its controls drive the history.
+  await page.goto(new URL('/?lab', values.url).toString());
   if (values.seed !== 'Chronicle' || values.size !== 'large') {
     await page.locator('#world-seed').fill(values.seed);
     await page.locator('#world-size').selectOption(values.size);

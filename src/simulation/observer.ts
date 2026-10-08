@@ -1,5 +1,5 @@
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
-import type { ObserverFrame } from '../../shared/simulation.ts';
+import { MAX_FRAME_NAMES, type ChronicleEvent, type ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { cultivatedCells, fieldLand } from './fields.ts';
 import { speedOf } from './knowledge.ts';
@@ -298,4 +298,14 @@ function lastDecision(polity: Polity): NonNullable<NonNullable<ObserverFrame['in
       ...(option.beliefs ? { beliefs: option.beliefs.slice(0, 4) } : {}),
     })),
   };
+}
+
+/** The names of the polities acting in some events, by id (U.1: so the observer can write "the Vraye", not "#12"). */
+export function actorNames(state: SimulationState, events: readonly ChronicleEvent[]): [number, string][] {
+  const names = new Map<number, string>();
+  for (const event of events) for (const actor of event.actors) {
+    const polity = state.polities[actor.id];
+    if (polity && !names.has(actor.id)) names.set(actor.id, polity.name.slice(0, 40));
+  }
+  return [...names].sort((a, b) => a[0] - b[0]).slice(0, MAX_FRAME_NAMES);
 }

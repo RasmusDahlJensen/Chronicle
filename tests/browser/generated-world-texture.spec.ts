@@ -60,7 +60,7 @@ async function installFixture(page: Page) {
 }
 
 test('fit view preserves a two-cell island omitted by sampled climate overview', async ({ page }) => {
-  await installFixture(page); await page.goto('/');
+  await installFixture(page); await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const pixels = await canvas.evaluate((element: HTMLCanvasElement) => {
@@ -75,7 +75,7 @@ test('fit view preserves a two-cell island omitted by sampled climate overview',
 });
 
 test('flat water and land retain visible terrain texture at fit and detail zoom', async ({ page }, testInfo) => {
-  await installFixture(page); await page.goto('/');
+  await installFixture(page); await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   const variations = await canvas.evaluate((element: HTMLCanvasElement) => {
@@ -125,7 +125,7 @@ test('biome texture and relief remain identical across detail tile arrivals', as
     await route.fulfill({ json: fixture.tile(Number(url.searchParams.get('x')), Number(url.searchParams.get('y'))) });
     complete++;
   });
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   await canvas.focus(); for (let index = 0; index < 3; index++) await page.keyboard.press('+');

@@ -1,3 +1,4 @@
+import { nameOf } from './names.ts';
 import type { ChronicleEvent, EventType } from '../../shared/simulation.ts';
 
 /**
@@ -85,15 +86,20 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   dissolution: 'The {civ} dissolves, and its parts go their own ways.',
 };
 
-/** Fill an event's template; missing values show as "?" so gaps stay visible instead of silently vanishing. */
+/** Fill an event's template; missing values show as "?" so gaps stay visible instead of silently vanishing. `{@role}`
+ *  names the actor in that role (`names`, for example "the Vraye"); the sentence starts with a capital. */
 export function describeEvent(event: ChronicleEvent, names: (id: number) => string = id => `#${id}`) {
   const optional = EVENT_TEMPLATES[event.type].replace(/\{\?(\w+)\|((?:[^{}]|\{@?\w+\})*)\}/g, (_match, key: string, text: string) => event.data[key] === true ? text : '');
-  return optional.replace(/\{(@?)(\w+)\}/g, (_match, actor: string, key: string) => {
+  const text = optional.replace(/\{(@?)(\w+)\}/g, (_match, actor: string, key: string) => {
     if (actor) { const found = event.actors.find(entry => entry.role === key); return found ? names(found.id) : '?'; }
     if (key === 'region') return event.region === null ? '?' : String(event.region);
     const value = event.data[key];
     return value === undefined ? '?' : typeof value === 'number' ? value.toLocaleString('en') : String(value);
   });
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+/** Names for `describeEvent` from one frame's `names` ("the Vraye"), "#id" for one it does not carry. */
+export const frameNames = (pairs: readonly (readonly [number, string])[]) => nameOf(new Map(pairs));
 
 export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as const;

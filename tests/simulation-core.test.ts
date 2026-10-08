@@ -12,7 +12,8 @@ import { createRng, mix, stepProbability, systemStream } from '../src/simulation
 import { createSimulation, stateHash, stepSimulation } from '../src/simulation/simulation.ts';
 import { SYSTEMS } from '../src/simulation/state.ts';
 import { REGION_TUNING, validateTunables } from '../src/simulation/tunables.ts';
-import { describeEvent, EVENT_TEMPLATES } from '../src/observer/events.ts';
+import { describeEvent, frameNames, EVENT_TEMPLATES } from '../src/observer/events.ts';
+import { mergeNames, nameOf } from '../src/observer/names.ts';
 
 test('system streams are reproducible and independent of each other', () => {
   const draw = (rng: ReturnType<typeof createRng>) => Array.from({ length: 5 }, () => rng.next());
@@ -86,6 +87,17 @@ test('every event type has a text template that fills its data, actors and regio
   assert.equal(text, 'The Tarun band of 1,200 people (Vaeli culture) appears in region 17.');
   assert.equal(describeEvent({ id: 1, tick: 0, type: 'raid', actors: [{ id: 4, role: 'attacker' }], region: 2, settlement: null, causes: [], parents: [], importance: 0, data: {} },
     id => `Band ${id}`), 'Band 4 raids ? in region 2.', 'actor names come from the observer, missing ones show as ?');
+  // U.1: a sentence that begins with a people's name begins with a capital, and a frame's names read as "the Vraye".
+  assert.equal(describeEvent({ id: 5, tick: 0, type: 'nonAggressionPact', actors: [{ id: 3, role: 'a' }, { id: 9, role: 'b' }], region: null, settlement: null, causes: [], parents: [], importance: 0, data: {} },
+    frameNames([[3, 'Hounan'], [9, 'Vrihia']])), 'The Hounan and the Vrihia sign a non-aggression pact.');
+  assert.equal(frameNames([[3, 'Hounan']])(4), '#4', 'a people the frame does not name');
+  // The observer keeps the names of every frame of a run: a later frame without those events does not forget them
+  // (the event lists span many frames), and a new run or epoch starts afresh.
+  const kept = mergeNames(mergeNames(new Map(), [[3, 'Hounan'], [9, 'Vrihia']], false), [], false);
+  assert.equal(describeEvent({ id: 5, tick: 0, type: 'nonAggressionPact', actors: [{ id: 3, role: 'a' }, { id: 9, role: 'b' }], region: null, settlement: null, causes: [], parents: [], importance: 0, data: {} },
+    nameOf(kept)), 'The Hounan and the Vrihia sign a non-aggression pact.');
+  assert.equal(mergeNames(kept, [[12, 'Zoka']], true).has(3), false, 'a new run forgets the old names');
+  assert.equal(mergeNames(kept, [[12, 'Zoka']], false).get(12), 'Zoka');
   assert.match(describeEvent({ id: 0, tick: 0, type: 'famine', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0, data: {} }), /\?/);
   // `{?key|text}` adds its text only when the value is true.
   const discovery = (first: boolean) => describeEvent({ id: 2, tick: 0, type: 'techDiscovered', actors: [], region: 3, settlement: null, causes: [], parents: [], importance: 0, data: { name: 'Kavo', tech: 'Agriculture', era: 'Neolithic', first } });
@@ -143,7 +155,7 @@ test('observer frames reject events newer than the frame or out of order', () =>
     cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [],
     largest: [{ id: 0, name: 'Vaeli', kind: 'band', regions: 1, population: 30 }], civList: [],
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
-    roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], inspect: null, wonders: [],
+    roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], inspect: null, wonders: [], names: [],
     events: [
       { id: 0, tick: 1, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },
       { id: 1, tick: 2, type: 'unrest', actors: [], region: null, settlement: null, causes: [], parents: [], importance: 0.1, data: {} },

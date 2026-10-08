@@ -18,7 +18,7 @@ test('host-side geography edits and failures reach the same open development pag
   try {
     const app = await startProject(project);
     const page = await context.newPage();
-    await page.goto(`${app.origin}/`);
+    await page.goto(`${app.origin}/?lab`);
     const canvas = page.locator('#generated-world-canvas');
     await expectWorld(page, canvas);
     const initial = await inspectCentreCell(page, canvas);
@@ -67,7 +67,7 @@ test('host-side geography edits and failures reach the same open development pag
     await expectWorld(page, canvas);
     await expect(page.getByRole('alert')).toHaveCount(0);
     expect(await inspectCentreCell(page, canvas)).toBeCloseTo(initial - 5, 1);
-    expect(page.url()).toBe(`${app.origin}/`);
+    expect(page.url()).toBe(`${app.origin}/?lab`);
   } finally {
     await context.close();
     await project.dispose();
@@ -83,7 +83,7 @@ test('frontend edits use HMR without restarting the API or losing component stat
     const backendOrigin = app.output().match(/Terrain host ready at (http:\/\/127\.0\.0\.1:\d+)\//)?.[1];
     expect(backendOrigin).toBeTruthy();
     const page = await context.newPage();
-    await page.goto(`${app.origin}/`);
+    await page.goto(`${app.origin}/?lab`);
     const canvas = page.locator('#generated-world-canvas');
     await expectWorld(page, canvas);
     // The inspected cell, chosen layer, toggles and an unsubmitted seed are
@@ -135,7 +135,7 @@ test('generated browser artifacts do not reload an open development page', async
     await project.write('test-results/browser/result.html', '<!doctype html><title>Existing browser result</title>');
     const app = await startProject(project);
     const page = await context.newPage();
-    await page.goto(`${app.origin}/`);
+    await page.goto(`${app.origin}/?lab`);
     const canvas = page.locator('#generated-world-canvas');
     await expectWorld(page, canvas);
     await inspectCentreCell(page, canvas);

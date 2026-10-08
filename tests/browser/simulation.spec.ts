@@ -10,7 +10,7 @@ async function tick(page: Page) { return Number(await history(page).getAttribute
 // A world of its own, so scenarios on other worlds never touch this clock.
 const SEED = 'History lab', SIZE = 'standard', WIDTH = 512;
 async function ready(page: Page) {
-  await page.goto('/');
+  await page.goto('/?lab');
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-rendered', 'true');
   await expect(history(page)).toHaveAttribute('data-tick', /\d+/);
   // Choosing another seed starts that world's history at year 0.
@@ -19,6 +19,28 @@ async function ready(page: Page) {
   await page.getByRole('button', { name: /Regenerate world/ }).click();
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-world-key', `climate-6:${SIZE}:${SEED}`);
   await expect(history(page)).toHaveAttribute('data-tick', '0');
+}
+
+/** The game page (U.1) on this world, in its own tab: the world chosen in the tab is this test's. */
+async function openGame(page: Page) {
+  await page.addInitScript(([seed, size]) => sessionStorage.setItem('chronicle.world', JSON.stringify({ seed, size })), [SEED, SIZE]);
+  await page.goto('/');
+  const canvas = page.locator('#game-map-canvas');
+  await expect(canvas).toHaveAttribute('data-world-key', `climate-6:${SIZE}:${SEED}`, { timeout: 60_000 });
+  await expect(canvas).toHaveAttribute('data-rendered', 'true');
+  await expect(gameTime(page)).toHaveAttribute('data-tick', /\d+/);
+  return canvas;
+}
+const gameTime = (page: Page) => page.getByRole('region', { name: 'Time' });
+
+/** Click a world cell on the game map at its current camera. */
+async function clickGameCell(page: Page, cell: { x: number; y: number }) {
+  const point = await page.locator('#game-map-canvas').evaluate((element: HTMLCanvasElement, coordinate) => {
+    const rect = element.getBoundingClientRect(), scale = Number(element.dataset.scale);
+    return { x: rect.x + rect.width / 2 + (coordinate.x + 0.5 - Number(element.dataset.centerX)) * scale,
+      y: rect.y + rect.height / 2 + (coordinate.y + 0.5 - Number(element.dataset.centerY)) * scale };
+  }, cell);
+  await page.mouse.click(point.x, point.y);
 }
 
 /** Click a world cell on the map at its current camera. */
@@ -51,6 +73,53 @@ test('time controls: reset shows year 0, step advances exactly one month, play a
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
   await expect(page.locator('#simulation-date')).toHaveText('Year 0 · January');
+});
+
+test('the game is the main page: the world map with its time bar, lenses and a chronicle in the peoples\' names', async ({ page }) => {
+  const query = `seed=${encodeURIComponent(SEED)}&size=${SIZE}`;
+  const canvas = await openGame(page);
+  await page.request.post(`/api/simulation/control?${query}&cursor=0`, { data: { action: 'reset' } });
+  await expect(gameTime(page)).toHaveAttribute('data-tick', '0');
+  await expect(page.locator('#game-date')).toHaveText('Year 0 · January');
+  // Time: step advances exactly one month; play advances until pause.
+  await gameTime(page).getByRole('button', { name: 'Step', exact: true }).click();
+  await expect(gameTime(page)).toHaveAttribute('data-tick', '1');
+  await expect(page.locator('#game-date')).toHaveText('Year 0 · February');
+  await gameTime(page).getByRole('button', { name: 'Play' }).click();
+  await expect(gameTime(page)).toHaveAttribute('data-playing', 'true');
+  await expect.poll(async () => Number(await gameTime(page).getAttribute('data-tick')), { timeout: 10_000 }).toBeGreaterThan(3);
+  await gameTime(page).getByRole('button', { name: 'Pause' }).click();
+  await expect(gameTime(page)).toHaveAttribute('data-playing', 'false');
+  // Lenses colour the peoples' land, or show the bare terrain.
+  await expect.poll(async () => Number(await canvas.getAttribute('data-territory-regions'))).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Terrain' }).click();
+  await expect(canvas).toHaveAttribute('data-territory-regions', '0');
+  await page.getByRole('button', { name: 'Culture' }).click();
+  await expect.poll(async () => Number(await canvas.getAttribute('data-territory-regions'))).toBeGreaterThan(0);
+  // The chronicle ticker: notable events, each starting with a capital and naming peoples, never "#12".
+  const ticker = page.getByRole('list', { name: 'Latest in the chronicle' });
+  await expect(ticker.getByRole('listitem').first()).toBeVisible();
+  for (const text of await ticker.getByRole('listitem').allTextContents()) {
+    expect(text).toMatch(/^[\d,]+[A-Z]/);
+    expect(text).not.toMatch(/#\d/);
+  }
+  // Selecting the land of a band shows who lives there.
+  const frame = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  const regions = await (await page.request.get(`/api/simulation/regions?${query}`)).json();
+  const band = frame.markers.regions[0], centroid = regions.regions[band].centroid;
+  await clickGameCell(page, { x: centroid % WIDTH, y: Math.floor(centroid / WIDTH) });
+  const place = page.getByRole('complementary', { name: 'Selected place' });
+  await expect(place.getByRole('region', { name: 'Tribe' })).toBeVisible();
+  const here = (await (await page.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${band}`)).json()).inspect.polity;
+  await expect(page.locator('#game-realm-name')).toHaveText(`The ${here.name}`);
+  await expect(place).toContainText(`Region ${band}`);
+  // The developer lab is its own page, on the same world, and leads back.
+  await page.getByRole('link', { name: 'Lab' }).click();
+  await expect(history(page)).toBeVisible();
+  await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-world-key', `climate-6:${SIZE}:${SEED}`, { timeout: 60_000 });
+  await page.getByRole('link', { name: 'Back to the game' }).click();
+  await expect(page.locator('#game-map-canvas')).toHaveAttribute('data-world-key', `climate-6:${SIZE}:${SEED}`, { timeout: 60_000 });
+  await page.request.post(`/api/simulation/control?${query}&cursor=0`, { data: { action: 'reset' } });
 });
 
 test('a faster speed preset advances the date faster, and run to year stops at that year', async ({ page }) => {
@@ -210,6 +279,19 @@ test('farming bands settle into civilizations with villages, specialists, resear
   const regions = await (await page.request.get(`/api/simulation/regions?${query}`)).json();
   expect(frame.civs).toBeGreaterThan(0);
   expect(frame.leadingEra).toBeGreaterThanOrEqual(1);
+  // U.1: in the game page (another tab on the same history), the great powers lead to their capitals and the realm
+  // there is shown; after several paused polls the ticker still names every people.
+  const game = await page.context().newPage();
+  await openGame(game);
+  const powers = game.getByRole('list', { name: 'Civilizations by people' });
+  await expect(powers.getByRole('listitem')).toHaveCount(Math.min(10, frame.civList.length));
+  await expect(powers.getByRole('listitem').first()).toContainText(frame.civList[0].name);
+  await powers.getByRole('button').first().click();
+  await expect(game.locator('#game-realm-name')).toHaveText(`The ${frame.civList[0].name}`);
+  await expect(game.getByRole('complementary', { name: 'Selected place' })).toContainText(`capital ${frame.civList[0].capital}`);
+  await game.waitForTimeout(2_500);
+  for (const text of await game.getByRole('list', { name: 'Latest in the chronicle' }).getByRole('listitem').allTextContents()) expect(text).not.toMatch(/#\d/);
+  await game.close();
   // The most populous civilization away from the poles.
   const civ = frame.markers.regions.map((region: number, index: number) => ({ region, kind: frame.markers.kinds[index], population: frame.markers.populations[index], centroid: regions.regions[region].centroid }))
     .filter((entry: { kind: number; centroid: number }) => entry.kind === 1 && Math.abs(Math.floor(entry.centroid / WIDTH) - regions.height / 2) < regions.height / 4)

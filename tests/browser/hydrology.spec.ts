@@ -33,7 +33,7 @@ async function selectCell(page: Page, id: number, world: WorldManifest) {
 }
 
 test('actual generated rivers can be hidden and inspected for mapped freshwater', async ({ page }, testInfo) => {
-  await page.goto('/');
+  await page.goto('/?lab');
   const canvas = page.locator('#generated-world-canvas');
   await expect(canvas).toHaveAttribute('data-rendered', 'true');
   // Read expected data through the actual host API. Browser network response
@@ -137,7 +137,7 @@ async function installWaterFixture(page: Page, fixture: ReturnType<typeof waterF
     const url = new URL(route.request().url());
     return route.fulfill({ json: fixture.tile(Number(url.searchParams.get('x')), Number(url.searchParams.get('y'))) });
   });
-  await page.goto('/');
+  await page.goto('/?lab');
   await expect(page.locator('#generated-world-canvas')).toHaveAttribute('data-rendered', 'true');
   await page.getByRole('checkbox', { name: 'Resource sites' }).uncheck();
 }

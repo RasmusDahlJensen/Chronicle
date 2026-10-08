@@ -695,6 +695,11 @@ Acceptance:
 - The query-layer test from M3 covers beliefs; a pair's belief bias changes only through intimacy.
 
 **U — The game UI** (added by the user on 8 October 2026, after M5 and before M6). The rushed lab page becomes a proper game interface in which the observer can see how the world plays out: the realms and peoples, settlements and infrastructure, economy and strain, cultures and faiths, beliefs, opinion and diplomacy, trade and every decision's causes, and the chronicle, all from M1–M5. It begins with a stop: research how strategy games present such worlds, then show the user two or three design directions as mockups. The user picks or mixes, and the milestone builds that. Developer tools (geography layers, testing tools) stay available but out of the player's way.
+- **The direction** (the user's choice, 8 October 2026, from three mockups): **A + B mixed**.
+  - **The stage:** a map-first screen (A, "Atlas") with the time bar, map lenses, a realm panel and the great powers.
+  - **The stories:** a story rail (B, "Chronicle") tells who rises and falls, and why, with the chronicle's events and their causes.
+  - **The ledger:** the data views (C, "Observatory": world-over-time charts, the treaty web, a table of realms) become a ledger tab.
+  - **The mockups:** https://claude.ai/artifact/RvowjHzM5KdGdAUZMJ6MNy.
 
 - The user can follow a history's main stories (who rises and falls, why, where) without reading tables or the decision log.
 - Everything M1–M5 simulates that VISION.md's "Observer views" names has a place in the UI, and every number shown is real state (no decorative statistics).
