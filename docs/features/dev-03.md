@@ -50,5 +50,8 @@ Acceptance stays exactly as strict; it stops paying for the expensive runs twice
 
 - Revision: based on `d646995` (M5.1); committed with this brief.
 - Last verified (8 October 2026, local): the complete `npm run check` passed: 263/263 headless and process tests, the build and 57/57 Chromium scenarios, in 7 min 29 s.
-- Review: an independent agent reviews the committed diff (are the invariant checks exactly as strict as before?), and any finding gets a follow-up commit.
+- Review: an independent agent reviewed the commit.
+  - **The heap:** `take()` matched the old `pop()` exactly in a differential test: 354,597 takes, 0 mismatches.
+  - **The one loosening:** the region-index check could miss a settlement whose id was out of range, when a stale or zero-filled scratch slot happened to match. Fixed in a follow-up commit: every settlement's id must equal its place, and every listed id must be an integer in range.
+  - **New tests:** `tests/simulation-invariants.test.ts` corrupts a real history (duplicate and misplaced index entries, out-of-range and misplaced ids, duplicate traits, NaN and out-of-range values, harvest bounds), and each must fail. The heap test now pins the old code's order for an interleaved sequence with ties.
 - Next action: reapply M5.2 from `.chronicle/wip/m5-2/` and finish it with the routine above.

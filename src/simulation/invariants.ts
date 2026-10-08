@@ -21,7 +21,6 @@ export class InvariantError extends Error {}
 const eventTypes = new Set<string>(EVENT_TYPES);
 const SAILING = TECH_INDEX.get('Sailing')!;
 
-/** Per-tick invariants (VISION.md "Tests"): no negative or NaN values, valid references, ordered history. */
 /** Per-region scratch for the checks, reused from tick to tick (they run every month: VISION.md "invariants each tick"). */
 let scratch = { regions: -1, now: new Int32Array(0), seen: new Int32Array(0), villages: new Int32Array(0), urban: new Float64Array(0), harbors: new Int32Array(0), farm: new Float64Array(0), shield: new Float64Array(0), store: new Float64Array(0), spoilage: new Float64Array(0), listed: new Int32Array(0) };
 function scratchFor(regions: number, settlements: number) {
@@ -39,6 +38,7 @@ function valueOutOfRange(values: SimulationState['groups'][number]['values']) {
   return VALUE_KEYS.find(key => !(values[key] >= 0 && values[key] <= 1)) ?? null;
 }
 
+/** Per-tick invariants (VISION.md "Tests"): no negative or NaN values, valid references, ordered history. */
 export function checkInvariants(state: SimulationState) {
   const fail = (message: string) => { throw new InvariantError(`Tick ${state.tick} (${state.seedText}): ${message}`); };
   if (!Number.isInteger(state.tick) || state.tick < 0) fail('the clock must be a non-negative month count');
@@ -60,15 +60,18 @@ export function checkInvariants(state: SimulationState) {
   // deaths by cause and migration; every band's food store change by production, consumption, spoilage and carrying.
   const { ledger } = state, lowest = lowestHarvest();
   const { now, seen, villages, urban, harbors, farm, shield, store, spoilage, listed } = scratchFor(regions, state.settlements.length);
-  // The region index: each settlement listed once, in its own region's list (with the count below, nothing else is listed).
+  // The region index: each settlement listed once, in its own region's list (with the count below, nothing else is
+  // listed); a settlement's id is its place in the list of all settlements (every lookup by id relies on it).
   for (let region = 0; region < state.regionSettlements.length; region++) for (const id of state.regionSettlements[region]) {
-    if (!(id >= 0 && id < state.settlements.length) || listed[id] !== -1) fail(`region ${region}'s list names settlement ${id} twice or not at all`);
+    if (!(Number.isInteger(id) && id >= 0 && id < state.settlements.length) || listed[id] !== -1) fail(`region ${region}'s list names settlement ${id} twice or not at all`);
     listed[id] = region;
   }
   // Settlements (VISION.md "Settlements"): each living one stands on a land cell of a region its owner holds, listed in
   // that region's index, housing at most its housing; the urban of a region add up to its townspeople (checked below).
-  for (const settlement of state.settlements) {
-    if (listed[settlement.id] !== settlement.region) fail(`settlement ${settlement.id} is missing from region ${settlement.region}'s list`);
+  for (let index = 0; index < state.settlements.length; index++) {
+    const settlement = state.settlements[index];
+    if (settlement.id !== index) fail(`settlement ${settlement.id} is at place ${index} in the list of settlements`);
+    if (listed[index] !== settlement.region) fail(`settlement ${settlement.id} is missing from region ${settlement.region}'s list`);
     if (settlement.status !== 'alive') { if (settlement.capital || settlement.urban !== 0 || settlement.buildings.length) fail(`settlement ${settlement.id} in ruins is a capital or has people or buildings`); continue; }
     if (state.owner[settlement.region] !== settlement.owner) fail(`settlement ${settlement.id} stands in region ${settlement.region}, which its owner ${settlement.owner} does not hold`);
     if (state.partition.regionOf[settlement.cell] !== settlement.region) fail(`settlement ${settlement.id} is not on a land cell of its region`);

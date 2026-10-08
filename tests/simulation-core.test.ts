@@ -35,7 +35,7 @@ test('system streams are reproducible and independent of each other', () => {
   assert.ok(Math.abs(1 - (1 - stepProbability(0.2, 1 / 12)) ** 12 - 0.2) < 1e-12, 'twelve monthly steps compound exactly to the yearly probability');
 });
 
-test('the cost heap gives entries cheapest first, ties in a fixed order, without allocating per entry', () => {
+test('the cost heap gives entries cheapest first, ties in the same fixed order as ever', () => {
   const rng = createRng(7), entries: [number, number][] = [];
   for (let item = 0; item < 500; item++) entries.push([Math.floor(rng.next() * 40), item]);
   const drain = () => {
@@ -48,9 +48,13 @@ test('the cost heap gives entries cheapest first, ties in a fixed order, without
   assert.equal(first.length, entries.length);
   assert.ok(first.every((entry, at) => at === 0 || first[at - 1][0] <= entry[0]), 'cheapest first');
   assert.deepEqual(drain(), first, 'ties leave in the same order every run');
-  const heap = new CostHeap();
-  heap.push(3, 9); heap.push(1, 4);
-  assert.deepEqual(heap.pop(), [1, 4], 'pop gives [cost, item]');
+  // Interleaved pushes and takes with ties: the order the heap gave before Dev 03 (computed with that code).
+  const heap = new CostHeap(), order: number[][] = [];
+  for (const [cost, item] of [[5, 1], [3, 2], [3, 3], [3, 4], [1, 5], [3, 6]]) heap.push(cost, item);
+  order.push(heap.pop()); heap.take(); order.push([heap.cost, heap.item]);
+  heap.push(3, 7); heap.push(0, 8); heap.push(3, 9);
+  while (heap.size) order.push(heap.pop());
+  assert.deepEqual(order, [[1, 5], [3, 6], [0, 8], [3, 9], [3, 3], [3, 7], [3, 2], [3, 4], [5, 1]]);
 });
 
 test('the chronicle assigns ids in flush order, hashes its log and pages from a cursor', () => {
