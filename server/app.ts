@@ -52,7 +52,7 @@ export async function buildApp(options: AppOptions = {}): Promise<FastifyInstanc
     reply.header('x-request-id', request.id).header('x-content-type-options', 'nosniff');
     const path = request.url.split('?')[0];
     if (path === '/api' || path.startsWith('/api/')) reply.header('cache-control', 'no-store');
-    if (['/api/health', '/api/ready', '/api/world', '/api/world/tile', '/api/simulation/frame', '/api/simulation/regions'].includes(path) && request.method !== 'GET') {
+    if (['/api/health', '/api/ready', '/api/world', '/api/world/tile', '/api/simulation/frame', '/api/simulation/regions', '/api/simulation/chronicle'].includes(path) && request.method !== 'GET') {
       reply.header('allow', 'GET');
       return failure(reply, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
     }

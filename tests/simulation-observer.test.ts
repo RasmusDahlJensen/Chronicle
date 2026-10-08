@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
-import { ERA_NAMES, MAX_FRAME_STORIES, parseObserverFrame, SIMULATION_PROTOCOL_VERSION, STORY_KINDS, type ObserverFrame } from '../shared/simulation.ts';
+import { CHRONICLE_SCAN, ERA_NAMES, EVENT_TYPES, MAX_FRAME_STORIES, parseChroniclePage, parseObserverFrame, SIMULATION_PROTOCOL_VERSION, STORY_KINDS, type ChronicleQuery, type EventType, type ObserverFrame } from '../shared/simulation.ts';
+import { curate, EVENT_KIND, EVENT_KINDS, peopleOf as eventPeople, typesOf } from '../src/observer/chronicle.ts';
 import { describeStory, STORY_TEMPLATES } from '../src/observer/stories.ts';
 import { agesOf, KIND_LIMIT, storiesOf, storiesView, storyCandidates } from '../src/simulation/stories.ts';
 import { decodeGeography } from '../src/simulation/geography.ts';
-import { actorNames, HISTORY_IMPORTANCE, HISTORY_LENGTH, HISTORY_RUN_YEARS, observerView } from '../src/simulation/observer.ts';
+import { actorNames, chroniclePage, HISTORY_IMPORTANCE, HISTORY_LENGTH, HISTORY_RUN_YEARS, observerView } from '../src/simulation/observer.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { truthOf } from '../src/simulation/relations.ts';
 import { keeperOf, roadUnkept } from '../src/simulation/roads.ts';
@@ -413,4 +414,83 @@ test('the ledger\'s table, treaty web and census series, and the diplomacy lens\
   assert.throws(() => parseObserverFrame(altered(copy => { copy.treaties.push({ a: 0, b: 999_999, kind: 'alliance', count: 1 }); })), 'living civilizations');
   assert.throws(() => parseObserverFrame(altered(copy => { copy.census.people[0].pop(); })), 'a value for each year');
   assert.throws(() => parseObserverFrame(altered(copy => { copy.census.years.reverse(); })), 'years in order');
+});
+
+test('the chronicle reads backward a page at a time, with filters, exactly as the history holds it', () => {
+  const state = copied(), events = state.chronicle.events, civ = largestCiv(state)!;
+  const queries: ChronicleQuery[] = [
+    { before: null, limit: 200, types: null, polity: null, min: 0 },
+    { before: null, limit: 37, types: ['famine', 'drought', 'expansion', 'bandAbsorbed'], polity: null, min: 0 },
+    { before: null, limit: 50, types: null, polity: civ.id, min: 0.05 },
+  ];
+  for (const query of queries) {
+    const wanted = events.filter(event => event.importance >= query.min && (!query.types || query.types.includes(event.type)) && (query.polity === null || event.actors.some(actor => actor.id === query.polity))).reverse();
+    const read: number[] = [];
+    let before: number | null = null, pages = 0;
+    do {
+      const page = chroniclePage(state, { ...query, before });
+      assert.ok(page.events.length <= query.limit);
+      assert.ok(page.events.every((event, at) => at === 0 || event.id < page.events[at - 1].id), 'newest first');
+      read.push(...page.events.map(event => event.id));
+      assert.ok(page.next === null || page.next >= 1);
+      before = page.next; pages++;
+    } while (before !== null && pages < 1_000);
+    assert.deepEqual(read, wanted.map(event => event.id), JSON.stringify(query));
+    assert.ok(wanted.length > 0, 'the filter finds events');
+  }
+  // A page reads at most CHRONICLE_SCAN events: a filter matching nothing comes back empty with more to read.
+  const long = { events: Array.from({ length: CHRONICLE_SCAN + 10 }, (_, id) => ({ ...events[0], id, tick: 0 })) } as unknown as SimulationState['chronicle'];
+  const empty = chroniclePage({ ...state, chronicle: long } as SimulationState, { before: null, limit: 10, types: ['plague'], polity: null, min: 0 });
+  assert.deepEqual(empty, { events: [], next: 10 });
+});
+
+test('the curated chronicle folds a people\'s runs of one kind of event, famines too, and every type has one kind', () => {
+  let id = 100;
+  // As the simulation writes them: a band taken in names the band first and the realm second.
+  const event = (type: EventType, year: number, actor: number, data: Record<string, number> = {}, importance = 0.1) => ({
+    id: id--, tick: year * 12, type, actors: type === 'bandAbsorbed' ? [{ id: 900 + actor, role: 'band' }, { id: actor, role: 'civ' }] : [{ id: actor, role: 'civ' }],
+    region: 1, settlement: null, causes: [], parents: [], importance, data,
+  });
+  // Newest first, as the chronicle reads.
+  const events = [
+    event('famine', 900, 1, { deaths: 100 }, 0.4), event('famine', 900, 2, { deaths: 50 }), event('bandAbsorbed', 899, 1), event('famine', 890, 1, { deaths: 7 }),
+    event('bandAbsorbed', 880, 1), event('bandAbsorbed', 880, 2), event('bandAbsorbed', 856, 1), event('wonderCompleted', 850, 1, {}, 0.7), event('wonderCompleted', 849, 1, {}, 0.7),
+    event('bandAbsorbed', 820, 1),
+  ];
+  const entries = curate(events);
+  assert.deepEqual(entries.map(entry => [entry.event.id, entry.more, entry.from / 12, entry.deaths]), [
+    [100, 1, 890, 107], // the 1's famines in 900 and 890 (an important famine still folds): their deaths summed
+    [99, 0, 900, 50], // another people's famine the same year is its own line
+    [98, 2, 856, null], // the bands the realm 1 took in in 899, 880 and 856 (each from another band), each within 25 years of the next
+    [95, 0, 880, null], // another realm's band
+    [93, 0, 850, null], // two wonders: important events stand on their own lines
+    [92, 0, 849, null],
+    [91, 0, 820, null], // 36 years before the run's oldest: a new line
+  ]);
+  assert.equal(entries.reduce((sum, entry) => sum + entry.more + 1, 0), events.length, 'every event is in one line');
+  assert.deepEqual(events.slice(0, 3).map(eventPeople), [1, 2, 1], 'the realm taking in, not the band');
+  // Every event type has exactly one kind, and the kinds' types cover them all once.
+  assert.deepEqual(Object.keys(EVENT_KIND).sort(), [...EVENT_TYPES].sort());
+  assert.deepEqual(EVENT_KINDS.flatMap(kind => typesOf([kind])).sort(), [...EVENT_TYPES].sort());
+});
+
+test('reading on past a page\'s scan limit finds sparse events exactly', () => {
+  const state = copied(), template = state.chronicle.events[0];
+  // 120,000 events, one in 7,000 a famine.
+  const events = Array.from({ length: 120_000 }, (_, at) => ({ ...template, id: at, tick: Math.floor(at / 100), type: at % 7_000 === 3 ? 'famine' as const : 'bandMoved' as const }));
+  const long = { ...state, chronicle: { events } } as unknown as SimulationState;
+  const read: number[] = [];
+  let before: number | null = null, pages = 0;
+  do { const page = chroniclePage(long, { before, limit: 200, types: ['famine'], polity: null, min: 0 }); read.push(...page.events.map(event => event.id)); before = page.next; pages++; } while (before !== null && pages < 100);
+  assert.deepEqual(read, events.filter(event => event.type === 'famine').map(event => event.id).reverse());
+  assert.ok(pages >= 3, 'it took several reads');
+});
+
+test('a chronicle page is validated', () => {
+  const state = copied(), page = chroniclePage(state, { before: null, limit: 20, types: null, polity: null, min: 0 });
+  const reply = { protocolVersion: SIMULATION_PROTOCOL_VERSION, runId: 'r', epoch: 0, eventCount: state.chronicle.events.length, ...page, names: actorNames(state, page.events) };
+  assert.equal(parseChroniclePage(structuredClone(reply)).events.length, 20);
+  assert.throws(() => parseChroniclePage({ ...reply, events: [...reply.events].reverse() }), 'newest first');
+  assert.throws(() => parseChroniclePage({ ...reply, eventCount: reply.events[0].id }), 'within the history');
+  assert.throws(() => parseChroniclePage({ ...reply, next: reply.events[0].id + 1 }), 'the next page starts below this one');
 });

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
-import { ERA_NAMES } from '../../shared/simulation.ts';
+import { ERA_NAMES, parseChroniclePage } from '../../shared/simulation.ts';
+import { curate, EVENT_KIND_NAMES, EVENT_KINDS, typesOf, type EventKind } from '../../src/observer/chronicle.ts';
 
 // One shared simulation per host and world: these scenarios change its clock, so they run in order.
 test.describe.configure({ mode: 'serial' });
@@ -383,6 +384,41 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await table.getByRole('row').nth(1).getByRole('button').click();
   await expect(ledger).toHaveCount(0);
   await expect(game.locator('#game-realm-name')).toHaveText(`The ${widest.name}`);
+  // U.5: the chronicle, newest first, filtered by people and by kind exactly as the host's own page, curated as the
+  // browser curates it; "Show on the map" returns to the map at that place.
+  await game.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Chronicle' }).click();
+  const chronicle = game.getByRole('region', { name: 'Chronicle', exact: true });
+  const lines = chronicle.getByRole('list', { name: 'The chronicle' }).getByRole('listitem');
+  await expect(lines.first()).toBeVisible();
+  const pageOf = async (kinds: EventKind[], polity: number | null, before: number | null = null) => parseChroniclePage(await (await game.request.get(
+    `/api/simulation/chronicle?${query}&limit=200&types=${typesOf(kinds).join(',')}${polity === null ? '' : `&polity=${polity}`}${before === null ? '' : `&before=${before}`}&min=0.05`)).json());
+  const everyKind = EVENT_KINDS.filter(kind => kind !== 'development');
+  const yearsOf = (entries: ReturnType<typeof curate>) => entries.map(entry => { const first = Math.floor(entry.from / 12), last = Math.floor(entry.event.tick / 12); return first < last ? `${first.toLocaleString('en')}–${last.toLocaleString('en')}` : last.toLocaleString('en'); });
+  // Newest first, as the host's own page curated; reading on adds the next page.
+  const newest = await pageOf(everyKind, null);
+  await expect(lines.locator('.game-event-year')).toHaveText(yearsOf(curate(newest.events)));
+  if (newest.next !== null) {
+    await chronicle.getByRole('button', { name: 'Read older events' }).click();
+    const older = await pageOf(everyKind, null, newest.next);
+    await expect(lines).toHaveCount(curate([...newest.events, ...older.events]).length);
+  }
+  await chronicle.getByRole('combobox', { name: 'People' }).selectOption(String(frame.civList[0].id));
+  const theirs = await pageOf(everyKind, frame.civList[0].id);
+  expect(theirs.events.length).toBeGreaterThan(0);
+  await expect(lines).toHaveCount(curate(theirs.events).length);
+  for (const text of await lines.allTextContents()) expect(text).not.toMatch(/#\d/);
+  for (const kind of everyKind) if (kind !== 'peoples') await chronicle.getByRole('checkbox', { name: EVENT_KIND_NAMES[kind] }).uncheck();
+  const realmEvents = await pageOf(['peoples'], frame.civList[0].id);
+  expect(realmEvents.events.length).toBeGreaterThan(0);
+  await expect(lines).toHaveCount(curate(realmEvents.events).length);
+  if (realmEvents.next === null) await expect(chronicle.getByText('Back to year 0.')).toBeVisible();
+  const shown = curate(realmEvents.events)[0].event;
+  await lines.first().getByRole('button', { name: 'Show on the map' }).click();
+  await expect(chronicle).toBeHidden();
+  await expect(game.getByRole('complementary', { name: 'Selected place' })).toContainText(`Region ${shown.region}`);
+  // The ticker is curated too: no two of its lines belong to one run (of one type, for one people, within 25 years).
+  const runs = await game.getByRole('list', { name: 'Latest in the chronicle' }).locator('[data-run]').evaluateAll(spans => spans.map(span => ({ run: span.getAttribute('data-run'), from: Number(span.getAttribute('data-from')), year: Number(span.closest('li')?.querySelector('.game-event-year')?.textContent?.replace(/,/g, '')) })));
+  for (const [at, line] of runs.entries()) for (const older of runs.slice(at + 1)) if (older.run === line.run) expect(line.from - older.year).toBeGreaterThan(25);
   await game.waitForTimeout(2_500);
   for (const text of await game.getByRole('list', { name: 'Latest in the chronicle' }).getByRole('listitem').allTextContents()) expect(text).not.toMatch(/#\d/);
   await game.close();

@@ -4,9 +4,10 @@ import '@fontsource/cormorant-garamond/700.css';
 import '@fontsource/source-sans-3/400.css';
 import '@fontsource/source-sans-3/600.css';
 import type { WorldManifest, WorldSettings } from '../../shared/generated-world.ts';
-import { ERA_NAMES, SIMULATION_SPEEDS, simulationDate, type ChronicleEvent, type ObserverFrame, type SimulationSpeed } from '../../shared/simulation.ts';
+import { ERA_NAMES, SIMULATION_SPEEDS, simulationDate, type ObserverFrame, type SimulationSpeed } from '../../shared/simulation.ts';
 import { loadGeneratedWorld } from '../api/generated-world.ts';
 import { WORLD_BIOME_STYLE } from '../renderer/generated-world.ts';
+import { curate, runKey, type CuratedEntry } from '../observer/chronicle.ts';
 import { describeEvent, MONTH_NAMES } from '../observer/events.ts';
 import { factorName } from '../observer/labels.ts';
 import { cssColor, polityColor, STANDING_COLORS } from '../observer/palettes.ts';
@@ -14,6 +15,7 @@ import { useObserver } from '../observer/useObserver.ts';
 import { useRegionMap, useWorldMap, type PeoplesLens, type Standing } from '../observer/useWorldMap.ts';
 import { chosenWorld, rememberWorld } from '../observer/world-choice.ts';
 import { people, RealmPanel, RegionDetail, type RealmTab } from './RealmPanel.tsx';
+import { ChronicleView } from './ChronicleView.tsx';
 import { Ledger } from './Ledger.tsx';
 import { Ages, StoryRail } from './StoryRail.tsx';
 import { Tabs } from './Tabs.tsx';
@@ -52,7 +54,9 @@ export function Game() {
   // regions grow and change as it goes on), and kept as last told when the rail no longer tells it.
   const [side, setSide] = useState<typeof SIDE_TABS[number]>('stories');
   // The stage: the map, or the ledger over it (U.4).
-  const [view, setView] = useState<'map' | 'ledger'>('map');
+  const [view, setView] = useState<'map' | 'ledger' | 'chronicle'>('map');
+  // The chronicle stays mounted once opened (hidden on the map), so its filters and pages are kept.
+  const chronicleOpened = useOnce(view === 'chronicle');
   const [chosen, setStory] = useState<Story | null>(null);
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
   const shown = useRef<{ key: string; fresh: boolean }>({ key: '', fresh: false });
@@ -97,7 +101,8 @@ export function Game() {
 
   const date = frame ? simulationDate(frame.tick) : null;
   const powers = frame ? frame.civList.slice(0, 10) : [];
-  const ticker = observer.events.filter(event => event.importance >= TICKER_IMPORTANCE).slice(-TICKER_LENGTH).reverse();
+  // The ticker: the latest notable events, curated as the chronicle is (a year's famines on one line).
+  const ticker = useMemo(() => curate(observer.events.filter(event => event.importance >= TICKER_IMPORTANCE).reverse()).slice(0, TICKER_LENGTH), [observer.events]);
   // A story ends with its history (a reset or another run) and when the selection it showed is closed.
   const history = frame ? `${frame.instance.runId}:${frame.epoch}` : '';
   useEffect(() => { setStory(null); }, [history]);
@@ -128,6 +133,7 @@ export function Game() {
       <div className="game-views" role="group" aria-label="View">
         <button type="button" aria-pressed={view === 'map'} onClick={() => setView('map')}>Map</button>
         <button type="button" aria-pressed={view === 'ledger'} disabled={!frame} onClick={() => setView('ledger')}>Ledger</button>
+        <button type="button" aria-pressed={view === 'chronicle'} disabled={!frame} onClick={() => setView('chronicle')}>Chronicle</button>
       </div>
       {frame && <dl className="game-totals" aria-label="The world">
         <div><dt>people</dt><dd id="game-people">{people(frame.population)}</dd></div>
@@ -145,7 +151,7 @@ export function Game() {
     </header>
 
     <main className="game-stage" aria-label="The world">
-      {world ? <div className="game-map" inert={view === 'ledger'}>
+      {world ? <div className="game-map" inert={view !== 'map'}>
         <canvas ref={map.canvas} id="game-map-canvas" tabIndex={0} role="img" aria-label="The world: its peoples, settlements, roads and trade routes. Click land to see who lives there." aria-describedby="game-map-keys" />
         <canvas ref={map.overlay} className="game-map-overlay" aria-hidden="true" />
         <p id="game-map-keys" className="game-sr-only">Keyboard: arrows move the selection, Enter selects, Shift and arrows pan, plus and minus zoom, Home fits the world, Escape clears.</p>
@@ -160,6 +166,9 @@ export function Game() {
         {regionError && <p className="game-error" role="alert">The simulation's regions could not be read: {regionError}</p>}
       </div>
 
+      {chronicleOpened && frame && world && <ChronicleView settings={world.settings} frame={frame} regions={regions} hidden={view !== 'chronicle'}
+        selected={realmShown?.polity ? { id: realmShown.polity.id, name: realmShown.polity.name } : null}
+        onShow={cell => { setView('map'); map.focusCell(cell); requestAnimationFrame(() => map.canvas.current?.focus()); }} />}
       {view === 'ledger' && frame && world && <Ledger frame={frame} regions={regions} width={world.width} height={world.height}
         onChoose={cell => { setView('map'); map.focusCell(cell); requestAnimationFrame(() => map.canvas.current?.focus()); }} />}
 
@@ -207,7 +216,7 @@ export function Game() {
         </div>
         {lens === 'diplomacy' && <DiplomacyKey realm={standings?.name ?? null} />}
         {frame && <Ages ages={frame.ages} year={Math.floor(frame.tick / 12)} />}
-        {ticker.length ? <ol className="game-events" aria-label="Latest in the chronicle">{ticker.map(event => <TickerEvent key={event.id} event={event} names={names} />)}</ol>
+        {ticker.length ? <ol className="game-events" aria-label="Latest in the chronicle">{ticker.map(entry => <TickerEvent key={entry.event.id} entry={entry} names={names} />)}</ol>
           : <p className="game-muted">{frame?.tick === 0 ? 'Press Play: the first bands are about to wander.' : 'Nothing notable among the latest events.'}</p>}
       </section>
       </>}
@@ -225,14 +234,22 @@ function DiplomacyKey({ realm }: { realm: string | null }) {
   </div>;
 }
 
-/** One notable event: its year, its text with the peoples' names, and its strongest cause. */
-function TickerEvent({ event, names }: { event: ChronicleEvent; names: (id: number) => string }) {
+/** One notable event (or a run of them, curated): its year, its text with the peoples' names, and its strongest cause. */
+function TickerEvent({ entry, names }: { entry: CuratedEntry; names: (id: number) => string }) {
+  const { event, more, deaths } = entry;
   const cause = event.causes.length ? event.causes.reduce((best, entry) => Math.abs(entry.weight) > Math.abs(best.weight) ? entry : best) : null;
   return <li>
     <span className="game-event-year">{number.format(simulationDate(event.tick).year)}</span>
-    <span>{describeEvent(event, names)}</span>
+    <span data-run={runKey(event) ?? undefined} data-from={simulationDate(entry.from).year}>{describeEvent(event, names)}{more > 0 && <span className="game-history-more"> And {number.format(more)} more like it{deaths !== null ? `: ${number.format(deaths)} died in all` : ''}.</span>}</span>
     {cause && <span className="game-event-cause">{factorName(cause.factor)}</span>}
   </li>;
+}
+
+/** True from the first time `value` is true. */
+function useOnce(value: boolean) {
+  const [once, setOnce] = useState(value);
+  if (value && !once) setOnce(true);
+  return once || value;
 }
 
 /** Choosing a world (seed and size), and starting its history again. */

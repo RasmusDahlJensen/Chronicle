@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import {
   MAX_FRAME_EVENTS, MAX_SIMULATION_YEAR, SIMULATION_PROTOCOL_VERSION, SPEED_MONTHS_PER_SECOND,
-  type ObserverFrame, type RegionMap, type SimulationControl, type SimulationInit, type SimulationInstance,
+  type ChroniclePage, type ChronicleQuery, type ObserverFrame, type RegionMap, type SimulationControl, type SimulationInit, type SimulationInstance,
   type SimulationReply, type SimulationRequest, type SimulationSpeed,
 } from '../../shared/simulation.ts';
 import { validateTechData } from '../../src/simulation/deposits.ts';
@@ -12,7 +12,7 @@ import { decodeGeography } from '../../src/simulation/geography.ts';
 import { checkInvariants, checkPartition } from '../../src/simulation/invariants.ts';
 import { partitionRegions, partitionStats, REGION_PARTITION_VERSION } from '../../src/simulation/regions.ts';
 import { createSimulation, frameCounters, knowledgeReport, politicsReport, SIMULATION_RULES_VERSION, stateHash, stepSimulation } from '../../src/simulation/simulation.ts';
-import { actorNames, observerView } from '../../src/simulation/observer.ts';
+import { actorNames, chroniclePage, observerView } from '../../src/simulation/observer.ts';
 import { applyScenario } from '../../src/simulation/scenarios.ts';
 import { restoreCheckpoint, takeCheckpoint } from '../../src/simulation/snapshot.ts';
 import { SYSTEMS } from '../../src/simulation/state.ts';
@@ -159,6 +159,12 @@ function frame(cursor: number, inspect: number | null = null): ObserverFrame {
   };
 }
 
+/** A page of the chronicle (U.5), with the names of the peoples acting in it. */
+function chronicle(query: ChronicleQuery): ChroniclePage {
+  const page = chroniclePage(state, query);
+  return { protocolVersion: SIMULATION_PROTOCOL_VERSION, runId: instance.runId, epoch, eventCount: state.chronicle.events.length, ...page, names: actorNames(state, page.events) };
+}
+
 function regions(): RegionMap {
   if (regionMap) return regionMap;
   const bytes = new Uint8Array(geography.cells * 2), ranks = new Uint8Array(geography.cells * 2), rank = state.fieldRanking.rank;
@@ -193,6 +199,7 @@ function report(events: boolean) {
 port.on('message', (request: SimulationRequest) => {
   try {
     const body = request.kind === 'frame' ? frame(request.cursor, request.inspect ?? null)
+      : request.kind === 'chronicle' ? chronicle(request.query)
       : request.kind === 'control' ? (control(request.control), frame(request.cursor, request.inspect ?? null))
       : request.kind === 'regions' ? regions()
       : report(request.events);

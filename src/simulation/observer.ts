@@ -1,5 +1,5 @@
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
-import { MAX_FRAME_NAMES, type ChronicleEvent, type ObserverFrame } from '../../shared/simulation.ts';
+import { CHRONICLE_SCAN, MAX_CHRONICLE_PAGE, MAX_FRAME_NAMES, type ChronicleEvent, type ChronicleQuery, type ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { cultivatedCells, fieldLand } from './fields.ts';
 import { speedOf } from './knowledge.ts';
@@ -330,6 +330,21 @@ function realmSummary(state: SimulationState, civ: Polity): NonNullable<NonNulla
     cultures: top(cultures).map(([id, size]) => ({ name: state.cultures[id].name, share: round(people > 0 ? size / people : 0) })),
     faiths: top(faiths).map(([id, size]) => ({ name: id >= 0 ? state.religions[id].name : null, share: round(people > 0 ? size / people : 0) })),
   };
+}
+
+/** A page of the chronicle (U.5), read backward from `query.before`: the matching events, newest first, and where the
+ *  next page reads from (null once the first event is read). At most `CHRONICLE_SCAN` events are read per page. */
+export function chroniclePage(state: SimulationState, query: ChronicleQuery) {
+  const events = state.chronicle.events, types = query.types ? new Set<string>(query.types) : null, limit = Math.min(MAX_CHRONICLE_PAGE, Math.max(1, query.limit));
+  const found: ChronicleEvent[] = [];
+  let at = Math.min(query.before ?? events.length, events.length) - 1;
+  const stop = at - CHRONICLE_SCAN;
+  for (; at >= 0 && at > stop && found.length < limit; at--) {
+    const event = events[at];
+    if (event.importance < query.min || (types && !types.has(event.type)) || (query.polity !== null && !event.actors.some(actor => actor.id === query.polity))) continue;
+    found.push(event);
+  }
+  return { events: found, next: at >= 0 ? at + 1 : null };
 }
 
 /** A polity's own chronicle (U.2): the latest notable events it acts in (`HISTORY_IMPORTANCE`: not each village

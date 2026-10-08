@@ -1,7 +1,7 @@
 import { Check } from 'typebox/value';
 import type { WorldSettings } from '../../shared/generated-world.ts';
 import { ApiErrorSchema } from '../../shared/http.ts';
-import { parseObserverFrame, parseRegionMap, type ObserverFrame, type SimulationControl } from '../../shared/simulation.ts';
+import { parseChroniclePage, parseObserverFrame, parseRegionMap, type ChroniclePage, type ChronicleQuery, type ObserverFrame, type SimulationControl } from '../../shared/simulation.ts';
 
 /** Browser client for the simulation's observer routes. Every response is validated before use. */
 const MAX_FRAME_BYTES = 1024 * 1024, MAX_REGION_MAP_BYTES = 6 * 1024 * 1024;
@@ -41,6 +41,16 @@ export async function sendSimulationControl(settings: WorldSettings, control: Si
   return parseObserverFrame(await requestJson(`/api/simulation/control?${query(settings, extra)}`, MAX_FRAME_BYTES, signal, {
     method: 'POST', body: JSON.stringify(control), headers: { 'Content-Type': 'application/json' },
   }));
+}
+
+/** A page of the chronicle (U.5), read backward with the query's filters. */
+export async function fetchChroniclePage(settings: WorldSettings, chronicle: ChronicleQuery, signal: AbortSignal): Promise<ChroniclePage> {
+  const extra: Record<string, string> = { limit: String(chronicle.limit) };
+  if (chronicle.before !== null) extra.before = String(chronicle.before);
+  if (chronicle.types !== null) extra.types = chronicle.types.join(',');
+  if (chronicle.polity !== null) extra.polity = String(chronicle.polity);
+  if (chronicle.min > 0) extra.min = chronicle.min.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+  return parseChroniclePage(await requestJson(`/api/simulation/chronicle?${query(settings, extra)}`, MAX_FRAME_BYTES, signal));
 }
 
 export async function fetchRegionMap(settings: WorldSettings, signal: AbortSignal) {

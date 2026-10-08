@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import { worldKey, type WorldBundle, type WorldSettings } from '../shared/generated-world.ts';
 import type {
-  KnowledgeReport, ObserverFrame, PoliticsReport, RegionMap, SimulationControl, SimulationInit, SimulationInstance, SimulationReply, SimulationRequest,
+  ChroniclePage, ChronicleQuery, KnowledgeReport, ObserverFrame, PoliticsReport, RegionMap, SimulationControl, SimulationInit, SimulationInstance, SimulationReply, SimulationRequest,
 } from '../shared/simulation.ts';
 
 export class SimulationUnavailableError extends Error {
@@ -103,6 +103,8 @@ export class SimulationWorker {
   control(control: SimulationControl, cursor = Number.MAX_SAFE_INTEGER, inspect?: number) { return this.request<ObserverFrame>({ kind: 'control', control, cursor, inspect }); }
   regions() { return this.request<RegionMap>({ kind: 'regions' }); }
   report(events = false) { return this.request<SimulationReport>({ kind: 'report', events }); }
+  /** A page of the chronicle (U.5). */
+  chronicle(query: ChronicleQuery) { return this.request<ChroniclePage>({ kind: 'chronicle', query }); }
 
   /** Run to January of `year` and resolve with the tick where the run ended (earlier if a control interrupted it). */
   async runTo(year: number): Promise<number> {

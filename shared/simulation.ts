@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 36;
+export const SIMULATION_PROTOCOL_VERSION = 37;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -592,9 +592,36 @@ export interface PoliticsReport {
   longestExpansionGaps: number[];
 }
 
+/**
+ * (U.5) A page of the chronicle, read backward from `before` (an event id; null for the newest): at most `limit`
+ * events, newest first, of the given types (null for all), acted in by the given polity (null for any) and of at least
+ * the given importance. A page reads at most `CHRONICLE_SCAN` events, so a narrow filter may come back short with more
+ * to read: `next` is where the next page reads from (null once year 0 is reached).
+ */
+export const MAX_CHRONICLE_PAGE = 200, CHRONICLE_SCAN = 50_000;
+export interface ChronicleQuery { before: number | null; limit: number; types: EventType[] | null; polity: number | null; min: number }
+export const ChroniclePageSchema = Type.Object({
+  protocolVersion: Type.Literal(SIMULATION_PROTOCOL_VERSION),
+  /** The history it was read from: its run and reset epoch, and how many events it held. */
+  runId: SimulationInstanceSchema.properties.runId, epoch: Type.Integer({ minimum: 0 }), eventCount: Type.Integer({ minimum: 0 }),
+  events: Type.Array(ChronicleEventSchema, { maxItems: MAX_CHRONICLE_PAGE }),
+  names: Type.Array(Type.Tuple([id(), Type.String({ maxLength: 40 })]), { maxItems: MAX_FRAME_NAMES }),
+  next: Type.Union([Type.Null(), Type.Integer({ minimum: 1 })]),
+}, { additionalProperties: false });
+export type ChroniclePage = Static<typeof ChroniclePageSchema>;
+export function parseChroniclePage(value: unknown): ChroniclePage {
+  if (!Check(ChroniclePageSchema, value)) throw invalid();
+  const page = value as ChroniclePage;
+  // Newest first, within the history, and the next page starts below this one.
+  if (page.events.some((event, at) => event.id >= page.eventCount || (at > 0 && event.id >= page.events[at - 1].id))) throw invalid();
+  if (page.next !== null && (page.next > page.eventCount || (page.events.length > 0 && page.next > page.events[page.events.length - 1].id))) throw invalid();
+  return page;
+}
+
 /** Messages between the host and its simulation worker (structured clone, same process). */
 export type SimulationRequest =
   | { kind: 'frame'; id: number; cursor: number; inspect?: number }
+  | { kind: 'chronicle'; id: number; query: ChronicleQuery }
   | { kind: 'control'; id: number; control: SimulationControl; cursor: number; inspect?: number }
   | { kind: 'regions'; id: number }
   | { kind: 'report'; id: number; events: boolean };

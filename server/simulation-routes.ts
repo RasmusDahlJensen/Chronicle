@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { Type } from 'typebox';
 import { DEFAULT_WORLD_SETTINGS, WorldSettingsSchema, type WorldSettings } from '../shared/generated-world.ts';
 import type { ApiError } from '../shared/http.ts';
-import { ObserverFrameSchema, RegionMapSchema, SimulationControlSchema, type SimulationControl } from '../shared/simulation.ts';
+import { ChroniclePageSchema, EVENT_TYPES, MAX_CHRONICLE_PAGE, ObserverFrameSchema, RegionMapSchema, SimulationControlSchema, type EventType, type SimulationControl } from '../shared/simulation.ts';
 import type { SimulationHost, SimulationWorker } from './simulation-host.ts';
 
 /**
@@ -48,6 +48,30 @@ export function registerSimulationRoutes(app: FastifyInstance, host: SimulationH
     const { cursor: from, inspect: region, ...world } = request.query;
     return withSimulation(reply, world, simulation => simulation.control(request.body, from === undefined ? Number.MAX_SAFE_INTEGER : Number(from),
       region === undefined ? undefined : Number(region)));
+  });
+  // (U.5) A page of the chronicle, read backward: before an event id (else from the newest), up to `limit` events of
+  // the comma-separated `types`, acted in by `polity`, of at least importance `min`.
+  type ChronicleQueryString = Partial<WorldSettings> & { before?: string; limit?: string; types?: string; polity?: string; min?: string };
+  app.get<{ Querystring: ChronicleQueryString }>('/api/simulation/chronicle', {
+    schema: {
+      querystring: Type.Object({
+        ...worldQuery, before: Type.Optional(Type.String({ pattern: '^\\d{1,9}$' })), limit: Type.Optional(Type.String({ pattern: '^\\d{1,3}$' })),
+        types: Type.Optional(Type.String({ pattern: `^[A-Za-z]{1,40}(,[A-Za-z]{1,40}){0,${EVENT_TYPES.length - 1}}$` })), polity: Type.Optional(Type.String({ pattern: '^\\d{1,9}$' })),
+        min: Type.Optional(Type.String({ pattern: '^(0(\\.\\d{1,3})?|1(\\.0{1,3})?)$' })),
+      }, { additionalProperties: false }),
+      response: { 200: ChroniclePageSchema },
+    },
+  }, (request, reply) => {
+    const { before, limit, types, polity, min, ...world } = request.query;
+    // A request to correct, not to retry: no retry-after, as for the schema's own refusals.
+    const invalid = (text: string) => reply.code(400).send({ error: { code: 'INVALID_REQUEST', message: text, requestId: request.id } });
+    const kinds = types === undefined ? null : types.split(',');
+    if (kinds?.some(type => !(EVENT_TYPES as readonly string[]).includes(type))) return invalid('Unknown event type.');
+    const size = limit === undefined ? MAX_CHRONICLE_PAGE : Number(limit);
+    if (size < 1 || size > MAX_CHRONICLE_PAGE) return invalid(`A page holds 1 to ${MAX_CHRONICLE_PAGE} events.`);
+    return withSimulation(reply, world, simulation => simulation.chronicle({
+      before: before === undefined ? null : Number(before), limit: size, types: kinds as EventType[] | null, polity: polity === undefined ? null : Number(polity), min: min === undefined ? 0 : Number(min),
+    }));
   });
   return { snapshot: () => ({ ...host.snapshot(), admitted, admissionLimit }) };
 }

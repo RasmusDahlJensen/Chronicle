@@ -10,7 +10,7 @@ import { buildApp } from '../server/app.ts';
 import { readBackendConfig } from '../server/config.ts';
 import { createSimulationHost, SimulationUnavailableError } from '../server/simulation-host.ts';
 import type { WorldBundle } from '../shared/generated-world.ts';
-import { parseObserverFrame, parseRegionMap } from '../shared/simulation.ts';
+import { parseChroniclePage, parseObserverFrame, parseRegionMap } from '../shared/simulation.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 
@@ -143,7 +143,7 @@ test('the host reuses a world\'s simulation, bounds live workers and replaces a 
   assert.equal((await replaced.frame(0)).tick, 0);
 });
 
-test('simulation routes validate controls, report method errors and serve frames and region maps', async t => {
+test('simulation routes validate controls, report method errors and serve frames, chronicle pages and region maps', async t => {
   const app = await buildApp({ logger: false, config: { ...readBackendConfig({ CHRONICLE_CHECKPOINTS: 'off' }), workers: 1 } });
   t.after(() => app.close());
   const query = '?seed=Routes&size=standard';
@@ -162,6 +162,17 @@ test('simulation routes validate controls, report method errors and serve frames
   assert.equal((await app.inject({ method: 'GET', url: `/api/simulation/control${query}` })).statusCode, 405);
   assert.equal((await app.inject({ method: 'POST', url: `/api/simulation/frame${query}` })).statusCode, 405);
   assert.equal((await app.inject(`/api/simulation/frame${query}&cursor=-1`)).statusCode, 400);
+  // U.5: pages of the chronicle, read backward with filters; unknown types and bad sizes are refused.
+  const page = await app.inject(`/api/simulation/chronicle${query}&limit=5&types=bandSpawned`);
+  assert.equal(page.statusCode, 200, page.body.slice(0, 300));
+  const read = parseChroniclePage(page.json());
+  assert.ok(read.events.length === 5 && read.events.every(event => event.type === 'bandSpawned'));
+  assert.ok(read.events.every(event => event.actors.every(actor => read.names.some(([id]) => id === actor.id))), 'its peoples are named');
+  const older = parseChroniclePage((await app.inject(`/api/simulation/chronicle${query}&limit=5&types=bandSpawned&before=${read.next}`)).json());
+  assert.equal(older.events.length, 5);
+  assert.ok(older.events.every(event => event.id < read.events[4].id));
+  for (const bad of ['&types=nothing', '&limit=0', '&limit=201', '&min=2', '&before=-1', '&polity=x']) assert.equal((await app.inject(`/api/simulation/chronicle${query}${bad}`)).statusCode, 400, bad);
+  assert.equal((await app.inject({ method: 'POST', url: `/api/simulation/chronicle${query}` })).statusCode, 405);
   const regions = await app.inject(`/api/simulation/regions${query}`);
   assert.equal(regions.statusCode, 200);
   const { map, cells } = parseRegionMap(regions.json());
