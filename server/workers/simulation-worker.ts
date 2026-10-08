@@ -155,7 +155,7 @@ function frame(cursor: number, inspect: number | null = null): ObserverFrame {
   return {
     protocolVersion: SIMULATION_PROTOCOL_VERSION, instance, tick: state.tick, playing, speed, epoch,
     runTo: target === null ? null : target / 12, dev: { actions: state.devActions, refused: devRefused, checkpoints: store ? [...saved].sort((a, b) => a - b).slice(-256) : null, loadedFrom }, eventCount: state.chronicle.events.length,
-    events, names: actorNames(state, [...events, ...(view.inspect?.settlements.flatMap(settlement => settlement.events) ?? [])]), counters: frameCounters(state), ...view,
+    events, names: actorNames(state, [...events, ...(view.inspect?.settlements.flatMap(settlement => settlement.events) ?? []), ...(view.inspect?.polity?.history.map(entry => entry.event) ?? [])]), counters: frameCounters(state), ...view,
   };
 }
 

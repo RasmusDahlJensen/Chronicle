@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 33;
+export const SIMULATION_PROTOCOL_VERSION = 34;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -276,6 +276,8 @@ export const ObserverFrameSchema = Type.Object({
       era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
       /** Known techs in graph order; research points a year; contacts within two regions. */
       known: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 200 }), researchPerYear: Type.Number({ minimum: 0 }), contacts: Type.Integer({ minimum: 0 }),
+      /** (U.2) The era of each known tech, in the same order. */
+      knownEras: Type.Array(Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), { maxItems: 200 }),
       /** Its map: regions it knows (in sight or remembered), regions in sight, and polities it has met. */
       regionsKnown: Type.Integer({ minimum: 1 }), regionsInSight: Type.Integer({ minimum: 1 }), met: Type.Integer({ minimum: 0 }),
       /** Governance reach in travel-km, and this region's travel-km from the capital (null when cut off from it). */
@@ -320,7 +322,7 @@ export const ObserverFrameSchema = Type.Object({
       /** Its active trade agreements (M5.4): the partner, the resource, units a year, whether it imports (else exports)
        *  it, what is paid back (a resource and its units, or wealth a year) and the year it began. */
       treaties: Type.Array(Type.Object({
-        partner: Type.String({ maxLength: 40 }), resource: Type.Enum(RESOURCE_IDS), amount: Type.Number({ minimum: 0 }), imports: Type.Boolean(),
+        partner: Type.String({ maxLength: 40 }), partnerId: id(), resource: Type.Enum(RESOURCE_IDS), amount: Type.Number({ minimum: 0 }), imports: Type.Boolean(),
         barter: Type.Union([Type.Enum(RESOURCE_IDS), Type.Null()]), barterAmount: Type.Number({ minimum: 0 }), price: Type.Integer({ minimum: 0 }), since: Type.Integer({ minimum: 0 }),
       }, { additionalProperties: false }), { maxItems: 32 }),
       diplomacy: Type.Array(Type.Object({
@@ -329,6 +331,8 @@ export const ObserverFrameSchema = Type.Object({
         reasons: Type.Array(Type.Object({ factor: Type.String({ maxLength: 32 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
         intimacy: Type.Number({ minimum: 0, maximum: 1 }), people: Type.Integer({ minimum: 0 }), strength: Type.Integer({ minimum: 0 }),
         sharing: Type.Boolean(), met: Type.Integer({ minimum: 0 }),
+        /** (U.2) The truth beside its beliefs (the observer sees both): their people and strength now. */
+        truePeople: Type.Integer({ minimum: 0 }), trueStrength: Type.Integer({ minimum: 0 }),
         /** (M5.5) Its standing (allied, non-aggression pact, trade partner, rival at an opinion of −50 or below, else
          *  neutral), the treaties between them now, and the year the standing began (its treaty's, else when they met). */
         status: Type.Enum(DIPLOMATIC_STATUSES), agreements: Type.Array(Type.Enum(AGREEMENT_KINDS), { maxItems: 4 }), since: Type.Integer({ minimum: 0 }),
@@ -347,6 +351,25 @@ export const ObserverFrameSchema = Type.Object({
       }, { additionalProperties: false })]),
       /** Peoples it shares knowledge with (VISION.md "Sharing knowledge") and the year each exchange ends. */
       exchanges: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), until: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 64 }),
+      /** (U.2) A civilization's realm at a glance (null for a tribe): its living settlements by tier (village, town,
+       *  city, metropolis), its largest cities, the wonders standing in them, its regions' mean stability, how many are
+       *  in unrest and let go unkept, the road edges it keeps and how many of those go unkept, and the cultures and faiths
+       *  of its people (shares of its people; a faith of null is the folk ways). */
+      realm: Type.Union([Type.Null(), Type.Object({
+        settlements: Type.Array(Type.Integer({ minimum: 0 }), { minItems: SETTLEMENT_TIERS.length, maxItems: SETTLEMENT_TIERS.length }),
+        cities: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), tier: Type.Integer({ minimum: 0, maximum: SETTLEMENT_TIERS.length - 1 }), urban: Type.Integer({ minimum: 0 }), capital: Type.Boolean() }, { additionalProperties: false }), { maxItems: 6 }),
+        wonders: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), city: Type.String({ maxLength: 40 }) }, { additionalProperties: false }), { maxItems: 16 }),
+        stability: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Integer({ minimum: 0 }), neglected: Type.Integer({ minimum: 0 }),
+        roads: Type.Integer({ minimum: 0 }), roadsUnkept: Type.Integer({ minimum: 0 }),
+        cultures: Type.Array(Type.Object({ name: Type.String({ maxLength: 40 }), share: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 4 }),
+        faiths: Type.Array(Type.Object({ name: Type.Union([Type.String({ maxLength: 40 }), Type.Null()]), share: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 4 }),
+      }, { additionalProperties: false })]),
+      /** (U.2) Its own chronicle: the latest notable events it acts in, newest first, each run of events of one type
+       *  as one entry: the newest of them, how many more there were and the tick of the first. */
+      history: Type.Array(Type.Object({ event: ChronicleEventSchema, more: Type.Integer({ minimum: 0 }), from: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 40 }),
+      /** (U.2) The god view: the nearest peoples it has not met yet, within three regions of its land (how many away),
+       *  nearest first, so the observer sees who is about to meet whom. Empty for a tribe. */
+      unmet: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]), away: Type.Integer({ minimum: 1, maximum: 3 }) }, { additionalProperties: false }), { maxItems: 6 }),
       /** The active research target, its progress and cost, why it was chosen, and the strongest options at the last
        *  choice; how much faster it goes now: the sharing partner that knows it (its name, else null) and that speed-up,
        *  and the catch-up speed-up (1 when none applies). */
@@ -445,6 +468,11 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   if (frame.fields.cells.length !== frame.fields.regions.length || new Set(frame.fields.regions).size !== frame.fields.regions.length || frame.fields.regions.some(region => region >= frame.counters.regions)) throw invalid();
   const decision = frame.inspect?.polity?.lastDecision;
   if (decision && (decision.pick >= decision.options.length || decision.options[decision.pick].action !== decision.chosen)) throw invalid();
+  // (U.2) Each known tech has its era; the realm's own chronicle is newest first, no later than the frame, and each
+  // run of events begins no later than its newest.
+  const polity = frame.inspect?.polity;
+  if (polity && polity.knownEras.length !== polity.known.length) throw invalid();
+  if (polity?.history.some(({ event, from }, at) => event.tick > frame.tick || from > event.tick || event.id >= frame.eventCount || (at > 0 && event.id >= polity.history[at - 1].event.id))) throw invalid();
   if (frame.inspect && frame.inspect.region >= frame.counters.regions) throw invalid();
   if (frame.series.some(([year], at) => year * 12 > frame.tick || (at > 0 && year <= frame.series[at - 1][0]))) throw invalid();
   return frame;

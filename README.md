@@ -4,7 +4,7 @@ A living-world atlas, built one small, reviewable slice at a time.
 
 Chronicle is intended to grow into a substantial simulation project. Features arrive gradually, with shared modules, established infrastructure packages, and automated checks protecting the architecture as it grows.
 
-Opening Chronicle shows **the game**: the world's map fills the window, with a time bar (play, pause, step, speed), map lenses (political, culture, faith, era, descent, or bare terrain, with trade routes and roads), the great powers by their share of the world's people (each leads to its capital), the realm and region you select, and a ticker of the latest notable events in the peoples' names. The **World** menu chooses a seed and size or starts the history again; **Lab** opens the developer lab described below (`/?lab`), with the geography layers, the full inspector and the testing tools.
+Opening Chronicle shows **the game**: the world's map fills the window, with a time bar (play, pause, step, speed), map lenses (political, culture, faith, era, descent, or bare terrain, with trade routes and roads), the great powers by their share of the world's people (each leads to its capital), the realm and region you select, and a ticker of the latest notable events in the peoples' names. Selecting land opens its realm's panel: **Overview** (why it acts — its last decision with its reasons, its needs and values — and its realm at a glance: settlements by size, largest cities, wonders, stability, unkept land, roads, cultures and faiths), **Diplomacy** (each people it knows, with standing, opinion and its reasons, and the treaties and trade between them), **Economy** (taxes, revenue, costs, balance, arrears, resources against demand, trade agreements), **Knowledge** (research now and why, techs by era, what it believes of others beside the truth, its map), **History** (its origin and its own notable events, newest first) and **Region** (the land, its people, settlements, harvest and stability). A tribe's panel has no Diplomacy or Economy. The **World** menu chooses a seed and size or starts the history again; **Lab** opens the developer lab described below (`/?lab`), with the geography layers, the full inspector and the testing tools.
 
 The React + TypeScript + Vite browser lab opens a **seeded world preview** with varied continent sizes and coastlines, mixed island groups, localized mountain ranges, cold northern and southern poles, and warmer tropical regions. The large preset has **1,024 × 512 cells (524,288)**; standard has 512 × 256. Biomes follow annual temperature and moisture, with elevation cooling and mountain rain shadows. Inspect the biome, temperature, moisture and fertility layers and exact cell data.
 
@@ -114,7 +114,7 @@ Extend the suite alongside each change, especially when data crosses a module or
 | RNG streams, chronicle, tunables, determinism, invariants, event templates | `tests/simulation-core.test.ts` |
 | Host → simulation worker → clock, controls, frames, region map, routes and admission | `tests/simulation-worker.test.ts` |
 | Time controls and region overlay in the lab | `tests/browser/simulation.spec.ts` |
-| The game page: time bar, lenses, great powers, selection, named chronicle, the lab link | `tests/browser/simulation.spec.ts` (on the same history as the lab's scenarios) |
+| The game page: time bar, lenses, great powers, selection, the realm panel's tabs, named chronicle, the lab link | `tests/browser/simulation.spec.ts` (on the same history as the lab's scenarios) |
 | Simulation rule edits → restarted worker at year 0 | `tests/dev-reload.test.ts` |
 
 `npm run check:tectonics` verifies that the vendored source, compiler settings and generated artifact match their recorded hashes; it is included in `npm run check`. Maintainers changing the C++ core or compiler settings need Emscripten 6.0.5 and `npm run build:tectonics`; those changes reach the running lab after the artifact is rebuilt. See the vendor instructions.
@@ -221,8 +221,8 @@ For calibrating, without rerunning whole studies. Each seed's history is restore
 
 - `src/main.tsx`: React entry point.
 - `src/App.tsx`: renders the game, or the lab at `?lab`.
-- `src/game/Game.tsx` and `src/game/game.css`: the game page (milestone U).
-- `src/observer/useObserver.ts`, `src/observer/useWorldMap.ts` and `src/observer/world-choice.ts`: what the game and the lab share: polling frames and sending controls, the map's renderer and the simulation's marks on it, and the world chosen in the tab.
+- `src/game/Game.tsx`, `src/game/RealmPanel.tsx` and `src/game/game.css`: the game page (milestone U) and its realm panel.
+- `src/observer/useObserver.ts`, `src/observer/useWorldMap.ts`, `src/observer/world-choice.ts` and `src/observer/labels.ts`: what the game and the lab share: polling frames and sending controls, the map's renderer and the simulation's marks on it, the world chosen in the tab, and the words for decisions, reasons, standings and treaties.
 - `src/components/GeneratedWorldLab.tsx`, `src/api/generated-world.ts`, and `src/renderer/generated-world.ts`: world preview controls, bounded tile loading, and map rendering.
 - `src/components/ResourceIcon.tsx`: legend pictograms drawn with the map's resource icons.
 - `scripts/start.ts`: combined development launcher and standalone built-app launcher.

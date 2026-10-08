@@ -10,6 +10,8 @@ import { regionFarm, wonderBonus } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { believe, capitalKm, knownRegionCount } from './perception.ts';
+import { truthOf } from './relations.ts';
+import { keeperOf, roadUnkept } from './roads.ts';
 import { available, metFor } from './supply.ts';
 import { stabilityOf } from './stability.ts';
 import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TradeTreaty } from './state.ts';
@@ -17,7 +19,7 @@ import { tradeIncome, treatyBetween } from './treaties.ts';
 import { ancestry, lineOf } from './culture.ts';
 import { TRAITS } from './traits.ts';
 import { TENETS } from './religions.ts';
-import { TECHS } from './techs.ts';
+import { ERAS, TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
 type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'inspect'>;
@@ -165,13 +167,14 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       founded: polity.foundedTick, arrived: group.arrivedTick, farmShare: round(Math.min(1, Math.max(0, group.farmShare))), specialists: group.specialists,
       capital: capital ? { name: capital.name, cell: capital.cell, settled: polity.settledTick ?? capital.foundedTick } : null,
       era: knowledge.era, known: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => definition.name),
+      knownEras: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => ERAS.indexOf(definition.era)),
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
       reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: Math.round(kmFromCapital),
       lastDecision: lastDecision(polity),
       resources: polity.kind !== 'civ' ? [] : RESOURCE_IDS.flatMap((resource, at) => polity.supply[at] > 0 || polity.demand[at] > 0 || polity.imports[at] > 0
         ? [{ resource, supply: significant(available(polity, at)), demand: significant(polity.demand[at]), met: round(metFor(polity, at)) }] : []),
       treaties: polity.kind !== 'civ' ? [] : state.treaties.filter((treaty): treaty is TradeTreaty => treaty.type === 'trade' && treaty.endTick === null && (treaty.exporter === polity.id || treaty.importer === polity.id)).slice(0, 32).map(treaty => ({
-        partner: state.polities[treaty.exporter === polity.id ? treaty.importer : treaty.exporter].name, resource: RESOURCE_IDS[treaty.resource], amount: significant(treaty.amount), imports: treaty.importer === polity.id,
+        partner: state.polities[treaty.exporter === polity.id ? treaty.importer : treaty.exporter].name, partnerId: treaty.exporter === polity.id ? treaty.importer : treaty.exporter, resource: RESOURCE_IDS[treaty.resource], amount: significant(treaty.amount), imports: treaty.importer === polity.id,
         barter: treaty.barter >= 0 ? RESOURCE_IDS[treaty.barter] : null, barterAmount: significant(treaty.barterAmount), price: treaty.price, since: Math.floor(treaty.startTick / 12),
       })),
       diplomacy: polity.kind !== 'civ' ? [] : [...polity.relations].filter(([other]) => state.polities[other].deathTick === null)
@@ -182,6 +185,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
             id: other, name: them.name, kind: them.kind, opinion: relation.opinion, reasons: relation.reasons.slice(0, 4), intimacy: round(relation.intimacy),
             people: Math.round(believe(state, polity, them, 'people').estimate), strength: Math.round(believe(state, polity, them, 'strength').estimate),
             sharing: (polity.exchanges.get(other) ?? 0) > state.tick, met, status: standing.status, agreements: standing.agreements, since: standing.since ?? met,
+            truePeople: Math.round(truthOf(state, them, 'people')), trueStrength: Math.round(truthOf(state, them, 'strength')),
           };
         }),
       stability: polity.kind !== 'civ' ? null : (() => {
@@ -198,6 +202,8 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
           arrears: round(polity.arrears), projects: polity.projects.length, roadWorks: polity.roadWorks.length,
         };
       })(),
+      realm: polity.kind === 'civ' ? realmSummary(state, polity) : null,
+      history: historyOf(state, polity), unmet: polity.kind === 'civ' ? unmetNear(state, polity) : [],
       exchanges: [...polity.exchanges].filter(([other, until]) => until > state.tick && state.polities[other].deathTick === null).slice(0, 64)
         .map(([other, until]) => ({ id: other, name: state.polities[other].name, until: Math.floor(until / 12) })),
       research: target < 0 || !speed ? null : {
@@ -255,6 +261,83 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
     food: { forage: output(0), hunt: output(1), fish: output(2), herd: output(3), farm: output(4) },
     polity: view,
   };
+}
+
+/** A civilization's realm at a glance (U.2): its settlements by tier and largest cities, its wonders, its regions'
+ *  mean stability, unrest and neglect, the road edges it keeps, and its people's cultures and faiths by share. */
+function realmSummary(state: SimulationState, civ: Polity): NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['realm'] {
+  const settlements = [0, 0, 0, 0], cities: { id: number; name: string; tier: number; urban: number; capital: boolean }[] = [];
+  const cultures = new Map<number, number>(), faiths = new Map<number, number>();
+  let people = 0, stability = 0, unrest = 0, neglected = 0;
+  for (const groupId of civ.groups) {
+    const group = state.groups[groupId], region = group.region;
+    people += group.size; stability += state.stability[region];
+    if (state.unrest[region]) unrest++;
+    if (state.neglected[region]) neglected++;
+    cultures.set(group.culture, (cultures.get(group.culture) ?? 0) + group.size);
+    faiths.set(group.faith, (faiths.get(group.faith) ?? 0) + group.size);
+    for (const id of state.regionSettlements[region]) {
+      const settlement = state.settlements[id];
+      if (settlement.status !== 'alive' || settlement.owner !== civ.id) continue;
+      settlements[settlement.tier]++;
+      cities.push({ id: settlement.id, name: settlement.name, tier: settlement.tier, urban: settlement.urban, capital: settlement.capital });
+    }
+  }
+  let roads = 0, roadsUnkept = 0;
+  for (const road of state.roads.values()) if (keeperOf(state, road) === civ.id) { roads++; if (roadUnkept(state, road)) roadsUnkept++; }
+  const top = (shares: Map<number, number>) => [...shares].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, 4);
+  return {
+    settlements, cities: cities.sort((a, b) => b.urban - a.urban || Number(b.capital) - Number(a.capital) || a.id - b.id).slice(0, 6),
+    wonders: state.wonders.filter(wonder => wonder.status === 'standing' && state.settlements[wonder.settlement].owner === civ.id).slice(0, 16)
+      .map(wonder => ({ name: WONDERS[wonder.type].name, city: state.settlements[wonder.settlement].name })),
+    stability: civ.groups.length ? round(stability / civ.groups.length) : 1, unrest, neglected, roads, roadsUnkept,
+    cultures: top(cultures).map(([id, size]) => ({ name: state.cultures[id].name, share: round(people > 0 ? size / people : 0) })),
+    faiths: top(faiths).map(([id, size]) => ({ name: id >= 0 ? state.religions[id].name : null, share: round(people > 0 ? size / people : 0) })),
+  };
+}
+
+/** A polity's own chronicle (U.2): the latest notable events it acts in (`HISTORY_IMPORTANCE`: not each village
+ *  founded, town grown, small building or road, which the region's settlements show), newest first, back to its
+ *  founding (from the most recent `HISTORY_SCAN` events, so a long-quiet people's list may be short). A run of events of
+ *  one type, each within `HISTORY_RUN_YEARS` of the next (bands taken in, hungry regions fed, contacts made), is one
+ *  entry: its newest event, how many more there were and when the run began, so a few busy decades do not fill the
+ *  list. Entries are ordered by their newest event; the scan ends where a 41st entry would begin. */
+export const HISTORY_LENGTH = 40, HISTORY_IMPORTANCE = 0.05, HISTORY_RUN_YEARS = 25;
+const HISTORY_SCAN = 60_000;
+function historyOf(state: SimulationState, polity: Polity) {
+  const events = state.chronicle.events, found: { event: ChronicleEvent; more: number; from: number }[] = [], stop = Math.max(0, events.length - HISTORY_SCAN);
+  const open = new Map<string, { event: ChronicleEvent; more: number; from: number }>();
+  for (let at = events.length - 1; at >= stop && events[at].tick >= polity.foundedTick; at--) {
+    const event = events[at];
+    if (event.importance < HISTORY_IMPORTANCE || !event.actors.some(actor => actor.id === polity.id)) continue;
+    const run = open.get(event.type);
+    if (run && run.from - event.tick <= HISTORY_RUN_YEARS * 12) { run.more++; run.from = event.tick; continue; }
+    if (found.length === HISTORY_LENGTH) break;
+    const entry = { event, more: 0, from: event.tick };
+    found.push(entry); open.set(event.type, entry);
+  }
+  return found;
+}
+
+/** The god view (U.2; VISION.md "Civ panel"): the living peoples within `UNMET_DEPTH` regions of a civilization's land,
+ *  by land, that it has not met yet, nearest first (ties by id). */
+const UNMET_DEPTH = 3, UNMET_LENGTH = 6;
+function unmetNear(state: SimulationState, civ: Polity) {
+  const seen = new Set(civ.groups.map(id => state.groups[id].region)), listed = new Set<number>();
+  const found: { id: number; name: string; kind: 'band' | 'civ'; away: number }[] = [];
+  let frontier = [...seen].sort((a, b) => a - b);
+  for (let away = 1; away <= UNMET_DEPTH && frontier.length; away++) {
+    const next: number[] = [], here: number[] = [];
+    for (const region of frontier) for (const edge of state.partition.regions[region].neighbors) {
+      if (seen.has(edge.region)) continue;
+      seen.add(edge.region); next.push(edge.region);
+      const other = state.occupant[edge.region];
+      if (other >= 0 && other !== civ.id && !civ.met.has(other) && !listed.has(other)) { listed.add(other); here.push(other); }
+    }
+    for (const id of here.sort((a, b) => a - b)) found.push({ id, name: state.polities[id].name, kind: state.polities[id].kind, away });
+    frontier = next.sort((a, b) => a - b);
+  }
+  return found.slice(0, UNMET_LENGTH);
 }
 
 function heaviestParent(state: SimulationState, culture: Culture) {

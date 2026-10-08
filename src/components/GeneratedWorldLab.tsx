@@ -11,6 +11,7 @@ import { RESOURCE_RULES } from '../world/resources.ts';
 import { ResourceIcon } from './ResourceIcon.tsx';
 import { SimulationPanel } from './SimulationPanel.tsx';
 import { describeEvent, frameNames } from '../observer/events.ts';
+import { ACTION_NAMES, AGREEMENT_NAMES, BELIEF_NAMES, causeText, DECISION_LABELS, decisionTarget, NEED_LABELS, REASON_NAMES, STATUS_NAMES, units } from '../observer/labels.ts';
 import { ERA_NAMES, RIVER_TIERS, simulationDate, VALUE_NAMES, type ObserverFrame } from '../../shared/simulation.ts';
 import { cssColor, cultureColor, ERA_COLORS, faithColor, lineageColor, polityColor } from '../observer/palettes.ts';
 import { useRegionMap, useWorldMap, type PeoplesLens } from '../observer/useWorldMap.ts';
@@ -156,41 +157,6 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
       <p className="world-known-techs" id="polity-known">Knows {polity.known.join(', ')}.</p>
     </section>
   </div>;
-}
-
-/** A decision's causes: what drove it, and what held it back ("despite"). */
-function causeText(causes: { factor: string; weight: number }[]) {
-  const why = causes.filter(cause => cause.weight > 0).map(cause => `${cause.factor} +${cause.weight.toFixed(2)}`);
-  const despite = causes.filter(cause => cause.weight < 0).map(cause => `${cause.factor} ${cause.weight.toFixed(2)}`);
-  return `${why.length ? `Because of ${why.join(', ')}` : 'Chosen'}${despite.length ? `, despite ${despite.join(', ')}` : ''}.`;
-}
-
-/** Resource units, readable from thousandths to hundreds. */
-const units = (value: number) => value === 0 ? '0' : value >= 10 ? value.toFixed(0) : value >= 1 ? value.toFixed(1) : value.toPrecision(2);
-
-const NEED_LABELS = [['hunger', 'hunger'], ['landPressure', 'land pressure'], ['shortage', 'shortage'], ['threat', 'threat'], ['unrest', 'unrest'], ['friction', 'friction'],
-  ['opportunity', 'opportunity'], ['grievance', 'grievance'], ['infrastructure', 'infrastructure']] as const;
-const BELIEF_NAMES = { people: 'people', strength: 'strength', wealth: 'wealth', era: 'era' } as const;
-/** Opinion's reasons as the inspector names them. */
-const REASON_NAMES: Record<string, string> = {
-  sameFaith: 'same faith', rivalFaith: 'rival faith', culture: 'culture', kin: 'kin', sharing: 'sharing knowledge', trading: 'trading', borderTension: 'border tension',
-  turnedAway: 'turned them away', refusedExchange: 'refused to share', refusedTrade: 'refused to trade',
-  pact: 'non-aggression pact', allied: 'allies', road: 'joint road', refusedTreaty: 'refused a treaty', treatySoured: 'a treaty soured',
-};
-
-const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build', trade: 'Propose trade with', pact: 'Propose a non-aggression pact with', alliance: 'Propose an alliance with', roadAgreement: 'Propose a joint road with', voyage: 'Send a voyage overseas' } as const;
-const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build', trade: 'Trade', pact: 'Pact', alliance: 'Alliance', roadAgreement: 'Joint road', voyage: 'Voyage' } as const;
-/** A people's standing and the treaties it may hold with a civilization (M5.5). */
-const STATUS_NAMES = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' } as const;
-const AGREEMENT_NAMES = { alliance: 'alliance', nonAggression: 'pact', road: 'joint road', trade: 'trade' } as const;
-
-/** What a decision was aimed at: the region to expand into, the civilization to unite, share or trade with (and the
- *  resource it would import), or what to build. */
-function decisionTarget(step: NonNullable<NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision']>) {
-  const option = step.options[step.pick];
-  if (!option || option.target === null) return '';
-  if (option.action === 'build') return ` ${option.label ?? '?'}`;
-  return ['unite', 'share', 'trade', 'pact', 'alliance', 'roadAgreement'].includes(option.action) ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
 }
 
 const formatPeople = (people: number) => people >= 1e6 ? `${(people / 1e6).toFixed(1)} M` : people >= 1e4 ? `${Math.round(people / 1e3)} k` : number.format(people);

@@ -112,7 +112,12 @@ test('the game is the main page: the world map with its time bar, lenses and a c
   await expect(place.getByRole('region', { name: 'Tribe' })).toBeVisible();
   const here = (await (await page.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${band}`)).json()).inspect.polity;
   await expect(page.locator('#game-realm-name')).toHaveText(`The ${here.name}`);
-  await expect(place).toContainText(`Region ${band}`);
+  await expect(page.locator('#game-place-line')).toContainText(`Region ${band}`);
+  // U.2: a tribe's panel has no Diplomacy or Economy; its Region tab shows the land.
+  const tabs = place.getByRole('tablist', { name: 'About the tribe' });
+  await expect(tabs.getByRole('tab')).toHaveText(['Overview', 'Knowledge', 'History', 'Region']);
+  await tabs.getByRole('tab', { name: 'Region' }).click();
+  await expect(place.locator('#game-region')).toContainText(`Region ${band}`);
   // The developer lab is its own page, on the same world, and leads back.
   await page.getByRole('link', { name: 'Lab' }).click();
   await expect(history(page)).toBeVisible();
@@ -288,7 +293,41 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(powers.getByRole('listitem').first()).toContainText(frame.civList[0].name);
   await powers.getByRole('button').first().click();
   await expect(game.locator('#game-realm-name')).toHaveText(`The ${frame.civList[0].name}`);
-  await expect(game.getByRole('complementary', { name: 'Selected place' })).toContainText(`capital ${frame.civList[0].capital}`);
+  const place = game.getByRole('complementary', { name: 'Selected place' });
+  await expect(place).toContainText(`capital ${frame.civList[0].capital}`);
+  // U.2: its realm panel. Each tab shows this realm's state, as the frame for its capital's region carries it.
+  const capitalRegion = Buffer.from(regions.data, 'base64').readUInt16LE(frame.civList[0].capitalCell * 2) - 1;
+  const realm = (await (await game.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${capitalRegion}`)).json()).inspect.polity;
+  const tabs = place.getByRole('tablist', { name: 'About the realm' });
+  await expect(tabs.getByRole('tab')).toHaveText(['Overview', 'Diplomacy', 'Economy', 'Knowledge', 'History', 'Region']);
+  await expect(place.locator('#game-realm-settlements')).toContainText(/village|town|city/);
+  await expect(place.locator('#game-realm-glance')).toContainText(realm.realm.cultures[0].name);
+  await tabs.getByRole('tab', { name: 'Diplomacy' }).click();
+  await expect(tabs.getByRole('tab', { name: 'Diplomacy' })).toHaveAttribute('aria-selected', 'true');
+  const known = place.getByRole('list', { name: 'Peoples it knows' }).getByRole('listitem');
+  await expect(known).toHaveCount(realm.diplomacy.length);
+  await expect(known.first()).toContainText(`The ${realm.diplomacy[0].name}`);
+  await expect(known.first()).toContainText(/opinion [+−]\d/);
+  const standings = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' } as Record<string, string>;
+  await expect(known.first().locator('.game-standing')).toHaveText(standings[realm.diplomacy[0].status]);
+  if (realm.unmet.length) await expect(place.locator('#game-unmet').getByRole('listitem')).toHaveCount(realm.unmet.length);
+  await tabs.getByRole('tab', { name: 'Economy' }).click();
+  await expect(place.locator('#game-economy-purse')).toContainText(`Treasury ${realm.wealth.treasury.toLocaleString('en')}`);
+  await expect(place.locator('#game-economy-balance')).toContainText(/A (surplus|deficit) of/);
+  await tabs.getByRole('tab', { name: 'Economy' }).press('ArrowRight');
+  await expect(tabs.getByRole('tab', { name: 'Knowledge' })).toHaveAttribute('aria-selected', 'true');
+  await expect(place.locator('#game-known')).toContainText(realm.known[0]);
+  await expect(place.locator('#game-beliefs')).toContainText('truly');
+  await tabs.getByRole('tab', { name: 'History' }).click();
+  const own = place.locator('#game-history').getByRole('listitem');
+  expect(realm.history.length).toBeGreaterThan(0);
+  await expect(own).toHaveCount(realm.history.length);
+  for (const text of await own.allTextContents()) { expect(text).toMatch(/^[\d,]+(–[\d,]+)?[A-Z]/); expect(text).not.toMatch(/#\d/); }
+  await tabs.getByRole('tab', { name: 'History' }).press('End');
+  await expect(tabs.getByRole('tab', { name: 'Region' })).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.getByRole('tab', { name: 'Region' })).toBeFocused();
+  await expect(place.locator('#game-region')).toContainText(`Region ${capitalRegion}`);
+  await expect(place.locator('#game-region')).toContainText(frame.civList[0].capital);
   await game.waitForTimeout(2_500);
   for (const text of await game.getByRole('list', { name: 'Latest in the chronicle' }).getByRole('listitem').allTextContents()) expect(text).not.toMatch(/#\d/);
   await game.close();

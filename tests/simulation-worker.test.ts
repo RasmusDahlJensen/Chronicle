@@ -42,6 +42,14 @@ test('the dedicated worker steps, plays, pauses, runs to a year and resets its c
   const named = new Set(arrived.names.map(([id]) => id));
   assert.ok(arrived.events.length > 0 && arrived.events.every(event => event.actors.every(actor => named.has(actor.id))), 'every actor named');
   assert.ok(arrived.names.every(([, name]) => name.length > 0));
+  // U.2: an inspected people's own chronicle comes with the frame, its actors named; a reset starts it again.
+  const actor = arrived.events.filter(event => event.importance >= 0.05 && event.tick > 0).flatMap(event => event.actors.map(entry => entry.id)).find(id => arrived.markers.ids.includes(id))!;
+  const home = arrived.markers.regions[arrived.markers.ids.indexOf(actor)];
+  const inspected = parseObserverFrame(await simulation.frame(0, home)), own = inspected.inspect!.polity!;
+  assert.equal(own.id, actor);
+  assert.ok(own.history.some(entry => entry.event.tick > 0), 'its events since year 0');
+  const known = new Set(inspected.names.map(([id]) => id));
+  assert.ok(own.history.every(entry => entry.event.actors.every(entry => known.has(entry.id))), 'its history\'s actors are named');
   assert.equal(arrived.runTo, null);
   assert.deepEqual(arrived.dev, { actions: 0, refused: null, checkpoints: null, loadedFrom: null });
   // Development controls (Dev 02): a scenario trigger acts now, between months, and the frame says the history was altered.
@@ -55,6 +63,8 @@ test('the dedicated worker steps, plays, pauses, runs to a year and resets its c
   assert.equal(refused.dev.actions, 1, 'a refused control changes nothing');
   assert.equal(refused.eventCount, altered.eventCount);
   assert.equal((await simulation.control({ action: 'reset' })).tick, 0);
+  const again = parseObserverFrame(await simulation.frame(0, home)).inspect?.polity;
+  assert.ok(!again || again.history.every(entry => entry.event.tick === 0), 'a reset history holds none of the old one');
   assert.deepEqual((await simulation.frame(0)).dev, { actions: 0, refused: null, checkpoints: null, loadedFrom: null }, 'a reset history is unaltered again');
   assert.match((await simulation.control({ action: 'load', year: 100 })).dev.refused ?? '', /keeps no checkpoints/, 'without checkpoints Load year says why');
   assert.equal((await simulation.frame(0)).instance.runId, start.instance.runId, 'a manual reset keeps the same running simulation');

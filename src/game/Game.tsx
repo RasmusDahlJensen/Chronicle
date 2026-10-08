@@ -8,10 +8,12 @@ import { ERA_NAMES, SIMULATION_SPEEDS, simulationDate, type ChronicleEvent, type
 import { loadGeneratedWorld } from '../api/generated-world.ts';
 import { WORLD_BIOME_STYLE } from '../renderer/generated-world.ts';
 import { describeEvent, MONTH_NAMES } from '../observer/events.ts';
+import { factorName } from '../observer/labels.ts';
 import { cssColor, polityColor } from '../observer/palettes.ts';
 import { useObserver } from '../observer/useObserver.ts';
 import { useRegionMap, useWorldMap, type PeoplesLens } from '../observer/useWorldMap.ts';
 import { chosenWorld, rememberWorld } from '../observer/world-choice.ts';
+import { people, RealmPanel, RegionDetail, type RealmTab } from './RealmPanel.tsx';
 import './game.css';
 
 const number = new Intl.NumberFormat('en');
@@ -21,12 +23,8 @@ const LENSES: { lens: PeoplesLens; label: string }[] = [
   { lens: 'polity', label: 'Political' }, { lens: 'culture', label: 'Culture' }, { lens: 'faith', label: 'Faith' },
   { lens: 'era', label: 'Era' }, { lens: 'descent', label: 'Descent' }, { lens: 'off', label: 'Terrain' },
 ];
-const TIERS = ['village', 'town', 'city', 'metropolis'] as const;
 /** Events shown in the ticker: the notable ones (`importance`), newest first. */
 const TICKER_IMPORTANCE = 0.1, TICKER_LENGTH = 5;
-
-/** People in millions or thousands. */
-const people = (count: number) => count >= 1e6 ? `${(count / 1e6).toFixed(1)} M` : count >= 1e4 ? `${Math.round(count / 1e3)} k` : number.format(count);
 
 /**
  * The game (milestone U; VISION.md "Observer views"). The map is the stage: the top bar keeps time, lenses colour the
@@ -42,6 +40,8 @@ export function Game() {
   const [showTrade, setShowTrade] = useState(true);
   const [showRoads, setShowRoads] = useState(true);
   const [menu, setMenu] = useState(false);
+  // The realm panel's tab, kept while other land is chosen so realms can be compared.
+  const [tab, setTab] = useState<RealmTab>('overview');
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
   const shown = useRef<{ key: string; fresh: boolean }>({ key: '', fresh: false });
   if (world && shown.current.key !== world.worldKey) shown.current = { key: world.worldKey, fresh: shown.current.key !== '' };
@@ -63,6 +63,11 @@ export function Game() {
   const observer = useObserver({ settings: world?.settings ?? null, startFresh: shown.current.fresh, inspect: region?.id ?? null, onFrame: setFrame });
   const names = observer.names;
   const inspected = frame?.inspect && region && frame.inspect.region === region.id ? frame.inspect : null;
+  // The realm last shown stays (dimmed) while newly chosen land is read, so the panel neither flickers nor loses focus.
+  const lastRealm = useRef<NonNullable<ObserverFrame['inspect']> | null>(null);
+  if (inspected?.polity) lastRealm.current = inspected;
+  else if (inspected || !region) lastRealm.current = null;
+  const realmShown = inspected?.polity ? inspected : region ? lastRealm.current : null;
 
   const date = frame ? simulationDate(frame.tick) : null;
   const powers = frame ? frame.civList.slice(0, 10) : [];
@@ -116,19 +121,15 @@ export function Game() {
 
       {(map.cell || map.inspecting) && <aside className="game-panel game-place" aria-label="Selected place">
         <button type="button" className="game-close" aria-label="Close" onClick={map.clearSelection}>×</button>
-        {inspected?.polity ? <RealmSummary polity={inspected.polity} /> : map.cell && <h2 className="game-place-title">{WORLD_BIOME_STYLE[map.cell.biome].label}</h2>}
-        {region && <section aria-label="The region">
-          <h3>Region {region.id}{map.cell ? ` · ${WORLD_BIOME_STYLE[map.cell.biome].label.toLowerCase()}` : ''}</h3>
-          {inspected ? <>
-            {inspected.polity
-              ? <p id="game-region-people">{number.format(inspected.polity.population)} people live here{inspected.people ? `, of the ${inspected.people.culture}` : ''}{inspected.weather.famine ? ', in famine' : ''}.</p>
-              : <p>No one lives here.</p>}
-            {inspected.settlements.filter(settlement => settlement.status === 'alive').length > 0 && <ul className="game-settlements">{inspected.settlements.filter(settlement => settlement.status === 'alive').map(settlement =>
-              <li key={settlement.id}>{settlement.capital ? '★ ' : ''}{settlement.name} <span>{TIERS[settlement.tier]}{settlement.capital ? ', capital' : ''}</span></li>)}</ul>}
-            <p className="game-muted">Last harvest {Math.round(inspected.weather.harvest * 100)}% of the crops{inspected.weather.drought ? ` · drought, ${inspected.weather.drought} months left` : ''}{inspected.fields.cells > 0 ? ` · ${Math.round(inspected.fields.share * 100)}% of its farmland cultivated` : ''}.</p>
-          </> : <p className="game-muted" role="status">Reading the land…</p>}
-        </section>}
+        <div className="game-place-body">
+        {realmShown && region
+          ? <RealmPanel inspected={realmShown} stale={!inspected} region={region} biome={map.cell ? WORLD_BIOME_STYLE[map.cell.biome].label : null} tab={tab} onTab={setTab} names={names} />
+          : <>
+            {map.cell && <h2 className="game-place-title">{WORLD_BIOME_STYLE[map.cell.biome].label}</h2>}
+            {region && <RegionDetail inspected={inspected} region={region} biome={map.cell ? WORLD_BIOME_STYLE[map.cell.biome].label : null} names={names} />}
+          </>}
         {map.cell && !region && <p className="game-muted" role="status">{!regions ? 'Reading the land…' : map.cell.water.kind === 'ocean' ? 'Open sea.' : map.cell.water.kind === 'lake' ? 'A lake.' : 'Land outside the regions.'}</p>}
+        </div>
       </aside>}
 
       {powers.length > 0 && frame && <aside className="game-panel game-powers" aria-label="Great powers">
@@ -168,27 +169,8 @@ function TickerEvent({ event, names }: { event: ChronicleEvent; names: (id: numb
   return <li>
     <span className="game-event-year">{number.format(simulationDate(event.tick).year)}</span>
     <span>{describeEvent(event, names)}</span>
-    {cause && <span className="game-event-cause">{cause.factor.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>}
+    {cause && <span className="game-event-cause">{factorName(cause.factor)}</span>}
   </li>;
-}
-
-type Inspected = NonNullable<ObserverFrame['inspect']>;
-
-/** Who lives in the selected region: the realm (or tribe), as far as U.1 shows it. */
-function RealmSummary({ polity }: { polity: NonNullable<Inspected['polity']> }) {
-  const civ = polity.kind === 'civ';
-  return <section aria-label={civ ? 'Realm' : 'Tribe'} className="game-realm">
-    <div className="game-realm-head">
-      <span className="game-swatch" style={{ backgroundColor: cssColor(polityColor(polity.id)) }} aria-hidden="true" />
-      <h2 id="game-realm-name">The {polity.name}</h2>
-    </div>
-    <p className="game-muted">{civ ? 'Civilization' : 'Tribe'} · {ERA_NAMES[polity.era]} era{polity.capital ? ` · capital ${polity.capital.name}` : ''} · {polity.stateReligion ? `${polity.stateReligion} faith` : 'folk ways'} · the {polity.culture} people</p>
-    <dl className="game-realm-facts">
-      <div><dt>people</dt><dd id="game-realm-people">{people(polity.totalPopulation)}</dd></div>
-      <div><dt>regions</dt><dd>{number.format(polity.regions)}</dd></div>
-      {polity.wealth && <div><dt>treasury</dt><dd>{people(polity.wealth.treasury)}</dd></div>}
-    </dl>
-  </section>;
 }
 
 /** Choosing a world (seed and size), and starting its history again. */
