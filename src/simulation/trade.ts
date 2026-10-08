@@ -5,9 +5,10 @@ import { greatCircleKm } from './geography.ts';
 import { hubCapacity, hubOf } from './hubs.ts';
 import { correct, remember } from './relations.ts';
 import type { Rng } from './rng.ts';
-import type { Polity, SimulationState, TickContext, TradeEnd, Treaty } from './state.ts';
+import type { Polity, SimulationState, TickContext, TradeEnd, TradeTreaty } from './state.ts';
 import { available, refreshAccess } from './supply.ts';
-import { TRADE_TUNING } from './tunables.ts';
+import { roadJoined } from './treaties.ts';
+import { DIPLOMACY_TUNING, TRADE_TUNING } from './tunables.ts';
 import { effectiveValues } from './values.ts';
 
 /**
@@ -19,12 +20,13 @@ import { effectiveValues } from './values.ts';
  */
 
 /** The route between two hubs: its length, whether it goes by sea (two harbors), how far either side's trade reaches,
- *  and what it carries. */
+ *  and what it carries (more once a joint road joins them: M5.5). */
 export function routeOf(state: SimulationState, a: Polity, b: Polity, hubA: number, hubB: number) {
   const tuning = TRADE_TUNING, from = state.settlements[hubA], to = state.settlements[hubB];
   const sea = from.bonus.harbor && to.bonus.harbor, range = Math.max(a.knowledge.multipliers.tradeRange, b.knowledge.multipliers.tradeRange);
   const km = greatCircleKm(state.geography, from.cell, to.cell);
-  return { km, sea, reachKm: (sea ? tuning.seaRangeKm : tuning.rangeKm) * range, capacity: Math.min(hubCapacity(state, hubA), hubCapacity(state, hubB)) };
+  const capacity = Math.min(hubCapacity(state, hubA), hubCapacity(state, hubB)) + (roadJoined(state, a, b) ? DIPLOMACY_TUNING.road.capacity : 0);
+  return { km, sea, reachKm: (sea ? tuning.seaRangeKm : tuning.rangeKm) * range, capacity };
 }
 
 /**
@@ -40,7 +42,7 @@ export const lackOf = (civ: Polity, resource: number) => Math.max(0, civ.demand[
 export function activeTrade(state: SimulationState, exporter: number, importer: number, resource: number) {
   for (let at = state.treaties.length - 1; at >= 0; at--) {
     const treaty = state.treaties[at];
-    if (treaty.endTick === null && treaty.exporter === exporter && treaty.importer === importer && treaty.resource === resource) return treaty;
+    if (treaty.type === 'trade' && treaty.endTick === null && treaty.exporter === exporter && treaty.importer === importer && treaty.resource === resource) return treaty;
   }
   return null;
 }
@@ -81,7 +83,7 @@ export function proposeTrade(state: SimulationState, context: TickContext, rng: 
     remember(state, civ, partner.id, 'refusedTrade');
     return `the ${partner.name} would not trade ${name}`;
   }
-  const treaty: Treaty = {
+  const treaty: TradeTreaty = {
     id: state.treaties.length, type: 'trade', exporter: partner.id, importer: civ.id, resource, amount, barter, barterAmount, price, carry: 0,
     hubs: [hubB, hubA], startTick: context.tick, endTick: null, endCause: null,
   };
@@ -99,7 +101,7 @@ export function proposeTrade(state: SimulationState, context: TickContext, rng: 
 }
 
 /** An agreement's flows join both parties' imports and exports (and their partners). */
-function begin(state: SimulationState, treaty: Treaty) {
+function begin(state: SimulationState, treaty: TradeTreaty) {
   const exporter = state.polities[treaty.exporter], importer = state.polities[treaty.importer];
   exporter.exports[treaty.resource] += treaty.amount; importer.imports[treaty.resource] += treaty.amount;
   if (treaty.barter >= 0) { importer.exports[treaty.barter] += treaty.barterAmount; exporter.imports[treaty.barter] += treaty.barterAmount; }
@@ -108,7 +110,7 @@ function begin(state: SimulationState, treaty: Treaty) {
 }
 
 /** An agreement ends: its flows leave both parties, with an event (unless both parties are gone). */
-export function endTrade(state: SimulationState, treaty: Treaty, cause: TradeEnd, tick: number) {
+export function endTrade(state: SimulationState, treaty: TradeTreaty, cause: TradeEnd, tick: number) {
   const exporter = state.polities[treaty.exporter], importer = state.polities[treaty.importer];
   treaty.endTick = tick; treaty.endCause = cause;
   exporter.exports[treaty.resource] = settle(exporter.exports[treaty.resource] - treaty.amount); importer.imports[treaty.resource] = settle(importer.imports[treaty.resource] - treaty.amount);
@@ -141,13 +143,13 @@ export function tradeMonth(state: SimulationState, context: TickContext) {
   const tuning = TRADE_TUNING;
   for (let at = state.treaties.length - 1; at >= 0; at--) {
     const treaty = state.treaties[at];
-    if (treaty.endTick !== null) continue;
+    if (treaty.type !== 'trade' || treaty.endTick !== null) continue;
     const exporter = state.polities[treaty.exporter], importer = state.polities[treaty.importer];
     if (exporter.exports[treaty.resource] > exporter.supply[treaty.resource] + 1e-9) endTrade(state, treaty, 'noSurplus', context.tick);
     else if (treaty.barter >= 0 && importer.exports[treaty.barter] > importer.supply[treaty.barter] + 1e-9) endTrade(state, treaty, 'unpaid', context.tick);
   }
   for (const treaty of state.treaties) {
-    if (treaty.endTick !== null) continue;
+    if (treaty.type !== 'trade' || treaty.endTick !== null) continue;
     const exporter = state.polities[treaty.exporter], importer = state.polities[treaty.importer];
     if (exporter.deathTick !== null || importer.deathTick !== null) { endTrade(state, treaty, 'partyGone', context.tick); continue; }
     if (treaty.price > 0) {

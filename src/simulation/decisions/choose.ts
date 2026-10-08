@@ -1,6 +1,6 @@
-import type { Candidate, Neighbour, Partner, PolityView, TradeOption } from '../perception.ts';
+import type { Candidate, Neighbour, PactOption, Partner, PolityView, RoadOption, TradeOption } from '../perception.ts';
 import type { Rng } from '../rng.ts';
-import { BUDGET_TUNING, DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from '../tunables.ts';
+import { BUDGET_TUNING, DECISION_TUNING, DIPLOMACY_TUNING, EXPAND_TUNING, EXPLORE_TUNING, NEED_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from '../tunables.ts';
 import { bestBuild, bestRoad, bestWonder } from './build.ts';
 
 /**
@@ -171,6 +171,56 @@ export function bestTrade(view: PolityView): Option | null {
   return best;
 }
 
+/**
+ * Proposing a non-aggression pact or an alliance (VISION.md "Diplomacy and war"; M5.5). A pact: the threat it feels
+ * from the neighbour and its dislike along the border draw it; a peaceful people more, an expansionist one less. An
+ * alliance: the threat it shares with them draws it, and a good opinion, kinship and a shared faith; an expansionist
+ * people likes its hands free.
+ */
+export function pactScore(view: PolityView, option: PactOption): Option {
+  const values = view.values;
+  let parts: Record<string, number>;
+  if (option.kind === 'nonAggression') {
+    const tuning = DIPLOMACY_TUNING.pact;
+    parts = {
+      threat: tuning.threat * option.threat, wariness: tuning.wary * clamp01(-option.opinion / NEED_TUNING.hostileAt),
+      peace: tuning.peace * (1 - values.militarism), ambition: -tuning.ambition * values.expansionism,
+    };
+  } else {
+    const tuning = DIPLOMACY_TUNING.alliance;
+    parts = {
+      threat: tuning.threat * option.threat, opinion: tuning.opinion * option.opinion / 100, kinship: option.kin ? tuning.kin : 0, faith: option.faith ? tuning.faith : 0,
+      independence: -tuning.independence * values.expansionism,
+    };
+  }
+  return {
+    action: option.kind === 'alliance' ? 'alliance' : 'pact', score: Object.values(parts).reduce((sum, value) => sum + value, 0), target: option.partner,
+    label: (option.kind === 'alliance' ? `${option.name} against the ${option.enemyName}` : option.name).slice(0, 40), targets: option.enemy >= 0 ? [option.enemy] : undefined,
+    factors: Object.entries(parts).map(([factor, weight]) => ({ factor, weight: round(weight) })),
+    ...(option.feared ? { beliefs: [{ polity: option.feared.polity, kind: 'strength' as const, estimate: option.feared.strength }] } : {}),
+  };
+}
+
+/** Proposing a road agreement (VISION.md "Roads"; M5.5): a trade partner or ally, its opinion of them and its need for
+ *  roads draw it; what its half would cost against its revenue holds it back. */
+export function roadDealScore(view: PolityView, option: RoadOption): Option {
+  const tuning = DIPLOMACY_TUNING.road;
+  const parts = {
+    base: tuning.base, partner: option.trading || option.allied ? tuning.partner : 0, opinion: tuning.opinion * option.opinion / 100, infrastructure: tuning.need * view.needs.infrastructure,
+    cost: -tuning.cost * option.cost / Math.max(1, view.budget.revenue),
+  };
+  return {
+    action: 'roadAgreement', score: Object.values(parts).reduce((sum, value) => sum + value, 0), target: option.partner, label: option.name,
+    factors: Object.entries(parts).map(([factor, weight]) => ({ factor, weight: round(weight) })),
+  };
+}
+
+const bestOf = <T>(list: readonly T[], score: (entry: T) => Option) => {
+  let best: Option | null = null;
+  for (const entry of list) { const option = score(entry); if (!best || option.score > best.score) best = option; }
+  return best;
+};
+
 /** Every option of this step, best first (Do nothing is always one). */
 export function options(view: PolityView): Option[] {
   const all: Option[] = [{ action: 'nothing', score: DECISION_TUNING.doNothing, target: null, label: null, factors: [{ factor: 'contentment', weight: DECISION_TUNING.doNothing }] }];
@@ -189,7 +239,13 @@ export function options(view: PolityView): Option[] {
   if (road) all.push(road);
   const trade = bestTrade(view);
   if (trade) all.push(trade);
-  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'trade', 'nothing'];
+  const pact = bestOf(view.pacts.filter(option => option.kind === 'nonAggression'), option => pactScore(view, option));
+  if (pact) all.push(pact);
+  const alliance = bestOf(view.pacts.filter(option => option.kind === 'alliance'), option => pactScore(view, option));
+  if (alliance) all.push(alliance);
+  const joint = bestOf(view.roads, option => roadDealScore(view, option));
+  if (joint) all.push(joint);
+  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'trade', 'alliance', 'pact', 'roadAgreement', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }
 

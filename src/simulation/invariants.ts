@@ -223,29 +223,43 @@ export function checkInvariants(state: SimulationState) {
     }
     if (polity.kind === 'civ' && !ledger.wealth.has(id) && polity.wealth !== 0) fail(`civilization ${id}'s treasury changed with no flows recorded`);
   }
-  // Trade (M5.4): active agreements are between two living civilizations with positive amounts through their hubs, and
-  // every civilization's imports, exports and partners are exactly the sums over its active agreements.
-  const imports = new Map<number, Float64Array>(), exports = new Map<number, Float64Array>(), partners = new Map<number, number[]>();
+  // Treaties (M5.4, M5.5): active ones bind two different living civilizations; a trade agreement moves a positive
+  // amount, and every civilization's imports, exports and trading partners are exactly the sums over its active trade
+  // agreements; its pact, alliance and road partners are exactly those of its active pacts, alliances and road
+  // agreements, one of each kind with any other at most.
+  const imports = new Map<number, Float64Array>(), exports = new Map<number, Float64Array>();
+  const partners = { trade: new Map<number, number[]>(), nonAggression: new Map<number, number[]>(), alliance: new Map<number, number[]>(), road: new Map<number, number[]>() };
   const tally = (map: Map<number, Float64Array>, id: number, resource: number, amount: number) => {
     let list = map.get(id);
     if (!list) { list = new Float64Array(RESOURCE_IDS.length); map.set(id, list); }
     list[resource] += amount;
   };
+  const pair = (map: Map<number, number[]>, a: number, b: number) => { map.set(a, [...(map.get(a) ?? []), b]); map.set(b, [...(map.get(b) ?? []), a]); };
+  const isCiv = (id: number) => state.polities[id]?.kind === 'civ';
   for (const treaty of state.treaties) {
     if (treaty.endTick !== null) { if (treaty.endCause === null) fail(`treaty ${treaty.id} ended without a cause`); continue; }
-    const exporter = state.polities[treaty.exporter], importer = state.polities[treaty.importer];
-    if (!exporter || !importer || exporter.kind !== 'civ' || importer.kind !== 'civ' || treaty.exporter === treaty.importer || !(treaty.amount > 0) || !(treaty.resource >= 0 && treaty.resource < RESOURCE_IDS.length)
-      || (treaty.barter >= 0) !== (treaty.barterAmount > 0) || (treaty.barter >= 0) === (treaty.price > 0) || !(treaty.carry >= 0 && treaty.carry < 1)) fail(`treaty ${treaty.id} is invalid ${JSON.stringify(treaty)}`);
-    tally(exports, treaty.exporter, treaty.resource, treaty.amount); tally(imports, treaty.importer, treaty.resource, treaty.amount);
-    if (treaty.barter >= 0) { tally(exports, treaty.importer, treaty.barter, treaty.barterAmount); tally(imports, treaty.exporter, treaty.barter, treaty.barterAmount); }
-    partners.set(treaty.exporter, [...(partners.get(treaty.exporter) ?? []), treaty.importer]); partners.set(treaty.importer, [...(partners.get(treaty.importer) ?? []), treaty.exporter]);
+    if (treaty.type === 'trade') {
+      if (!isCiv(treaty.exporter) || !isCiv(treaty.importer) || treaty.exporter === treaty.importer || !(treaty.amount > 0) || !(treaty.resource >= 0 && treaty.resource < RESOURCE_IDS.length)
+        || (treaty.barter >= 0) !== (treaty.barterAmount > 0) || (treaty.barter >= 0) === (treaty.price > 0) || !(treaty.carry >= 0 && treaty.carry < 1)) fail(`treaty ${treaty.id} is invalid ${JSON.stringify(treaty)}`);
+      tally(exports, treaty.exporter, treaty.resource, treaty.amount); tally(imports, treaty.importer, treaty.resource, treaty.amount);
+      if (treaty.barter >= 0) { tally(exports, treaty.importer, treaty.barter, treaty.barterAmount); tally(imports, treaty.exporter, treaty.barter, treaty.barterAmount); }
+      pair(partners.trade, treaty.exporter, treaty.importer);
+      continue;
+    }
+    const [a, b] = treaty.parties;
+    if (!isCiv(a) || !isCiv(b) || a === b || (treaty.type === 'road' && !(treaty.path.length >= 2 && treaty.cities.every(city => state.settlements[city])))) fail(`treaty ${treaty.id} is invalid ${JSON.stringify(treaty)}`);
+    pair(partners[treaty.type], a, b);
   }
+  const sorted = (list: readonly number[] | undefined) => [...(list ?? [])].sort((x, y) => x - y).join();
   for (const id of state.living) {
     const polity = state.polities[id], mine = imports.get(id), theirs = exports.get(id);
     for (let resource = 0; resource < RESOURCE_IDS.length; resource++) {
       if (Math.abs(polity.imports[resource] - (mine?.[resource] ?? 0)) > 1e-9 || Math.abs(polity.exports[resource] - (theirs?.[resource] ?? 0)) > 1e-9) fail(`polity ${id}'s imports or exports of resource ${resource} are not its agreements'`);
     }
-    if ([...polity.trading].sort((a, b) => a - b).join() !== [...(partners.get(id) ?? [])].sort((a, b) => a - b).join()) fail(`polity ${id}'s trading partners are not its agreements'`);
+    if (sorted(polity.trading) !== sorted(partners.trade.get(id))) fail(`polity ${id}'s trading partners are not its agreements'`);
+    for (const [kind, list] of [['nonAggression', polity.pacts], ['alliance', polity.allies], ['road', polity.roadPartners]] as const) {
+      if (sorted(list) !== sorted(partners[kind].get(id)) || new Set(list).size !== list.length) fail(`polity ${id}'s ${kind} partners are not its treaties'`);
+    }
   }
   // Exact wealth accounting (VISION.md rule 8): every treasury is explained by this tick's flows.
   for (const [id, flows] of ledger.wealth) {

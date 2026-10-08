@@ -250,6 +250,13 @@ function storyHealth(rows: SeedResult[]) {
     const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
     lines.push(`| ${result.seed} | ${each(row => String(row.tradeAgreements))} · ${last.tradeActive} | ${last.tradeOffers} · ${last.tradeRefused} | ${each(row => `${Math.round(row.importsCover * 100)}%`)} | ${last.tradeNeedPassed} · ${last.tradeNoSurplus} · ${last.tradeUnpaid} · ${last.tradeSoured} · ${last.tradeGone} |`);
   }
+  // M5.5 (VISION.md "Diplomacy and war", "Roads"): pacts, alliances, road agreements and cross-border roads.
+  lines.push('', '| Seed | Non-aggression pacts · alliances made by 1,000 / 2,000 / 3,000 (M5: at least one by 2,000) | Active at 3,000: pacts · alliances · road agreements | Road agreements made · cross-border roads completed by 1,000 / 2,000 / 3,000 (M5: one by 2,000 in most seeds) | Refused by 3,000 | Ended by 3,000: relations soured · party gone · road lost |', '| --- | --- | --- | --- | ---: | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    lines.push(`| ${result.seed} | ${each(row => `${row.pactsMade} · ${row.alliancesMade}`)} | ${last.pactsActive} · ${last.alliancesActive} · ${last.roadDealsActive} | ${each(row => `${row.roadDealsMade} · ${row.crossBorderRoads}`)} | ${last.treatiesRefused} | ${last.treatiesSoured} · ${last.treatiesGone} · ${last.roadDealsLost} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');
@@ -300,7 +307,7 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${[1000, 2000, 3000].map(year => { const row = at(year); return row ? `${row.cultivatedCells.toLocaleString('en')} (${Math.round(row.cultivatedShare * 100)}%)` : '—'; }).join(' / ')} | ${last ? `${last.faminesWatched} · ${last.fieldsShrank} · ${last.fieldsRegrew}` : '—'} |`);
   }
   // Story health: the decision mix per century (share of decision steps by chosen action).
-  lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Build | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  lines.push('', '| Seed | Century ending | Decision steps | Expand | Explore | Unite | Share knowledge | Build | Trade | Pacts, alliances, joint roads | Do nothing |', '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[];
     for (let at = 1; at < stats.length; at++) {
@@ -308,10 +315,11 @@ function storyHealth(rows: SeedResult[]) {
       if (row.year > 1000 && row.year % 500 !== 0) continue;
       const expand = row.chosenExpand - previous.chosenExpand, explore = row.chosenExplore - previous.chosenExplore, nothing = row.chosenNothing - previous.chosenNothing;
       const unite = (row.chosenUnite ?? 0) - (previous.chosenUnite ?? 0), sharing = (row.chosenShare ?? 0) - (previous.chosenShare ?? 0), building = (row.chosenBuild ?? 0) - (previous.chosenBuild ?? 0);
-      const total = expand + explore + unite + sharing + building + nothing;
+      const trade = (row.chosenTrade ?? 0) - (previous.chosenTrade ?? 0), treaty = (row.chosenTreaty ?? 0) - (previous.chosenTreaty ?? 0);
+      const total = expand + explore + unite + sharing + building + trade + treaty + nothing;
       if (!total) continue;
       const share = (count: number) => `${(count / total * 100).toFixed(1)}%`;
-      lines.push(`| ${result.seed} | ${row.year} | ${total.toLocaleString('en')} | ${share(expand)} | ${share(explore)} | ${share(unite)} | ${share(sharing)} | ${share(building)} | ${share(nothing)} |`);
+      lines.push(`| ${result.seed} | ${row.year} | ${total.toLocaleString('en')} | ${share(expand)} | ${share(explore)} | ${share(unite)} | ${share(sharing)} | ${share(building)} | ${share(trade)} | ${share(treaty)} | ${share(nothing)} |`);
     }
   }
   // M1 acceptance (VISION.md), read from the same run.

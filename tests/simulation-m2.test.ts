@@ -52,7 +52,8 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
     const before = new Map<number, { tech: number; progress: number; taught: number; caught: number; frontier: number; openness: number; partners: number[]; helped: boolean; all: Float64Array }>();
     for (const id of state.living) {
       const polity = state.polities[id], tech = polity.knowledge.target;
-      const partners = [...polity.exchanges].filter(([other, until]) => until > tick && state.polities[other].deathTick === null).map(([other]) => other);
+      // Who may teach it: peoples sharing with it, and (M5.4, M5.5) its trading partners and allies.
+      const partners = [...[...polity.exchanges].filter(([other, until]) => until > tick && state.polities[other].deathTick === null).map(([other]) => other), ...polity.trading, ...polity.allies];
       before.set(id, {
         tech, progress: tech < 0 ? 0 : polity.knowledge.progress[tech], taught: tech < 0 ? 0 : polity.knowledge.taught[tech], caught: tech < 0 ? 0 : polity.knowledge.caught[tech],
         frontier: polity.frontierEra, openness: state.cultures[polity.culture].values.openness, partners,
@@ -92,8 +93,14 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
       }
       if (event.type !== 'techDiscovered') continue;
       const helped = event.causes.find(cause => cause.factor === 'sharedKnowledge'), teacher = event.actors.find(actor => actor.role === 'teacher');
-      // A discovery helped by a partner names it when the exchange still runs; one never helped names none.
-      if (teacher) { assert.ok(helped && event.data.taught === true); assert.ok(state.polities[event.actors[0].id].exchanges.has(teacher.id)); taughtDiscoveries++; }
+      // A discovery helped by a partner names it while they still share (an exchange; from M5.4 and M5.5 trade or an
+      // alliance); one never helped names none.
+      if (teacher) {
+        const learner = state.polities[event.actors[0].id];
+        assert.ok(helped && event.data.taught === true);
+        assert.ok(learner.exchanges.has(teacher.id) || learner.trading.includes(teacher.id) || learner.allies.includes(teacher.id));
+        taughtDiscoveries++;
+      }
       if (!helped) assert.ok(!teacher && event.data.taught === false);
     }
     if (state.tick % 12 === 0) population.push(worldPopulation(state));
@@ -206,7 +213,10 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   stepSimulation(state);
   const ending = state.chronicle.events.slice(from).filter(event => event.actors[0]?.id === civ.id);
   assert.notEqual(civ.deathTick, null);
-  assert.deepEqual(ending.map(event => event.type), ['civDestroyed'], `all ${villages} villages died in one month: one event`);
+  // (Its treaties end with it, each told: M5.4, M5.5.)
+  const treatiesEnded = ending.filter(event => event.type === 'treatyCancelled');
+  assert.ok(treatiesEnded.every(event => event.causes[0]?.factor === 'partyGone'), 'its treaties end because it is gone');
+  assert.deepEqual(ending.filter(event => event.type !== 'treatyCancelled').map(event => event.type), ['civDestroyed'], `all ${villages} villages died in one month: one event`);
   assert.ok(state.settlements.every(settlement => settlement.owner !== civ.id || settlement.status === 'ruined'));
   // Unions and stability, carried out directly on the same world (after the counts above, which they would change).
   exerciseUnion(state);
@@ -424,7 +434,8 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
   // M5.1: the decision log keeps the beliefs each option weighed, beside the truth; chosen ones are counted.
   const weighed = civs.flatMap(id => state.polities[id].decisions.flatMap(step => step.options.flatMap(option => option.beliefs ?? [])));
   assert.ok(weighed.length > 0, 'unions weigh believed sizes');
-  assert.ok(weighed.every(belief => belief.kind === 'people' && belief.estimate >= 0 && belief.truth >= 0));
+  // (M5.5: pacts and alliances weigh the believed strength of whom they fear.)
+  assert.ok(weighed.every(belief => (belief.kind === 'people' || belief.kind === 'strength') && belief.estimate >= 0 && belief.truth >= 0));
   const chosen = civs.reduce((sum, id) => sum + state.polities[id].decisions.filter(step => step.options[step.pick].beliefs?.length).length, 0);
   assert.ok(state.metrics.beliefDecisions >= chosen && state.metrics.beliefsFarOff <= state.metrics.beliefDecisions);
   // M5.2: every logged step keeps the effective values and needs it weighed (0–1), and at least two causes whenever two

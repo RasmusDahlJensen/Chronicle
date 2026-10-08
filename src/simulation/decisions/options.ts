@@ -1,5 +1,5 @@
 /** The shapes every decision option shares (VISION.md "Decision step"), in a module of their own so each choice can use them. */
-export type Action = 'expand' | 'explore' | 'nothing' | 'unite' | 'share' | 'build' | 'trade';
+export type Action = 'expand' | 'explore' | 'nothing' | 'unite' | 'share' | 'build' | 'trade' | 'pact' | 'alliance' | 'roadAgreement';
 export interface Factor { factor: string; weight: number }
 /** One option of a decision step: for Build, `target` is the building type (with `wonder`, the wonder type; with `road`,
  *  the road tier) and `targets` the settlements (for a road, the towns and cities it would reach). */

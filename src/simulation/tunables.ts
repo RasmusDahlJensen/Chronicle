@@ -634,7 +634,7 @@ export const RELATION_TUNING = {
   biasSpread: 0.5, biasMin: -0.7, biasMax: 2,
   rise: 0.08, fade: 0.03, border: 0.5, contact: 0.2, exchange: 0.3,
   sameFaith: 25, rivalFaith: 30, culture: 30, culturePivot: 0.85, kin: 10, sharing: 15, borderTension: 40, borderScale: 4, correction: 0.3,
-  memories: { turnedAway: { points: -20, halfLifeYears: 25 }, refusedExchange: { points: -10, halfLifeYears: 15 }, refusedTrade: { points: -10, halfLifeYears: 15 } },
+  memories: { turnedAway: { points: -20, halfLifeYears: 25 }, refusedExchange: { points: -10, halfLifeYears: 15 }, refusedTrade: { points: -10, halfLifeYears: 15 }, refusedTreaty: { points: -5, halfLifeYears: 10 }, treatySoured: { points: -5, halfLifeYears: 15 } },
   forgetBelow: 1, reasonCount: 3,
 } as const;
 
@@ -694,6 +694,40 @@ export const TRADE_TUNING = {
   price: 400_000, need: 0.4, opinionWeight: 0.1, openness: 0.1, distance: 0.1, cost: 0.5,
   accept: { base: 0.6, gain: 2, opinion: 0.3, openness: 0.3, tradition: 0.3 },
   intimacy: 0.3, opinion: 15, faithDraw: 0.2, cancelOpinion: -50, refusedYears: 15,
+} as const;
+
+/**
+ * Pacts, alliances and road agreements (VISION.md "Diplomacy and war", "Roads"; M5.5). Opinions are −100 to 100 and
+ * enter as ÷ 100; threats are the need's per-neighbour threat (0–1).
+ * - Non-aggression pact, proposed to a neighbour (its land touches its own): score = threat × the threat it feels from
+ *   them + wary × its dislike of them (÷ NEED_TUNING.hostileAt, 0–1) + peace × (1 − its Militarism) − ambition × its
+ *   Expansionism. The partner accepts if accept.base + accept.threat × its own fear of the proposer + accept.pressed ×
+ *   the largest threat it feels from any other + accept.opinion × its opinion + accept.peace × (1 − its Militarism) −
+ *   accept.ambition × its Expansionism > 0. The threat felt from a pact partner is × (1 − calm).
+ * - Defensive alliance, proposed to a civilization it has met that, as far as it knows, borders a neighbour it feels
+ *   threatened by (the common threat; never a pact partner of its own, nor one the other is bound to by a pact or an
+ *   alliance) and that it thinks at least minOpinion of: score = threat × that threat + opinion
+ *   × its opinion + kin (same lineage) + faith (same state religion) − independence × its Expansionism. The partner
+ *   accepts if accept.base + accept.threat × its own fear of the common enemy + accept.opinion × its opinion + kin +
+ *   faith > 0. An ally poses no threat, and `strength` × an ally's believed strength counts beside its own.
+ * - Road agreement, proposed to an ally or trade partner whose land touches its own when a joint road could be built
+ *   (`roads.ts` `jointRoute`): score = base + partner + opinion × its opinion + need × its infrastructure need − cost ×
+ *   its own stretch's cost ÷ its revenue. The partner accepts on the same terms from its side (accept.*, with its own
+ *   stretch's cost and its own infrastructure need). A completed joint road adds `capacity` to the trade routes between
+ *   them.
+ * - Effects: the intimacy target rises by intimacy.* and opinion by opinion.* points for each such treaty.
+ * - Ending (yearly per treaty): opinion on either side below end.*, so none is proposed or accepted below it either. A
+ *   refusal is remembered (`refusedTreaty`), and a treaty that soured by both (`treatySoured`); no treaty is proposed
+ *   to that people again for refusedYears.
+ */
+export const DIPLOMACY_TUNING = {
+  pact: { threat: 0.5, wary: 0.08, peace: 0.05, ambition: 0.06, calm: 0.5, accept: { base: 0.05, threat: 0.4, pressed: 0.2, opinion: 0.3, peace: 0.1, ambition: 0.15 } },
+  alliance: { threat: 0.5, opinion: 0.15, kin: 0.05, faith: 0.05, independence: 0.06, minOpinion: 0, strength: 0.5, accept: { base: -0.05, threat: 0.5, opinion: 0.3, kin: 0.05, faith: 0.05 } },
+  road: { base: 0.02, partner: 0.04, opinion: 0.06, need: 0.1, cost: 0.5, capacity: 1, accept: { base: 0.02, partner: 0.04, opinion: 0.06, need: 0.1, cost: 0.5 } },
+  intimacy: { pact: 0.1, alliance: 0.3, road: 0.2 },
+  opinion: { pact: 8, alliance: 15, road: 5 },
+  end: { pact: -60, alliance: -10, road: -40 },
+  refusedYears: 20,
 } as const;
 
 /** Story health measures (VISION.md "Story health"): the largest polity's share of the world's people it may hold except
@@ -831,6 +865,11 @@ export function validateTunables() {
   if (!([tr.baseCapacity, tr.market, tr.harbor, tr.rangeKm, tr.seaRangeKm, tr.price, tr.need, tr.opinionWeight, tr.openness, tr.distance, tr.cost, tr.intimacy, tr.opinion, tr.faithDraw].every(value => value >= 0) && tr.baseCapacity > 0 && tr.price > 0
     && Number.isInteger(tr.resources) && tr.resources >= 1 && tr.minShort > 0 && tr.minShort < 1 && tr.minAmount > 0 && tr.spare > 0 && tr.spare <= 1 && tr.cancelOpinion >= -100 && tr.cancelOpinion <= 0 && tr.refusedYears > 0
     && Object.values(tr.accept).every(value => value >= 0))) problems.push('trade settings are invalid');
+  const dp = DIPLOMACY_TUNING;
+  const numbers = (entry: object): number[] => Object.values(entry).flatMap(value => typeof value === 'number' ? [value] : numbers(value as object));
+  if (!(numbers(dp).every(Number.isFinite) && [dp.pact, dp.alliance, dp.road].every(entry => Object.entries(entry).every(([key, value]) => key === 'accept' || key === 'minOpinion' || (value as number) >= 0))
+    && dp.pact.calm <= 1 && dp.alliance.strength <= 1 && dp.alliance.minOpinion >= -100 && dp.alliance.minOpinion <= 100
+    && Object.values(dp.end).every(value => value >= -100 && value <= 100) && Object.values(dp.intimacy).every(value => value >= 0 && value <= 1) && dp.refusedYears > 0)) problems.push('diplomacy settings are invalid');
   const rs = RESOURCE_TUNING;
   if (!(rs.peoplePerSite > 0 && rs.siteUnits > 0 && rs.forestKm2 > 0 && rs.roughKm2 > 0 && rs.floor >= 0 && rs.floor <= 1)) problems.push('resource settings are invalid');
   const nt = NEED_TUNING;

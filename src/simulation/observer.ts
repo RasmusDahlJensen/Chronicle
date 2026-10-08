@@ -12,7 +12,8 @@ import { polityPopulation } from './bands.ts';
 import { believe, capitalKm, knownRegionCount } from './perception.ts';
 import { available, metFor } from './supply.ts';
 import { stabilityOf } from './stability.ts';
-import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState } from './state.ts';
+import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TradeTreaty } from './state.ts';
+import { treatyBetween } from './treaties.ts';
 import { ancestry, lineOf } from './culture.ts';
 import { TRAITS } from './traits.ts';
 import { TENETS } from './religions.ts';
@@ -77,7 +78,7 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
   for (const road of state.roads.values()) { roads.a.push(road.a); roads.b.push(road.b); roads.tiers.push(road.tier); roads.bridges.push(road.bridge ? 1 : 0); roads.conditions.push(Math.round(road.condition * 100)); }
   const trades = { from: [] as number[], to: [] as number[], resources: [] as number[], sea: [] as number[] };
   for (const treaty of state.treaties) {
-    if (treaty.endTick !== null) continue;
+    if (treaty.type !== 'trade' || treaty.endTick !== null) continue;
     const from = state.settlements[treaty.hubs[0]], to = state.settlements[treaty.hubs[1]];
     trades.from.push(from.cell); trades.to.push(to.cell); trades.resources.push(treaty.resource); trades.sea.push(from.bonus.harbor && to.bonus.harbor ? 1 : 0);
   }
@@ -111,6 +112,28 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
 const round = (value: number, digits = 3) => Math.round(value * 10 ** digits) / 10 ** digits;
 /** Three significant digits (resource units run from thousandths to hundreds). */
 const significant = (value: number) => value === 0 ? 0 : Number(value.toPrecision(3));
+
+/**
+ * A people's standing with a civilization (VISION.md "Civ panel"; M5.5): allied, non-aggression pact or trade partner
+ * by the strongest treaty between them now (and the year it began), else a rival at an opinion of −50 or below, else
+ * neutral; and every kind of treaty between them now.
+ */
+function standingOf(state: SimulationState, polity: Polity, other: number, opinion: number) {
+  const agreements: ('alliance' | 'nonAggression' | 'road' | 'trade')[] = [];
+  if (polity.allies.includes(other)) agreements.push('alliance');
+  if (polity.pacts.includes(other)) agreements.push('nonAggression');
+  if (polity.roadPartners.includes(other)) agreements.push('road');
+  if (polity.trading.includes(other)) agreements.push('trade');
+  const since = (kind: 'alliance' | 'nonAggression') => { const treaty = treatyBetween(state, kind, polity.id, other); return treaty ? Math.floor(treaty.startTick / 12) : null; };
+  if (agreements.includes('alliance')) return { status: 'allied' as const, agreements, since: since('alliance') };
+  if (agreements.includes('nonAggression')) return { status: 'pact' as const, agreements, since: since('nonAggression') };
+  if (agreements.includes('trade')) {
+    let first: number | null = null;
+    for (const treaty of state.treaties) if (treaty.type === 'trade' && treaty.endTick === null && ((treaty.exporter === polity.id && treaty.importer === other) || (treaty.importer === polity.id && treaty.exporter === other))) first = Math.min(first ?? treaty.startTick, treaty.startTick);
+    return { status: 'trade' as const, agreements, since: first === null ? null : Math.floor(first / 12) };
+  }
+  return { status: opinion <= -50 ? 'rival' as const : 'neutral' as const, agreements, since: null };
+}
 
 function inspectRegion(state: SimulationState, region: number, living: Map<number, { regions: number; population: number }>): ObserverFrame['inspect'] {
   if (!Number.isInteger(region) || region < 0 || region >= state.partition.regions.length) return null;
@@ -147,17 +170,18 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       lastDecision: lastDecision(polity),
       resources: polity.kind !== 'civ' ? [] : RESOURCE_IDS.flatMap((resource, at) => polity.supply[at] > 0 || polity.demand[at] > 0 || polity.imports[at] > 0
         ? [{ resource, supply: significant(available(polity, at)), demand: significant(polity.demand[at]), met: round(metFor(polity, at)) }] : []),
-      treaties: polity.kind !== 'civ' ? [] : state.treaties.filter(treaty => treaty.endTick === null && (treaty.exporter === polity.id || treaty.importer === polity.id)).slice(0, 32).map(treaty => ({
+      treaties: polity.kind !== 'civ' ? [] : state.treaties.filter((treaty): treaty is TradeTreaty => treaty.type === 'trade' && treaty.endTick === null && (treaty.exporter === polity.id || treaty.importer === polity.id)).slice(0, 32).map(treaty => ({
         partner: state.polities[treaty.exporter === polity.id ? treaty.importer : treaty.exporter].name, resource: RESOURCE_IDS[treaty.resource], amount: significant(treaty.amount), imports: treaty.importer === polity.id,
         barter: treaty.barter >= 0 ? RESOURCE_IDS[treaty.barter] : null, barterAmount: significant(treaty.barterAmount), price: treaty.price, since: Math.floor(treaty.startTick / 12),
       })),
       diplomacy: polity.kind !== 'civ' ? [] : [...polity.relations].filter(([other]) => state.polities[other].deathTick === null)
         .sort((a, b) => b[1].intimacy - a[1].intimacy || b[1].opinion - a[1].opinion || a[0] - b[0]).slice(0, 24).map(([other, relation]) => {
           const them = state.polities[other];
+          const met = Math.floor((polity.met.get(other) ?? 0) / 12), standing = standingOf(state, polity, other, relation.opinion);
           return {
             id: other, name: them.name, kind: them.kind, opinion: relation.opinion, reasons: relation.reasons.slice(0, 4), intimacy: round(relation.intimacy),
             people: Math.round(believe(state, polity, them, 'people').estimate), strength: Math.round(believe(state, polity, them, 'strength').estimate),
-            sharing: (polity.exchanges.get(other) ?? 0) > state.tick, met: Math.floor((polity.met.get(other) ?? 0) / 12),
+            sharing: (polity.exchanges.get(other) ?? 0) > state.tick, met, status: standing.status, agreements: standing.agreements, since: standing.since ?? met,
           };
         }),
       stability: polity.kind !== 'civ' ? null : (() => {

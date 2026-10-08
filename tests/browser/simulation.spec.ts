@@ -266,6 +266,9 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(relations.getByRole('listitem').first()).toContainText(inspected.diplomacy[0].name);
   await expect(relations.getByRole('listitem').first()).toContainText(`intimacy ${inspected.diplomacy[0].intimacy.toFixed(2)}`);
   await expect(relations).toContainText(/opinion [+-]?\d+/);
+  // M5.5: each people's standing (allied, pact, trade partner, rival or neutral) and its treaties.
+  const standing = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' } as const;
+  await expect(relations.getByRole('listitem').first()).toContainText(standing[inspected.diplomacy[0].status as keyof typeof standing]);
   // The political map marks capitals with stars, and the civilization list takes the observer to one.
   await expect.poll(async () => Number(await canvas.getAttribute('data-capital-marks'))).toBeGreaterThan(0);
   const civilizations = history(page).getByRole('list', { name: 'Civilizations' });

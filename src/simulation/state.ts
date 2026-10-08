@@ -138,21 +138,42 @@ export interface Polity {
   imports: Float64Array; exports: Float64Array;
   /** The civilizations it trades with now, once per active agreement (M5.4). */
   trading: number[];
+  /** The civilizations it has a non-aggression pact, an alliance and a road agreement with now (M5.5; `diplomacy.ts`
+   *  keeps them in step with the treaties). */
+  pacts: number[]; allies: number[]; roadPartners: number[];
 }
 
 /**
- * A treaty (VISION.md "Data model": type, parties, terms, start and end). M5.4's trade agreement: `exporter` sends
- * `amount` units a year of `resource` to `importer` through their hubs (settlement ids), paid by `barter` units a year
- * of another resource the other way (−1: none) or by `price` wealth a year (paid monthly; `carry` is the fraction of a
- * unit not yet paid). Ended treaties are kept with their end tick and cause.
+ * A treaty (VISION.md "Data model": type, parties, terms, start and end), by id (its index in `state.treaties`).
+ * Ended treaties are kept with their end tick and cause.
+ *
+ * M5.4's trade agreement: `exporter` sends `amount` units a year of `resource` to `importer` through their hubs
+ * (settlement ids), paid by `barter` units a year of another resource the other way (−1: none) or by `price` wealth a
+ * year (paid monthly; `carry` is the fraction of a unit not yet paid).
  */
-export interface Treaty {
+export interface TradeTreaty {
   id: number; type: 'trade'; exporter: number; importer: number; resource: number; amount: number;
   barter: number; barterAmount: number; price: number; carry: number;
   hubs: [number, number]; startTick: number; endTick: number | null; endCause: TradeEnd | null;
 }
+/** M5.5's non-aggression pact or defensive alliance between two civilizations (the proposer first). */
+export interface Pact {
+  id: number; type: 'nonAggression' | 'alliance'; parties: [number, number]; startTick: number; endTick: number | null; endCause: PactEnd | null;
+}
+/**
+ * M5.5's road agreement: a road between the two parties' nearest towns or cities (`cities`, the proposer's first)
+ * along `path` (regions, from the proposer's city), each side building its own stretch (`built`: each side's done).
+ */
+export interface RoadAgreement {
+  id: number; type: 'road'; parties: [number, number]; cities: [number, number]; path: number[]; built: [boolean, boolean];
+  startTick: number; endTick: number | null; endCause: PactEnd | null;
+}
+export type Treaty = TradeTreaty | Pact | RoadAgreement;
 export const TRADE_ENDS = ['needPassed', 'noSurplus', 'unpaid', 'relationsSoured', 'partyGone'] as const;
 export type TradeEnd = typeof TRADE_ENDS[number];
+/** How a pact, an alliance or a road agreement ends (`routeLost`: its road can no longer be built). */
+export const PACT_ENDS = ['relationsSoured', 'partyGone', 'routeLost'] as const;
+export type PactEnd = typeof PACT_ENDS[number];
 
 /**
  * How one people sees another (M5.1): how intimate they are (0–1: how well it knows them; its beliefs' bias shrinks as
@@ -164,11 +185,11 @@ export interface Relation {
   intimacy: number; opinion: number; reasons: { factor: string; weight: number }[];
   memories: { reason: MemoryReason; points: number; tick: number }[];
 }
-export const MEMORY_REASONS = ['turnedAway', 'refusedExchange', 'refusedTrade'] as const;
+export const MEMORY_REASONS = ['turnedAway', 'refusedExchange', 'refusedTrade', 'refusedTreaty', 'treatySoured'] as const;
 export type MemoryReason = typeof MEMORY_REASONS[number];
 
-export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build', 'trade'] as const;
-export type Action = typeof ACTIONS[number];
+export { DECISION_ACTIONS as ACTIONS } from '../../shared/simulation.ts';
+export type Action = typeof import('../../shared/simulation.ts').DECISION_ACTIONS[number];
 
 /** One decision step: every option with its score and the factors behind it, best first, and the one chosen (its
  *  action and its index among the options: Build can be weighed as a building, a wonder and roads at once). */
@@ -265,11 +286,14 @@ export interface Road { a: number; b: number; tier: number; bridge: boolean; con
 /**
  * A road under construction for a civilization: from its capital to one of its towns or cities along `path` (regions,
  * capital's first), at `tier`; the edges it builds or improves (as region pairs, each `a` < `b`), the bridges among
- * them, the wealth spent so far of its cost, the months it takes, and why it was begun.
+ * them, the wealth spent so far of its cost, the months it takes, and why it was begun. Its stretch of a joint road
+ * (M5.5) names the road agreement (`agreement`, a treaty id): then it runs from its own city to the partner's along
+ * the agreement's path, and builds only the edges that are its own to build.
  */
 export interface RoadWork {
   from: number; to: number; path: number[]; tier: number; edges: [number, number][]; bridges: number;
   spent: number; cost: number; months: number; startedTick: number; causes: { factor: string; weight: number }[];
+  agreement?: number;
 }
 
 /** Each region's farmland cells ranked once (`fields.ts` `rankFarmland`). */
@@ -329,6 +353,8 @@ export interface CenturyStats {
   firstContacts: number; civKnownRegions: number;
   /** Decision steps so far by chosen action, expansions, bands absorbed or displaced by them, and expeditions. */
   chosenExpand: number; chosenExplore: number; chosenNothing: number; chosenUnite: number; chosenShare: number; chosenBuild: number;
+  /** Trade proposals (M5.4) and pact, alliance and road proposals (M5.5) chosen so far. */
+  chosenTrade: number; chosenTreaty: number;
   /** Civilizations that united with a larger one so far. */
   unions: number;
   expansions: number; absorbed: number; displaced: number; expeditions: number;
@@ -411,6 +437,10 @@ export interface CenturyStats {
    *  civilizations' shortfall that imports cover now, and agreements ended so far by cause. */
   tradeAgreements: number; tradeActive: number; tradeOffers: number; tradeRefused: number; importsCover: number;
   tradeNeedPassed: number; tradeNoSurplus: number; tradeUnpaid: number; tradeSoured: number; tradeGone: number;
+  /** Pacts, alliances and road agreements (M5.5): made so far and active now, by type; proposals refused so far;
+   *  cross-border roads completed so far; and those ended so far by cause. */
+  pactsMade: number; pactsActive: number; alliancesMade: number; alliancesActive: number; roadDealsMade: number; roadDealsActive: number;
+  treatiesRefused: number; crossBorderRoads: number; treatiesSoured: number; treatiesGone: number; roadDealsLost: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -502,6 +532,8 @@ export interface Metrics {
   resourceExpansions: number;
   /** Trade (M5.4): proposals made and refused, agreements made, and agreements ended by cause. */
   tradeOffers: number; tradeRefused: number; tradeAgreements: number; tradeEnded: Record<TradeEnd, number>;
+  /** (M5.5) */
+  pactsMade: number; alliancesMade: number; roadDealsMade: number; treatiesRefused: number; crossBorderRoads: number; pactEnded: Record<PactEnd, number>;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;

@@ -13,7 +13,7 @@ import { judge, remember } from '../src/simulation/relations.ts';
 import { teacherOf } from '../src/simulation/research.ts';
 import type { Rng } from '../src/simulation/rng.ts';
 import { createSimulation, stepSimulation } from '../src/simulation/simulation.ts';
-import type { Polity, SimulationState, TickContext, TradeEnd, Treaty } from '../src/simulation/state.ts';
+import type { Polity, SimulationState, TickContext, TradeEnd, TradeTreaty } from '../src/simulation/state.ts';
 import { accessOf, available, landStock, refreshAccess } from '../src/simulation/supply.ts';
 import { TECHS } from '../src/simulation/techs.ts';
 import { activeTrade, lackOf, proposeTrade, routeOf, spareOf, tradeMonth } from '../src/simulation/trade.ts';
@@ -68,10 +68,10 @@ const inReach = (civ: Polity) => { civ.knowledge = { ...civ.knowledge, multiplie
 const events = (state: SimulationState, type: string) => { state.chronicle.flush(state.tick); return state.chronicle.events.filter(event => event.type === type); };
 const agree = (state: SimulationState, context: TickContext, a: Polity, b: Polity, resource = COPPER) => {
   assert.match(proposeTrade(state, context, yes, a, b, resource, []), /^trades for/);
-  return state.treaties.at(-1)!;
+  return state.treaties.at(-1) as TradeTreaty;
 };
 // The next tick its yearly review falls on.
-const reviewTick = (treaty: Treaty, from: number) => from + 1 + ((treaty.id - from - 1) % 12 + 12) % 12;
+const reviewTick = (treaty: TradeTreaty, from: number) => from + 1 + ((treaty.id - from - 1) % 12 + 12) % 12;
 
 test('acceptance needs a true surplus; the terms respect shortfall, what is spared and capacity; a refusal is remembered', () => {
   const { state, a, b, context } = market();

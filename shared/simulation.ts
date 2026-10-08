@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 29;
+export const SIMULATION_PROTOCOL_VERSION = 30;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -47,6 +47,11 @@ export const VALUE_NAMES = ['militarism', 'zeal', 'openness', 'tradition', 'expa
 export const NEED_NAMES = ['hunger', 'landPressure', 'shortage', 'threat', 'unrest', 'friction', 'opportunity', 'grievance', 'infrastructure'] as const;
 /** What one people believes of another (VISION.md "Beliefs about other polities"): their population, strength, wealth and era. */
 export const BELIEF_KINDS = ['people', 'strength', 'wealth', 'era'] as const;
+/** What a civilization can decide at its decision step (M5.5 added proposing a pact, an alliance or a joint road). */
+export const DECISION_ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build', 'trade', 'pact', 'alliance', 'roadAgreement'] as const;
+/** A people's standing with a civilization in its Diplomacy (VISION.md "Civ panel"; M5.5), and the treaties it may hold. */
+export const DIPLOMATIC_STATUSES = ['allied', 'pact', 'trade', 'rival', 'neutral'] as const;
+export const AGREEMENT_KINDS = ['alliance', 'nonAggression', 'road', 'trade'] as const;
 const OriginSchema = Type.Union([Type.Literal('founding'), Type.Literal('breakaway'), Type.Literal('split'), Type.Literal('hybrid')]);
 const ValuesSchema = Type.Object(Object.fromEntries(VALUE_NAMES.map(key => [key, Type.Number({ minimum: 0, maximum: 1 })])) as Record<typeof VALUE_NAMES[number], ReturnType<typeof Type.Number>>, { additionalProperties: false });
 /**
@@ -281,7 +286,7 @@ export const ObserverFrameSchema = Type.Object({
       /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
        *  action, and its index among the options: the chosen option is always among the best three) and what came of it. */
       lastDecision: Type.Union([Type.Null(), Type.Object({
-        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build'), Type.Literal('trade')]),
+        tick: Type.Integer({ minimum: 0 }), chosen: Type.Enum(DECISION_ACTIONS),
         pick: Type.Integer({ minimum: 0, maximum: 3 }),
         outcome: Type.String({ maxLength: 80 }),
         /** The effective values it decided by, its needs as it saw them (each 0–1) and the causes it logged (M5.2). */
@@ -289,7 +294,7 @@ export const ObserverFrameSchema = Type.Object({
         needs: Type.Object(Object.fromEntries(NEED_NAMES.map(need => [need, Type.Number({ minimum: 0, maximum: 1 })])) as Record<typeof NEED_NAMES[number], ReturnType<typeof Type.Number>>, { additionalProperties: false }),
         causes: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
         options: Type.Array(Type.Object({
-          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build'), Type.Literal('trade')]), score: Type.Number(),
+          action: Type.Enum(DECISION_ACTIONS), score: Type.Number(),
           /** The region to expand into, the civilization to unite or share knowledge with (and that people's name), or for
            *  Build the building type, the wonder type or the road tier (and what is built where, as the label). */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
@@ -318,6 +323,9 @@ export const ObserverFrameSchema = Type.Object({
         reasons: Type.Array(Type.Object({ factor: Type.String({ maxLength: 32 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
         intimacy: Type.Number({ minimum: 0, maximum: 1 }), people: Type.Integer({ minimum: 0 }), strength: Type.Integer({ minimum: 0 }),
         sharing: Type.Boolean(), met: Type.Integer({ minimum: 0 }),
+        /** (M5.5) Its standing (allied, non-aggression pact, trade partner, rival at an opinion of −50 or below, else
+         *  neutral), the treaties between them now, and the year the standing began (its treaty's, else when they met). */
+        status: Type.Enum(DIPLOMATIC_STATUSES), agreements: Type.Array(Type.Enum(AGREEMENT_KINDS), { maxItems: 4 }), since: Type.Integer({ minimum: 0 }),
       }, { additionalProperties: false }), { maxItems: 24 }),
       /** A civilization's budget (null for a tribe; VISION.md "Wealth"): its treasury, the share of its people's output
        *  it takes in taxes, its revenue a year (taxes on trades and on farmers' surplus, and what its sites pay), its

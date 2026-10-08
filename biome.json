@@ -151,7 +151,9 @@
                       "Partner",
                       "JoinView",
                       "JoinOption",
-                      "TradeOption"
+                      "TradeOption",
+                      "PactOption",
+                      "RoadOption"
                     ]
                   }
                 },

@@ -1,4 +1,5 @@
 import { ROAD_TIER_NAMES } from '../../shared/simulation.ts';
+import { greatCircleKm } from './geography.ts';
 import { CostHeap } from './heap.ts';
 import type { Knowledge } from './knowledge.ts';
 import type { RegionEdge } from './regions.ts';
@@ -90,8 +91,12 @@ export function keeperOf(state: SimulationState, road: Road) {
   return first >= 0 ? first : state.owner[road.b];
 }
 
-/** Whether a road goes unkept: it leads into a region its realm lets go unkept (`budget.ts` `deferMaintenance`). */
-export const roadUnkept = (state: SimulationState, road: Road) => state.neglected[road.a] === 1 || state.neglected[road.b] === 1;
+/** Whether a road goes unkept: it leads into a region its keeper lets go unkept (`budget.ts` `deferMaintenance`). A
+ *  road across a border (M5.5's joint roads) wears only by its keeper's own neglect, not by its neighbour's. */
+export function roadUnkept(state: SimulationState, road: Road) {
+  const keeper = keeperOf(state, road);
+  return (state.neglected[road.a] === 1 && state.owner[road.a] === keeper) || (state.neglected[road.b] === 1 && state.owner[road.b] === keeper);
+}
 
 /** The upkeep a year of the roads a civilization keeps up: all it holds with `all`, else not those it lets go unkept. */
 export function roadUpkeepOf(state: SimulationState, civ: Polity, all = false) {
@@ -185,6 +190,95 @@ export function roadRoutes(state: SimulationState, civ: Polity, tier: number): R
     routes.push(route);
   }
   return routes;
+}
+
+/** The towns and cities (tier ≥ 1) a civilization holds in regions it keeps up, as settlement ids. */
+function townsOf(state: SimulationState, civ: Polity) {
+  const towns: number[] = [];
+  for (const groupId of civ.groups) {
+    const region = state.groups[groupId].region;
+    if (state.neglected[region]) continue;
+    for (const settlement of livingSettlements(state, region)) if (settlement.tier >= 1 && settlement.owner === civ.id) towns.push(settlement.id);
+  }
+  return towns;
+}
+
+/** The nearest pair of towns or cities of two civilizations in regions they keep up (great-circle; ties to the first
+ *  found), with their distance, or null when either has none. */
+export function nearestTowns(state: SimulationState, a: Polity, b: Polity) {
+  let best: { cities: [number, number]; km: number } | null = null;
+  const theirs = townsOf(state, b);
+  if (!theirs.length) return null;
+  for (const mine of townsOf(state, a)) for (const other of theirs) {
+    const km = greatCircleKm(state.geography, state.settlements[mine].cell, state.settlements[other].cell);
+    if (!best || km < best.km) best = { cities: [mine, other], km };
+  }
+  return best;
+}
+
+/** One side's stretch of a joint road: the edges it builds (as [lower region, higher region]), its bridges, and what
+ *  it costs, the months it takes and the upkeep a year it adds. */
+export interface Stretch { edges: [number, number][]; bridges: number; cost: number; months: number; upkeep: number }
+
+/**
+ * A joint road between two civilizations (VISION.md "Roads": allies and trade partners build joint roads between their
+ * nearest cities, each side its own half; M5.5): the cheapest way from `a`'s nearest town or city to `b`'s through their
+ * two lands only (stretches already served count for little), and each side's stretch at its own best road tier. An
+ * edge is built by whoever keeps it (`keeperOf`: the holder of its lower region), so the stretch across the border is
+ * the keeper's; edges a side is already building are left to that work. Never through a region its holder lets go
+ * unkept. Null when either knows no roads, has no town or city it keeps up, their lands do not join, or the way is
+ * already built (or being built) at both tiers.
+ */
+export function jointRoute(state: SimulationState, a: Polity, b: Polity) {
+  const tiers = [knownRoadTier(a.knowledge), knownRoadTier(b.knowledge)] as const;
+  if (!tiers[0] || !tiers[1]) return null;
+  const towns = nearestTowns(state, a, b);
+  if (!towns) return null;
+  const regions = state.partition.regions, n = regions.length, low = Math.min(tiers[0], tiers[1]);
+  if (routeStamp.length !== n) { routeStamp = new Int32Array(n); routeCost = new Float64Array(n); routeFrom = new Int32Array(n); servedStamp = new Int32Array(n); routeMark = 0; }
+  routeMark++;
+  const origin = state.settlements[towns.cities[0]].region, goal = state.settlements[towns.cities[1]].region;
+  // Edges either side is already building at its tier or better count as served, and are not built twice.
+  const pending = [new Set<number>(), new Set<number>()];
+  [a, b].forEach((civ, side) => { for (const work of civ.roadWorks) if (work.tier >= tiers[side]) for (const [x, y] of work.edges) pending[side].add(x * n + y); });
+  const building = (key: number) => pending[0].has(key) || pending[1].has(key);
+  routeStamp[origin] = routeMark; routeCost[origin] = 0; routeFrom[origin] = -1;
+  routeHeap.clear(); routeHeap.push(0, origin);
+  while (routeHeap.size) {
+    routeHeap.take();
+    const at = routeHeap.cost, region = routeHeap.item;
+    if (at > routeCost[region]) continue;
+    if (region === goal) break;
+    for (const edge of regions[region].neighbors) {
+      // Through their two lands, and not through a region its holder lets go unkept (no work goes on there).
+      const owner = state.owner[edge.region];
+      if ((owner !== a.id && owner !== b.id) || state.neglected[edge.region]) continue;
+      const key = roadKey(n, region, edge.region), travel = edgeTravel(state, region, edge);
+      const through = at + (building(key) || serves(state.roads.get(key), edge, low) ? BUILD_TUNING.roadReuse * travel : travel);
+      if (routeStamp[edge.region] === routeMark && routeCost[edge.region] <= through) continue;
+      routeStamp[edge.region] = routeMark; routeCost[edge.region] = through; routeFrom[edge.region] = region;
+      routeHeap.push(through, edge.region);
+    }
+  }
+  if (routeStamp[goal] !== routeMark) return null;
+  const path = [goal];
+  for (let at = routeFrom[goal]; at >= 0; at = routeFrom[at]) path.push(at);
+  path.reverse();
+  const sides: [Stretch, Stretch] = [{ edges: [], bridges: 0, cost: 0, months: 0, upkeep: 0 }, { edges: [], bridges: 0, cost: 0, months: 0, upkeep: 0 }];
+  let km = 0;
+  for (let at = 1; at < path.length; at++) {
+    const from = path[at - 1], to = path[at], edge = edgeBetween(state, from, to)!, key = roadKey(n, from, to), road = state.roads.get(key);
+    km += edgeTravel(state, from, edge);
+    const side = state.owner[Math.min(from, to)] === a.id ? 0 : 1, tier = tiers[side], definition = ROAD_TIERS[tier - 1], stretch = sides[side];
+    const bridge = definition.bridges && edge.riverTier >= 1, newBridge = bridge && !road?.bridge, newTier = !road || road.tier < tier;
+    if (!(newTier || newBridge) || pending[side].has(key)) continue;
+    stretch.edges.push(from < to ? [from, to] : [to, from]);
+    if (newTier) { stretch.cost += Math.round(definition.perKm * edge.travelKm); stretch.months += Math.ceil(edge.travelKm / definition.kmPerMonth); }
+    if (newBridge) { stretch.bridges++; stretch.cost += BRIDGE.cost[edge.riverTier]; stretch.months += BRIDGE.months; }
+    stretch.upkeep += roadUpkeep(Math.max(tier, road?.tier ?? 0), edge, bridge || (road?.bridge ?? false)) - (road?.upkeep ?? 0);
+  }
+  if (!sides[0].edges.length && !sides[1].edges.length) return null;
+  return { cities: towns.cities, path, km, tiers, sides };
 }
 
 const WHEEL = TECHS.findIndex(tech => tech.name === 'Wheel');

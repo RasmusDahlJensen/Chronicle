@@ -8,7 +8,7 @@ import { buildingCost, outputOf, siteIncome } from './economy.ts';
 import { livingSettlements } from './settlements.ts';
 import { cellNeighbors, greatCircleKm } from './geography.ts';
 import { CostHeap } from './heap.ts';
-import { edgeKm, edgeTravel, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
+import { edgeKm, edgeTravel, jointRoute, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
 import { landPressure } from './pressure.ts';
 import { beliefBias, estimate, truthOf } from './relations.ts';
 import { landStock, reliefThere, shortfallFor } from './supply.ts';
@@ -19,7 +19,7 @@ import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { effectiveValues } from './values.ts';
 export { effectiveValues };
 import { NEED_NAMES, type BeliefKind, type CultureValues, type MapKnowledge, type NeedName, type Polity, type SimulationState } from './state.ts';
-import { BUDGET_TUNING, FAITH_TUNING, MOBILITY_TUNING, NEED_TUNING, REACH_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from './tunables.ts';
+import { BUDGET_TUNING, DIPLOMACY_TUNING, FAITH_TUNING, MOBILITY_TUNING, NEED_TUNING, REACH_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
@@ -207,6 +207,8 @@ export interface PolityView {
   id: number; tick: number; values: CultureValues;
   /** Trades it could propose (M5.4; `tradeOptions`). */
   trades: TradeOption[];
+  /** Pacts and alliances it could propose, and road agreements (M5.5; `pactOptions`, `roadOptions`). */
+  pacts: PactOption[]; roads: RoadOption[];
   /** Its needs, each 0–1 (VISION.md "Needs"; `needsOf`), and the threat it feels from each neighbouring civilization
    *  that threatens it (by id, those above 0): what threatens it is not where it seeks shelter. */
   needs: Record<NeedName, number>; threats: { civ: number; threat: number }[];
@@ -308,6 +310,24 @@ export interface TradeOption {
   partner: number; name: string; resource: number; resourceName: string; shortfall: number; lack: number; spare: number; believedPeople: number; opinion: number; openness: number;
   km: number; reachKm: number; capacity: number; cost: number;
 }
+
+/**
+ * A pact or an alliance it could propose (M5.5): to a neighbour (a non-aggression pact; `threat` is the threat it feels
+ * from them), or to a civilization that, as far as it knows, borders `enemy`, a neighbour it feels threatened by (a
+ * defensive alliance; `threat` is that threat). Its opinion of them, whether they are kin or share its state religion,
+ * and the strength it believes of the people it fears (`feared`: the neighbour, or the enemy; null without a threat).
+ */
+export interface PactOption {
+  partner: number; name: string; kind: 'nonAggression' | 'alliance'; threat: number; enemy: number; enemyName: string;
+  opinion: number; kin: boolean; faith: boolean; feared: { polity: number; strength: number } | null;
+}
+
+/**
+ * A road agreement it could propose (M5.5): to an ally or trade partner whose land touches its own, both knowing roads.
+ * Its opinion of them, whether they trade or are allied, the joint road's travel-km between their nearest towns or
+ * cities and what its own stretch would cost.
+ */
+export interface RoadOption { partner: number; name: string; opinion: number; trading: boolean; allied: boolean; km: number; cost: number }
 
 export interface Candidate {
   region: number;
@@ -495,7 +515,7 @@ export function budgetView(state: SimulationState, civ: Polity, costs: Costs = f
   // What its trade agreements bring in a year, net: what it is paid less what it pays (M5.4).
   let trade = 0;
   for (const treaty of state.treaties) {
-    if (treaty.endTick !== null || treaty.price === 0) continue;
+    if (treaty.type !== 'trade' || treaty.endTick !== null || treaty.price === 0) continue;
     if (treaty.exporter === civ.id) trade += treaty.price;
     else if (treaty.importer === civ.id) trade -= treaty.price;
   }
@@ -637,7 +657,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   const view: PolityView = {
     budget: budgetView(state, polity), build: buildView(state, polity),
     id: polity.id, tick: state.tick, values: effectiveValues(state, polity), needs: Object.fromEntries(NEED_NAMES.map(need => [need, 0])) as PolityView['needs'], threats: [],
-    sea: polity.knowledge.sea, seaTick: polity.seaTick, trades: tradeOptions(state, polity),
+    sea: polity.knowledge.sea, seaTick: polity.seaTick, trades: tradeOptions(state, polity), pacts: [], roads: [],
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,
     ownValue: own.size ? value / own.size : 0,
@@ -646,6 +666,8 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     neighbours: [...neighbours.values()].sort((a, b) => a.civ - b.civ), partners, exchanges,
   };
   view.needs = needsOf(state, polity, view, own);
+  view.pacts = pactOptions(state, polity, view);
+  view.roads = roadOptions(state, polity);
   return view;
 }
 
@@ -661,19 +683,16 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
  * shortfall (M5.3). Grievance is 0 until M6.
  */
 function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: Set<number>): PolityView['needs'] {
-  const bordering = new Set<number>();
-  for (const region of own) for (const edge of state.partition.regions[region].neighbors) {
-    const civ = state.owner[edge.region];
-    if (civ >= 0 && civ !== polity.id && polity.met.has(civ)) bordering.add(civ);
-  }
-  const strength = truthOf(state, polity, 'strength'), treasury = Math.max(1, polity.wealth);
+  const bordering = borderingCivs(state, polity, own);
+  const strength = strengthWithAllies(state, polity), treasury = Math.max(1, polity.wealth);
   let threat = 0, rivals = 0, chance = 0;
-  for (const civ of [...bordering].sort((a, b) => a - b)) {
+  for (const civ of bordering) {
     const them = state.polities[civ], ratio = believe(state, polity, them, 'strength').estimate / Math.max(1, strength);
-    const fear = threatOf(ratio, opinionOf(polity, civ));
+    const fear = fearOf(state, polity, them, strength);
     if (fear > 0) view.threats.push({ civ, threat: fear });
     threat = Math.max(threat, fear);
-    chance = Math.max(chance, chanceOf(ratio, believe(state, polity, them, 'wealth').estimate / treasury));
+    // (Not against those it is bound to by a pact or an alliance: M5.5.)
+    if (!polity.allies.includes(civ) && !polity.pacts.includes(civ)) chance = Math.max(chance, chanceOf(ratio, believe(state, polity, them, 'wealth').estimate / treasury));
     // A rival faith; a tolerant one on either side rubs less (VISION.md "Tenets": Tolerance lowers friction).
     if (polity.stateReligion >= 0 && them.stateReligion >= 0 && them.stateReligion !== polity.stateReligion) {
       rivals += state.religions[polity.stateReligion].tenets.includes(TOLERANCE) || state.religions[them.stateReligion].tenets.includes(TOLERANCE) ? 0.5 : 1;
@@ -685,7 +704,7 @@ function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: 
   for (let resource = 0; resource < polity.demand.length; resource++) shortage = Math.max(shortage, shortfallFor(polity, resource));
   return {
     hunger: clamp01(view.hunger), landPressure: clamp01(view.landPressure), shortage, threat, unrest: unrestOf(view.unrestShare, view.stability),
-    friction: frictionOf(bordering.size ? rivals / bordering.size : 0, view.values.zeal, secularity(polity)),
+    friction: frictionOf(bordering.length ? rivals / bordering.length : 0, view.values.zeal, secularity(polity)),
     opportunity: clamp01(Math.max(land, chance)), grievance: 0, infrastructure: infrastructureNeed(view),
   };
 }
@@ -744,6 +763,104 @@ function tradeOptions(state: SimulationState, polity: Polity): TradeOption[] {
         partner, name: them.name, resource, resourceName: RESOURCE_IDS[resource], shortfall: shortfallFor(polity, resource), lack, spare: Math.round(spare * 1000) / 1000, believedPeople, opinion: opinionOf(polity, partner),
         openness: state.cultures[them.culture].values.openness, km: route.km, reachKm: route.reachKm, capacity: route.capacity, cost: tuning.price * Math.min(lack, spare, route.capacity),
       });
+    });
+  }
+  return options;
+}
+
+/** The living civilizations it has met whose land touches its own regions (`own`, by default all it holds), ascending. */
+export function borderingCivs(state: SimulationState, polity: Polity, own?: Iterable<number>) {
+  const bordering = new Set<number>();
+  for (const region of own ?? polity.groups.map(id => state.groups[id].region)) for (const edge of state.partition.regions[region].neighbors) {
+    const civ = state.owner[edge.region];
+    if (civ >= 0 && civ !== polity.id && polity.met.has(civ) && state.polities[civ].deathTick === null) bordering.add(civ);
+  }
+  return [...bordering].sort((a, b) => a - b);
+}
+
+/** The strength it judges others against (M5.5): its own, and DIPLOMACY_TUNING.alliance.strength of each ally's as it
+ *  believes it. */
+export function strengthWithAllies(state: SimulationState, polity: Polity) {
+  let strength = truthOf(state, polity, 'strength');
+  for (const ally of polity.allies) strength += DIPLOMACY_TUNING.alliance.strength * believe(state, polity, state.polities[ally], 'strength').estimate;
+  return strength;
+}
+
+/** The threat it feels from another civilization (`threatOf`, against its strength with its allies): none from an
+ *  ally, less from a pact partner (M5.5). */
+export function fearOf(state: SimulationState, polity: Polity, other: Polity, strength = strengthWithAllies(state, polity)) {
+  if (polity.allies.includes(other.id)) return 0;
+  const fear = threatOf(believe(state, polity, other, 'strength').estimate / Math.max(1, strength), opinionOf(polity, other.id));
+  return polity.pacts.includes(other.id) ? fear * (1 - DIPLOMACY_TUNING.pact.calm) : fear;
+}
+
+/** Whether a civilization has lately refused it a treaty, or a treaty between them lately soured (DIPLOMACY_TUNING.refusedYears). */
+const refusedTreaty = (state: SimulationState, polity: Polity, other: number) =>
+  polity.relations.get(other)?.memories.some(memory => (memory.reason === 'refusedTreaty' || memory.reason === 'treatySoured') && state.tick - memory.tick < DIPLOMACY_TUNING.refusedYears * 12) ?? false;
+
+/**
+ * The pacts and alliances a civilization could propose (M5.5): a non-aggression pact to each neighbour it has none
+ * with; a defensive alliance to each civilization it has met and is not allied with, thinks at least
+ * DIPLOMACY_TUNING.alliance.minOpinion of, and knows (from its map) to border a neighbour it feels threatened by (its
+ * strongest such threat). None to a people that lately refused it a treaty.
+ */
+function pactOptions(state: SimulationState, polity: Polity, view: PolityView): PactOption[] {
+  if (polity.kind !== 'civ') return [];
+  const options: PactOption[] = [];
+  const option = (other: number, kind: PactOption['kind'], threat: number, enemy: number) => {
+    const them = state.polities[other], feared = enemy >= 0 ? enemy : other;
+    options.push({
+      partner: other, name: them.name, kind, threat, enemy, enemyName: enemy >= 0 ? state.polities[enemy].name : '', opinion: opinionOf(polity, other),
+      kin: them.lineage === polity.lineage, faith: polity.stateReligion >= 0 && them.stateReligion === polity.stateReligion,
+      feared: threat > 0 ? { polity: feared, strength: Math.round(believe(state, polity, state.polities[feared], 'strength').estimate) } : null,
+    });
+  };
+  for (const other of borderingCivs(state, polity)) {
+    if (state.polities[other].kind !== 'civ' || polity.pacts.includes(other) || polity.allies.includes(other) || opinionOf(polity, other) < DIPLOMACY_TUNING.end.pact || refusedTreaty(state, polity, other)) continue;
+    option(other, 'nonAggression', view.threats.find(entry => entry.civ === other)?.threat ?? 0, -1);
+  }
+  // Allies against what it fears: whoever it knows to border a neighbour that threatens it (not a pact partner of its
+  // own, and not one bound to that neighbour by a pact or an alliance).
+  const common = new Map<number, { threat: number; enemy: number }>();
+  for (const { civ: enemy, threat } of view.threats) {
+    if (polity.pacts.includes(enemy)) continue;
+    const known = (region: number) => {
+      if (regionView(state, polity, region)?.owner !== enemy) return;
+      for (const edge of state.partition.regions[region].neighbors) {
+        const other = regionView(state, polity, edge.region)?.owner ?? -1;
+        if (other < 0 || other === polity.id || other === enemy || !polity.met.has(other) || state.polities[other].kind !== 'civ' || state.polities[other].deathTick !== null) continue;
+        if (state.polities[other].allies.includes(enemy) || state.polities[other].pacts.includes(enemy)) continue;
+        const held = common.get(other);
+        if (!held || threat > held.threat) common.set(other, { threat, enemy });
+      }
+    };
+    for (const region of polity.map.observed) known(region);
+    polity.map.snapshots.forEach((_, region) => known(region));
+  }
+  for (const [other, { threat, enemy }] of [...common].sort((a, b) => a[0] - b[0])) {
+    if (polity.allies.includes(other) || opinionOf(polity, other) < DIPLOMACY_TUNING.alliance.minOpinion || refusedTreaty(state, polity, other)) continue;
+    option(other, 'alliance', threat, enemy);
+  }
+  return options;
+}
+
+/**
+ * The road agreements a civilization could propose (M5.5): to each ally or trade partner whose land touches its own,
+ * with which it has none, when a joint road could be built between their nearest towns or cities (`jointRoute`: both
+ * know roads, the way through their two lands, the land it would cross kept up): its travel-km and what its own
+ * stretch would cost.
+ */
+function roadOptions(state: SimulationState, polity: Polity): RoadOption[] {
+  if (polity.kind !== 'civ' || !knownRoadTier(polity.knowledge) || (!polity.trading.length && !polity.allies.length)) return [];
+  const bordering = new Set(borderingCivs(state, polity)), options: RoadOption[] = [];
+  for (const other of [...new Set([...polity.trading, ...polity.allies])].sort((a, b) => a - b)) {
+    const them = state.polities[other];
+    if (!bordering.has(other) || polity.roadPartners.includes(other) || opinionOf(polity, other) < DIPLOMACY_TUNING.end.road || refusedTreaty(state, polity, other)) continue;
+    const route = jointRoute(state, polity, them);
+    if (!route) continue;
+    options.push({
+      partner: other, name: them.name, opinion: opinionOf(polity, other), trading: polity.trading.includes(other), allied: polity.allies.includes(other), km: route.km,
+      cost: route.sides[0].cost,
     });
   }
   return options;

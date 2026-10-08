@@ -206,14 +206,23 @@ export function startProjects(state: SimulationState, tick: number, civ: Polity,
 }
 
 
-/** Its roads under way are paid in instalments while the treasury allows, then laid on their edges: an event. */
+/** Its roads under way are paid in instalments while the treasury allows, then laid on their edges: an event. Its
+ *  stretch of a joint road (M5.5) marks its side of the road agreement built; when both are, the cross-border road is
+ *  complete (an event). */
 function buildRoads(state: SimulationState, tick: number, civ: Polity) {
   if (!civ.roadWorks.length) return;
   const remaining: Polity['roadWorks'] = [], n = state.partition.regions.length;
   for (const work of civ.roadWorks) {
     const target = state.settlements[work.to];
-    // Land lost on the way, the town fallen to ruin, or a region on the way let go unkept, ends the work.
-    if (target.status !== 'alive' || target.owner !== civ.id || work.path.some(region => state.owner[region] !== civ.id || state.neglected[region])) { state.metrics.roadsAbandoned++; continue; }
+    // Land lost on the way, the town fallen to ruin, or a region on the way let go unkept, ends the work. A joint road's
+    // stretch runs from its own town to the partner's through both lands: it ends when either town falls or changes
+    // hands, the way leaves their two lands, or a region of its own stretch is let go unkept.
+    const agreement = work.agreement === undefined ? null : state.treaties[work.agreement];
+    if (agreement && agreement.type === 'road') {
+      const partner = agreement.parties[0] === civ.id ? agreement.parties[1] : agreement.parties[0], own = state.settlements[work.from];
+      if (agreement.endTick !== null || !agreement.parties.includes(civ.id) || target.status !== 'alive' || target.owner !== partner || own.status !== 'alive' || own.owner !== civ.id
+        || work.path.some(region => state.owner[region] !== civ.id && state.owner[region] !== partner) || work.edges.some(([a, b]) => state.neglected[a] || state.neglected[b])) { state.metrics.roadsAbandoned++; continue; }
+    } else if (target.status !== 'alive' || target.owner !== civ.id || work.path.some(region => state.owner[region] !== civ.id || state.neglected[region])) { state.metrics.roadsAbandoned++; continue; }
     const instalment = Math.min(work.cost - work.spent, Math.ceil(work.cost / work.months), civ.wealth);
     if (instalment > 0) { const flows = wealthFlows(state, civ); civ.wealth -= instalment; work.spent += instalment; flows.construction += instalment; }
     if (work.spent < work.cost) { remaining.push(work); continue; }
@@ -232,9 +241,19 @@ function buildRoads(state: SimulationState, tick: number, civ: Polity) {
       state.metrics.roadEdgesBuilt++;
     }
     state.metrics.roadsBuilt++;
+    let joint = false, partnerName = '';
+    if (agreement && agreement.type === 'road') {
+      const side = agreement.parties[0] === civ.id ? 0 : 1;
+      agreement.built[side] = true;
+      partnerName = state.polities[agreement.parties[1 - side]].name;
+      if (agreement.built[1 - side]) { joint = true; state.metrics.crossBorderRoads++; }
+    }
     state.chronicle.emit({
-      type: 'roadBuilt', actors: [{ id: civ.id, role: 'civ' }], region: target.region, settlement: target.id, causes: work.causes, importance: work.tier >= 2 ? 0.05 : 0.03,
-      data: { civ: civ.name, road: definition.one, from: state.settlements[work.from].name, to: target.name, bridges, oneBridge: bridges === 1, manyBridges: bridges > 1 },
+      type: 'roadBuilt', actors: [{ id: civ.id, role: 'civ' }], region: target.region, settlement: target.id, causes: work.causes, importance: joint ? 0.08 : work.tier >= 2 ? 0.05 : 0.03,
+      data: {
+        civ: civ.name, road: definition.one, from: state.settlements[work.from].name, to: target.name, bridges, oneBridge: bridges === 1, manyBridges: bridges > 1,
+        way: agreement && !joint ? 'toward' : 'to', half: !!agreement && !joint, joint, partner: partnerName,
+      },
     });
   }
   civ.roadWorks = remaining;
@@ -275,7 +294,7 @@ export function startRoads(state: SimulationState, tick: number, civ: Polity, ta
   // Roads of a lower tier still under way are superseded where the new roads run (the work spent on them is lost).
   const superseded = (edges: [number, number][]) => {
     const keys = new Set(edges.map(([a, b]) => `${a},${b}`)), before = civ.roadWorks.length;
-    civ.roadWorks = civ.roadWorks.filter(work => work.tier >= tier || !work.edges.some(([a, b]) => keys.has(`${a},${b}`)));
+    civ.roadWorks = civ.roadWorks.filter(work => work.agreement !== undefined || work.tier >= tier || !work.edges.some(([a, b]) => keys.has(`${a},${b}`)));
     state.metrics.roadsAbandoned += before - civ.roadWorks.length;
   };
   for (const id of targets) {

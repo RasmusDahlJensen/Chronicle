@@ -184,7 +184,8 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
   // Its treasury and its works under construction pass to the union (VISION.md rule 8: wealth received and given).
   transferWealth(state, small, large);
   large.projects.push(...small.projects); small.projects = [];
-  large.roadWorks.push(...small.roadWorks); small.roadWorks = [];
+  // Its stretches of joint roads are its own agreements' (they end with it, M5.5): the rest pass on.
+  large.roadWorks.push(...small.roadWorks.filter(work => work.agreement === undefined)); small.roadWorks = [];
   for (const id of small.heardWonders) if (!large.heardWonders.includes(id)) large.heardWonders.push(id);
   large.repairing ||= small.repairing;
   lookAgain(small);

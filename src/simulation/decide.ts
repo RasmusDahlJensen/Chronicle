@@ -5,6 +5,7 @@ import { decisionView } from './perception.ts';
 import { truthOf } from './relations.ts';
 import { share } from './sharing.ts';
 import { proposeTrade } from './trade.ts';
+import { proposePact, proposeRoadDeal } from './diplomacy.ts';
 import { beginWonder, startProjects, startRoads } from './construction.ts';
 import type { SimulationState, TickContext } from './state.ts';
 import { DECISION_TUNING } from './tunables.ts';
@@ -40,6 +41,9 @@ export function decide(state: SimulationState, context: TickContext) {
       outcome = unite(state, context.tick, context.stream(id, UNITING), polity, state.polities[neighbour.civ], neighbour.border, cited);
     } else if (chosen.action === 'share') outcome = share(state, context.tick, context.stream(id, SHARING), polity, state.polities[chosen.target!], cited);
     else if (chosen.action === 'trade') outcome = proposeTrade(state, context, context.stream(id, TRADING), polity, state.polities[chosen.target!], chosen.targets![0], cited);
+    else if (chosen.action === 'pact') outcome = proposePact(state, context, polity, state.polities[chosen.target!], 'nonAggression', null, cited);
+    else if (chosen.action === 'alliance') outcome = proposePact(state, context, polity, state.polities[chosen.target!], 'alliance', state.polities[chosen.targets![0]], cited);
+    else if (chosen.action === 'roadAgreement') outcome = proposeRoadDeal(state, context, polity, state.polities[chosen.target!], cited);
     else if (chosen.action === 'build' && chosen.road) outcome = startRoads(state, context.tick, polity, chosen.targets ?? [], cited);
     else if (chosen.action === 'build' && chosen.wonder) outcome = beginWonder(state, context.tick, polity, chosen.target!, chosen.targets![0], cited);
     else if (chosen.action === 'build') outcome = startProjects(state, context.tick, polity, chosen.target!, chosen.targets ?? [], cited);

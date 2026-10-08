@@ -135,14 +135,15 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
       </li>)}</ul>
     </section>}
     {civ && polity.diplomacy.length > 0 && <section className="world-polity-diplomacy" aria-label="Diplomacy">
-      <p className="atlas-detail-label">Diplomacy · the peoples it knows best</p>
+      <p className="atlas-detail-label">Diplomacy · the peoples it knows best, with their standing and treaties</p>
       <ol className="world-diplomacy" aria-label="Relations">{polity.diplomacy.map(row => <li key={row.id}>
         <span className="world-diplomacy-name">{row.name} <span>{row.kind === 'civ' ? 'civilization' : 'tribe'} · met in year {number.format(row.met)}{row.sharing ? ' · sharing knowledge' : ''}</span></span>
+        <span className="world-diplomacy-status">{STATUS_NAMES[row.status]}{row.status !== 'neutral' && row.status !== 'rival' ? ` since year ${number.format(row.since)}` : ''}{row.agreements.length ? ` · ${row.agreements.map(kind => AGREEMENT_NAMES[kind]).join(', ')}` : ''}</span>
         <span className={row.opinion >= 0 ? 'world-opinion-warm' : 'world-opinion-cold'}>opinion {row.opinion >= 0 ? '+' : ''}{Math.round(row.opinion)}</span>
         <span>{row.reasons.map(reason => `${REASON_NAMES[reason.factor] ?? reason.factor} ${reason.weight >= 0 ? '+' : ''}${Math.round(reason.weight)}`).join(', ') || 'no strong feelings'}</span>
         <span>believed {number.format(row.people)} people, strength {number.format(row.strength)} · intimacy {row.intimacy.toFixed(2)}</span>
       </li>)}</ol>
-      <p className="atlas-panel-note">What it believes of others is off by a misjudgment of its own, smaller the better it knows them; opinion comes from faith, likeness, kinship, borders, sharing and what it remembers.</p>
+      <p className="atlas-panel-note">What it believes of others is off by a misjudgment of its own, smaller the better it knows them; opinion comes from faith, likeness, kinship, borders, sharing, trade, pacts, alliances, joint roads and what it remembers.</p>
     </section>}
     <section className="world-polity-knowledge" aria-label="Knowledge">
       <p className="atlas-detail-label">Research · {polity.researchPerYear.toLocaleString('en', { maximumFractionDigits: 1 })} points a year · {polity.contacts} contacts</p>
@@ -175,10 +176,14 @@ const BELIEF_NAMES = { people: 'people', strength: 'strength', wealth: 'wealth',
 const REASON_NAMES: Record<string, string> = {
   sameFaith: 'same faith', rivalFaith: 'rival faith', culture: 'culture', kin: 'kin', sharing: 'sharing knowledge', trading: 'trading', borderTension: 'border tension',
   turnedAway: 'turned them away', refusedExchange: 'refused to share', refusedTrade: 'refused to trade',
+  pact: 'non-aggression pact', allied: 'allies', road: 'joint road', refusedTreaty: 'refused a treaty', treatySoured: 'a treaty soured',
 };
 
-const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build', trade: 'Propose trade with' } as const;
-const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build', trade: 'Trade' } as const;
+const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build', trade: 'Propose trade with', pact: 'Propose a non-aggression pact with', alliance: 'Propose an alliance with', roadAgreement: 'Propose a joint road with' } as const;
+const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build', trade: 'Trade', pact: 'Pact', alliance: 'Alliance', roadAgreement: 'Joint road' } as const;
+/** A people's standing and the treaties it may hold with a civilization (M5.5). */
+const STATUS_NAMES = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' } as const;
+const AGREEMENT_NAMES = { alliance: 'alliance', nonAggression: 'pact', road: 'joint road', trade: 'trade' } as const;
 
 /** What a decision was aimed at: the region to expand into, the civilization to unite, share or trade with (and the
  *  resource it would import), or what to build. */
@@ -186,7 +191,7 @@ function decisionTarget(step: NonNullable<NonNullable<NonNullable<ObserverFrame[
   const option = step.options[step.pick];
   if (!option || option.target === null) return '';
   if (option.action === 'build') return ` ${option.label ?? '?'}`;
-  return option.action === 'unite' || option.action === 'share' || option.action === 'trade' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
+  return ['unite', 'share', 'trade', 'pact', 'alliance', 'roadAgreement'].includes(option.action) ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
 }
 
 const formatPeople = (people: number) => people >= 1e6 ? `${(people / 1e6).toFixed(1)} M` : people >= 1e4 ? `${Math.round(people / 1e3)} k` : number.format(people);

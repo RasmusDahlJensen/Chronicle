@@ -25,7 +25,7 @@ function world() {
     state.cultures.push({ values: { ...VALUES, ...options.values } } as never);
     const polity = {
       id, kind, name: `P${id}`, culture: state.cultures.length - 1, groups: [] as number[], deathTick: null, met: new Map<number, number>(), contacts: [] as number[],
-      exchanges: new Map<number, number>(), trading: [] as number[], relations: new Map(), stateReligion: options.faith ?? -1, lineage: options.lineage ?? id, wealth: 500,
+      exchanges: new Map<number, number>(), trading: [] as number[], pacts: [] as number[], allies: [] as number[], roadPartners: [] as number[], relations: new Map(), stateReligion: options.faith ?? -1, lineage: options.lineage ?? id, wealth: 500,
       knowledge: { era: 2, multipliers: { military: 1.5 }, known: new Uint8Array(TECHS.length) },
     } as unknown as Polity;
     for (const region of held) {
