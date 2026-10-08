@@ -13,6 +13,7 @@ import { landPressure } from './pressure.ts';
 import { beliefBias, estimate, truthOf } from './relations.ts';
 import { landStock, reliefThere, shortfallFor } from './supply.ts';
 import { hubOf } from './hubs.ts';
+import { tradeIncome } from './treaties.ts';
 import { activeTrade, lackOf, routeOf, spareOf } from './trade.ts';
 import { depositState } from './deposits.ts';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
@@ -527,12 +528,7 @@ export function wonderOptions(state: SimulationState, civ: Polity): PolityView['
 export function budgetView(state: SimulationState, civ: Polity, costs: Costs = fullCostsOf(state, civ)): PolityView['budget'] {
   const { output, sites } = outputOf(state, civ), total = totalCosts(costs);
   // What its trade agreements bring in a year, net: what it is paid less what it pays (M5.4).
-  let trade = 0;
-  for (const treaty of state.treaties) {
-    if (treaty.type !== 'trade' || treaty.endTick !== null || treaty.price === 0) continue;
-    if (treaty.exporter === civ.id) trade += treaty.price;
-    else if (treaty.importer === civ.id) trade -= treaty.price;
-  }
+  const trade = tradeIncome(state, civ);
   const revenue = BUDGET_TUNING.customaryRate * output + sites + trade;
   let calm = 0, people = 0;
   for (const groupId of civ.groups) {

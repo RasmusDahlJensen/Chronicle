@@ -29,7 +29,7 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 29;
+export const SIMULATION_RULES_VERSION = 30;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 

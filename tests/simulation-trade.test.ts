@@ -18,7 +18,10 @@ import { accessOf, available, landStock, refreshAccess } from '../src/simulation
 import { TECHS } from '../src/simulation/techs.ts';
 import { activeTrade, lackOf, proposeTrade, routeOf, spareOf, tradeMonth } from '../src/simulation/trade.ts';
 import { hubOf } from '../src/simulation/hubs.ts';
-import { TRADE_TUNING } from '../src/simulation/tunables.ts';
+import { BUDGET_TUNING, TRADE_TUNING } from '../src/simulation/tunables.ts';
+import { fullCostsOf, totalCosts } from '../src/simulation/budget.ts';
+import { budgetView } from '../src/simulation/perception.ts';
+import { setTaxes } from '../src/simulation/stability.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 
@@ -148,6 +151,25 @@ test('payments are exact, monthly, and in the wealth ledger; an importer that ca
   assert.equal(treaty.endCause, 'unpaid');
   assert.equal(available(a, COPPER), 0); assert.equal(available(b, COPPER), 3);
   checkInvariants(state);
+});
+
+test('trade agreements count in the yearly budget: an exporter living on its receipts keeps its land up', () => {
+  const { state, a, b, context } = market();
+  const treaty = agree(state, context, a, b);
+  // Its receipts cover what its least taxes and its sites leave of its costs, and its treasury stands at its reserve.
+  const costs = fullCostsOf(state, b), view = budgetView(state, b, costs), total = totalCosts(costs);
+  treaty.price = Math.ceil(total - BUDGET_TUNING.minRate * view.output - view.sites) + 1_000;
+  assert.ok(treaty.price > 1_000, 'its least taxes would not cover its costs');
+  b.taxRate = BUDGET_TUNING.minRate;
+  b.wealth = Math.round((BUDGET_TUNING.reserveYears + BUDGET_TUNING.reserveTradition * view.tradition) * total);
+  const regions = b.groups.map(id => state.groups[id].region);
+  for (const region of regions) state.neglected[region] = 0;
+  assert.equal(budgetView(state, b).trade, treaty.price);
+  setTaxes(state, b);
+  assert.equal(b.taxRate, BUDGET_TUNING.minRate);
+  assert.ok(regions.every(region => state.neglected[region] === 0), 'nothing let go: its receipts pay');
+  // The importer pays the same from its own budget.
+  assert.equal(budgetView(state, a).trade, -treaty.price);
 });
 
 test('each ending cause ends the agreement, with its event, and its flows leave both sides', () => {

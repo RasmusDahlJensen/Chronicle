@@ -82,12 +82,13 @@ function judge(state: SimulationState, civ: Polity, km: (region: number) => numb
 }
 
 /** The taxes a civilization sets for the year (`decisions/budget.ts`), from its budget as it knows it (all it holds kept
- *  up), and what it lets go unkept if even they fall short (`deferMaintenance`). */
-function setTaxes(state: SimulationState, civ: Polity) {
+ *  up), and what it lets go unkept if even they fall short (`deferMaintenance`). Its revenue is its taxes, its mines and
+ *  quarries, and its trade agreements, net (M5.4: an exporter's receipts pay part of its costs, as its taxes assumed). */
+export function setTaxes(state: SimulationState, civ: Polity) {
   const tuning = BUDGET_TUNING, costs = fullCostsOf(state, civ), view = budgetView(state, civ, costs);
   const rate = taxRate(view);
   civ.taxRate = rate;
-  deferMaintenance(state, civ, rate * view.output + view.sites, (tuning.reserveYears + tuning.reserveTradition * view.tradition) * totalCosts(costs), view.strain);
+  deferMaintenance(state, civ, rate * view.output + view.sites + view.trade, (tuning.reserveYears + tuning.reserveTradition * view.tradition) * totalCosts(costs), view.strain);
   if (!civ.heavyTaxes && rate > tuning.heavyRate) {
     civ.heavyTaxes = true; state.metrics.taxesRaised++;
     state.chronicle.emit({ type: 'taxes', actors: [{ id: civ.id, role: 'civ' }], region: null, importance: 0.06, causes: costShares(costs), data: { civ: civ.name, raised: true, rate: Math.round(rate * 100) } });

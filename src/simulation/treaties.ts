@@ -1,6 +1,17 @@
 import type { Pact, Polity, RoadAgreement, SimulationState } from './state.ts';
 
-/** Lookups over the treaties (M5.5), in a module of their own so trade, diplomacy and the view can share them. */
+/** Lookups over the treaties (M5.5), in a module of their own so trade, diplomacy, the budget and the view can share them. */
+
+/** What a civilization's trade agreements bring in a year, net (M5.4): what it is paid less what it pays. */
+export function tradeIncome(state: SimulationState, civ: Polity) {
+  let net = 0;
+  for (const treaty of state.treaties) {
+    if (treaty.type !== 'trade' || treaty.endTick !== null || treaty.price === 0) continue;
+    if (treaty.exporter === civ.id) net += treaty.price;
+    else if (treaty.importer === civ.id) net -= treaty.price;
+  }
+  return net;
+}
 
 /** The active pact, alliance or road agreement of a kind between two civilizations, if any. */
 export function treatyBetween(state: SimulationState, kind: Pact['type'] | 'road', a: number, b: number): Pact | RoadAgreement | null {

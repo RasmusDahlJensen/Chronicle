@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 31;
+export const SIMULATION_PROTOCOL_VERSION = 32;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -335,6 +335,8 @@ export const ObserverFrameSchema = Type.Object({
       wealth: Type.Union([Type.Null(), Type.Object({
         treasury: Type.Integer({ minimum: 0 }), taxRate: Type.Number({ minimum: 0, maximum: 1 }),
         revenue: Type.Object({ trades: Type.Number({ minimum: 0 }), farms: Type.Number({ minimum: 0 }), sites: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
+        /** What its trade agreements bring in a year, net (M5.4): below 0 when it pays more for imports than it is paid. */
+        agreements: Type.Number(),
         costs: Type.Object({ administration: Type.Number({ minimum: 0 }), services: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }), roads: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
         arrears: Type.Number({ minimum: 0, maximum: 1 }), projects: Type.Integer({ minimum: 0 }), roadWorks: Type.Integer({ minimum: 0 }),
       }, { additionalProperties: false })]),

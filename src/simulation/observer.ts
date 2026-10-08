@@ -13,7 +13,7 @@ import { believe, capitalKm, knownRegionCount } from './perception.ts';
 import { available, metFor } from './supply.ts';
 import { stabilityOf } from './stability.ts';
 import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TradeTreaty } from './state.ts';
-import { treatyBetween } from './treaties.ts';
+import { tradeIncome, treatyBetween } from './treaties.ts';
 import { ancestry, lineOf } from './culture.ts';
 import { TRAITS } from './traits.ts';
 import { TENETS } from './religions.ts';
@@ -193,7 +193,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
         const account = realmAccount(state, polity), whole = (value: number) => Math.round(value);
         return {
           treasury: polity.wealth, taxRate: round(polity.taxRate),
-          revenue: { trades: whole(account.revenue.trades), farms: whole(account.revenue.farms), sites: whole(account.revenue.sites) },
+          revenue: { trades: whole(account.revenue.trades), farms: whole(account.revenue.farms), sites: whole(account.revenue.sites) }, agreements: whole(tradeIncome(state, polity)),
           costs: { administration: whole(account.costs.administration), services: whole(account.costs.services), upkeep: whole(account.costs.upkeep), roads: whole(account.costs.roads) },
           arrears: round(polity.arrears), projects: polity.projects.length, roadWorks: polity.roadWorks.length,
         };
