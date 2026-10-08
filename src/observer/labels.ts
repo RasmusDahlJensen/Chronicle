@@ -30,7 +30,7 @@ export const REASON_NAMES: Record<string, string> = {
 export const STATUS_NAMES: Record<typeof DIPLOMATIC_STATUSES[number], string> = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' };
 export const AGREEMENT_NAMES: Record<typeof AGREEMENT_KINDS[number], string> = { alliance: 'alliance', nonAggression: 'pact', road: 'joint road', trade: 'trade' };
 /** A realm's yearly costs in words, in the budget's order (a typed record: a new cost needs its name). */
-export const COST_NAMES: Record<keyof NonNullable<InspectedPolity['wealth']>['costs'], string> = { administration: 'administration', services: 'services', upkeep: 'upkeep', roads: 'roads' };
+export const COST_NAMES: Record<keyof NonNullable<InspectedPolity['wealth']>['costs'], string> = { administration: 'administration', services: 'services', upkeep: 'upkeep', roads: 'roads', army: 'army' };
 export const COST_KINDS = Object.keys(COST_NAMES) as (keyof typeof COST_NAMES)[];
 /** A realm's yearly revenue in words (a typed record: a new source of income, such as M6's tribute and loot, needs its
  *  name, and the totals sum every source). */

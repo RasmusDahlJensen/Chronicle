@@ -12,8 +12,8 @@ import { BUILD_TUNING } from './tunables.ts';
 
 /**
  * Construction system (VISION.md "Buildings", "Roads", "Destruction", "Wealth"), monthly per civilization: the costs
- * of running its realm are paid (administration, services, and the upkeep of its buildings, wonders and the roads it
- * keeps; unpaid, it falls into arrears and its buildings and roads wear down and are lost), and its works under
+ * of running its realm are paid (administration, services, its army, and the upkeep of its buildings, wonders and the
+ * roads it keeps; unpaid, it falls into arrears and its buildings and roads wear down and are lost), and its works under
  * construction are paid in instalments while the treasury allows, then completed. Roads no civilization keeps wear
  * away. Every completion and loss is an event with its causes.
  */
@@ -62,8 +62,8 @@ function payCosts(state: SimulationState, civ: Polity, roads: number) {
   const flows = wealthFlows(state, civ), paid = Math.min(due, civ.wealth);
   civ.wealth -= paid;
   // What was paid, by kind of cost, in whole units.
-  const administration = Math.floor(paid * costs.administration / yearly), services = Math.floor(paid * costs.services / yearly);
-  flows.administration += administration; flows.services += services; flows.upkeep += paid - administration - services;
+  const administration = Math.floor(paid * costs.administration / yearly), services = Math.floor(paid * costs.services / yearly), army = Math.floor(paid * costs.army / yearly);
+  flows.administration += administration; flows.services += services; flows.army += army; flows.upkeep += paid - administration - services - army;
   // Paid in full, buildings mend; short, they wear in proportion to what went unpaid and are lost at nothing. Those
   // in regions it lets go unkept wear as if nothing were paid.
   const unpaid = due > 0 ? 1 - paid / due : 0;

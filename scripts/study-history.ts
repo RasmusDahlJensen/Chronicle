@@ -264,6 +264,14 @@ function storyHealth(rows: SeedResult[]) {
     const show = (years: number[], value: (row: Stats) => string) => years.map(year => { const row = at(year); return row ? value(row) : '—'; }).join(' / ');
     lines.push(`| ${result.seed} | ${show([1000, 2000, 3000], row => String(row.voyages))} | ${last.voyagesLost} · ${last.voyagesEmpty} | ${show([2000, 3000], row => `${row.voyagesOtherLand} · ${row.voyagesNewLand}`)} | ${show([2000, 3000], row => String(row.voyageContacts))} | ${show([2000, 3000], row => `${row.sailingCivs} · ${row.unmetOverseas}`)} |`);
   }
+  // M6.1 (VISION.md "Military strength", "Grounded in history"): armies, what they cost, and realms mobilizing and
+  // standing down.
+  lines.push('', '| Seed | Soldiers among civilizations\' people · the largest share one keeps, at 1,000 / 2,000 / 3,000 | Army upkeep\'s share of civilizations\' costs at 1,000 / 2,000 / 3,000 | Mobilizations · demobilizations by 1,000 / 2,000 / 3,000 |', '| --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year);
+    const show = (value: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? value(row) : '—'; }).join(' / ');
+    lines.push(`| ${result.seed} | ${show(row => `${(row.armyShare * 100).toFixed(2)}% · ${(row.armyMaxShare * 100).toFixed(1)}%`)} | ${show(row => `${(row.armyCostShare * 100).toFixed(1)}%`)} | ${show(row => `${row.mobilizations} · ${row.demobilizations}`)} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');

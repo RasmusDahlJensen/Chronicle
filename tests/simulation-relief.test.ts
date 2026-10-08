@@ -21,7 +21,7 @@ function realm(knowledge = learn(startingKnowledge(), TECH_INDEX.get('Pottery')!
   const regions = [0, 1, 2].map(id => ({ id, neighbors: neighbors(id) })).concat([{ id: 3, neighbors: [{ region: 0, travelKm: 100, riverTier: 0 }] }]);
   regions[0].neighbors.push({ region: 3, travelKm: 100, riverTier: 0 });
   const harvest = new Uint8Array(4 * 12); for (let region = 0; region < 4; region++) harvest[region * 12 + 5] = 1;
-  const group = (id: number, store: number, foodSecurity: number) => ({ id, region: id, size: 10_000, store, foodSecurity, specialists: 0 });
+  const group = (id: number, store: number, foodSecurity: number) => ({ id, region: id, size: 10_000, store, foodSecurity, specialists: 0, soldiers: 0 });
   const state = {
     tick: 120, partition: { regions }, roads: new Map(), owner: Int32Array.from([0, 0, 0, 1]), capacity: new Float64Array(4).fill(20_000),
     food: { harvest }, reliefTick: new Int32Array(4).fill(-1), chronicle: new Chronicle(),

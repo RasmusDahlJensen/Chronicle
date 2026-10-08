@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 40;
+export const SIMULATION_PROTOCOL_VERSION = 41;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -38,7 +38,7 @@ export const EVENT_TYPES = [
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
   'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief', 'neglect',
-  'assimilation', 'traitEarned', 'faithSpread', 'devScenario',
+  'assimilation', 'traitEarned', 'faithSpread', 'devScenario', 'mobilization', 'demobilization',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -158,6 +158,8 @@ export const ObserverFrameSchema = Type.Object({
     settlements: Type.Integer({ minimum: 0 }), culture: Type.String({ maxLength: 40 }), faith: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
     treasury: Type.Integer({ minimum: 0 }), stability: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Integer({ minimum: 0 }),
     trade: Type.Integer({ minimum: 0 }), roads: Type.Integer({ minimum: 0 }), pacts: Type.Integer({ minimum: 0 }), allies: Type.Integer({ minimum: 0 }),
+    /** (M6.1) Its soldiers. */
+    soldiers: Type.Integer({ minimum: 0 }),
   }, { additionalProperties: false }), { maxItems: 100 }),
   /** (U.4) The treaty web: each pair of living civilizations (lower id first) with the kinds of treaty between them now
    *  (for trade, how many agreements). */
@@ -327,8 +329,18 @@ export const ObserverFrameSchema = Type.Object({
       birthsLastYear: Type.Integer({ minimum: 0 }), deathsLastYear: Type.Integer({ minimum: 0 }),
       foodSecurity: Type.Number({ minimum: 0 }), foodStoreMonths: Type.Number({ minimum: 0 }), cropsMonths: Type.Number({ minimum: 0 }),
       founded: Type.Integer({ minimum: 0 }), arrived: Type.Integer({ minimum: 0 }),
-      /** Share of food from farming and herding, people freed as specialists, and the capital village of a civilization. */
-      farmShare: Type.Number({ minimum: 0, maximum: 1 }), specialists: Type.Integer({ minimum: 0 }),
+      /** Share of food from farming and herding, people freed as specialists, soldiers here (M6.1), and the capital
+       *  village of a civilization. */
+      farmShare: Type.Number({ minimum: 0, maximum: 1 }), specialists: Type.Integer({ minimum: 0 }), soldiers: Type.Integer({ minimum: 0 }),
+      /** (M6.1) A civilization's army: its soldiers, the soldiers it means to keep, their share of its people, its
+       *  strength (soldiers × military multiplier) and upkeep a year; and why it keeps that many, as set at its last
+       *  assessment: the guard its Militarism wants, the soldiers the threat adds and those its budget cuts, and the
+       *  people it fears most (null for none). Null for a tribe. */
+      army: Type.Union([Type.Null(), Type.Object({
+        soldiers: Type.Integer({ minimum: 0 }), target: Type.Integer({ minimum: 0 }), share: Type.Number({ minimum: 0, maximum: 1 }),
+        strength: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }),
+        garrison: Type.Integer({ minimum: 0 }), threatened: Type.Integer({ minimum: 0 }), cut: Type.Integer({ minimum: 0 }), feared: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
+      }, { additionalProperties: false })]),
       capital: Type.Union([Type.Null(), Type.Object({ name: Type.String({ maxLength: 40 }), cell: id(), settled: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })]),
       era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
       /** Known techs in graph order; research points a year; peoples met within two regions whose contact quickens its
@@ -349,6 +361,8 @@ export const ObserverFrameSchema = Type.Object({
         value: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Boolean(),
         hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }), faith: Type.Number(),
         strain: Type.Number({ minimum: 0 }), taxes: Type.Number(), arrears: Type.Number({ minimum: 0 }),
+        /** (M6.1) Soldiers lately sent home. */
+        demobilized: Type.Number({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
        *  action, and its index among the options: the chosen option is always among the best three) and what came of it. */
@@ -407,7 +421,7 @@ export const ObserverFrameSchema = Type.Object({
         revenue: Type.Object({ trades: Type.Number({ minimum: 0 }), farms: Type.Number({ minimum: 0 }), sites: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
         /** What its trade agreements bring in a year, net (M5.4): below 0 when it pays more for imports than it is paid. */
         agreements: Type.Number(),
-        costs: Type.Object({ administration: Type.Number({ minimum: 0 }), services: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }), roads: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
+        costs: Type.Object({ administration: Type.Number({ minimum: 0 }), services: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }), roads: Type.Number({ minimum: 0 }), army: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
         arrears: Type.Number({ minimum: 0, maximum: 1 }), projects: Type.Integer({ minimum: 0 }), roadWorks: Type.Integer({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Peoples it shares knowledge with (VISION.md "Sharing knowledge") and the year each exchange ends. */

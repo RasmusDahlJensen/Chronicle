@@ -29,7 +29,7 @@ function world() {
       knowledge: { era: 2, multipliers: { military: 1.5 }, known: new Uint8Array(TECHS.length) },
     } as unknown as Polity;
     for (const region of held) {
-      state.groups.push({ id: state.groups.length, region, size: options.size ?? 1_000, values: state.cultures[state.cultures.length - 1].values } as never);
+      state.groups.push({ id: state.groups.length, region, size: options.size ?? 1_000, soldiers: Math.round((options.size ?? 1_000) / 100), values: state.cultures[state.cultures.length - 1].values } as never);
       polity.groups.push(state.groups.length - 1); state.occupant[region] = id;
     }
     state.polities.push(polity);
@@ -52,7 +52,8 @@ test('a belief is the truth off by the pair\'s own bias, shrunk by intimacy; the
   assert.notEqual(beliefBias(state.seed, a.id, b.id, 'people'), beliefBias(state.seed, b.id, a.id, 'people'));
   const truth = truthOf(state, b, 'people'), bias = beliefBias(state.seed, a.id, b.id, 'people');
   assert.equal(truth, 4_000);
-  assert.equal(truthOf(state, b, 'strength'), 6_000, 'strength: people times the military multiplier');
+  // Strength (M6.1): a civilization's soldiers (here 1% of its people) times its military multiplier.
+  assert.equal(truthOf(state, b, 'strength'), 40 * 1.5, 'strength: soldiers times the military multiplier');
   // A stranger is misjudged by the whole bias; intimacy shrinks it; full intimacy sees the truth.
   assert.equal(believe(state, a, b, 'people').estimate, truth * (1 + bias));
   assert.equal(believe(state, a, b, 'people').confidence, 0);

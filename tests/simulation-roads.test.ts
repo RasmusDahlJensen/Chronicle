@@ -34,8 +34,8 @@ function strip(known: string[] = ['Wheel']) {
   const state = {
     tick: 0, partition: { regions }, geography: { width: 5, cells: 5 }, roads: new Map(), settlements: [] as Settlement[], regionSettlements: regions.map(() => [] as number[]),
     owner: new Int32Array(5).fill(0), occupant: new Int32Array(5).fill(0), harbors: new Uint8Array(5), wonders: [], chronicle: new Chronicle(), living: [0],
-    groups: regions.map(region => ({ id: region.id, region: region.id, size: 10_000, specialists: 0 })), ledger: { wealth: new Map() },
-    remoteness: new Float64Array(5), remoteOwner: new Int32Array(5).fill(-1), neglected: new Uint8Array(5),
+    groups: regions.map(region => ({ id: region.id, region: region.id, size: 10_000, specialists: 0, soldiers: 0 })), ledger: { wealth: new Map() },
+    remoteness: new Float64Array(5), remoteOwner: new Int32Array(5).fill(-1), neglected: new Uint8Array(5), unsettled: new Float64Array(5),
     metrics: { roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, buildingsLost: 0, projectsAbandoned: 0, arrearsBegun: 0 },
   } as unknown as SimulationState;
   let knowledge = startingKnowledge();
@@ -44,7 +44,7 @@ function strip(known: string[] = ['Wheel']) {
   map.status.fill(OBSERVED);
   const civ = {
     id: 0, kind: 'civ', name: 'Ora', capital: 0, core: 0, groups: [0, 1, 2, 3, 4], knowledge, map, wealth: 0, wealthCarry: 0, upkeepCarry: 0,
-    projects: [], roadWorks: [], roadsUnpaid: 0, repairing: false, settledTick: 0, taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false,
+    projects: [], roadWorks: [], roadsUnpaid: 0, repairing: false, army: { target: 0, garrison: 0, threatened: 0, cut: 0, feared: -1, tick: -1 }, settledTick: 0, taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false,
   } as unknown as Polity;
   state.polities = [civ];
   const place = (region: number, name: string, tier: number, urban: number) => {
@@ -184,7 +184,7 @@ test('new roads branch off the roads that stand, towns already joined are not of
   regions.push({ id: 5, neighbors: [{ region: 1, travelKm: 400, riverTier: 0 }, { region: 0, travelKm: 700, riverTier: 0 }], sea: [], centroid: 5 } as never);
   regions[1].neighbors.push({ region: 5, travelKm: 400, riverTier: 0 }); regions[0].neighbors.push({ region: 5, travelKm: 700, riverTier: 0 });
   for (const key of ['owner', 'occupant'] as const) state[key] = Int32Array.from([...state[key], 0]);
-  state.regionSettlements.push([]); state.groups.push({ id: 5, region: 5, size: 10_000, specialists: 0 } as never); civ.groups.push(5);
+  state.regionSettlements.push([]); state.groups.push({ id: 5, region: 5, size: 10_000, specialists: 0, soldiers: 0 } as never); civ.groups.push(5);
   state.remoteness = new Float64Array(6); state.remoteOwner = new Int32Array(6).fill(-1); state.neglected = new Uint8Array(6);
   const fifth = { ...tal, id: state.settlements.length, name: 'Ori', region: 5, cell: 5 };
   state.settlements.push(fifth); state.regionSettlements[5].push(fifth.id);

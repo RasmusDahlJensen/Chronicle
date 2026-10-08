@@ -43,6 +43,8 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   // Conditionals cannot nest: `unready` is only set with `foundReligion`.
   devScenario: 'Development control (test only): {?drought|a drought is set off in region {region}}{?research|the {polity} are made to finish their research}{?foundReligion|the {polity} are made to found a religion}{?unready|, before they know Organized religion}{?splitCulture|the people of region {region} and their neighbours are made to split off from their culture}.',
   neglect: '{?begun|The {civ} can no longer keep up all their realm: the buildings and roads of {regions} of their far regions go unkept.}{?ended|The {civ} keep up all their buildings and roads again.}',
+  mobilization: 'The {civ} raise their army toward {soldiers|soldier|soldiers}{?feared|, fearing the {feared}}.',
+  demobilization: 'The {civ} stand down {change|soldier|soldiers}: their army falls toward {soldiers}.',
   arrears: '{?begun|The {civ} can no longer pay for running their realm: their buildings and roads go unkept, and their far provinces grow restless.}{?ended|The {civ} pay their way again.}',
   knowledgeShared: 'The {name} and the {other} agree to share what they know for {years|year|years}.',
   tradeAgreement: 'The {importer} and the {exporter} agree to trade: {resource} from {from} to {to}{?sea|, by sea}{?barter|, for {barterResource}}{?wealth|, for {price} wealth a year}.',

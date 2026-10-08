@@ -16,6 +16,7 @@ import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { byWater } from './settlements.ts';
 import { edgeBetween, roadCoverage } from './roads.ts';
 import { construct } from './construction.ts';
+import { levy } from './army.ts';
 import { environment } from './environment.ts';
 import { cultivatedCells, rankFarmland } from './fields.ts';
 import { cultureStats, cultureYear, harshLand } from './culture.ts';
@@ -29,14 +30,14 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CENSUS_YEARS, CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 30;
+export const SIMULATION_RULES_VERSION = 31;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
 /** Rules per system. Empty systems keep their slot, cadence and timing until a milestone fills them. */
 const RUNS: Record<SystemKey, SystemRun> = {
   environment, production: produce, population: populate, knowledge: research, culture: cultureYear,
-  stability: stabilize, decisions: decide, construction: construct, diplomacy: (state, context) => { resourcesYear(state, context); tradeMonth(state, context); diplomacyMonth(state, context); relationsYear(state, context); }, war: () => {}, fracture: () => {},
+  stability: stabilize, decisions: decide, construction: construct, diplomacy: (state, context) => { resourcesYear(state, context); tradeMonth(state, context); diplomacyMonth(state, context); relationsYear(state, context); }, war: levy, fracture: () => {},
   chronicle: (state, context) => state.chronicle.flush(context.tick),
 };
 
@@ -56,7 +57,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     weather: new Float64Array(regions).fill(1), harvestFactor: new Float64Array(regions).fill(1), drought: new Uint8Array(regions), famineRecent: new Float64Array(regions), famine: new Uint8Array(regions),
     farmBonus: new Float64Array(regions).fill(1), droughtShield: new Float64Array(regions), storeBonus: new Float64Array(regions).fill(1), spoilageBonus: new Float64Array(regions).fill(1),
     fields: new Float64Array(regions), fieldRanking: rankFarmland(geography, partition), famineWatches: [],
-    famineSince: new Int32Array(regions).fill(-1), fieldShare: new Float64Array(regions).fill(1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), calm: new Float64Array(regions).fill(1), remoteness: new Float64Array(regions), remoteOwner: new Int32Array(regions).fill(-1), reliefTick: new Int32Array(regions).fill(-1), neglected: new Uint8Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions), harshness: new Float64Array(regions),
+    famineSince: new Int32Array(regions).fill(-1), fieldShare: new Float64Array(regions).fill(1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), calm: new Float64Array(regions).fill(1), remoteness: new Float64Array(regions), remoteOwner: new Int32Array(regions).fill(-1), reliefTick: new Int32Array(regions).fill(-1), neglected: new Uint8Array(regions), unsettled: new Float64Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions), harshness: new Float64Array(regions),
     lineages: [],
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1), groupAt: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
@@ -68,7 +69,8 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
       faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, decisionSteps: 0, causesShort: 0, resourceExpansions: 0, tradeOffers: 0, tradeRefused: 0, tradeAgreements: 0, tradeEnded: { needPassed: 0, noSurplus: 0, unpaid: 0, relationsSoured: 0, partyGone: 0 },
       pactsMade: 0, alliancesMade: 0, roadDealsMade: 0, treatiesRefused: 0, crossBorderRoads: 0, pactEnded: { relationsSoured: 0, partyGone: 0, routeLost: 0 },
-      voyages: 0, voyagesLost: 0, voyagesEmpty: 0, voyagesOtherLand: 0, voyagesNewLand: 0, voyageContacts: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
+      voyages: 0, voyagesLost: 0, voyagesEmpty: 0, voyagesOtherLand: 0, voyagesNewLand: 0, voyageContacts: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0,
+      mobilizations: 0, demobilizations: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], census: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -322,7 +324,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     droughts: m.droughts, famines: m.famines, regionsInDrought, irrigated,
     cultivatedCells: cultivated, cultivatedShare: state.fieldRanking.order.length ? Math.round(cultivated / state.fieldRanking.order.length * 1000) / 1000 : 0,
     faminesWatched: m.faminesWatched, fieldsShrank: m.fieldsShrank, fieldsRegrew: m.fieldsRegrew,
-    ...budgetStats(state), arrearsBegun: m.arrearsBegun, taxesRaised: m.taxesRaised, taxesEased: m.taxesEased,
+    ...budgetStats(state), arrearsBegun: m.arrearsBegun, taxesRaised: m.taxesRaised, taxesEased: m.taxesEased, mobilizations: m.mobilizations, demobilizations: m.demobilizations,
     reliefFood: Math.round(m.reliefUnits / FOOD_TUNING.unitsPerPersonMonth), reliefLost: Math.round(m.reliefLost / FOOD_TUNING.unitsPerPersonMonth), reliefCost: m.reliefCost, reliefBegun: m.reliefBegun,
     reliefShortTreasury: Math.round(m.reliefShortTreasury / FOOD_TUNING.unitsPerPersonMonth), reliefShortFood: Math.round(m.reliefShortFood / FOOD_TUNING.unitsPerPersonMonth),
     unionsRefusedForStrain: m.unionsRefusedForStrain, longestDominance: m.longestDominance, dominanceYears: m.dominanceYears,
@@ -362,20 +364,21 @@ function famineByWealth(state: SimulationState) {
 }
 
 /** M3c's budget health checks (VISION.md "Wealth"): treasuries, taxes, arrears, places at a loss, and costs per person
- *  of large old realms against small young ones. */
+ *  of large old realms against small young ones; and M6.1's armies. */
 function budgetStats(state: SimulationState) {
   const years: number[] = [], rates: number[] = [], realms: { weight: number; people: number; costs: number; administration: number; regions: number; stable: number; unrest: number }[] = [];
-  let inArrears = 0, settlements = 0, losing = 0, regions = 0, losingRegions = 0;
+  let inArrears = 0, settlements = 0, losing = 0, regions = 0, losingRegions = 0, soldiers = 0, civPeople = 0, maxShare = 0, armyCosts = 0, allCosts = 0;
   for (const id of state.living) {
     const civ = state.polities[id];
     if (civ.kind !== 'civ') continue;
     const kinds = costsOf(state, civ), costs = totalCosts(kinds), wonder = wonderBonus(state, civ).wealth;
-    let people = 0, stable = 0, unrest = 0;
+    let people = 0, stable = 0, unrest = 0, army = 0;
+    armyCosts += kinds.army; allCosts += costs;
     years.push(costs > 0 ? civ.wealth / costs : 0); rates.push(civ.taxRate);
     if (civ.inArrears) inArrears++;
     for (const groupId of civ.groups) {
       const group = state.groups[groupId];
-      people += group.size; regions++; stable += state.stability[group.region]; unrest += state.unrest[group.region];
+      people += group.size; regions++; stable += state.stability[group.region]; unrest += state.unrest[group.region]; army += group.soldiers;
       let balance = 0;
       for (const settlementId of state.regionSettlements[group.region]) {
         if (state.settlements[settlementId].status !== 'alive') continue;
@@ -386,6 +389,7 @@ function budgetStats(state: SimulationState) {
       if (balance < 0) losingRegions++;
     }
     realms.push({ weight: sizeFactor(civ.groups.length) * ageFactor(realmYears(state, civ)), people, costs, administration: kinds.administration, regions: civ.groups.length, stable, unrest });
+    soldiers += army; civPeople += people; if (people > 0) maxShare = Math.max(maxShare, army / people);
   }
   const median = (values: number[]) => { values.sort((a, b) => a - b); return values.length ? values[Math.floor(values.length / 2)] : 0; };
   realms.sort((a, b) => a.weight - b.weight);
@@ -407,6 +411,8 @@ function budgetStats(state: SimulationState) {
     adminPerPersonLargeOld: third ? perPerson(realms.slice(-third), 'administration') : 0, adminPerPersonSmallYoung: third ? perPerson(realms.slice(0, third), 'administration') : 0,
     stabilityLargeOld: third ? regional(realms.slice(-third), 'stable') : 0, stabilitySmallYoung: third ? regional(realms.slice(0, third), 'stable') : 0,
     unrestLargeOld: third ? regional(realms.slice(-third), 'unrest') : 0, unrestSmallYoung: third ? regional(realms.slice(0, third), 'unrest') : 0,
+    // Armies (M6.1): soldiers among civilizations' people, the most any keeps, and the army's share of their costs.
+    armyShare: civPeople > 0 ? round(soldiers / civPeople, 5) : 0, armyMaxShare: round(maxShare, 4), armyCostShare: allCosts > 0 ? round(armyCosts / allCosts, 4) : 0,
   };
 }
 
@@ -451,7 +457,7 @@ export function stateHash(state: SimulationState) {
   // Development controls used (Dev 02); unaltered histories hash as they did before the counter existed.
   if (state.devActions) add(state.devActions);
   for (const group of state.groups) {
-    add(group.size); add(group.region); add(group.arrivedTick); add(group.store); add(group.planted); add(group.birthCarry); add(group.naturalCarry); add(group.famineCarry); add(group.specialists); add(group.foodSecurity * 1e6);
+    add(group.size); add(group.region); add(group.arrivedTick); add(group.store); add(group.planted); add(group.birthCarry); add(group.naturalCarry); add(group.famineCarry); add(group.specialists); add(group.soldiers); add(group.foodSecurity * 1e6);
     add(group.culture); add(group.faith); add(group.faithApart); for (const key of VALUE_KEYS) add(group.values[key] * 1e9);
   }
   // Names and languages feed later names (and so the chronicle).
@@ -485,6 +491,8 @@ export function stateHash(state: SimulationState) {
     for (const project of polity.projects) { add(project.settlement); add(project.type); add(project.spent); add(project.waited); }
     add(polity.roadsUnpaid * 1e6); add(polity.taxRate * 1e6); add(polity.arrears * 1e6); add(polity.inArrears ? 1 : 0); add(polity.heavyTaxes ? 1 : 0); add(polity.deferring ? 1 : 0); add(polity.keptYears);
     add(polity.famineDeaths); add(polity.personMonths); add(polity.outputSum * 1e3);
+    // Its army as last set (M6.1): what later soldiers and the causes of its events follow.
+    add(polity.army.target); add(polity.army.garrison); add(polity.army.threatened); add(polity.army.cut); add(polity.army.feared); add(polity.army.tick);
     for (const id of polity.heardWonders) add(id);
     // Relations (M5.1): what it thinks of whom, how intimate they are, and what it remembers.
     for (const [other, relation] of polity.relations) { add(other); add(relation.intimacy * 1e6); add(relation.opinion * 10); for (const memory of relation.memories) { add(MEMORY_REASONS.indexOf(memory.reason)); add(memory.points); add(memory.tick); } }
@@ -504,7 +512,7 @@ export function stateHash(state: SimulationState) {
   }
   for (const settlement of state.settlements) { add(settlement.cell); add(settlement.owner); add(settlement.status === 'alive' ? 1 : 0); add(settlement.capital ? 1 : 0); add(settlement.tier); add(settlement.urban); add(settlement.housing); add(settlement.urbanMean * 1000); add(settlement.tierYears); for (const building of settlement.buildings) { add(building.type); add(building.condition * 1e6); } }
   for (const value of state.owner) add(value);
-  for (let region = 0; region < state.stability.length; region++) { add(state.stability[region] * 1e6); add(state.unrest[region]); add(state.calm[region] * 1e6); add(state.remoteness[region] * 1e6); add(state.remoteOwner[region]); add(state.reliefTick[region]); add(state.neglected[region]); }
+  for (let region = 0; region < state.stability.length; region++) { add(state.stability[region] * 1e6); add(state.unrest[region]); add(state.calm[region] * 1e6); add(state.remoteness[region] * 1e6); add(state.remoteOwner[region]); add(state.reliefTick[region]); add(state.neglected[region]); add(state.unsettled[region] * 1e9); }
   // The capacity cache warm-starts later solves, so it is part of what determines history.
   for (let region = 0; region < state.capacity.length; region++) { add(state.capacity[region] * 1e3); add(state.capacityGame[region] * 1e6); add(state.overCapacity[region]); }
   for (const value of state.gameStock) add(value * 1e6);

@@ -452,7 +452,7 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
   assert.ok(civs.some(id => state.polities[id].demand.some(demand => demand > 0)), 'some civilization demands resources');
   for (const id of civs) {
     const polity = state.polities[id];
-    polity.demand.forEach((demand, resource) => { if (demand > 0) assert.equal(polity.knowledge.access[resource], accessOf(polity.supply[resource], demand)); });
+    polity.demand.forEach((demand, resource) => { if (demand > 0) assert.equal(polity.knowledge.access[resource], accessOf(polity.supply[resource] + polity.imports[resource] - polity.exports[resource], demand)); });
   }
   // The view: all its people's values; threats only from neighbours it has met, believes stronger and dislikes.
   for (const id of civs) {

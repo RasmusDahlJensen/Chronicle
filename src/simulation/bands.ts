@@ -17,6 +17,7 @@ import { announceSettlement, foundSettlement, growSettlements, house, livingSett
 import { chooseJoin } from './decisions/join.ts';
 import { landPressure, unrestDepth } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
+import { noArmy, workersOf } from './soldiers.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
 import { BAND_TUNING, BUDGET_TUNING, CLOCK_TUNING, CULTURE_TUNING, ENVIRONMENT_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING } from './tunables.ts';
 
@@ -141,7 +142,7 @@ export function newGroup(state: SimulationState, polity: Polity, region: number,
   const group: PopulationGroup = {
     id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, values: { ...values }, faith, faithApart: 0, foundedTick: state.tick, arrivedTick: state.tick,
     store: 0, planted: 0, birthCarry: 0, naturalCarry: 0, famineCarry: 0, foodSecurity: 1, birthsYear: 0, deathsYear: 0, lastBirths: 0, lastDeaths: 0,
-    sizeAtYearStart: size, specialists: 0, farmShare: 0,
+    sizeAtYearStart: size, specialists: 0, soldiers: 0, farmShare: 0,
   };
   state.groups.push(group); polity.groups.push(group.id);
   state.occupant[region] = polity.id; state.groupAt[region] = group.id;
@@ -163,6 +164,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(), relations: new Map(), supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length), imports: new Float64Array(RESOURCE_IDS.length), exports: new Float64Array(RESOURCE_IDS.length), trading: [], pacts: [], allies: [], roadPartners: [], voyageTick: -1, emptyVoyages: 0,
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
     taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,
+    army: noArmy(),
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -212,7 +214,8 @@ export function spawnBands(state: SimulationState) {
 }
 
 /**
- * Production system: each group's monthly food. Specialists (freed by last month's surplus) do not produce food.
+ * Production system: each group's monthly food. Specialists (freed by last month's surplus) and soldiers (M6.1) do not
+ * produce food.
  * Foraging, hunting, fishing and herding feed people every month; farming arrives in harvest months and must be
  * stored. Game depletes where people hunt and regrows everywhere.
  */
@@ -237,7 +240,8 @@ export function produce(state: SimulationState, context: TickContext) {
       // People move to and from the towns over months, not all at once: the townspeople close a share of the gap to
       // what the surplus frees each month (at least one person).
       const freed = polity.kind === 'band' ? 0 : Math.floor(group.size * cap * clamp(SPECIALIST_TUNING.floor + SPECIALIST_TUNING.slope * (fedSecurity(group) - 1), 0, 1));
-      group.specialists = polity.kind === 'band' ? 0 : townspeopleToward(group.specialists, freed, group.size);
+      // Soldiers stay soldiers: townspeople come from the rest (M6.1).
+      group.specialists = polity.kind === 'band' ? 0 : townspeopleToward(group.specialists, freed, group.size - group.soldiers);
       // Townspeople live in the region's settlements; there are only as many as they can house (VISION.md "Settlements").
       if (polity.kind === 'civ') {
         group.specialists = house(state, region, group.specialists);
@@ -252,8 +256,8 @@ export function produce(state: SimulationState, context: TickContext) {
       const civ = polity.kind === 'civ', granaryStore = civ ? regionStore(state, region) : 1, granarySpoilage = civ ? regionSpoilage(state, region) : 1;
       const toHarvest = monthsToHarvest(food, region, context.month), perishing = Math.min(1, POPULATION_TUNING.storeSpoilage * m.spoilage * granarySpoilage);
       const output = farming
-        ? sow(food.labor, at, yields, group.size - group.specialists, group.size, before / UNITS * Math.max(0, 1 - perishing * toHarvest / 2), toHarvest, workers)
-        : harvest(food.labor, at, yields, group.size - group.specialists, workers).output;
+        ? sow(food.labor, at, yields, workersOf(group), group.size, before / UNITS * Math.max(0, 1 - perishing * toHarvest / 2), toHarvest, workers)
+        : harvest(food.labor, at, yields, workersOf(group), workers).output;
       const methodOutput = (method: number) => workers[method] > 0 ? yields[method] * food.labor[at + method] * (1 - Math.exp(-workers[method] / food.labor[at + method])) : 0;
       // Farmland not yet cleared yields less (VISION.md "Cultivated land"); the fields follow the farmers.
       state.fieldShare[region] = tendFields(state, region, workers[FARM_METHOD]);
@@ -509,7 +513,7 @@ function migrate(state: SimulationState, polity: Polity) {
 export function removeGroup(state: SimulationState, polity: Polity, group: PopulationGroup, tick: number) {
   const flows = state.ledger.food.get(group.id);
   if (flows) { flows.spoilage += group.store; flows.cropsLost += group.planted; }
-  group.store = 0; group.planted = 0; group.size = 0; group.deathTick = tick;
+  group.store = 0; group.planted = 0; group.size = 0; group.soldiers = 0; group.deathTick = tick;
   const region = group.region;
   state.occupant[region] = -1; state.groupAt[region] = -1; state.overCapacity[region] = 0;
   state.stability[region] = 1; state.unrest[region] = 0; state.calm[region] = 1;
@@ -519,7 +523,7 @@ export function removeGroup(state: SimulationState, polity: Polity, group: Popul
     state.owner[region] = -1;
     ruinSettlements(state, region, tick);
   }
-  state.hardship[region] = 0; state.reliefTick[region] = -1; state.neglected[region] = 0;
+  state.hardship[region] = 0; state.reliefTick[region] = -1; state.neglected[region] = 0; state.unsettled[region] = 0;
   if (polity.groups.length) return;
   endPolity(state, polity, tick);
   if (polity.kind === 'civ') {

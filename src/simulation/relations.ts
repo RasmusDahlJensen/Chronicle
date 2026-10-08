@@ -4,6 +4,7 @@ import { secularity } from './faith.ts';
 import { effectiveValues } from './values.ts';
 import { TENETS } from './religions.ts';
 import { createRng } from './rng.ts';
+import { strengthOf } from './soldiers.ts';
 import { BELIEF_KINDS, type BeliefKind, type MemoryReason, type Polity, type Relation, type SimulationState, type TickContext } from './state.ts';
 import { DIPLOMACY_TUNING, RELATION_TUNING, TRADE_TUNING } from './tunables.ts';
 
@@ -29,13 +30,15 @@ export function beliefBias(seed: number, observer: number, other: number, kind: 
 }
 
 /** The truth a belief estimates (only `perception.ts`, the study and physical systems may ask): a people's population,
- *  strength (until M6's soldiers, its people times its techs' military multiplier), treasury and era. */
+ *  strength (M6.1: a civilization's soldiers, a tribe's warriors, times its military multiplier; `soldiers.ts`),
+ *  treasury and era. */
 export function truthOf(state: SimulationState, polity: Polity, kind: BeliefKind) {
   if (kind === 'era') return polity.knowledge.era;
   if (kind === 'wealth') return polity.wealth;
+  if (kind === 'strength') return strengthOf(state, polity);
   let people = 0;
   for (const id of polity.groups) people += state.groups[id].size;
-  return kind === 'people' ? people : people * polity.knowledge.multipliers.military;
+  return people;
 }
 
 /** An estimate from the truth: off by the pair's bias, shrunk by their intimacy (eras are whole and within the list). */

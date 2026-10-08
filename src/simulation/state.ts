@@ -143,6 +143,10 @@ export interface Polity {
   pacts: number[]; allies: number[]; roadPartners: number[];
   /** Overseas voyages (M5.6): the tick of its last (−1 never), and how many in a row found nothing unknown in reach. */
   voyageTick: number; emptyVoyages: number;
+  /** A civilization's army (M6.1; `army.ts`), set at its yearly assessment: the soldiers it means to keep, and why — the
+   *  garrison its Militarism wants, the soldiers the threat adds and those its budget cuts (soldiers each) — the people
+   *  it fears most (−1 none) and when it was set (−1 never). Its soldiers are its groups'. */
+  army: { target: number; garrison: number; threatened: number; cut: number; feared: number; tick: number };
 }
 
 /**
@@ -333,6 +337,9 @@ export interface PopulationGroup {
   sizeAtYearStart: number;
   /** People freed from food production by surplus (VISION.md "Specialists"); they research. */
   specialists: number;
+  /** Soldiers (M6.1; VISION.md "Data model": occupation shares): rural people under arms, at most its people less its
+   *  townspeople; they eat from its food but work no land (`soldiers.ts`). A tribe's group keeps none. */
+  soldiers: number;
   /** Share of last month's food from farming and herding. */
   farmShare: number;
 }
@@ -454,6 +461,9 @@ export interface CenturyStats {
    *  least a century) richest in output a year and in the poorest third (M3c: famine kills a smaller share in rich
    *  realms). */
   reliefFood: number; reliefLost: number; reliefCost: number; reliefBegun: number; reliefShortTreasury: number; reliefShortFood: number; famineRich: number; faminePoor: number;
+  /** Armies (M6.1): soldiers as a share of civilizations' people, the largest share any civilization keeps, army upkeep
+   *  as a share of civilizations' costs, and mobilizations and demobilizations so far. */
+  armyShare: number; armyMaxShare: number; armyCostShare: number; mobilizations: number; demobilizations: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -468,9 +478,9 @@ export interface Ledger {
 }
 
 /** What changed a treasury this tick: production (taxes and the crown's sites), construction, the costs of running
- *  the realm (upkeep of buildings, wonders and roads; administration; services), famine relief (carriage), and wealth passed between
+ *  the realm (upkeep of buildings, wonders and roads; administration; services; the army, M6.1), famine relief (carriage), and wealth passed between
  *  civilizations (a union) or lost (a civilization that dies out). */
-export interface WealthFlows { before: number; produced: number; construction: number; upkeep: number; administration: number; services: number; relief: number; received: number; given: number; lost: number }
+export interface WealthFlows { before: number; produced: number; construction: number; upkeep: number; administration: number; services: number; army: number; relief: number; received: number; given: number; lost: number }
 
 export interface FoodFlows {
   before: number; production: number; consumption: number; spoilage: number; carriedIn: number; carriedOut: number;
@@ -546,6 +556,8 @@ export interface Metrics {
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;
+  /** Armies (M6.1): mobilizations and demobilizations (events). */
+  mobilizations: number; demobilizations: number;
 }
 
 /** One census (U.3): the year, and each living civilization (by id, ascending) with its people and regions. */
@@ -606,6 +618,9 @@ export interface SimulationState {
   /** Per region: whether its realm lets its buildings, wonders and roads go unkept this year (deferred maintenance,
    *  set at the yearly assessment; 0 where nobody rules). */
   neglected: Uint8Array;
+  /** Per region (M6.1): soldiers lately sent home, as a share of its people, fading over the years; they unsettle it
+   *  (a stability burden, `stability.ts`). */
+  unsettled: Float64Array;
   /** Per region: the tick famine relief last reached it (−1 never, or since its people left); relief again within
    *  RELIEF_TUNING.episodeMonths is the same episode. */
   reliefTick: Int32Array;

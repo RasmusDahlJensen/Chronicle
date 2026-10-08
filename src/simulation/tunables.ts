@@ -310,8 +310,8 @@ export const UNITE_TUNING = {
  * security) − min(overextensionCap, overextension × (travel-km from the capital ÷ reach − 1, if beyond reach)) −
  * foreignRule × (1 − similarity) where a people of another culture lives − strain × (the realm's size factor × age
  * factor − 1) × (strainCore + (1 − strainCore) × min(1, remoteness)): a large, old realm holds its far provinces less
- * firmly (VISION.md M3c: empire strain; the factors are BUDGET_TUNING's administration factors) − its taxes and
- * arrears (BUDGET_TUNING) + its buildings' and wonders'. Below `unrestBelow` a region falls into unrest (an event)
+ * firmly (VISION.md M3c: empire strain; the factors are BUDGET_TUNING's administration factors) − soldiers lately sent
+ * home (ARMY_TUNING's demobilization burden, M6.1) − its taxes and arrears (BUDGET_TUNING) + its buildings' and wonders'. Below `unrestBelow` a region falls into unrest (an event)
  * until it recovers past unrestBelow + hysteresis; below it, output falls by up to `outputLoss` and its specialists'
  * research by up to `researchLoss`, in proportion to how far below it is.
  */
@@ -754,6 +754,31 @@ export const VOYAGE_TUNING = {
  *  for a while. */
 export const STORY_TUNING = { dominantShare: 0.35 } as const;
 
+/**
+ * Armies (VISION.md "Military strength", "Grounded in history"; M6.1). A civilization's soldiers are rural people under
+ * arms, who work no land.
+ * - The army it means to keep, set once a year at its assessment (`decisions/army.ts`): it wants its people ×
+ *   (`garrison` × (½ + Militarism) + `threat` × the threat it feels, judged against its guard); it can afford what
+ *   `afford` × (½ + Militarism) × its revenue at customary taxes × (1 − arrears) pays for, but no more than its surplus
+ *   at customary taxes plus `headroom` × that revenue; the target is the smaller, never below `floor` × its people. A target rising by `eventChange` or more of itself is a mobilization,
+ *   falling as far the other way (to 1 ÷ (1 + eventChange) of itself) a demobilization, each by at least
+ *   `eventSoldiers` (events).
+ * - Each month every region's soldiers move toward its share of the target (by rural people, at most `maxShare` of
+ *   them): raising closes 1/`raiseMonths` of the gap, releasing 1/`releaseMonths` (at least one soldier).
+ * - A soldier costs `upkeep` × the military multiplier^`arms` wealth a year (a better-armed army costs more).
+ * - Soldiers sent home add their share of the region's people to its unsettled measure, which fades with a time
+ *   constant of `demobYears`; the region's stability loses `demobUnrest` × min(1, unsettled ÷ `demobScale`).
+ * - Strength: a civilization's soldiers × its military multiplier; a tribe's people × `warriors` × its multiplier.
+ * Revenue is about 0.07 wealth a person-year (M5's close-out), so a garrison of 0.4–0.6% of the people costs 7–10% of
+ * it, and a threatened realm's 2–3% would cost 40% or more: its budget holds it to about 1% unless it is militaristic
+ * or rich (historical peacetime armies kept well under 1% of their people under arms).
+ */
+export const ARMY_TUNING = {
+  garrison: 0.004, threat: 0.02, floor: 0.001, maxShare: 0.08, raiseMonths: 12, releaseMonths: 3,
+  upkeep: 1.2, arms: 0.5, afford: 0.2, headroom: 0.1, demobUnrest: 0.2, demobScale: 0.02, demobYears: 3, warriors: 0.1,
+  eventChange: 0.5, eventSoldiers: 300,
+} as const;
+
 export function validateTunables() {
   const r = REGION_TUNING;
   const problems: string[] = [];
@@ -904,6 +929,10 @@ export function validateTunables() {
     || ![rt.border, rt.contact, rt.exchange].every(value => value >= 0 && value <= 1) || ![rt.sameFaith, rt.rivalFaith, rt.culture, rt.kin, rt.sharing, rt.borderTension].every(value => value >= 0 && value <= 100)
     || Object.values(rt.memories).some(memory => !(Math.abs(memory.points) <= 100 && memory.halfLifeYears > 0)) || !(rt.forgetBelow > 0 && Number.isInteger(rt.reasonCount) && rt.reasonCount >= 1)
     || !(rt.culturePivot >= 0 && rt.culturePivot < 1 && rt.borderScale > 0 && rt.correction >= 0 && rt.correction <= 1)) problems.push('relation settings are invalid');
+  const ar = ARMY_TUNING;
+  if (!([ar.garrison, ar.threat, ar.floor, ar.upkeep, ar.arms, ar.afford, ar.headroom, ar.demobUnrest, ar.eventSoldiers].every(value => value >= 0 && Number.isFinite(value)) && ar.floor <= ar.garrison
+    && ar.maxShare > 0 && ar.maxShare <= 1 && ar.raiseMonths >= 1 && ar.releaseMonths >= 1 && ar.demobScale > 0 && ar.demobYears > 0 && ar.demobUnrest <= 1
+    && ar.warriors >= 0 && ar.warriors <= 1 && ar.eventChange > 0 && ar.eventChange <= 1)) problems.push('army settings are invalid');
   const x = EXPLORE_TUNING;
   if (!(x.opennessWeight >= 0 && x.expansionismWeight >= 0 && x.base >= 0 && x.frontierScale > 0 && x.freshMobility >= 0 && x.freshYears > 0 && x.range.length === 3 && x.range.every(steps => Number.isInteger(steps) && steps >= 1))) problems.push('exploration settings are invalid');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);

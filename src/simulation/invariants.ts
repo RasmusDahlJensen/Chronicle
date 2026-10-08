@@ -187,6 +187,9 @@ export function checkInvariants(state: SimulationState) {
       }
       if (!Number.isInteger(group.specialists) || group.specialists < 0 || group.specialists > group.size) fail(`group ${groupId} has ${group.specialists} specialists of ${group.size}`);
       if (polity.kind === 'band' && group.specialists > 0) fail(`band ${groupId} has specialists`);
+      // Soldiers (M6.1) are rural people: never more than its people less its townspeople; a tribe keeps none.
+      if (!Number.isInteger(group.soldiers) || group.soldiers < 0 || group.soldiers > group.size - group.specialists) fail(`group ${groupId} has ${group.soldiers} soldiers of ${group.size - group.specialists} rural people`);
+      if (polity.kind === 'band' && group.soldiers > 0) fail(`band ${groupId} has soldiers`);
       if (polity.kind === 'civ' && (state.owner[region] !== id || villages[region] < 1)) fail(`civilization ${id} does not own region ${region}, where its people live, or has no village there`);
       if (polity.kind === 'civ' && urban[region] !== group.specialists) fail(`region ${region}'s settlements house ${urban[region]} townspeople, not its ${group.specialists} specialists`);
       const flows = ledger.food.get(group.id);
@@ -264,9 +267,9 @@ export function checkInvariants(state: SimulationState) {
   // Exact wealth accounting (VISION.md rule 8): every treasury is explained by this tick's flows.
   for (const [id, flows] of ledger.wealth) {
     const polity = state.polities[id];
-    const values = [flows.before, flows.produced, flows.construction, flows.upkeep, flows.administration, flows.services, flows.relief, flows.received, flows.given, flows.lost];
+    const values = [flows.before, flows.produced, flows.construction, flows.upkeep, flows.administration, flows.services, flows.army, flows.relief, flows.received, flows.given, flows.lost];
     if (!values.every(value => Number.isInteger(value) && value >= 0)) fail(`civilization ${id} has invalid wealth flows ${JSON.stringify(flows)}`);
-    const expected = flows.before + flows.produced + flows.received - flows.construction - flows.upkeep - flows.administration - flows.services - flows.relief - flows.given - flows.lost;
+    const expected = flows.before + flows.produced + flows.received - flows.construction - flows.upkeep - flows.administration - flows.services - flows.army - flows.relief - flows.given - flows.lost;
     if (!Number.isInteger(polity.wealth) || polity.wealth < 0 || polity.wealth !== expected) fail(`civilization ${id}'s treasury ${polity.wealth} is not explained by its flows ${JSON.stringify(flows)}`);
   }
   // Transfers close: everyone who left a region arrived in another, and food carried out was carried in somewhere.

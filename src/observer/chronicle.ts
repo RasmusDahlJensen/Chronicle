@@ -24,7 +24,7 @@ export const EVENT_KIND: Record<EventType, EventKind> = {
   expedition: 'exploration', voyageLost: 'exploration', newLandsDiscovered: 'exploration', firstContact: 'exploration',
   drought: 'hardship', famine: 'hardship', famineRelief: 'hardship', climateShock: 'hardship', plague: 'hardship', neglect: 'hardship', arrears: 'hardship',
   warDeclared: 'war', battleYear: 'war', regionConquered: 'war', peaceSigned: 'war', raid: 'war', settlementLooted: 'war', settlementBurned: 'war',
-  settlementRazed: 'war', nuclearUse: 'war',
+  settlementRazed: 'war', nuclearUse: 'war', mobilization: 'war', demobilization: 'war',
   devScenario: 'development',
 };
 

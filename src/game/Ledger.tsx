@@ -105,6 +105,7 @@ const COLUMNS: Column[] = [
   { key: 'roads', label: 'Joint roads', format: civ => number.format(civ.roads), numeric: true },
   { key: 'pacts', label: 'Pacts', format: civ => number.format(civ.pacts), numeric: true },
   { key: 'allies', label: 'Allies', format: civ => number.format(civ.allies), numeric: true },
+  { key: 'soldiers', label: 'Army', format: civ => people(civ.soldiers), numeric: true },
 ];
 
 /** Every civilization (the 100 largest), sortable by any column. */

@@ -6,6 +6,7 @@ import { speedOf } from './knowledge.ts';
 import { BUILDINGS } from './buildings.ts';
 import { WONDERS } from './wonders.ts';
 import { realmAccount, settlementAccount } from './budget.ts';
+import { soldiersOf, soldierUpkeep, strengthOf } from './soldiers.ts';
 import { regionFarm, wonderBonus } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
@@ -86,7 +87,7 @@ export function observerView(state: SimulationState, inspect: number | null, per
       settlements: owned.get(id) ?? 0, culture: state.cultures[polity.culture].name, faith: polity.stateReligion >= 0 ? state.religions[polity.stateReligion].name : null,
       treasury: Math.max(0, Math.floor(polity.wealth)), stability: polity.groups.length ? round(stability / polity.groups.length) : 1, unrest,
       trade: trading.get(id) ?? 0,
-      roads: polity.roadPartners.length, pacts: polity.pacts.length, allies: polity.allies.length,
+      roads: polity.roadPartners.length, pacts: polity.pacts.length, allies: polity.allies.length, soldiers: soldiersOf(state, polity),
     };
   });
   const settlements = { ids: [] as number[], cells: [] as number[], owners: [] as number[], capitals: [] as number[], tiers: [] as number[], names: [] as string[], features: [] as number[] };
@@ -201,7 +202,8 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       birthsThisYear: group.birthsYear, deathsThisYear: group.deathsYear, birthsLastYear: group.lastBirths, deathsLastYear: group.lastDeaths,
       foodSecurity: round(group.foodSecurity), foodStoreMonths: group.size > 0 ? round(group.store / (group.size * FOOD_TUNING.unitsPerPersonMonth), 2) : 0,
       cropsMonths: group.size > 0 ? round(group.planted / (group.size * FOOD_TUNING.unitsPerPersonMonth), 2) : 0,
-      founded: polity.foundedTick, arrived: group.arrivedTick, farmShare: round(Math.min(1, Math.max(0, group.farmShare))), specialists: group.specialists,
+      founded: polity.foundedTick, arrived: group.arrivedTick, farmShare: round(Math.min(1, Math.max(0, group.farmShare))), specialists: group.specialists, soldiers: group.soldiers,
+      army: polity.kind !== 'civ' ? null : armyOf(state, polity),
       capital: capital ? { name: capital.name, cell: capital.cell, settled: polity.settledTick ?? capital.foundedTick } : null,
       era: knowledge.era, known: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => definition.name),
       knownEras: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => ERAS.indexOf(definition.era)),
@@ -227,7 +229,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
         }),
       stability: polity.kind !== 'civ' ? null : (() => {
         const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);
-        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), faith: round(now.faith), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears) };
+        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), faith: round(now.faith), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears), demobilized: round(now.demobilized) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
       wealth: polity.kind !== 'civ' ? null : (() => {
@@ -235,7 +237,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
         return {
           treasury: polity.wealth, taxRate: round(polity.taxRate),
           revenue: { trades: whole(account.revenue.trades), farms: whole(account.revenue.farms), sites: whole(account.revenue.sites) }, agreements: whole(tradeIncome(state, polity)),
-          costs: { administration: whole(account.costs.administration), services: whole(account.costs.services), upkeep: whole(account.costs.upkeep), roads: whole(account.costs.roads) },
+          costs: { administration: whole(account.costs.administration), services: whole(account.costs.services), upkeep: whole(account.costs.upkeep), roads: whole(account.costs.roads), army: whole(account.costs.army) },
           arrears: round(polity.arrears), projects: polity.projects.length, roadWorks: polity.roadWorks.length,
         };
       })(),
@@ -447,6 +449,16 @@ function drawable(options: readonly { score: number }[], at: number) {
     place++;
   }
   return false;
+}
+
+/** A civilization's army for the inspector (M6.1): its soldiers and what it means to keep, and why. */
+function armyOf(state: SimulationState, civ: Polity) {
+  const soldiers = soldiersOf(state, civ), people = polityPopulation(state, civ), army = civ.army;
+  return {
+    soldiers, target: army.target, share: people > 0 ? Math.min(1, Math.round(soldiers / people * 1e5) / 1e5) : 0,
+    strength: Math.round(strengthOf(state, civ)), upkeep: Math.round(soldiers * soldierUpkeep(civ)),
+    garrison: army.garrison, threatened: army.threatened, cut: army.cut, feared: army.feared >= 0 ? state.polities[army.feared].name : null,
+  };
 }
 
 /** The polity's last decision step for the inspector: each option's strongest factors (by size), best option first. */

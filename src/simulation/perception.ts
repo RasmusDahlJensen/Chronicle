@@ -10,6 +10,8 @@ import { cellNeighbors, greatCircleKm } from './geography.ts';
 import { CostHeap } from './heap.ts';
 import { edgeKm, edgeTravel, jointRoute, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
 import { landPressure } from './pressure.ts';
+import { soldierUpkeep, workersOf } from './soldiers.ts';
+import { threatOf } from './decisions/threat.ts';
 import { beliefBias, estimate, truthOf } from './relations.ts';
 import { landStock, reliefThere, shortfallFor } from './supply.ts';
 import { hubOf } from './hubs.ts';
@@ -250,7 +252,8 @@ export interface PolityView {
    * Its budget a year (VISION.md "Wealth"): its tax rate, its people's output before tax, what its mines and quarries
    * pay, what running the realm costs, its treasury; what customary taxes and its sites would raise (`revenue`) and
    * what that leaves after its costs (`surplus`, below 0 when it must tax above the custom), its strain: how far its
-   * costs exceed that revenue, as a share of it (0–1), its people's Tradition (how much of a reserve they keep), and how
+   * costs other than its army exceed that revenue, as a share of it (0–1; the army is its choice, not the weight of
+   * running the realm, M6.1), its people's Tradition (how much of a reserve they keep), and how
    * calm its regions are apart from its taxes and arrears (their people-weighted mean calm, as last judged).
    */
   budget: { rate: number; output: number; sites: number; trade: number; costs: number; treasury: number; revenue: number; surplus: number; strain: number; tradition: number; calm: number };
@@ -483,7 +486,7 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
     let seaLinks = 0;
     for (const link of state.partition.regions[region].sea) if (crosses(civ.knowledge.sea, link.km)) seaLinks++;
     const mineYield = mines ? siteIncome(state, civ, region, 'mineral') : 0, quarryYield = quarries ? siteIncome(state, civ, region, 'stone') : 0;
-    const water = riverOrLake(state, region), farmers = Math.round((group.size - group.specialists) * group.farmShare);
+    const water = riverOrLake(state, region), farmers = Math.round(workersOf(group) * group.farmShare);
     for (const settlement of here) {
       const has = regionHas.slice();
       for (const building of settlement.buildings) has.push(building.type);
@@ -538,7 +541,8 @@ export function budgetView(state: SimulationState, civ: Polity, costs: Costs = f
   }
   return {
     rate: civ.taxRate, output, sites, trade, costs: total, treasury: civ.wealth, revenue, surplus: revenue - total,
-    strain: revenue > 0 ? Math.max(0, Math.min(1, total / revenue - 1)) : total > 0 ? 1 : 0, tradition: effectiveValues(state, civ).tradition,
+    // Strain is the weight of running the realm (M3c), not of the army it chooses to keep (M6.1).
+    strain: revenue > 0 ? Math.max(0, Math.min(1, (total - costs.army) / revenue - 1)) : total - costs.army > 0 ? 1 : 0, tradition: effectiveValues(state, civ).tradition,
     calm: people > 0 ? Math.max(0, calm / people) : 1,
   };
 }
@@ -788,6 +792,36 @@ export function borderingCivs(state: SimulationState, polity: Polity, own?: Iter
   return [...bordering].sort((a, b) => a - b);
 }
 
+/**
+ * What a civilization weighs when it sets the army it means to keep (M6.1; `decisions/army.ts`): its people,
+ * Militarism and military multiplier; the strength of its allies as it counts them (DIPLOMACY_TUNING.alliance.strength
+ * of each ally's believed strength); each civilization it has met whose land touches its own, with the strength it
+ * believes of it, its opinion of it and whether a pact binds them (an ally is no threat); its revenue a year at
+ * customary taxes and what its other costs leave of it (its surplus, before any army); its arrears; and what a soldier
+ * costs it.
+ */
+export interface ArmyView {
+  people: number; militarism: number; multiplier: number; allies: number;
+  neighbours: { polity: number; name: string; strength: number; opinion: number; pact: boolean }[];
+  revenue: number; surplus: number; arrears: number; upkeep: number;
+}
+export function armyView(state: SimulationState, civ: Polity): ArmyView {
+  const costs = fullCostsOf(state, civ), budget = budgetView(state, civ, costs);
+  let allies = 0, people = 0;
+  for (const ally of civ.allies) allies += DIPLOMACY_TUNING.alliance.strength * believe(state, civ, state.polities[ally], 'strength').estimate;
+  for (const id of civ.groups) people += state.groups[id].size;
+  const neighbours: ArmyView['neighbours'] = [];
+  for (const other of borderingCivs(state, civ)) {
+    if (civ.allies.includes(other)) continue;
+    const them = state.polities[other];
+    neighbours.push({ polity: other, name: them.name, strength: believe(state, civ, them, 'strength').estimate, opinion: opinionOf(civ, other), pact: civ.pacts.includes(other) });
+  }
+  return {
+    people, militarism: effectiveValues(state, civ).militarism, multiplier: civ.knowledge.multipliers.military, allies, neighbours,
+    revenue: budget.revenue, surplus: budget.revenue - (budget.costs - costs.army), arrears: civ.arrears, upkeep: soldierUpkeep(civ),
+  };
+}
+
 /** The strength it judges others against (M5.5): its own, and DIPLOMACY_TUNING.alliance.strength of each ally's as it
  *  believes it. */
 export function strengthWithAllies(state: SimulationState, polity: Polity) {
@@ -886,10 +920,8 @@ function voyageOption(state: SimulationState, polity: Polity): PolityView['voyag
   return { harbors, reachKm, loss: lossChance(sea, reachKm / 2), years: polity.voyageTick < 0 ? -1 : (state.tick - polity.voyageTick) / 12, empty: polity.emptyVoyages };
 }
 
-/** Threat from one neighbour (NEED_TUNING): believed `ratio` times as strong as itself, and disliked (none without
- *  dislike; fully at an opinion of −hostileAt or below). */
-export const threatOf = (ratio: number, opinion: number) =>
-  clamp01((ratio - 1) / (NEED_TUNING.threatScale - 1)) * clamp01(-opinion / NEED_TUNING.hostileAt);
+/** Threat from one neighbour (`decisions/threat.ts`): believed `ratio` times as strong as itself, and disliked. */
+export { threatOf };
 /** Opportunity from one neighbour: believed weaker (`ratio` of its strength) and richer (`wealth` times its treasury). */
 export const chanceOf = (ratio: number, wealth: number) => clamp01(NEED_TUNING.weak * clamp01(1 - ratio) + NEED_TUNING.rich * clamp01(wealth - 1));
 /** Unrest: the larger of the share of its regions in unrest and how far its stability is below the calm line. */

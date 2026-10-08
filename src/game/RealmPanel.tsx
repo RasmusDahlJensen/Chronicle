@@ -121,13 +121,26 @@ function Overview({ polity }: { polity: InspectedPolity }) {
         <div><dt>Roads</dt><dd id="game-realm-roads">{realm.roads ? `${plural(realm.roads, 'stretch', 'stretches')}${realm.roadsUnkept ? `, ${number.format(realm.roadsUnkept)} of them unkept` : ''}` : 'none'}</dd></div>
         <div><dt>Cultures</dt><dd>{realm.cultures.map(entry => `${entry.name} ${percent(entry.share)}`).join(' · ')}</dd></div>
         <div><dt>Faiths</dt><dd>{realm.faiths.map(entry => `${entry.name ?? 'folk ways'} ${percent(entry.share)}`).join(' · ')}</dd></div>
+        {polity.army && <div><dt>Army</dt><dd id="game-realm-army">{plural(polity.army.soldiers, 'soldier', 'soldiers')} ({shareOf(polity.army.share)} of its people) · strength {people(polity.army.strength)} · upkeep {number.format(polity.army.upkeep)} a year</dd></div>}
       </dl>
+      {polity.army && <ArmyReasons army={polity.army} />}
     </section> : <section aria-label="Its band">
       <h3>Its band</h3>
       <p>{plural(polity.totalPopulation, 'person', 'people')} in {plural(polity.regions, 'region', 'regions')}; {percent(polity.farmShare)} of the band's food here is farmed or herded.</p>
       <p className="game-muted">Food security {polity.foodSecurity.toFixed(2)} (below 1, people go hungry) · {polity.foodStoreMonths.toFixed(1)} months of food stored · here since year {year(polity.arrived)}.</p>
     </section>}
   </>;
+}
+
+/** A share small enough to need a decimal (an army is under 1% of its people). */
+const shareOf = (share: number) => share >= 0.1 ? percent(share) : `${(share * 100).toFixed(share >= 0.01 ? 1 : 2)}%`;
+
+/** Why the realm keeps the army it does (M6.1), as set at its last yearly assessment. */
+function ArmyReasons({ army }: { army: NonNullable<InspectedPolity['army']> }) {
+  const parts = [`a guard of ${number.format(army.garrison)} (its Militarism)`];
+  if (army.threatened > 0) parts.push(`${number.format(army.threatened)} more for fear of the ${army.feared ?? '?'}`);
+  if (army.cut > 0) parts.push(`${number.format(army.cut)} fewer than it would want, for what it can afford`);
+  return <p className="game-muted" id="game-army-reasons">It means to keep {plural(army.target, 'soldier', 'soldiers')}: {parts.join('; ')}. Raising soldiers takes about a year; sending them home is quick, and unsettles the regions they return to.</p>;
 }
 
 /** The treaty a standing comes from (shown once, as the standing). */
@@ -272,7 +285,7 @@ export function RegionDetail({ inspected, region, biome, names }: { inspected: I
   const people = inspected?.people, polity = inspected?.polity, stability = polity?.stability;
   const settlements = inspected?.settlements.filter(settlement => settlement.status === 'alive') ?? [], ruins = inspected?.settlements.filter(settlement => settlement.status !== 'alive') ?? [];
   const burdens = stability ? ([['hunger', stability.hunger], ['overextension', stability.overextension], ['foreign rule', stability.foreignRule], ['another faith', stability.faith],
-    ['strain of a large, old realm', stability.strain], ['taxes', stability.taxes], ['arrears', stability.arrears]] as const).filter(([, weight]) => weight > 0.005) : [];
+    ['strain of a large, old realm', stability.strain], ['returning soldiers', stability.demobilized], ['taxes', stability.taxes], ['arrears', stability.arrears]] as const).filter(([, weight]) => weight > 0.005) : [];
   const water = [region.coastal && 'coast', region.openLake && 'lake', region.riverTier === 3 ? 'great river' : region.riverTier === 2 ? 'river' : region.riverTier === 1 ? 'stream' : ''].filter(Boolean).join(', ');
   return <section aria-label="The region" id="game-region">
     <h3>Region {region.id}{biome ? ` · ${biome.toLowerCase()}` : ''}</h3>
@@ -328,7 +341,8 @@ function FoodHere({ inspected, polity }: { inspected: Inspected; polity: Inspect
       <div><dt>Births</dt><dd>{number.format(polity.birthsThisYear)} this year (last year {number.format(polity.birthsLastYear)})</dd></div>
       <div><dt>Deaths</dt><dd>{number.format(polity.deathsThisYear)} this year (last year {number.format(polity.deathsLastYear)})</dd></div>
       <div><dt>Food</dt><dd>security {polity.foodSecurity.toFixed(2)} · {polity.foodStoreMonths.toFixed(1)} months stored{polity.cropsMonths > 0 ? ` · ${polity.cropsMonths.toFixed(1)} months in the fields` : ''} · {percent(polity.farmShare)} farmed or herded</dd></div>
-      <div><dt>{civ ? 'Townspeople' : 'Specialists'}</dt><dd>{number.format(polity.specialists)}{civ ? `; ${number.format(polity.population - polity.specialists)} rural` : ''}</dd></div>
+      <div><dt>{civ ? 'Townspeople' : 'Specialists'}</dt><dd>{number.format(polity.specialists)}{civ ? `; ${number.format(polity.population - polity.specialists - polity.soldiers)} rural` : ''}</dd></div>
+      {civ && <div><dt>Soldiers</dt><dd id="game-region-soldiers">{number.format(polity.soldiers)} of its rural people under arms, who work no land</dd></div>}
       {civ && <div><dt>Reach</dt><dd>{number.format(polity.capitalKm ?? 0)} km of travel from the capital; the realm governs within {number.format(polity.reachKm)} km</dd></div>}
       <div><dt>Here since</dt><dd>year {year(polity.arrived)}{civ && polity.capital ? `; the realm settled by year ${year(polity.capital.settled)}` : ''}</dd></div>
     </dl>

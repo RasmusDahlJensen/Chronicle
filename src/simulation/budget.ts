@@ -1,6 +1,7 @@
 import { causes } from './causes.ts';
 import { farmOutput, regionSites, settlementOutput, wonderBonus } from './economy.ts';
 import { keeperOf, roadUpkeepOf } from './roads.ts';
+import { soldiersOf, soldierUpkeep } from './soldiers.ts';
 import type { Polity, PopulationGroup, SimulationState } from './state.ts';
 import { BUDGET_TUNING, REACH_TUNING } from './tunables.ts';
 import { WONDERS } from './wonders.ts';
@@ -8,7 +9,7 @@ import { WONDERS } from './wonders.ts';
 /**
  * A realm's budget (VISION.md "Wealth"): what running it costs a year, and what each of its places earns and costs.
  * Its people produce and the crown takes a share in taxes (`economy.ts`); it pays for the administration of its
- * regions, the services of its settlements and the upkeep of its buildings, wonders and roads. A realm that cannot pay
+ * regions, the services of its settlements, the upkeep of its buildings, wonders and roads, and its army (M6.1). A realm that cannot pay
  * falls into arrears: its buildings and roads wear (`construction.ts`) and its regions grow restless, the farthest
  * first (`stability.ts`).
  */
@@ -34,10 +35,11 @@ export function services(urban: number) {
 }
 
 /** What running a realm costs a year: administration of its regions, services in its settlements, upkeep of its
- *  buildings and wonders, and of the roads it keeps. */
-export interface Costs { administration: number; services: number; upkeep: number; roads: number }
-/** (With `all`, the upkeep of everything it holds; else not of what it lets go unkept this year.) */
-export function costsOf(state: SimulationState, civ: Polity, roads = roadUpkeepOf(state, civ), all = false): Costs {
+ *  buildings and wonders, and of the roads it keeps, and its army (M6.1). */
+export interface Costs { administration: number; services: number; upkeep: number; roads: number; army: number }
+/** (With `all`, the upkeep of everything it holds, else not of what it lets go unkept this year; with `planned`, by
+ *  default as `all`, the army it means to keep if larger than the one it has, else its soldiers now.) */
+export function costsOf(state: SimulationState, civ: Polity, roads = roadUpkeepOf(state, civ), all = false, planned = all): Costs {
   const size = sizeFactor(civ.groups.length), age = ageFactor(realmYears(state, civ));
   let administered = 0, served = 0, upkeep = 0;
   for (const groupId of civ.groups) {
@@ -52,10 +54,11 @@ export function costsOf(state: SimulationState, civ: Polity, roads = roadUpkeepO
     const settlement = state.settlements[wonder.settlement];
     if (wonder.status === 'standing' && settlement.owner === civ.id && (all || !state.neglected[settlement.region])) upkeep += WONDERS[wonder.type].upkeep;
   }
-  return { administration: administered, services: served, upkeep, roads };
+  const soldiers = soldiersOf(state, civ);
+  return { administration: administered, services: served, upkeep, roads, army: (planned ? Math.max(soldiers, civ.army.target) : soldiers) * soldierUpkeep(civ) };
 }
 
-/** What running a realm would cost a year if it kept up everything it holds. */
+/** What running a realm would cost a year if it kept up everything it holds and the army it means to keep. */
 export const fullCostsOf = (state: SimulationState, civ: Polity) => costsOf(state, civ, roadUpkeepOf(state, civ, true), true);
 
 /**
@@ -68,7 +71,9 @@ export const fullCostsOf = (state: SimulationState, civ: Polity) => costsOf(stat
  * region go and ends (an event) after `keptYears` years in a row of keeping everything up.
  */
 export function deferMaintenance(state: SimulationState, civ: Polity, revenue: number, reserve: number, strain: number) {
-  const tuning = BUDGET_TUNING, costs = fullCostsOf(state, civ), spare = Math.max(0, civ.wealth - reserve) / tuning.refillYears;
+  // The army as it stands: soldiers being raised are paid as they come, from its savings while taxes catch up, rather
+  // than by letting land go at once (M6.1).
+  const tuning = BUDGET_TUNING, costs = costsOf(state, civ, roadUpkeepOf(state, civ, true), true, false), spare = Math.max(0, civ.wealth - reserve) / tuning.refillYears;
   let deficit = totalCosts(costs) - revenue - spare, neglected = 0;
   // Upkeep by region: its settlements' buildings and wonders and the roads kept up there.
   const upkeep = new Map<number, number>();
@@ -106,11 +111,11 @@ export function deferMaintenance(state: SimulationState, civ: Polity, revenue: n
     state.chronicle.emit({ type: 'neglect', actors: [{ id: civ.id, role: 'civ' }], region: null, importance: 0.03, causes: [], data: { civ: civ.name, ended: true } });
   }
 }
-export const totalCosts = (costs: Costs) => costs.administration + costs.services + costs.upkeep + costs.roads;
+export const totalCosts = (costs: Costs) => costs.administration + costs.services + costs.upkeep + costs.roads + costs.army;
 /** A realm's costs as causes: each kind's share of the whole. */
 export function costShares(costs: Costs) {
   const total = totalCosts(costs);
-  return total > 0 ? causes({ administration: costs.administration / total, services: costs.services / total, upkeep: (costs.upkeep + costs.roads) / total }) : [];
+  return total > 0 ? causes({ administration: costs.administration / total, services: costs.services / total, upkeep: (costs.upkeep + costs.roads) / total, army: costs.army / total }) : [];
 }
 
 /**
@@ -197,8 +202,8 @@ export function regionAccount(state: SimulationState, civ: Polity, group: Popula
 }
 
 /** A realm's revenue and costs a year by kind, as the sums of its settlements' accounts (every region it holds has a
- *  living settlement, its seat: an invariant) and its roads' upkeep: what the observer shows, the same as `incomeOf`
- *  and `costsOf`. */
+ *  living settlement, its seat: an invariant), its roads' upkeep and its army's: what the observer shows, the same as
+ *  `incomeOf` and `costsOf`. */
 export function realmAccount(state: SimulationState, civ: Polity) {
   const wonder = wonderBonus(state, civ).wealth;
   let trades = 0, farms = 0, sites = 0, administered = 0, served = 0, upkeep = 0;
@@ -209,5 +214,5 @@ export function realmAccount(state: SimulationState, civ: Polity) {
       trades += account.trades; farms += account.farms; sites += account.sites; administered += account.administration; served += account.services; upkeep += account.upkeep;
     }
   }
-  return { revenue: { trades, farms, sites }, costs: { administration: administered, services: served, upkeep, roads: roadUpkeepOf(state, civ) } };
+  return { revenue: { trades, farms, sites }, costs: { administration: administered, services: served, upkeep, roads: roadUpkeepOf(state, civ), army: soldiersOf(state, civ) * soldierUpkeep(civ) } };
 }

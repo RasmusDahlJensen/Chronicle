@@ -3,6 +3,7 @@ import { BUILDINGS } from './buildings.ts';
 import { depositState } from './deposits.ts';
 import { WONDERS } from './wonders.ts';
 import { unrestDepth } from './pressure.ts';
+import { workersOf } from './soldiers.ts';
 import type { Polity, PopulationGroup, Settlement, SimulationState, WealthFlows } from './state.ts';
 import { BUDGET_TUNING, FAITH_TUNING, STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
 import { TENETS } from './religions.ts';
@@ -18,7 +19,7 @@ import { TENETS } from './religions.ts';
 /** This tick's wealth flows of a civilization, begun with its treasury as it stood when they began. */
 export function wealthFlows(state: SimulationState, civ: Polity): WealthFlows {
   let flows = state.ledger.wealth.get(civ.id);
-  if (!flows) { flows = { before: civ.wealth, produced: 0, construction: 0, upkeep: 0, administration: 0, services: 0, relief: 0, received: 0, given: 0, lost: 0 }; state.ledger.wealth.set(civ.id, flows); }
+  if (!flows) { flows = { before: civ.wealth, produced: 0, construction: 0, upkeep: 0, administration: 0, services: 0, army: 0, relief: 0, received: 0, given: 0, lost: 0 }; state.ledger.wealth.set(civ.id, flows); }
   return flows;
 }
 
@@ -33,10 +34,10 @@ export function faithWealth(state: SimulationState, region: number) {
   return faith >= 0 && state.religions[faith].tenets.some(tenet => TENETS[tenet].key === 'asceticism') ? FAITH_TUNING.asceticWealth : 1;
 }
 
-/** What a region's farmers and herders have to sell in a year before tax: their surplus food, none when they go hungry,
- *  less in unrest. */
+/** What a region's farmers and herders (not its townspeople or soldiers) have to sell in a year before tax: their
+ *  surplus food, none when they go hungry, less in unrest. */
 export function farmOutput(state: SimulationState, group: PopulationGroup) {
-  const tuning = BUDGET_TUNING, farmers = Math.max(0, group.size - group.specialists);
+  const tuning = BUDGET_TUNING, farmers = workersOf(group);
   const surplus = Math.max(0, Math.min(1, (group.foodSecurity - tuning.hungerLine) / (1 - tuning.hungerLine)));
   return farmers * tuning.farmOutput * Math.max(0, Math.min(1, group.farmShare)) * surplus * (1 - STABILITY_TUNING.outputLoss * unrestDepth(state, group.region)) * faithWealth(state, group.region);
 }

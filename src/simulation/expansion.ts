@@ -5,6 +5,7 @@ import { transferWealth } from './economy.ts';
 import { newTechs } from './knowledge.ts';
 import { absorbMap, arrive, budgetView, crosses, governable, hasHarbor, lookAgain, meet, reveal, seaFrom, UNKNOWN } from './perception.ts';
 import { correct, remember } from './relations.ts';
+import { setArmy } from './army.ts';
 import { assess } from './stability.ts';
 import type { Rng } from './rng.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
@@ -191,7 +192,9 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
   lookAgain(small);
   endPolity(state, small, tick);
   state.metrics.unions++;
-  // Its regions are judged under their new rule at once (stability and unrest).
+  // Its regions are judged under their new rule at once (stability and unrest), and the united realm sets its army for
+  // the land it now holds (M6.1).
   assess(state, large);
+  setArmy(state, large, false);
   return `united with the ${large.name}`;
 }

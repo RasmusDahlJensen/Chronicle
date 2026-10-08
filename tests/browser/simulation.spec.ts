@@ -360,6 +360,12 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(tabs.getByRole('tab')).toHaveText(['Overview', 'Diplomacy', 'Economy', 'Knowledge', 'History', 'Region']);
   await expect(place.locator('#game-realm-settlements')).toContainText(/village|town|city/);
   await expect(place.locator('#game-realm-glance')).toContainText(realm.realm.cultures[0].name);
+  // M6.1: its army, its share of the people, strength and upkeep, and why it keeps that many.
+  expect(realm.army.soldiers).toBeGreaterThan(0);
+  await expect(place.locator('#game-realm-army')).toContainText(`${realm.army.soldiers.toLocaleString('en')} soldier`);
+  await expect(place.locator('#game-realm-army')).toContainText(`upkeep ${realm.army.upkeep.toLocaleString('en')} a year`);
+  await expect(place.locator('#game-army-reasons')).toContainText(`It means to keep ${realm.army.target.toLocaleString('en')} soldier`);
+  await expect(place.locator('#game-army-reasons')).toContainText(`a guard of ${realm.army.garrison.toLocaleString('en')}`);
   await tabs.getByRole('tab', { name: 'Diplomacy' }).click();
   await expect(tabs.getByRole('tab', { name: 'Diplomacy' })).toHaveAttribute('aria-selected', 'true');
   const known = place.getByRole('list', { name: 'Peoples it knows' }).getByRole('listitem');
@@ -372,6 +378,9 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await tabs.getByRole('tab', { name: 'Economy' }).click();
   await expect(place.locator('#game-economy-purse')).toContainText(`Treasury ${realm.wealth.treasury.toLocaleString('en')}`);
   await expect(place.locator('#game-economy-balance')).toContainText(/A (surplus|deficit) of/);
+  // M6.1: the army is a cost in the budget.
+  await expect(place.getByRole('definition').filter({ hasText: realm.wealth.costs.army.toLocaleString('en') }).first()).toBeVisible();
+  await expect(place.locator('#game-economy-purse')).toContainText('army');
   await tabs.getByRole('tab', { name: 'Economy' }).press('ArrowRight');
   await expect(tabs.getByRole('tab', { name: 'Knowledge' })).toHaveAttribute('aria-selected', 'true');
   await expect(place.locator('#game-known')).toContainText(realm.known[0]);
@@ -406,6 +415,8 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(table.getByRole('row')).toHaveCount(frame.civList.length + 1);
   await table.getByRole('button', { name: 'Regions' }).click();
   await expect(table.getByRole('columnheader', { name: /Regions/ })).toHaveAttribute('aria-sort', 'descending');
+  // M6.1: each realm's army.
+  await expect(table.getByRole('columnheader', { name: /Army/ })).toBeVisible();
   const widest = [...frame.civList].sort((a: { regions: number; id: number }, b: { regions: number; id: number }) => b.regions - a.regions || a.id - b.id)[0];
   await expect(table.getByRole('row').nth(1).getByRole('rowheader')).toHaveText(widest.name);
   const listed = new Set(frame.civList.map((civ: { id: number }) => civ.id));
@@ -539,6 +550,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(place.locator('#game-region-culture')).toContainText('Descent:');
   await expect(place.locator('#game-region-faith')).toContainText(largest.people.faith ? `The ${largest.people.faith.name} faith` : `The folk ways of the ${largest.people.culture}`);
   await expect(place.locator('#game-region-food')).toContainText(`${Math.round(largest.capacity).toLocaleString('en')} people`);
+  await expect(place.locator('#game-region-soldiers')).toContainText(`${largest.polity.soldiers.toLocaleString('en')} of its rural people under arms`);
   await expect(place.locator('.game-account').first()).toContainText(/^Pays [\d,]+ a year/);
   // The ledger: the world now, the wonders, the largest cultures and the religions.
   await game.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Ledger' }).click();
