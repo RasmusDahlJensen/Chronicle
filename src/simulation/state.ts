@@ -152,11 +152,17 @@ export type Action = typeof ACTIONS[number];
  *  action and its index among the options: Build can be weighed as a building, a wonder and roads at once). */
 /** A belief a decision weighed: about whom, of what, what was believed, and the truth then. */
 export interface BeliefRecord { polity: number; kind: BeliefKind; estimate: number; truth: number }
-export { BELIEF_KINDS } from '../../shared/simulation.ts';
+export { BELIEF_KINDS, NEED_NAMES } from '../../shared/simulation.ts';
+export type NeedName = typeof import('../../shared/simulation.ts').NEED_NAMES[number];
 export type BeliefKind = typeof import('../../shared/simulation.ts').BELIEF_KINDS[number];
 
 export interface DecisionRecord {
   tick: number; chosen: Action; pick: number;
+  /** The effective values it decided by and its needs as it saw them (M5.2: hunger, land pressure, opportunity of land,
+   *  unrest and threat move its actions now; trade, pacts, alliances and war answer the rest as they come), and the
+   *  causes of its choice: what drove it, strongest first, and when only one factor did, the strongest that held it
+   *  back (a negative weight). */
+  values: CultureValues; needs: Record<NeedName, number>; causes: { factor: string; weight: number }[];
   /** Each option, and the beliefs about other peoples it weighed (what was believed and, for the study and the lab, the
    *  truth at the time: decisions never see it). */
   options: { action: Action; score: number; target: number | null; label: string | null; factors: { factor: string; weight: number }[]; beliefs?: BeliefRecord[] }[];
@@ -371,6 +377,10 @@ export interface CenturyStats {
    *  that weighed a belief so far, and those whose belief was more than half off. */
   beliefErrorLow: number; beliefErrorMid: number; beliefErrorHigh: number; meanIntimacy: number;
   opinionMean: number; opinionWarm: number; opinionCold: number; beliefDecisions: number; beliefsFarOff: number;
+  /** Needs (M5.2): each need's mean over living civilizations' last decision steps, decision steps taken so far, and
+   *  those that logged fewer than two causes though two or more factors were nonzero. */
+  needHunger: number; needLandPressure: number; needShortage: number; needThreat: number; needUnrest: number; needFriction: number;
+  needOpportunity: number; needGrievance: number; needInfrastructure: number; decisionSteps: number; causesShort: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -455,6 +465,9 @@ export interface Metrics {
   /** Decisions taken that weighed a belief about another people (M5.1), and of those, ones whose belief was more than
    *  half off the truth (VISION.md M5: at least one in the study). */
   beliefDecisions: number; beliefsFarOff: number;
+  /** Decision steps taken, and those that logged fewer than two causes though two or more factors were nonzero (M5.2:
+   *  never). */
+  decisionSteps: number; causesShort: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;

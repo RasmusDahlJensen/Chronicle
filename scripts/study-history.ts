@@ -228,6 +228,13 @@ function storyHealth(rows: SeedResult[]) {
     const percent = (share: number) => share < 0 ? '—' : `${Math.round(share * 100)}%`;
     lines.push(`| ${result.seed} | ${each(row => `${percent(row.beliefErrorLow)} · ${percent(row.beliefErrorMid)} · ${percent(row.beliefErrorHigh)}`)} | ${each(row => `${row.meanIntimacy.toFixed(2)} · ${row.opinionMean.toFixed(1)} · ${percent(row.opinionWarm)} · ${percent(row.opinionCold)}`)} | ${last.beliefDecisions} · ${last.beliefsFarOff} | ${each(row => String(row.unions))} |`);
   }
+  // M5.2 (VISION.md "Needs", "Decision step"): the needs civilizations weigh, and the decision log's causes rule.
+  lines.push('', '| Seed | Mean needs over civilizations\' last decisions at 1,000 / 2,000 / 3,000: hunger · land pressure · threat · unrest · friction · opportunity · infrastructure | Decision steps by 3,000 · of those logging fewer than two causes though two or more factors were nonzero (M5: 0) |', '| --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    lines.push(`| ${result.seed} | ${each(row => [row.needHunger, row.needLandPressure, row.needThreat, row.needUnrest, row.needFriction, row.needOpportunity, row.needInfrastructure].map(value => value.toFixed(2)).join(' · '))} | ${last.decisionSteps.toLocaleString('en')} · ${last.causesShort} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');

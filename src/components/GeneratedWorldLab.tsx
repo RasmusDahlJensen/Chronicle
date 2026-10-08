@@ -107,6 +107,9 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
       {polity.stability && <p className="atlas-panel-note" id="polity-stability">Stability here {polity.stability.value.toFixed(2)}{polity.stability.unrest ? ' · in unrest (lower output and research)' : ''}{[['hunger', polity.stability.hunger], ['overextension', polity.stability.overextension], ['foreign rule', polity.stability.foreignRule], ['another faith', polity.stability.faith], ['strain of a large, old realm', polity.stability.strain], ['taxes', polity.stability.taxes], ['arrears', polity.stability.arrears]].filter(([, weight]) => (weight as number) > 0.005).map(([factor, weight]) => ` · ${factor} −${(weight as number).toFixed(2)}`).join('')}{polity.stability.taxes < -0.005 ? ` · light taxes +${(-polity.stability.taxes).toFixed(2)}` : ''}{polity.stability.faith < -0.005 ? ` · ascetic faith +${(-polity.stability.faith).toFixed(2)}` : ''}.</p>}
       {polity.lastDecision ? <>
         <h4 id="polity-decision">{DECISION_LABELS[polity.lastDecision.chosen]}{decisionTarget(polity.lastDecision)} <span>year {simulationDate(polity.lastDecision.tick).year} · {polity.lastDecision.outcome}</span></h4>
+        {polity.lastDecision.causes.length > 0 && <p className="atlas-panel-note" id="polity-causes">{causeText(polity.lastDecision.causes)}</p>}
+        <p className="atlas-panel-note" id="polity-needs">Needs: {NEED_LABELS.map(([need, label]) => `${label} ${polity.lastDecision!.needs[need].toFixed(2)}`).join(' · ')}.</p>
+        <p className="atlas-panel-note" id="polity-values">Decided by all its people's values: {VALUE_NAMES.map(key => `${key} ${polity.lastDecision!.values[key].toFixed(2)}`).join(' · ')}.</p>
         <ol className="world-decision-options" aria-label="Options weighed">{polity.lastDecision.options.map((option, index) => <li key={index}>
           <span>{ACTION_NAMES[option.action]} {option.score.toFixed(2)}</span>
           <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
@@ -138,6 +141,15 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
   </div>;
 }
 
+/** A decision's causes: what drove it, and what held it back ("despite"). */
+function causeText(causes: { factor: string; weight: number }[]) {
+  const why = causes.filter(cause => cause.weight > 0).map(cause => `${cause.factor} +${cause.weight.toFixed(2)}`);
+  const despite = causes.filter(cause => cause.weight < 0).map(cause => `${cause.factor} ${cause.weight.toFixed(2)}`);
+  return `${why.length ? `Because of ${why.join(', ')}` : 'Chosen'}${despite.length ? `, despite ${despite.join(', ')}` : ''}.`;
+}
+
+const NEED_LABELS = [['hunger', 'hunger'], ['landPressure', 'land pressure'], ['shortage', 'shortage'], ['threat', 'threat'], ['unrest', 'unrest'], ['friction', 'friction'],
+  ['opportunity', 'opportunity'], ['grievance', 'grievance'], ['infrastructure', 'infrastructure']] as const;
 const BELIEF_NAMES = { people: 'people', strength: 'strength', wealth: 'wealth', era: 'era' } as const;
 /** Opinion's reasons as the inspector names them. */
 const REASON_NAMES: Record<string, string> = {

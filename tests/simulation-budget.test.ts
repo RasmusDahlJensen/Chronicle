@@ -94,7 +94,7 @@ function realm(count = 2) {
       regionOf: Int32Array.from({ length: cells }, (_, cell) => Math.floor(cell / 6)),
     },
     cultures: [{ language: createLanguage(createRng(1, 1)), values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 } }], settlements: [], regionSettlements: regions.map(() => []), chronicle: new Chronicle(),
-    groups: regions.map(id => id === 0 ? { id, region: id, specialists: 0, foodSecurity: 1.1, size: 200_000, farmShare: 1 } : { id, region: id, specialists: 0, foodSecurity: 0.75, size: 20_000, farmShare: 0.6 }),
+    groups: regions.map(id => ({ ...(id === 0 ? { id, region: id, specialists: 0, foodSecurity: 1.1, size: 200_000, farmShare: 1 } : { id, region: id, specialists: 0, foodSecurity: 0.75, size: 20_000, farmShare: 0.6 }), values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 } })),
     groupAt: Int32Array.from(regions), unrest: new Uint8Array(count), stability: new Float64Array(count).fill(1),
     remoteness: Float64Array.from(regions, id => count === 2 ? 1.5 * id : 0.8 * id), remoteOwner: new Int32Array(count), neglected: new Uint8Array(count),
     living: [0], ledger: { wealth: new Map() }, wonders: [], roads: new Map(), owner: new Int32Array(count),

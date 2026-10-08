@@ -18,14 +18,14 @@ import { cultureStats, cultureYear, harshLand } from './culture.ts';
 import { faithStats } from './faith.ts';
 import { ageFactor, costsOf, realmYears, settlementAccount, sizeFactor, totalCosts } from './budget.ts';
 import { wealthFlows, wonderBonus } from './economy.ts';
-import { ACTIONS, MEMORY_REASONS, SYSTEMS, VALUE_KEYS, type CenturyStats, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
+import { ACTIONS, MEMORY_REASONS, NEED_NAMES, SYSTEMS, VALUE_KEYS, type CenturyStats, type NeedName, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
 import type { RegionPartition } from './regions.ts';
 import { seedFromText, systemStream } from './rng.ts';
 import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 24;
+export const SIMULATION_RULES_VERSION = 25;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
@@ -62,7 +62,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0, settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0,
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
-      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
+      faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, decisionSteps: 0, causesShort: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -109,6 +109,24 @@ export function worldPopulation(state: SimulationState) {
 function roundedCultureStats(state: SimulationState) {
   const stats = cultureStats(state), round = (value: number) => Math.round(value * 1000) / 1000;
   return { cultures: stats.cultures, valueSpread: round(stats.valueSpread), cultureDivergence: round(stats.cultureDivergence), foreignShare: round(stats.foreignShare), culturesWithTraits: stats.culturesWithTraits };
+}
+
+/** Each need's mean over living civilizations' last decision steps (M5.2), and the decision log's causes rule. */
+function needStats(state: SimulationState) {
+  const sums = Object.fromEntries(NEED_NAMES.map(need => [need, 0])) as Record<NeedName, number>;
+  let count = 0;
+  for (const id of state.living) {
+    const step = state.polities[id].decisions.at(-1);
+    if (!step) continue;
+    count++;
+    for (const need of NEED_NAMES) sums[need] += step.needs[need];
+  }
+  const mean = (need: NeedName) => count ? Math.round(sums[need] / count * 1000) / 1000 : 0;
+  return {
+    needHunger: mean('hunger'), needLandPressure: mean('landPressure'), needShortage: mean('shortage'), needThreat: mean('threat'), needUnrest: mean('unrest'),
+    needFriction: mean('friction'), needOpportunity: mean('opportunity'), needGrievance: mean('grievance'), needInfrastructure: mean('infrastructure'),
+    decisionSteps: state.metrics.decisionSteps, causesShort: state.metrics.causesShort,
+  };
 }
 
 function roundedFaithStats(state: SimulationState) {
@@ -223,7 +241,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     ...neglectStats(state), neglectBegun: m.neglectBegun,
     ...famineByWealth(state),
     ...roundedCultureStats(state), cultureSplits: m.cultureSplits, civCultureSplits: m.civCultureSplits, assimilations: m.assimilations, hybrids: m.hybrids, traitsEarned: m.traitsEarned,
-    ...relationStats(state), ...roundedFaithStats(state), religionsFounded: m.religionsFounded, conversions: m.conversions, stateReligionChanges: m.stateReligionChanges, schisms: m.schisms,
+    ...relationStats(state), ...needStats(state), ...roundedFaithStats(state), religionsFounded: m.religionsFounded, conversions: m.conversions, stateReligionChanges: m.stateReligionChanges, schisms: m.schisms,
   };
 }
 

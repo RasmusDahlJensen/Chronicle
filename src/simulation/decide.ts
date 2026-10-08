@@ -1,5 +1,5 @@
 import { causes } from './bands.ts';
-import { choose, drivers } from './decisions/choose.ts';
+import { choose, drivers, MULTIPLIER, reasonsFor } from './decisions/choose.ts';
 import { expand, explore, unite } from './expansion.ts';
 import { decisionView } from './perception.ts';
 import { truthOf } from './relations.ts';
@@ -47,8 +47,12 @@ export function decide(state: SimulationState, context: TickContext) {
       state.metrics.beliefDecisions++;
       if (weighed.some(belief => Math.abs(belief.estimate / Math.max(1, belief.truth) - 1) > 0.5)) state.metrics.beliefsFarOff++;
     }
+    // The causes it logs: at least two whenever two or more of the chosen option's factors are nonzero (VISION.md M5).
+    const reasons = reasonsFor(chosen);
+    if (chosen.factors.filter(entry => entry.weight !== 0 && !entry.factor.startsWith(MULTIPLIER)).length >= 2 && reasons.length < 2) state.metrics.causesShort++;
+    state.metrics.decisionSteps++;
     polity.decisions.push({
-      tick: context.tick, chosen: chosen.action, pick: options.indexOf(chosen), outcome,
+      tick: context.tick, chosen: chosen.action, pick: options.indexOf(chosen), outcome, values: view.values, needs: view.needs, causes: reasons,
       // Land beyond all reach scores −∞; the log keeps a finite floor.
       options: options.map((option, at) => ({
         action: option.action, score: Math.max(-1, Math.round(option.score * 1000) / 1000), target: option.target, label: option.label, factors: option.factors,

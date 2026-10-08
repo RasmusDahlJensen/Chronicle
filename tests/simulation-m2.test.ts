@@ -10,11 +10,11 @@ import { partitionRegions } from '../src/simulation/regions.ts';
 import { createSimulation, stepSimulation, worldPopulation } from '../src/simulation/simulation.ts';
 import { ERAS, TECH_INDEX, TECHS } from '../src/simulation/techs.ts';
 import { admission, expand, unite } from '../src/simulation/expansion.ts';
-import { budgetView, decisionView } from '../src/simulation/perception.ts';
+import { believe, budgetView, decisionView, effectiveValues, opinionOf } from '../src/simulation/perception.ts';
 import { assess } from '../src/simulation/stability.ts';
 import { edgeKm } from '../src/simulation/perception.ts';
 import { BUDGET_TUNING, RELATION_TUNING, STABILITY_TUNING, UNITE_TUNING } from '../src/simulation/tunables.ts';
-import { judge } from '../src/simulation/relations.ts';
+import { judge, truthOf } from '../src/simulation/relations.ts';
 import { refreshRemoteness } from '../src/simulation/budget.ts';
 import { wealthFlows } from '../src/simulation/economy.ts';
 import { createRng, type Rng } from '../src/simulation/rng.ts';
@@ -426,6 +426,26 @@ function exerciseUnion(state: ReturnType<typeof createSimulation>) {
   assert.ok(weighed.every(belief => belief.kind === 'people' && belief.estimate >= 0 && belief.truth >= 0));
   const chosen = civs.reduce((sum, id) => sum + state.polities[id].decisions.filter(step => step.options[step.pick].beliefs?.length).length, 0);
   assert.ok(state.metrics.beliefDecisions >= chosen && state.metrics.beliefsFarOff <= state.metrics.beliefDecisions);
+  // M5.2: every logged step keeps the effective values and needs it weighed (0–1), and at least two causes whenever two
+  // or more of the chosen option's factors are nonzero.
+  const steps = civs.flatMap(id => state.polities[id].decisions);
+  assert.ok(steps.length > 0);
+  for (const step of steps) {
+    assert.ok(Object.values(step.values).every(value => value >= 0 && value <= 1) && Object.values(step.needs).every(value => value >= 0 && value <= 1));
+    const nonzero = step.options[step.pick].factors.filter(entry => entry.weight !== 0 && !entry.factor.startsWith('×')).length;
+    assert.ok(nonzero < 2 || step.causes.length >= 2, `${step.chosen} at ${step.tick}: ${JSON.stringify(step.causes)}`);
+  }
+  assert.equal(state.metrics.causesShort, 0);
+  // The view: all its people's values; threats only from neighbours it has met, believes stronger and dislikes.
+  for (const id of civs) {
+    const polity = state.polities[id], seen = decisionView(state, polity);
+    assert.deepEqual(seen.values, effectiveValues(state, polity));
+    for (const entry of seen.threats) {
+      assert.ok(polity.met.has(entry.civ) && opinionOf(polity, entry.civ) < 0, 'a disliked neighbour it has met');
+      assert.ok(believe(state, polity, state.polities[entry.civ], 'strength').estimate > truthOf(state, polity, 'strength'), 'believed stronger');
+      assert.ok(entry.threat > 0 && entry.threat <= seen.needs.threat);
+    }
+  }
   const small = state.polities[pair.small], large = state.polities[pair.large];
   // M5.1: asked on a belief far off (the larger one asking to join the smaller), the truth refuses it, it learns, and waits.
   judge(state, large, state.tick);

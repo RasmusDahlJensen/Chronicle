@@ -29,7 +29,7 @@ function world() {
       knowledge: { era: 2, multipliers: { military: 1.5 }, known: new Uint8Array(TECHS.length) },
     } as unknown as Polity;
     for (const region of held) {
-      state.groups.push({ id: state.groups.length, region, size: options.size ?? 1_000 } as never);
+      state.groups.push({ id: state.groups.length, region, size: options.size ?? 1_000, values: state.cultures[state.cultures.length - 1].values } as never);
       polity.groups.push(state.groups.length - 1); state.occupant[region] = id;
     }
     state.polities.push(polity);

@@ -11,8 +11,10 @@ import { CostHeap } from './heap.ts';
 import { edgeKm, edgeTravel, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
 import { landPressure } from './pressure.ts';
 import { beliefBias, estimate, truthOf } from './relations.ts';
-import type { BeliefKind, CultureValues, MapKnowledge, Polity, SimulationState } from './state.ts';
-import { BUDGET_TUNING, FAITH_TUNING, MOBILITY_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
+import { effectiveValues } from './values.ts';
+export { effectiveValues };
+import { NEED_NAMES, type BeliefKind, type CultureValues, type MapKnowledge, type NeedName, type Polity, type SimulationState } from './state.ts';
+import { BUDGET_TUNING, FAITH_TUNING, MOBILITY_TUNING, NEED_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
@@ -196,7 +198,11 @@ export function shareSurroundings(state: SimulationState, polity: Polity, tick: 
  * Built here from its own state and its map; decision code receives nothing else.
  */
 export interface PolityView {
+  /** Its effective values (M5.2: all its people's, people-weighted, with its ruler's and government's modifiers). */
   id: number; tick: number; values: CultureValues;
+  /** Its needs, each 0–1 (VISION.md "Needs"; `needsOf`), and the threat it feels from each neighbouring civilization
+   *  that threatens it (by id, those above 0): what threatens it is not where it seeks shelter. */
+  needs: Record<NeedName, number>; threats: { civ: number; threat: number }[];
   /** Sea reach (0 none, 1 coastal crossings, 2 any coast) and the tick it last grew (−1 never). */
   sea: number; seaTick: number;
   /** Governance reach in travel-km from its capital. */
@@ -472,7 +478,7 @@ export function budgetView(state: SimulationState, civ: Polity, costs: Costs = f
   }
   return {
     rate: civ.taxRate, output, sites, costs: total, treasury: civ.wealth, revenue, surplus: revenue - total,
-    strain: revenue > 0 ? Math.max(0, Math.min(1, total / revenue - 1)) : total > 0 ? 1 : 0, tradition: state.cultures[civ.culture].values.tradition,
+    strain: revenue > 0 ? Math.max(0, Math.min(1, total / revenue - 1)) : total > 0 ? 1 : 0, tradition: effectiveValues(state, civ).tradition,
     calm: people > 0 ? Math.max(0, calm / people) : 1,
   };
 }
@@ -598,9 +604,10 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     partners.push({ polity: other, name: them.name, kind: them.kind, kin: them.lineage === polity.lineage, similarity, opinion: opinionOf(polity, other), teach, learn, willing: willingness(theirs.tradition, similarity, teach) });
   }
   partners.sort((a, b) => a.polity - b.polity);
-  return {
+  const view: PolityView = {
     budget: budgetView(state, polity), build: buildView(state, polity),
-    id: polity.id, tick: state.tick, values: { ...state.cultures[polity.culture].values }, sea: polity.knowledge.sea, seaTick: polity.seaTick,
+    id: polity.id, tick: state.tick, values: effectiveValues(state, polity), needs: Object.fromEntries(NEED_NAMES.map(need => [need, 0])) as PolityView['needs'], threats: [],
+    sea: polity.knowledge.sea, seaTick: polity.seaTick,
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,
     ownValue: own.size ? value / own.size : 0,
@@ -608,6 +615,75 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     regions: own.size, unrestShare: own.size ? unrest / own.size : 0, stability: own.size ? stable / own.size : 1,
     neighbours: [...neighbours.values()].sort((a, b) => a.civ - b.civ), partners, exchanges,
   };
+  view.needs = needsOf(state, polity, view, own);
+  return view;
+}
+
+const TOLERANCE = TENETS.findIndex(tenet => tenet.key === 'tolerance');
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+/**
+ * A civilization's needs (VISION.md "Needs"; M5.2), each 0–1, from its own state and what it believes of the
+ * civilizations it has met whose land touches its own (NEED_TUNING): hunger and land pressure; threat from a neighbour
+ * it believes stronger and does not like; unrest; friction with neighbours of a rival faith; opportunity from better
+ * land or a neighbour it believes weaker or richer; infrastructure (`infrastructureNeed`). Resource shortage (M5.3)
+ * and grievance (M6) are 0 until their milestones.
+ */
+function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: Set<number>): PolityView['needs'] {
+  const bordering = new Set<number>();
+  for (const region of own) for (const edge of state.partition.regions[region].neighbors) {
+    const civ = state.owner[edge.region];
+    if (civ >= 0 && civ !== polity.id && polity.met.has(civ)) bordering.add(civ);
+  }
+  const strength = truthOf(state, polity, 'strength'), treasury = Math.max(1, polity.wealth);
+  let threat = 0, rivals = 0, chance = 0;
+  for (const civ of [...bordering].sort((a, b) => a - b)) {
+    const them = state.polities[civ], ratio = believe(state, polity, them, 'strength').estimate / Math.max(1, strength);
+    const fear = threatOf(ratio, opinionOf(polity, civ));
+    if (fear > 0) view.threats.push({ civ, threat: fear });
+    threat = Math.max(threat, fear);
+    chance = Math.max(chance, chanceOf(ratio, believe(state, polity, them, 'wealth').estimate / treasury));
+    // A rival faith; a tolerant one on either side rubs less (VISION.md "Tenets": Tolerance lowers friction).
+    if (polity.stateReligion >= 0 && them.stateReligion >= 0 && them.stateReligion !== polity.stateReligion) {
+      rivals += state.religions[polity.stateReligion].tenets.includes(TOLERANCE) || state.religions[them.stateReligion].tenets.includes(TOLERANCE) ? 0.5 : 1;
+    }
+  }
+  let land = 0;
+  for (const candidate of view.candidates) if (view.ownValue > 0) land = Math.max(land, candidate.value / view.ownValue - 1);
+  return {
+    hunger: clamp01(view.hunger), landPressure: clamp01(view.landPressure), shortage: 0, threat, unrest: unrestOf(view.unrestShare, view.stability),
+    friction: frictionOf(bordering.size ? rivals / bordering.size : 0, view.values.zeal, secularity(polity)),
+    opportunity: clamp01(Math.max(land, chance)), grievance: 0, infrastructure: infrastructureNeed(view),
+  };
+}
+
+/** Threat from one neighbour (NEED_TUNING): believed `ratio` times as strong as itself, and disliked (none without
+ *  dislike; fully at an opinion of −hostileAt or below). */
+export const threatOf = (ratio: number, opinion: number) =>
+  clamp01((ratio - 1) / (NEED_TUNING.threatScale - 1)) * clamp01(-opinion / NEED_TUNING.hostileAt);
+/** Opportunity from one neighbour: believed weaker (`ratio` of its strength) and richer (`wealth` times its treasury). */
+export const chanceOf = (ratio: number, wealth: number) => clamp01(NEED_TUNING.weak * clamp01(1 - ratio) + NEED_TUNING.rich * clamp01(wealth - 1));
+/** Unrest: the larger of the share of its regions in unrest and how far its stability is below the calm line. */
+export const unrestOf = (unrestShare: number, stability: number) =>
+  clamp01(Math.max(unrestShare, (NEED_TUNING.calmStability - stability) / NEED_TUNING.calmStability));
+/** Friction: the share of its neighbours of a rival faith, by its Zeal, less in the secular age. */
+export const frictionOf = (rivalShare: number, zeal: number, secular: number) => clamp01(rivalShare * zeal * (1 - secular));
+
+/** Infrastructure need (VISION.md "Needs"): the largest of the share of its towns and cities its roads do not reach,
+ *  the share of its settlements going hungry with no granary or silo, and 1 for a coast without a harbor once it could
+ *  sail and build one. */
+export function infrastructureNeed(view: PolityView) {
+  const build = view.build, towns = build.settlements.filter(settlement => settlement.tier >= 1);
+  // Its towns and cities in the regions its roads do not reach (a route is the road one such region would need).
+  const unreached = new Set(build.roads.routes.map(route => build.settlements.find(settlement => settlement.id === route.settlement)?.region));
+  const unconnected = build.roads.tier > 0 && towns.length > 0 ? towns.filter(settlement => unreached.has(settlement.region)).length / towns.length : 0;
+  const food = new Set(build.catalog.filter(entry => entry.purpose === 'food').map(entry => entry.type));
+  const hungry = food.size && build.settlements.length
+    ? build.settlements.filter(settlement => settlement.hardship >= NEED_TUNING.hungry && !settlement.has.some(type => food.has(type))).length / build.settlements.length : 0;
+  const harbor = build.catalog.find(entry => entry.purpose === 'sea')?.type;
+  // A coast with somewhere to sail to (the harbor is the one building whose purpose is the sea).
+  const noHarbor = view.sea >= 1 && harbor !== undefined && build.settlements.some(settlement => settlement.coast && settlement.seaLinks > 0) && !build.settlements.some(settlement => settlement.has.includes(harbor)) ? 1 : 0;
+  return clamp01(Math.max(unconnected, hungry, noHarbor));
 }
 
 let frontierStamp = new Int32Array(0), frontierMark = 0;
@@ -658,7 +734,7 @@ export function joinView(state: SimulationState, tribe: Polity): JoinView {
     if (option.seenPeople > 0) { option.fed /= option.seenPeople; option.stability /= option.seenPeople; }
     option.crossingKm = medianOf(shared.get(option.civ)!);
   }
-  return { tribe: tribe.id, people, values: { ...culture.values }, options: [...found.values()].sort((a, b) => a.civ - b.civ) };
+  return { tribe: tribe.id, people, values: effectiveValues(state, tribe), options: [...found.values()].sort((a, b) => a.civ - b.civ) };
 }
 
 /** A region an expedition passes: remembered as it is now (unless in sight). */

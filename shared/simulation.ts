@@ -6,7 +6,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 26;
+export const SIMULATION_PROTOCOL_VERSION = 27;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -42,6 +42,8 @@ const id = () => Type.Integer({ minimum: 0, maximum: 2 ** 31 - 1 });
 /** How a culture began (`OriginSchema` lists the same names), and a people's five values (0–1). */
 export const CULTURE_ORIGIN_NAMES = ['founding', 'breakaway', 'split', 'hybrid'] as const;
 export const VALUE_NAMES = ['militarism', 'zeal', 'openness', 'tradition', 'expansionism'] as const;
+/** The needs a decision weighs, each 0–1 (VISION.md "Needs"; M5.2). */
+export const NEED_NAMES = ['hunger', 'landPressure', 'shortage', 'threat', 'unrest', 'friction', 'opportunity', 'grievance', 'infrastructure'] as const;
 /** What one people believes of another (VISION.md "Beliefs about other polities"): their population, strength, wealth and era. */
 export const BELIEF_KINDS = ['people', 'strength', 'wealth', 'era'] as const;
 const OriginSchema = Type.Union([Type.Literal('founding'), Type.Literal('breakaway'), Type.Literal('split'), Type.Literal('hybrid')]);
@@ -275,6 +277,10 @@ export const ObserverFrameSchema = Type.Object({
         tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]),
         pick: Type.Integer({ minimum: 0, maximum: 3 }),
         outcome: Type.String({ maxLength: 80 }),
+        /** The effective values it decided by, its needs as it saw them (each 0–1) and the causes it logged (M5.2). */
+        values: ValuesSchema,
+        needs: Type.Object(Object.fromEntries(NEED_NAMES.map(need => [need, Type.Number({ minimum: 0, maximum: 1 })])) as Record<typeof NEED_NAMES[number], ReturnType<typeof Type.Number>>, { additionalProperties: false }),
+        causes: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
         options: Type.Array(Type.Object({
           action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]), score: Type.Number(),
           /** The region to expand into, the civilization to unite or share knowledge with (and that people's name), or for

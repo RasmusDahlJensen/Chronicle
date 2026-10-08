@@ -1,6 +1,7 @@
 import { ERA_NAMES } from '../../shared/simulation.ts';
 import { cultureSimilarity } from './culture.ts';
 import { secularity } from './faith.ts';
+import { effectiveValues } from './values.ts';
 import { TENETS } from './religions.ts';
 import { createRng } from './rng.ts';
 import { BELIEF_KINDS, type BeliefKind, type MemoryReason, type Polity, type Relation, type SimulationState, type TickContext } from './state.ts';
@@ -89,7 +90,8 @@ export function judge(state: SimulationState, polity: Polity, tick: number) {
     for (const edge of regions[region].neighbors) { const other = state.occupant[edge.region]; if (other >= 0 && other !== polity.id) touched.add(other); }
     for (const other of touched) borders.set(other, (borders.get(other) ?? 0) + 1);
   }
-  const contacts = new Set(polity.contacts), mine = state.cultures[polity.culture].values;
+  // How alike their cultures are is a matter of culture; Zeal and Expansionism are the realm's (its people's, M5.2).
+  const contacts = new Set(polity.contacts), mine = state.cultures[polity.culture].values, ours = effectiveValues(state, polity);
   for (const [other] of polity.met) {
     const them = state.polities[other];
     if (them.deathTick !== null || other === polity.id) continue;
@@ -100,7 +102,7 @@ export function judge(state: SimulationState, polity: Polity, tick: number) {
     const target = Math.min(1, (border > 0 ? tuning.border : 0) + (contacts.has(other) ? tuning.contact : 0) + (sharing ? tuning.exchange : 0));
     relation.intimacy = relation.intimacy < target ? Math.min(target, relation.intimacy + tuning.rise) : Math.max(target, relation.intimacy - tuning.fade);
     // Opinion: its standing reasons and memories.
-    const theirs = state.cultures[them.culture].values, parts: Record<string, number> = {};
+    const theirs = state.cultures[them.culture].values, theirsNow = effectiveValues(state, them), parts: Record<string, number> = {};
     const a = polity.stateReligion, b = them.stateReligion;
     if (a >= 0 && b >= 0) {
       // Faith weighs less in the secular age (VISION.md "Secular age").
@@ -108,14 +110,14 @@ export function judge(state: SimulationState, polity: Polity, tick: number) {
       if (a === b) parts.sameFaith = tuning.sameFaith * devout;
       else {
         const tolerant = state.religions[a].tenets.includes(TOLERANCE) || state.religions[b].tenets.includes(TOLERANCE);
-        parts.rivalFaith = -tuning.rivalFaith * (mine.zeal + theirs.zeal) / 2 * (tolerant ? 0.5 : 1) * devout;
+        parts.rivalFaith = -tuning.rivalFaith * (ours.zeal + theirsNow.zeal) / 2 * (tolerant ? 0.5 : 1) * devout;
       }
     }
     const likeness = (cultureSimilarity(mine, theirs) - tuning.culturePivot) / (1 - tuning.culturePivot);
     parts.culture = tuning.culture * Math.max(-1, Math.min(1, likeness));
     if (polity.lineage === them.lineage) parts.kin = tuning.kin;
     if (sharing) parts.sharing = tuning.sharing;
-    if (border > 0) parts.borderTension = -tuning.borderTension * Math.min(1, border / tuning.borderScale) * (mine.expansionism + theirs.expansionism) / 2;
+    if (border > 0) parts.borderTension = -tuning.borderTension * Math.min(1, border / tuning.borderScale) * (ours.expansionism + theirsNow.expansionism) / 2;
     relation.memories = relation.memories.filter(memory => Math.abs(memoryNow(memory, tick)) >= tuning.forgetBelow);
     for (const memory of relation.memories) parts[memory.reason] = (parts[memory.reason] ?? 0) + memoryNow(memory, tick);
     let opinion = 0;

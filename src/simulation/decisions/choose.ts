@@ -87,6 +87,8 @@ export function unionScore(view: PolityView, neighbour: Neighbour): Option {
   const size = larger ? Math.min(1, Math.log10(neighbour.believedPeople / Math.max(1, view.people)) / tuning.sizeScale) : 0;
   const parts = {
     kinship: neighbour.kin ? tuning.kin : 0, similarity: tuning.similarity * neighbour.similarity, size: tuning.size * size, opinion: tuning.opinion * neighbour.opinion / 100,
+    // A threatened realm looks for shelter in a larger one it likes, never in one it fears.
+    threat: tuning.threat * view.threats.reduce((most, entry) => entry.civ === neighbour.civ ? most : Math.max(most, entry.threat), 0) * clamp01(neighbour.opinion / 100),
     fed: tuning.fed * neighbour.fed, stability: tuning.stability * neighbour.stability, trouble: tuning.trouble * Math.min(1, view.hunger + view.unrestShare),
     tradition: -tuning.tradition * view.values.tradition, expansionism: -tuning.expansionism * view.values.expansionism,
     contentment: -tuning.contentment * view.stability, crossing: -tuning.crossing * neighbour.crossingKm / 1000,
@@ -168,4 +170,16 @@ export function choose(view: PolityView, rng: Rng): { chosen: Option; options: O
 /** The strongest positive contributions to an option, for the causes of the event it leads to (multipliers excluded). */
 export function drivers(option: Option): Factor[] {
   return option.factors.filter(entry => entry.weight > 0 && !entry.factor.startsWith(MULTIPLIER)).sort((a, b) => b.weight - a.weight || (a.factor < b.factor ? -1 : 1)).slice(0, DECISION_TUNING.factorCount);
+}
+
+/**
+ * The causes a decision log records (VISION.md M5: at least two whenever two or more factors are nonzero): what drove
+ * the choice, strongest first, and when only one factor drove it, the strongest that held it back (a negative weight).
+ */
+export function reasonsFor(option: Option): Factor[] {
+  const order = (a: Factor, b: Factor) => Math.abs(b.weight) - Math.abs(a.weight) || (a.factor < b.factor ? -1 : 1);
+  const counted = option.factors.filter(entry => entry.weight !== 0 && !entry.factor.startsWith(MULTIPLIER));
+  const driving = counted.filter(entry => entry.weight > 0).sort(order).slice(0, Math.max(2, DECISION_TUNING.factorCount));
+  if (driving.length >= 2 || counted.length < 2) return driving.length ? driving : counted.sort(order).slice(0, 2);
+  return [...driving, ...counted.filter(entry => entry.weight < 0).sort(order).slice(0, 2 - driving.length)];
 }

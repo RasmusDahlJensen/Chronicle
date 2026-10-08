@@ -287,16 +287,17 @@ export const JOIN_TUNING = {
 
 /**
  * Unification (VISION.md "Unification", added at the M3 review): at its decision step a civilization weighs uniting
- * with each larger civilization it knows whose land touches its own. Pull = kin + similarity × culture similarity +
- * size × min(1, log10(the regions it knows the other holds ÷ its own regions) ÷ sizeScale) + fed × how well fed the
- * other's people in sight are + stability × how stable their regions are + trouble × (its own hunger + its share of
- * regions in unrest); resistance = tradition × Tradition + expansionism × Expansionism + contentment × its own mean
+ * with each civilization it believes larger whose land touches its own. Pull = kin + similarity × culture similarity +
+ * size × min(1, log10(their believed population ÷ its own) ÷ sizeScale) + fed × how well fed the other's people in
+ * sight are + stability × how stable their regions are + trouble × (its own hunger + its share of regions in unrest) +
+ * opinion × its opinion of them ÷ 100 + threat × the most it fears any other neighbour × clamp01(its opinion of them ÷
+ * 100) (M5.1, M5.2: a threatened realm seeks shelter in a larger one it likes); resistance = tradition × Tradition + expansionism × Expansionism + contentment × its own mean
  * stability + crossing × the cheapest crossing's travel-km ÷ 1,000. Score = pull − resistance. The larger
  * civilization admits it with chance 1 ÷ (1 + (travel-km from its capital to where they meet ÷ its reach)^admitPower)
  * × (1 − strainRefusal × its own budget strain): a realm already strained is loath to take in more (M3c).
  */
 export const UNITE_TUNING = {
-  kin: 0.16, similarity: 0.08, size: 0.15, sizeScale: 1.5, fed: 0.03, stability: 0.03, trouble: 0.25, opinion: 0.1,
+  kin: 0.16, similarity: 0.08, size: 0.15, sizeScale: 1.5, fed: 0.03, stability: 0.03, trouble: 0.25, opinion: 0.1, threat: 0.15,
   tradition: 0.06, expansionism: 0.06, contentment: 0.1, crossing: 0.25, admitPower: 4, strainRefusal: 0.6,
   /** A civilization turned away does not ask the same one again for this many years. */
   rebuffYears: 30,
@@ -634,6 +635,23 @@ export const RELATION_TUNING = {
   forgetBelow: 1, reasonCount: 3,
 } as const;
 
+/**
+ * Needs (VISION.md "Needs"; M5.2), each 0–1, from what a civilization knows:
+ * - threat: the most it feels from a neighbour it believes stronger and dislikes, clamp01((their strength ÷ its own −
+ *   1) ÷ (threatScale − 1)) × clamp01(−opinion ÷ hostileAt): a neighbour `threatScale` times as strong with an opinion
+ *   of −hostileAt or below threatens fully, a liked or indifferent one not at all;
+ * - unrest: the larger of the share of its regions in unrest and how far its stability is below `calmStability`;
+ * - friction: the share of its neighbours of a rival organized faith (half for a tolerant faith on either side) × its
+ *   Zeal × (1 − its secularity);
+ * - opportunity: the larger of the land's (its best candidate's value over its own, − 1) and a neighbour's: believed
+ *   weaker (`weak` × (1 − their strength ÷ its own)) and richer (`rich` × (their treasury ÷ its own − 1)), within 0–1;
+ * - infrastructure: the largest of the share of its towns and cities in regions its roads do not reach, the share of
+ *   its settlements going hungry (hardship of at least `hungry`) with no granary or silo, and 1 for a coast with
+ *   somewhere to sail to but no harbor once it could sail and build one.
+ * Resource shortage (M5.3) and grievance (M6) are 0 until their milestones.
+ */
+export const NEED_TUNING = { threatScale: 2, hostileAt: 50, calmStability: 0.8, weak: 0.5, rich: 0.3, hungry: 0.2 } as const;
+
 /** Story health measures (VISION.md "Story health"): the largest polity's share of the world's people it may hold except
  *  for a while. */
 export const STORY_TUNING = { dominantShare: 0.35 } as const;
@@ -765,6 +783,8 @@ export function validateTunables() {
   const st2 = STABILITY_TUNING;
   if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.strain >= 0 && st2.strainCore >= 0 && st2.strainCore <= 1 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   if (!(STORY_TUNING.dominantShare > 0 && STORY_TUNING.dominantShare < 1)) problems.push('story health settings are invalid');
+  const nt = NEED_TUNING;
+  if (!(nt.threatScale > 1 && nt.hostileAt > 0 && nt.hostileAt <= 100 && nt.calmStability > 0 && nt.calmStability <= 1 && nt.weak >= 0 && nt.rich >= 0 && nt.hungry >= 0 && nt.hungry <= 1)) problems.push('need settings are invalid');
   const rt = RELATION_TUNING;
   if (!(rt.biasSpread >= 0 && rt.biasMin > -1 && rt.biasMin <= 0 && rt.biasMax >= 0 && rt.rise > 0 && rt.rise <= 1 && rt.fade > 0 && rt.fade <= 1)
     || ![rt.border, rt.contact, rt.exchange].every(value => value >= 0 && value <= 1) || ![rt.sameFaith, rt.rivalFaith, rt.culture, rt.kin, rt.sharing, rt.borderTension].every(value => value >= 0 && value <= 100)

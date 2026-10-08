@@ -182,6 +182,7 @@ test('a tribe that settles starts to remember; a newer view is kept when neighbo
 function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] = []): PolityView {
   return {
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
+    needs: { hunger: 0, landPressure: 0.5, shortage: 0, threat: 0, unrest: 0, friction: 0, opportunity: 0, grievance: 0, infrastructure: 0 }, threats: [],
     reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
     budget: { rate: 0.2, output: 0, sites: 0, costs: 0, treasury: 0, revenue: 0, surplus: 0, strain: 0, tradition: 0.5, calm: 0.9 },
     build: { monuments: 1, piety: 1, regions: 4, catalog: [], settlements: [], wonders: [], stability: 0.9, roads: { tier: 0, one: '', many: '', routes: [] } },

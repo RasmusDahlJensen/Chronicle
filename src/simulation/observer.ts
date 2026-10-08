@@ -10,7 +10,7 @@ import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
 import { believe, capitalKm, knownRegionCount } from './perception.ts';
 import { stabilityOf } from './stability.ts';
-import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState } from './state.ts';
+import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState } from './state.ts';
 import { ancestry, lineOf } from './culture.ts';
 import { TRAITS } from './traits.ts';
 import { TENETS } from './religions.ts';
@@ -250,6 +250,8 @@ function lastDecision(polity: Polity): NonNullable<NonNullable<ObserverFrame['in
   if (!step) return null;
   return {
     tick: step.tick, chosen: step.chosen, pick: step.pick, outcome: step.outcome.slice(0, 80),
+    values: roundValues(step.values),
+    needs: Object.fromEntries(NEED_NAMES.map(need => [need, round(step.needs[need])])) as typeof step.needs, causes: step.causes.slice(0, 4),
     options: step.options.slice(0, 4).map(option => ({
       action: option.action, score: option.score, target: option.target, label: option.label,
       factors: option.factors.filter(entry => entry.weight !== 0).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).slice(0, 8),

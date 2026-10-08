@@ -250,6 +250,10 @@ test('farming bands settle into civilizations with villages, specialists, resear
   const weighed = details.getByRole('list', { name: 'Options weighed' });
   await expect(weighed).toContainText('Do nothing');
   expect(await weighed.getByRole('listitem').count()).toBeGreaterThanOrEqual(2);
+  // M5.2: the decision shows the needs it weighed and the effective values it was taken with (all its people's).
+  await expect(page.locator('#polity-needs')).toContainText(/Needs: hunger \d\.\d\d · land pressure \d\.\d\d · shortage 0\.00 · threat \d\.\d\d/);
+  await expect(page.locator('#polity-values')).toContainText(/Decided by all its people's values: militarism \d\.\d\d/);
+  await expect(page.locator('#polity-causes')).toContainText(/^(Because of [a-zA-Z]+ \+\d\.\d\d|Chosen)/);
   // M5.1: its Diplomacy: the peoples it knows best, with its opinion of them and why, its beliefs and their intimacy.
   const inspected = (await (await page.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${civ.region}`)).json()).inspect.polity;
   expect(inspected.diplomacy.length).toBeGreaterThan(0);
