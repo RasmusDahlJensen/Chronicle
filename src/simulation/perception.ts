@@ -19,7 +19,7 @@ import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { effectiveValues } from './values.ts';
 export { effectiveValues };
 import { NEED_NAMES, type BeliefKind, type CultureValues, type MapKnowledge, type NeedName, type Polity, type SimulationState } from './state.ts';
-import { BUDGET_TUNING, DIPLOMACY_TUNING, FAITH_TUNING, MOBILITY_TUNING, NEED_TUNING, REACH_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from './tunables.ts';
+import { BUDGET_TUNING, DIPLOMACY_TUNING, VOYAGE_TUNING, FAITH_TUNING, MOBILITY_TUNING, NEED_TUNING, REACH_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
@@ -90,6 +90,16 @@ export function hasHarbor(state: SimulationState, polity: Polity) {
   for (const id of polity.groups) if (state.harbors[state.groups[id].region] > 0) return true;
   return false;
 }
+
+/** The regions a civilization holds with a standing harbor, ascending (where its voyages sail from: M5.6). */
+export function harborRegions(state: SimulationState, civ: Polity) {
+  const regions: number[] = [];
+  for (const id of civ.groups) { const region = state.groups[id].region; if (state.harbors[region] > 0) regions.push(region); }
+  return regions.sort((a, b) => a - b);
+}
+
+/** The chance a voyage of `km` is lost at sea at a sea reach (1 Sailing, 2 Navigation; VOYAGE_TUNING). */
+export const lossChance = (sea: number, km: number) => Math.min(VOYAGE_TUNING.maxLoss, VOYAGE_TUNING.lossPer1000Km[sea] * km / 1000);
 
 /** Whether a sea crossing of `km` is within a sea reach (1: coastal crossings up to the coastal sailing distance; 2: any). */
 export function crosses(sea: number, km: number) {
@@ -209,6 +219,10 @@ export interface PolityView {
   trades: TradeOption[];
   /** Pacts and alliances it could propose, and road agreements (M5.5; `pactOptions`, `roadOptions`). */
   pacts: PactOption[]; roads: RoadOption[];
+  /** An overseas voyage it could send (M5.6): from its harbors (how many), how far its sea reach sails (km), the chance
+   *  of loss at half that, the years since its last voyage (−1 never), and its voyages in a row that found nothing.
+   *  Null without Sailing or a harbor. What lies beyond, it does not know. */
+  voyage: { harbors: number; reachKm: number; loss: number; years: number; empty: number } | null;
   /** Its needs, each 0–1 (VISION.md "Needs"; `needsOf`), and the threat it feels from each neighbouring civilization
    *  that threatens it (by id, those above 0): what threatens it is not where it seeks shelter. */
   needs: Record<NeedName, number>; threats: { civ: number; threat: number }[];
@@ -657,7 +671,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   const view: PolityView = {
     budget: budgetView(state, polity), build: buildView(state, polity),
     id: polity.id, tick: state.tick, values: effectiveValues(state, polity), needs: Object.fromEntries(NEED_NAMES.map(need => [need, 0])) as PolityView['needs'], threats: [],
-    sea: polity.knowledge.sea, seaTick: polity.seaTick, trades: tradeOptions(state, polity), pacts: [], roads: [],
+    sea: polity.knowledge.sea, seaTick: polity.seaTick, trades: tradeOptions(state, polity), pacts: [], roads: [], voyage: voyageOption(state, polity),
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,
     ownValue: own.size ? value / own.size : 0,
@@ -864,6 +878,16 @@ function roadOptions(state: SimulationState, polity: Polity): RoadOption[] {
     });
   }
   return options;
+}
+
+/** The overseas voyage a civilization could send (M5.6), or null without Sailing or a harbor. */
+function voyageOption(state: SimulationState, polity: Polity): PolityView['voyage'] {
+  const sea = polity.knowledge.sea;
+  if (polity.kind !== 'civ' || sea < 1) return null;
+  const harbors = harborRegions(state, polity).length;
+  if (!harbors) return null;
+  const reachKm = VOYAGE_TUNING.reachKm[sea];
+  return { harbors, reachKm, loss: lossChance(sea, reachKm / 2), years: polity.voyageTick < 0 ? -1 : (state.tick - polity.voyageTick) / 12, empty: polity.emptyVoyages };
 }
 
 /** Threat from one neighbour (NEED_TUNING): believed `ratio` times as strong as itself, and disliked (none without

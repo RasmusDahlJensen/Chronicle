@@ -6,7 +6,7 @@ import { stabilize } from './stability.ts';
 import { buildFoodModel, farmingPotential } from './food.ts';
 import type { SimulationGeography } from './geography.ts';
 import { checkInvariants } from './invariants.ts';
-import { edgeKm, knownRegionCount } from './perception.ts';
+import { edgeKm, hasHarbor, knownRegionCount } from './perception.ts';
 import { regionAffinities, research, shareKnowing } from './research.ts';
 import { relationStats, relationsYear } from './relations.ts';
 import { metFor, resourcesYear, shortfallFor } from './supply.ts';
@@ -29,7 +29,7 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 28;
+export const SIMULATION_RULES_VERSION = 29;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
@@ -62,12 +62,13 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
     ledger: emptyLedger(regions), habitable: new Uint8Array(regions), settledLandmasses: [],
     metrics: { silentBandYears: 0, maxOverCapacityMonths: 0, moves: 0, movesCitingPressure: 0, movesLedByPressure: 0, splits: 0, breakaways: 0, births: 0, deaths: 0, famineDeaths: 0, settled: 0, discoveries: 0, firstContacts: 0,
-      chosen: { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0, trade: 0, pact: 0, alliance: 0, roadAgreement: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0, unions: 0,
+      chosen: { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0, trade: 0, pact: 0, alliance: 0, roadAgreement: 0, voyage: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0, unions: 0,
       exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0, settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0,
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
       faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, decisionSteps: 0, causesShort: 0, resourceExpansions: 0, tradeOffers: 0, tradeRefused: 0, tradeAgreements: 0, tradeEnded: { needPassed: 0, noSurplus: 0, unpaid: 0, relationsSoured: 0, partyGone: 0 },
-      pactsMade: 0, alliancesMade: 0, roadDealsMade: 0, treatiesRefused: 0, crossBorderRoads: 0, pactEnded: { relationsSoured: 0, partyGone: 0, routeLost: 0 }, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
+      pactsMade: 0, alliancesMade: 0, roadDealsMade: 0, treatiesRefused: 0, crossBorderRoads: 0, pactEnded: { relationsSoured: 0, partyGone: 0, routeLost: 0 },
+      voyages: 0, voyagesLost: 0, voyagesEmpty: 0, voyagesOtherLand: 0, voyagesNewLand: 0, voyageContacts: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -174,6 +175,22 @@ function tradeStats(state: SimulationState) {
   };
 }
 
+/** M5.6's acceptance condition: of the civilizations that could sail (Sailing and a harbor), how many have not met some
+ *  living people on another landmass (one where they hold no land). */
+function overseasStats(state: SimulationState) {
+  const regions = state.partition.regions, lands = new Map<number, Set<number>>();
+  for (const id of state.living) lands.set(id, new Set(state.polities[id].groups.map(groupId => regions[state.groups[groupId].region].landmass)));
+  let sailing = 0, unmet = 0;
+  for (const id of state.living) {
+    const civ = state.polities[id];
+    if (civ.kind !== 'civ' || civ.knowledge.sea < 1 || !hasHarbor(state, civ)) continue;
+    sailing++;
+    const mine = lands.get(id)!;
+    if (state.living.some(other => other !== id && !civ.met.has(other) && [...lands.get(other)!].some(landmass => !mine.has(landmass)))) unmet++;
+  }
+  return { sailingCivs: sailing, unmetOverseas: unmet };
+}
+
 /** Pacts, alliances and road agreements (M5.5): made and active by type, refusals, cross-border roads, endings. */
 function pactStats(state: SimulationState) {
   const m = state.metrics, active = { nonAggression: 0, alliance: 0, road: 0 };
@@ -181,6 +198,8 @@ function pactStats(state: SimulationState) {
   return {
     pactsMade: m.pactsMade, pactsActive: active.nonAggression, alliancesMade: m.alliancesMade, alliancesActive: active.alliance, roadDealsMade: m.roadDealsMade, roadDealsActive: active.road,
     treatiesRefused: m.treatiesRefused, crossBorderRoads: m.crossBorderRoads, treatiesSoured: m.pactEnded.relationsSoured, treatiesGone: m.pactEnded.partyGone, roadDealsLost: m.pactEnded.routeLost,
+    voyages: m.voyages, voyagesLost: m.voyagesLost, voyagesEmpty: m.voyagesEmpty, voyagesOtherLand: m.voyagesOtherLand, voyagesNewLand: m.voyagesNewLand, voyageContacts: m.voyageContacts,
+    ...overseasStats(state),
   };
 }
 
@@ -277,7 +296,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     agricultureShare: Math.round(shareKnowing(state, 'Agriculture') * 1000) / 1000, leadingEra,
     occupiedHabitableShare: Math.round(occupiedHabitableShare * 1000) / 1000,
     firstContacts: m.firstContacts, civKnownRegions: state.living.length > tribes ? Math.round(civKnown / (state.living.length - tribes)) : 0,
-    chosenExpand: m.chosen.expand, chosenExplore: m.chosen.explore, chosenNothing: m.chosen.nothing, chosenUnite: m.chosen.unite, chosenShare: m.chosen.share, chosenBuild: m.chosen.build, chosenTrade: m.chosen.trade, chosenTreaty: m.chosen.pact + m.chosen.alliance + m.chosen.roadAgreement, unions: m.unions,
+    chosenExpand: m.chosen.expand, chosenExplore: m.chosen.explore, chosenNothing: m.chosen.nothing, chosenUnite: m.chosen.unite, chosenShare: m.chosen.share, chosenBuild: m.chosen.build, chosenTrade: m.chosen.trade, chosenTreaty: m.chosen.pact + m.chosen.alliance + m.chosen.roadAgreement, chosenVoyage: m.chosen.voyage, unions: m.unions,
     expansions: m.expansions, absorbed: m.absorbed, displaced: m.displaced, expeditions: m.expeditions, migrants: m.migrants, borderRatio, borderRatioAll,
     joined: m.joined, unrestRegions, unrestOutbreaks: m.unrestOutbreaks, meanStability: ruled ? Math.round(stable / ruled * 1000) / 1000 : 0,
     exchangeOffers: m.exchangeOffers, exchanges: m.exchanges, tribeExchanges: m.tribeExchanges, agricultureInventions: m.agricultureInventions, civEras: civEras.size, civTechsMin: civEras.size ? civTechsMin : 0, civTechsMax,
@@ -446,6 +465,7 @@ export function stateHash(state: SimulationState) {
     for (let resource = 0; resource < polity.supply.length; resource++) { add(polity.supply[resource] * 1e6); add(polity.demand[resource] * 1e6); add(polity.knowledge.access[resource] * 1e6); add(polity.imports[resource] * 1e6); add(polity.exports[resource] * 1e6); }
     for (const other of polity.trading) add(other);
     for (const list of [polity.pacts, polity.allies, polity.roadPartners]) { add(list.length); for (const other of list) add(other); }
+    add(polity.voyageTick); add(polity.emptyVoyages);
     for (const [civ, tick] of polity.rebuffed) { add(civ); add(tick); }
     add(polity.wealth); add(polity.wealthCarry * 1e6); add(polity.upkeepCarry * 1e6); add(polity.repairing ? 1 : 0);
     for (const project of polity.projects) { add(project.settlement); add(project.type); add(project.spent); add(project.waited); }

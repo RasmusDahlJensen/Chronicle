@@ -115,7 +115,7 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
           <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
           {option.beliefs?.map(belief => <span key={`${belief.polity}-${belief.kind}`} className="world-decision-belief">believed {BELIEF_NAMES[belief.kind]} {number.format(belief.estimate)} (truly {number.format(belief.truth)})</span>)}
         </li>)}</ol>
-      </> : <p className="atlas-panel-note">No decision yet: every six months a civilization weighs expanding, exploring, uniting, sharing knowledge, building, trading or doing nothing.</p>}
+      </> : <p className="atlas-panel-note">No decision yet: every six months a civilization weighs expanding, exploring, uniting, sharing knowledge, building, trading, treaties, voyages or doing nothing.</p>}
     </section>}
     {civ && polity.resources.length > 0 && <section className="world-polity-resources" aria-label="Resources">
       <p className="atlas-detail-label">Resources · what it has (worked in its land, with imports, less exports) against what its techs demand, a year</p>
@@ -179,8 +179,8 @@ const REASON_NAMES: Record<string, string> = {
   pact: 'non-aggression pact', allied: 'allies', road: 'joint road', refusedTreaty: 'refused a treaty', treatySoured: 'a treaty soured',
 };
 
-const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build', trade: 'Propose trade with', pact: 'Propose a non-aggression pact with', alliance: 'Propose an alliance with', roadAgreement: 'Propose a joint road with' } as const;
-const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build', trade: 'Trade', pact: 'Pact', alliance: 'Alliance', roadAgreement: 'Joint road' } as const;
+const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build', trade: 'Propose trade with', pact: 'Propose a non-aggression pact with', alliance: 'Propose an alliance with', roadAgreement: 'Propose a joint road with', voyage: 'Send a voyage overseas' } as const;
+const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build', trade: 'Trade', pact: 'Pact', alliance: 'Alliance', roadAgreement: 'Joint road', voyage: 'Voyage' } as const;
 /** A people's standing and the treaties it may hold with a civilization (M5.5). */
 const STATUS_NAMES = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' } as const;
 const AGREEMENT_NAMES = { alliance: 'alliance', nonAggression: 'pact', road: 'joint road', trade: 'trade' } as const;

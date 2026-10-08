@@ -1,7 +1,7 @@
 import { secularity } from './faith.ts';
 import { coreRegion, landPressure } from './bands.ts';
 import { blockedExtraction } from './deposits.ts';
-import { crosses, hasHarbor, observe, seaFrom, shareSurroundings } from './perception.ts';
+import { absorbMap, crosses, hasHarbor, observe, seaFrom, shareSurroundings } from './perception.ts';
 import { farmingPotential } from './food.ts';
 import { advance, chooseTarget, knows, learn, remaining, speedOf, type ResearchContext } from './knowledge.ts';
 import type { Polity, SimulationState, TickContext } from './state.ts';
@@ -196,7 +196,11 @@ export function research(state: SimulationState, context: TickContext) {
     const polity = state.polities[id], knowledge = polity.knowledge;
     // Yearly (staggered): refresh contacts and reconsider the target; otherwise choose only when there is none.
     if (((context.tick - id) % cadence + cadence) % cadence === 0) {
-      if (polity.kind === 'civ') shareSurroundings(state, polity, context.tick);
+      if (polity.kind === 'civ') {
+        shareSurroundings(state, polity, context.tick);
+        // Trading partners and allies share their maps (VISION.md "Sharing knowledge"; M5.6): the newer view of each region.
+        for (const other of [...new Set([...polity.trading, ...polity.allies])].sort((a, b) => a - b)) absorbMap(state, polity, state.polities[other], context.tick);
+      }
       pruneExchanges(state, polity);
       refreshContacts(state, polity);
       chooseTarget(knowledge, contextFor(state, polity), context.stream(id));

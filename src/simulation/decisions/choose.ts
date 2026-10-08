@@ -1,6 +1,6 @@
 import type { Candidate, Neighbour, PactOption, Partner, PolityView, RoadOption, TradeOption } from '../perception.ts';
 import type { Rng } from '../rng.ts';
-import { BUDGET_TUNING, DECISION_TUNING, DIPLOMACY_TUNING, EXPAND_TUNING, EXPLORE_TUNING, NEED_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from '../tunables.ts';
+import { BUDGET_TUNING, DECISION_TUNING, DIPLOMACY_TUNING, EXPAND_TUNING, EXPLORE_TUNING, NEED_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING, VOYAGE_TUNING } from '../tunables.ts';
 import { bestBuild, bestRoad, bestWonder } from './build.ts';
 
 /**
@@ -215,6 +215,31 @@ export function roadDealScore(view: PolityView, option: RoadOption): Option {
   };
 }
 
+/**
+ * Sending an overseas voyage (VISION.md "Overseas voyages"; M5.6): curious and expansionist peoples, pressed for land or
+ * short of something, sail toward the unknown, the more the longer since their last voyage. Voyages that found nothing
+ * hold it back, less as the years pass, and not at all once its sea reach has grown since; a fresh sea reach spurs it
+ * (VISION.md: a civ that just learned Navigation gets a strong boost), and the risk of loss holds it back.
+ */
+export function voyageScore(view: PolityView): Option | null {
+  const voyage = view.voyage, tuning = VOYAGE_TUNING;
+  if (!voyage) return null;
+  const stale = voyage.years < 0 ? 1 : Math.min(1, voyage.years / tuning.everyYears);
+  const reachGrew = view.seaTick >= 0 && (voyage.years < 0 || (view.tick - view.seaTick) / 12 < voyage.years);
+  const empty = reachGrew ? 0 : Math.max(0, voyage.empty - Math.max(0, voyage.years) / tuning.emptyFadeYears);
+  const novelty = stale * tuning.emptyDecay ** empty;
+  const push = tuning.base + view.landPressure + tuning.shortageWeight * view.needs.shortage;
+  const fresh = view.seaTick >= 0 && view.tick - view.seaTick < tuning.freshYears * 12 ? tuning.fresh : 0;
+  const parts = {
+    openness: novelty * tuning.opennessWeight * view.values.openness * push, expansionism: novelty * tuning.expansionismWeight * view.values.expansionism * push,
+    newSeaReach: stale * fresh, risk: -tuning.risk * voyage.loss,
+  };
+  return {
+    action: 'voyage', score: Object.values(parts).reduce((sum, value) => sum + value, 0), target: null, label: null,
+    factors: [...Object.entries(parts).map(([factor, weight]) => ({ factor, weight: round(weight) })), { factor: `${MULTIPLIER}novelty`, weight: round(novelty) }],
+  };
+}
+
 const bestOf = <T>(list: readonly T[], score: (entry: T) => Option) => {
   let best: Option | null = null;
   for (const entry of list) { const option = score(entry); if (!best || option.score > best.score) best = option; }
@@ -245,7 +270,9 @@ export function options(view: PolityView): Option[] {
   if (alliance) all.push(alliance);
   const joint = bestOf(view.roads, option => roadDealScore(view, option));
   if (joint) all.push(joint);
-  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'trade', 'alliance', 'pact', 'roadAgreement', 'nothing'];
+  const voyage = voyageScore(view);
+  if (voyage) all.push(voyage);
+  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'trade', 'alliance', 'pact', 'roadAgreement', 'voyage', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }
 

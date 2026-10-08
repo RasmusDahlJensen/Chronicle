@@ -246,7 +246,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(details.getByRole('region', { name: 'Decisions' })).toContainText('reach');
   // M3.3: each civilization region has a stability, with what lowers it.
   await expect(page.locator('#polity-stability')).toContainText(/Stability here [01]\.\d\d/);
-  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing|Unite with|Share knowledge with|Build|Propose trade with/);
+  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing|Unite with|Share knowledge with|Build|Propose (trade|a non-aggression pact|an alliance|a joint road) with|Send a voyage overseas/);
   // Do nothing is always weighed; Expand only when it knows land next to its own that nobody holds.
   const weighed = details.getByRole('list', { name: 'Options weighed' });
   await expect(weighed).toContainText('Do nothing');

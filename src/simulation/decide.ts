@@ -6,13 +6,14 @@ import { truthOf } from './relations.ts';
 import { share } from './sharing.ts';
 import { proposeTrade } from './trade.ts';
 import { proposePact, proposeRoadDeal } from './diplomacy.ts';
+import { voyage } from './voyages.ts';
 import { beginWonder, startProjects, startRoads } from './construction.ts';
 import type { SimulationState, TickContext } from './state.ts';
 import { DECISION_TUNING } from './tunables.ts';
 
 // RNG salts within the decisions system: the choice (no salt), carrying out an expansion, an expedition's path, a
-// union's admission, an exchange's acceptance, a trade's acceptance.
-const EXPANDING = 1, EXPLORING = 2, UNITING = 3, SHARING = 4, TRADING = 5;
+// union's admission, an exchange's acceptance, a trade's acceptance, a voyage.
+const EXPANDING = 1, EXPLORING = 2, UNITING = 3, SHARING = 4, TRADING = 5, VOYAGING = 6;
 
 /**
  * Decisions system (VISION.md "Decision step"): every DECISION_TUNING.months per civilization, staggered by id. The
@@ -44,6 +45,7 @@ export function decide(state: SimulationState, context: TickContext) {
     else if (chosen.action === 'pact') outcome = proposePact(state, context, polity, state.polities[chosen.target!], 'nonAggression', null, cited);
     else if (chosen.action === 'alliance') outcome = proposePact(state, context, polity, state.polities[chosen.target!], 'alliance', state.polities[chosen.targets![0]], cited);
     else if (chosen.action === 'roadAgreement') outcome = proposeRoadDeal(state, context, polity, state.polities[chosen.target!], cited);
+    else if (chosen.action === 'voyage') outcome = voyage(state, context.tick, context.stream(id, VOYAGING), polity, cited);
     else if (chosen.action === 'build' && chosen.road) outcome = startRoads(state, context.tick, polity, chosen.targets ?? [], cited);
     else if (chosen.action === 'build' && chosen.wonder) outcome = beginWonder(state, context.tick, polity, chosen.target!, chosen.targets![0], cited);
     else if (chosen.action === 'build') outcome = startProjects(state, context.tick, polity, chosen.target!, chosen.targets ?? [], cited);

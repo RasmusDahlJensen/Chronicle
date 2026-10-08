@@ -730,6 +730,26 @@ export const DIPLOMACY_TUNING = {
   refusedYears: 20,
 } as const;
 
+/**
+ * Overseas voyages (VISION.md "Overseas voyages"; M5.6). A civilization that knows Sailing and holds a harbor weighs a
+ * voyage at its decision step: score = novelty × (opennessWeight × Openness + expansionismWeight × Expansionism) ×
+ * (base + land pressure + shortageWeight × its shortage need) + fresh (within freshYears of a new sea reach) − risk ×
+ * the chance of loss at half its reach. novelty = min(1, years since its last voyage ÷ everyYears) × emptyDecay ^ (its
+ * voyages in a row that found nothing, less one for every emptyFadeYears since the last; none once its sea reach has
+ * grown since). The fresh bonus is × min(1, years since its last voyage ÷ everyYears) only.
+ * A voyage sails from one of its harbors toward an unknown coast within reachKm[sea reach] (great-circle, from the
+ * harbor's region): of the coastal regions it does not know there, it picks one weighted by nearness (1 ÷ km) and
+ * `otherLand` times more on a landmass where it holds no land (a known coast too, where it has heard of a people it has
+ * not met). It is lost at sea with chance min(maxLoss, lossPer1000Km[sea reach] × km ÷ 1000); otherwise it maps the
+ * coast it reaches and the `strip` nearest coastal regions of that landmass, meeting whoever lives there. With nowhere
+ * to head it sails half its reach and, if not lost, finds only open sea. A landmass of at
+ * least `largeLand` regions is large (a voyage reaching one new to it, or meeting peoples, stands out in the chronicle).
+ */
+export const VOYAGE_TUNING = {
+  opennessWeight: 0.5, expansionismWeight: 0.3, base: 0.2, shortageWeight: 0.3, everyYears: 100, emptyDecay: 0.5, emptyFadeYears: 200, fresh: 0.2, freshYears: 50, risk: 0.3,
+  reachKm: [0, 2_000, 8_000], otherLand: 3, lossPer1000Km: [0, 0.15, 0.04], maxLoss: 0.8, strip: 6, largeLand: 10,
+} as const;
+
 /** Story health measures (VISION.md "Story health"): the largest polity's share of the world's people it may hold except
  *  for a while. */
 export const STORY_TUNING = { dominantShare: 0.35 } as const;
@@ -870,6 +890,10 @@ export function validateTunables() {
   if (!(numbers(dp).every(Number.isFinite) && [dp.pact, dp.alliance, dp.road].every(entry => Object.entries(entry).every(([key, value]) => key === 'accept' || key === 'minOpinion' || (value as number) >= 0))
     && dp.pact.calm <= 1 && dp.alliance.strength <= 1 && dp.alliance.minOpinion >= -100 && dp.alliance.minOpinion <= 100
     && Object.values(dp.end).every(value => value >= -100 && value <= 100) && Object.values(dp.intimacy).every(value => value >= 0 && value <= 1) && dp.refusedYears > 0)) problems.push('diplomacy settings are invalid');
+  const vy = VOYAGE_TUNING;
+  if (!([vy.opennessWeight, vy.expansionismWeight, vy.base, vy.shortageWeight, vy.fresh, vy.risk].every(value => value >= 0) && vy.everyYears > 0 && vy.emptyFadeYears > 0 && vy.emptyDecay >= 0 && vy.emptyDecay <= 1 && vy.freshYears >= 0
+    && vy.reachKm.length === 3 && vy.lossPer1000Km.length === 3 && vy.reachKm.every(value => value >= 0) && vy.lossPer1000Km.every(value => value >= 0) && vy.maxLoss >= 0 && vy.maxLoss < 1
+    && vy.otherLand >= 1 && Number.isInteger(vy.strip) && vy.strip >= 1 && vy.largeLand >= 1)) problems.push('voyage settings are invalid');
   const rs = RESOURCE_TUNING;
   if (!(rs.peoplePerSite > 0 && rs.siteUnits > 0 && rs.forestKm2 > 0 && rs.roughKm2 > 0 && rs.floor >= 0 && rs.floor <= 1)) problems.push('resource settings are invalid');
   const nt = NEED_TUNING;

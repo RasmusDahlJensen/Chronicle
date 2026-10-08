@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 30;
+export const SIMULATION_PROTOCOL_VERSION = 31;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -47,8 +47,9 @@ export const VALUE_NAMES = ['militarism', 'zeal', 'openness', 'tradition', 'expa
 export const NEED_NAMES = ['hunger', 'landPressure', 'shortage', 'threat', 'unrest', 'friction', 'opportunity', 'grievance', 'infrastructure'] as const;
 /** What one people believes of another (VISION.md "Beliefs about other polities"): their population, strength, wealth and era. */
 export const BELIEF_KINDS = ['people', 'strength', 'wealth', 'era'] as const;
-/** What a civilization can decide at its decision step (M5.5 added proposing a pact, an alliance or a joint road). */
-export const DECISION_ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build', 'trade', 'pact', 'alliance', 'roadAgreement'] as const;
+/** What a civilization can decide at its decision step (M5.5 added proposing a pact, an alliance or a joint road; M5.6
+ *  overseas voyages). */
+export const DECISION_ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build', 'trade', 'pact', 'alliance', 'roadAgreement', 'voyage'] as const;
 /** A people's standing with a civilization in its Diplomacy (VISION.md "Civ panel"; M5.5), and the treaties it may hold. */
 export const DIPLOMATIC_STATUSES = ['allied', 'pact', 'trade', 'rival', 'neutral'] as const;
 export const AGREEMENT_KINDS = ['alliance', 'nonAggression', 'road', 'trade'] as const;

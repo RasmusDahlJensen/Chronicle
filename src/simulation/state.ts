@@ -141,6 +141,8 @@ export interface Polity {
   /** The civilizations it has a non-aggression pact, an alliance and a road agreement with now (M5.5; `diplomacy.ts`
    *  keeps them in step with the treaties). */
   pacts: number[]; allies: number[]; roadPartners: number[];
+  /** Overseas voyages (M5.6): the tick of its last (−1 never), and how many in a row found nothing unknown in reach. */
+  voyageTick: number; emptyVoyages: number;
 }
 
 /**
@@ -353,8 +355,8 @@ export interface CenturyStats {
   firstContacts: number; civKnownRegions: number;
   /** Decision steps so far by chosen action, expansions, bands absorbed or displaced by them, and expeditions. */
   chosenExpand: number; chosenExplore: number; chosenNothing: number; chosenUnite: number; chosenShare: number; chosenBuild: number;
-  /** Trade proposals (M5.4) and pact, alliance and road proposals (M5.5) chosen so far. */
-  chosenTrade: number; chosenTreaty: number;
+  /** Trade proposals (M5.4), pact, alliance and road proposals (M5.5) and voyages (M5.6) chosen so far. */
+  chosenTrade: number; chosenTreaty: number; chosenVoyage: number;
   /** Civilizations that united with a larger one so far. */
   unions: number;
   expansions: number; absorbed: number; displaced: number; expeditions: number;
@@ -441,6 +443,11 @@ export interface CenturyStats {
    *  cross-border roads completed so far; and those ended so far by cause. */
   pactsMade: number; pactsActive: number; alliancesMade: number; alliancesActive: number; roadDealsMade: number; roadDealsActive: number;
   treatiesRefused: number; crossBorderRoads: number; treatiesSoured: number; treatiesGone: number; roadDealsLost: number;
+  /** Overseas voyages (M5.6) so far: sent, lost at sea, finding nothing, reaching another landmass than the voyager's
+   *  own, reaching a landmass it knew nothing of, and first contacts they made there; and now, the civilizations that
+   *  could sail (Sailing and a harbor) and of those, how many have not met some people living on another landmass. */
+  voyages: number; voyagesLost: number; voyagesEmpty: number; voyagesOtherLand: number; voyagesNewLand: number; voyageContacts: number;
+  sailingCivs: number; unmetOverseas: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -534,6 +541,8 @@ export interface Metrics {
   tradeOffers: number; tradeRefused: number; tradeAgreements: number; tradeEnded: Record<TradeEnd, number>;
   /** (M5.5) */
   pactsMade: number; alliancesMade: number; roadDealsMade: number; treatiesRefused: number; crossBorderRoads: number; pactEnded: Record<PactEnd, number>;
+  /** (M5.6) */
+  voyages: number; voyagesLost: number; voyagesEmpty: number; voyagesOtherLand: number; voyagesNewLand: number; voyageContacts: number;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;
