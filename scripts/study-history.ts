@@ -243,6 +243,13 @@ function storyHealth(rows: SeedResult[]) {
     const percent = (share: number) => share < 0 ? '—' : `${Math.round(share * 100)}%`;
     lines.push(`| ${result.seed} | ${each(row => percent(row.shortCivs))} | ${each(row => [row.metCopper, row.metTin, row.metIron, row.metTimber, row.metStone].map(percent).join(' · '))} | ${last.resourceExpansions.toLocaleString('en')} |`);
   }
+  // M5.4 (VISION.md "Trade"): agreements, how much of the shortfall imports cover, and why agreements end.
+  lines.push('', '| Seed | Trade agreements made by 1,000 / 2,000 / 3,000 (M5: some by 2,000) · active at 3,000 | Proposals · refused, by 3,000 | Share of shortfall covered by imports at 1,000 / 2,000 / 3,000 | Ended by 3,000: need passed · none to spare · unpaid · relations soured · party gone |', '| --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const each = (show: (row: Stats) => string) => [1000, 2000, 3000].map(year => { const row = at(year); return row ? show(row) : '—'; }).join(' / ');
+    lines.push(`| ${result.seed} | ${each(row => String(row.tradeAgreements))} · ${last.tradeActive} | ${last.tradeOffers} · ${last.tradeRefused} | ${each(row => `${Math.round(row.importsCover * 100)}%`)} | ${last.tradeNeedPassed} · ${last.tradeNoSurplus} · ${last.tradeUnpaid} · ${last.tradeSoured} · ${last.tradeGone} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');

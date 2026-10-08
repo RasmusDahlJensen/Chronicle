@@ -74,9 +74,9 @@ export function supplyOf(state: SimulationState, civ: Polity) {
 export const accessOf = (supply: number, demand: number) => demand > 0 ? Math.max(RESOURCE_TUNING.floor, Math.min(1, supply / demand)) : 1;
 export const shortfallOf = (supply: number, demand: number) => demand > 0 ? Math.max(0, Math.min(1, 1 - supply / demand)) : 0;
 
-/** What a civilization has of a resource this year: what it works (imports join with trade, M5.4). Everything that
- *  measures a shortfall reads this. */
-export const available = (polity: Polity, resource: number) => polity.supply[resource];
+/** What a civilization has of a resource: what it works, what it imports and less what it exports (M5.4). Everything
+ *  that measures a shortfall reads this. */
+export const available = (polity: Polity, resource: number) => polity.supply[resource] + polity.imports[resource] - polity.exports[resource];
 /** A civilization's shortfall of a resource (0–1). */
 export const shortfallFor = (polity: Polity, resource: number) => shortfallOf(available(polity, resource), polity.demand[resource]);
 /** How much of its demand is met (0–1; 1 when nothing is demanded). */
@@ -115,12 +115,21 @@ export function assess(state: SimulationState, civ: Polity) {
   const supply = supplyOf(state, civ), wanted = demanded(civ), demand = new Float64Array(RESOURCE_COUNT), access = new Float64Array(RESOURCE_COUNT);
   let people = 0;
   for (const groupId of civ.groups) people += state.groups[groupId].size;
+  civ.supply = supply;
   for (let resource = 0; resource < RESOURCE_COUNT; resource++) {
     demand[resource] = wanted[resource] ? people / RESOURCE_TUNING.peoplePerSite : 0;
-    access[resource] = accessOf(supply[resource], demand[resource]);
+    access[resource] = accessOf(supply[resource] + civ.imports[resource] - civ.exports[resource], demand[resource]);
   }
-  civ.supply = supply; civ.demand = demand;
+  civ.demand = demand;
   // Only a change of access re-derives the knowledge (its multipliers).
+  if (access.some((value, at) => value !== civ.knowledge.access[at])) civ.knowledge = withAccess(civ.knowledge, access);
+}
+
+/** Access again from what it has now (an agreement began or ended mid-year): its knowledge re-derived if it changed. */
+export function refreshAccess(civ: Polity) {
+  if (civ.kind !== 'civ') return;
+  const access = new Float64Array(RESOURCE_COUNT);
+  for (let resource = 0; resource < RESOURCE_COUNT; resource++) access[resource] = accessOf(available(civ, resource), civ.demand[resource]);
   if (access.some((value, at) => value !== civ.knowledge.access[at])) civ.knowledge = withAccess(civ.knowledge, access);
 }
 

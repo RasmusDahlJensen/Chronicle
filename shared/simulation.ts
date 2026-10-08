@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 28;
+export const SIMULATION_PROTOCOL_VERSION = 29;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -167,6 +167,12 @@ export const ObserverFrameSchema = Type.Object({
     bridges: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 100_000 }),
     conditions: Type.Array(Type.Integer({ minimum: 0, maximum: 100 }), { maxItems: 100_000 }),
   }, { additionalProperties: false }),
+  /** Active trade agreements (M5.4) as parallel arrays: the cells of the two hubs (exporter's, importer's), the resource
+   *  (an index into RESOURCE_IDS) and whether the route runs by sea (0/1); for the trade-routes lens. */
+  trades: Type.Object({
+    from: Type.Array(id(), { maxItems: 10_000 }), to: Type.Array(id(), { maxItems: 10_000 }),
+    resources: Type.Array(Type.Integer({ minimum: 0, maximum: RESOURCE_IDS.length - 1 }), { maxItems: 10_000 }), sea: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: 10_000 }),
+  }, { additionalProperties: false }),
   /** Cultivated land (VISION.md "Cultivated land"), for regions with any: how many of the region's farmland cells, in
    *  the region map's `fieldRank` order, its fields cover (a cell is cultivated when its rank is below the count). */
   fields: Type.Object({
@@ -275,7 +281,7 @@ export const ObserverFrameSchema = Type.Object({
       /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
        *  action, and its index among the options: the chosen option is always among the best three) and what came of it. */
       lastDecision: Type.Union([Type.Null(), Type.Object({
-        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]),
+        tick: Type.Integer({ minimum: 0 }), chosen: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build'), Type.Literal('trade')]),
         pick: Type.Integer({ minimum: 0, maximum: 3 }),
         outcome: Type.String({ maxLength: 80 }),
         /** The effective values it decided by, its needs as it saw them (each 0–1) and the causes it logged (M5.2). */
@@ -283,7 +289,7 @@ export const ObserverFrameSchema = Type.Object({
         needs: Type.Object(Object.fromEntries(NEED_NAMES.map(need => [need, Type.Number({ minimum: 0, maximum: 1 })])) as Record<typeof NEED_NAMES[number], ReturnType<typeof Type.Number>>, { additionalProperties: false }),
         causes: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
         options: Type.Array(Type.Object({
-          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build')]), score: Type.Number(),
+          action: Type.Union([Type.Literal('expand'), Type.Literal('explore'), Type.Literal('nothing'), Type.Literal('unite'), Type.Literal('share'), Type.Literal('build'), Type.Literal('trade')]), score: Type.Number(),
           /** The region to expand into, the civilization to unite or share knowledge with (and that people's name), or for
            *  Build the building type, the wonder type or the road tier (and what is built where, as the label). */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
@@ -300,6 +306,12 @@ export const ObserverFrameSchema = Type.Object({
        *  significant digits) of what it has and what its known techs demand for its people, and the share of the demand
        *  met (1 when nothing is demanded). */
       resources: Type.Array(Type.Object({ resource: Type.Enum(RESOURCE_IDS), supply: Type.Number({ minimum: 0 }), demand: Type.Number({ minimum: 0 }), met: Type.Number({ minimum: 0, maximum: 1 }) }, { additionalProperties: false }), { maxItems: 16 }),
+      /** Its active trade agreements (M5.4): the partner, the resource, units a year, whether it imports (else exports)
+       *  it, what is paid back (a resource and its units, or wealth a year) and the year it began. */
+      treaties: Type.Array(Type.Object({
+        partner: Type.String({ maxLength: 40 }), resource: Type.Enum(RESOURCE_IDS), amount: Type.Number({ minimum: 0 }), imports: Type.Boolean(),
+        barter: Type.Union([Type.Enum(RESOURCE_IDS), Type.Null()]), barterAmount: Type.Number({ minimum: 0 }), price: Type.Integer({ minimum: 0 }), since: Type.Integer({ minimum: 0 }),
+      }, { additionalProperties: false }), { maxItems: 32 }),
       diplomacy: Type.Array(Type.Object({
         id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]),
         opinion: Type.Number({ minimum: -100, maximum: 100 }),

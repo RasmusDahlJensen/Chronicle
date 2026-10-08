@@ -35,12 +35,15 @@ test('administration costs more for more people, farther from the capital, in a 
 test('a realm sets its taxes to cover its costs and refill its reserve, step by step, within bounds', () => {
   const tuning = BUDGET_TUNING;
   // A people of middling Tradition keeps two years of costs in reserve.
-  const budget = (entry: Partial<PolityView['budget']>) => ({ rate: tuning.customaryRate, output: 1_000_000, sites: 0, costs: 200_000, treasury: 400_000, revenue: 0, surplus: 0, strain: 0, tradition: (2 - tuning.reserveYears) / tuning.reserveTradition, calm: 0.9, ...entry });
+  const budget = (entry: Partial<PolityView['budget']>) => ({ rate: tuning.customaryRate, output: 1_000_000, sites: 0, trade: 0, costs: 200_000, treasury: 400_000, revenue: 0, surplus: 0, strain: 0, tradition: (2 - tuning.reserveYears) / tuning.reserveTradition, calm: 0.9, ...entry });
   assert.equal(taxRate(budget({})), tuning.customaryRate, 'its costs covered at the customary rate and its reserve full: unchanged');
   assert.equal(taxRate(budget({ costs: 400_000, treasury: 800_000 })), 0.22, 'costlier: up by a step');
   assert.equal(taxRate(budget({ costs: 100_000, treasury: 200_000 })), 0.18, 'cheaper: down by a step');
   assert.ok(taxRate(budget({ treasury: 0 })) > tuning.customaryRate, 'an empty treasury is refilled');
   assert.ok(taxRate(budget({ sites: 100_000 })) < tuning.customaryRate, 'mines and quarries pay part');
+  // M5.4: what trade agreements bring in pays part too; what imports cost is raised in taxes.
+  assert.ok(taxRate(budget({ trade: 100_000 })) < tuning.customaryRate, 'trade brings wealth in');
+  assert.ok(taxRate(budget({ trade: -100_000 })) > tuning.customaryRate, 'imports are paid for');
   assert.equal(taxRate(budget({ rate: tuning.maxRate, costs: 10_000_000, treasury: 10_000_000 })), tuning.maxRate, 'never above the most it can take');
   assert.equal(taxRate(budget({ rate: tuning.minRate, costs: 0, treasury: 1e9 })), tuning.minRate, 'never below the least');
   assert.ok(taxRate(budget({ tradition: 1 })) > taxRate(budget({ tradition: 0 })), 'a traditional people keeps a larger reserve');
@@ -151,7 +154,7 @@ test('each settlement shows what it pays and costs, its region\'s seat keeping t
 
 test('a realm\'s budget view reads how calm its regions are, people-weighted, as last judged', () => {
   const { state, civ } = realm();
-  Object.assign(state, { calm: Float64Array.from([0.8, 0.4]) });
+  Object.assign(state, { calm: Float64Array.from([0.8, 0.4]), treaties: [] });
   assert.ok(Math.abs(budgetView(state, civ).calm - (200_000 * 0.8 + 20_000 * 0.4) / 220_000) < 1e-12);
 });
 

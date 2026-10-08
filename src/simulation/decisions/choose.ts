@@ -1,6 +1,6 @@
-import type { Candidate, Neighbour, Partner, PolityView } from '../perception.ts';
+import type { Candidate, Neighbour, Partner, PolityView, TradeOption } from '../perception.ts';
 import type { Rng } from '../rng.ts';
-import { BUDGET_TUNING, DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, UNITE_TUNING } from '../tunables.ts';
+import { BUDGET_TUNING, DECISION_TUNING, EXPAND_TUNING, EXPLORE_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from '../tunables.ts';
 import { bestBuild, bestRoad, bestWonder } from './build.ts';
 
 /**
@@ -142,6 +142,35 @@ export function bestShare(view: PolityView): Option | null {
   return best;
 }
 
+/**
+ * Proposing trade (VISION.md "Trade"; M5.4): what it lacks draws it most; its opinion of them and their Openness make
+ * them a likelier partner; a long route and what it would pay hold it back. Only within trade reach, and only to a
+ * partner whose land it knows to hold the resource.
+ */
+export function tradeScore(view: PolityView, option: TradeOption): Option {
+  const tuning = TRADE_TUNING;
+  const parts = {
+    shortage: tuning.need * option.shortfall, opinion: tuning.opinionWeight * option.opinion / 100, openness: tuning.openness * option.openness,
+    distance: -tuning.distance * option.km / Math.max(1, option.reachKm), cost: -tuning.cost * option.cost / Math.max(1, view.budget.revenue),
+  };
+  const feasible = option.km <= option.reachKm && option.spare > 0 && option.capacity > 0 && option.lack > 0;
+  return {
+    action: 'trade', score: feasible ? Object.values(parts).reduce((sum, value) => sum + value, 0) : Number.NEGATIVE_INFINITY, target: option.partner, label: `${option.name} for ${option.resourceName}`.slice(0, 40), targets: [option.resource],
+    factors: Object.entries(parts).map(([factor, weight]) => ({ factor, weight: round(weight) })),
+    // What it believes they could spare is off as its belief of their people is.
+    beliefs: [{ polity: option.partner, kind: 'people', estimate: option.believedPeople }],
+  };
+}
+
+export function bestTrade(view: PolityView): Option | null {
+  let best: Option | null = null;
+  for (const option of view.trades) {
+    const scored = tradeScore(view, option);
+    if (!best || scored.score > best.score) best = scored;
+  }
+  return best;
+}
+
 /** Every option of this step, best first (Do nothing is always one). */
 export function options(view: PolityView): Option[] {
   const all: Option[] = [{ action: 'nothing', score: DECISION_TUNING.doNothing, target: null, label: null, factors: [{ factor: 'contentment', weight: DECISION_TUNING.doNothing }] }];
@@ -158,7 +187,9 @@ export function options(view: PolityView): Option[] {
   if (wonder) all.push(wonder);
   const road = bestRoad(view);
   if (road) all.push(road);
-  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'nothing'];
+  const trade = bestTrade(view);
+  if (trade) all.push(trade);
+  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'trade', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }
 

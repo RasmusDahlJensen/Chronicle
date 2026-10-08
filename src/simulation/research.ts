@@ -101,6 +101,11 @@ export function teacherOf(state: SimulationState, polity: Polity, tech: number) 
     const them = state.polities[other];
     if (them.deathTick === null && them.knowledge.known[tech]) return other;
   }
+  // Trading partners share what they know as an exchange does (VISION.md "Trade"; M5.4).
+  for (const other of polity.trading) {
+    const them = state.polities[other];
+    if (them.deathTick === null && them.knowledge.known[tech]) return other;
+  }
   return -1;
 }
 

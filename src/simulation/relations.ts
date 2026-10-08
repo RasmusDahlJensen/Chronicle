@@ -5,7 +5,7 @@ import { effectiveValues } from './values.ts';
 import { TENETS } from './religions.ts';
 import { createRng } from './rng.ts';
 import { BELIEF_KINDS, type BeliefKind, type MemoryReason, type Polity, type Relation, type SimulationState, type TickContext } from './state.ts';
-import { RELATION_TUNING } from './tunables.ts';
+import { RELATION_TUNING, TRADE_TUNING } from './tunables.ts';
 
 /**
  * Relations (VISION.md "Beliefs about other polities", "Relations and memory"; M5.1): what each civilization believes
@@ -97,9 +97,9 @@ export function judge(state: SimulationState, polity: Polity, tick: number) {
     if (them.deathTick !== null || other === polity.id) continue;
     let relation = polity.relations.get(other);
     if (!relation) { relation = newRelation(); polity.relations.set(other, relation); }
-    const border = borders.get(other) ?? 0, sharing = (polity.exchanges.get(other) ?? 0) > tick;
-    // Intimacy toward what their contact supports.
-    const target = Math.min(1, (border > 0 ? tuning.border : 0) + (contacts.has(other) ? tuning.contact : 0) + (sharing ? tuning.exchange : 0));
+    const border = borders.get(other) ?? 0, sharing = (polity.exchanges.get(other) ?? 0) > tick, trading = polity.trading.includes(other);
+    // Intimacy toward what their contact supports (trade too, M5.4).
+    const target = Math.min(1, (border > 0 ? tuning.border : 0) + (contacts.has(other) ? tuning.contact : 0) + (sharing ? tuning.exchange : 0) + (trading ? TRADE_TUNING.intimacy : 0));
     relation.intimacy = relation.intimacy < target ? Math.min(target, relation.intimacy + tuning.rise) : Math.max(target, relation.intimacy - tuning.fade);
     // Opinion: its standing reasons and memories.
     const theirs = state.cultures[them.culture].values, theirsNow = effectiveValues(state, them), parts: Record<string, number> = {};
@@ -117,6 +117,7 @@ export function judge(state: SimulationState, polity: Polity, tick: number) {
     parts.culture = tuning.culture * Math.max(-1, Math.min(1, likeness));
     if (polity.lineage === them.lineage) parts.kin = tuning.kin;
     if (sharing) parts.sharing = tuning.sharing;
+    if (trading) parts.trading = TRADE_TUNING.opinion;
     if (border > 0) parts.borderTension = -tuning.borderTension * Math.min(1, border / tuning.borderScale) * (ours.expansionism + theirsNow.expansionism) / 2;
     relation.memories = relation.memories.filter(memory => Math.abs(memoryNow(memory, tick)) >= tuning.forgetBelow);
     for (const memory of relation.memories) parts[memory.reason] = (parts[memory.reason] ?? 0) + memoryNow(memory, tick);

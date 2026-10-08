@@ -133,7 +133,26 @@ export interface Polity {
   /** A civilization's resources this year (VISION.md "Supply and demand"; M5.3), units a year by index into
    *  `RESOURCE_IDS`: what it works in its own land, and what its known techs demand for its people (`supply.ts`). */
   supply: Float64Array; demand: Float64Array;
+  /** What it imports and exports by agreement now (M5.4), units a year by resource: the sums over its active trade
+   *  treaties (`trade.ts` keeps them in step). */
+  imports: Float64Array; exports: Float64Array;
+  /** The civilizations it trades with now, once per active agreement (M5.4). */
+  trading: number[];
 }
+
+/**
+ * A treaty (VISION.md "Data model": type, parties, terms, start and end). M5.4's trade agreement: `exporter` sends
+ * `amount` units a year of `resource` to `importer` through their hubs (settlement ids), paid by `barter` units a year
+ * of another resource the other way (−1: none) or by `price` wealth a year (paid monthly; `carry` is the fraction of a
+ * unit not yet paid). Ended treaties are kept with their end tick and cause.
+ */
+export interface Treaty {
+  id: number; type: 'trade'; exporter: number; importer: number; resource: number; amount: number;
+  barter: number; barterAmount: number; price: number; carry: number;
+  hubs: [number, number]; startTick: number; endTick: number | null; endCause: TradeEnd | null;
+}
+export const TRADE_ENDS = ['needPassed', 'noSurplus', 'unpaid', 'relationsSoured', 'partyGone'] as const;
+export type TradeEnd = typeof TRADE_ENDS[number];
 
 /**
  * How one people sees another (M5.1): how intimate they are (0–1: how well it knows them; its beliefs' bias shrinks as
@@ -145,10 +164,10 @@ export interface Relation {
   intimacy: number; opinion: number; reasons: { factor: string; weight: number }[];
   memories: { reason: MemoryReason; points: number; tick: number }[];
 }
-export const MEMORY_REASONS = ['turnedAway', 'refusedExchange'] as const;
+export const MEMORY_REASONS = ['turnedAway', 'refusedExchange', 'refusedTrade'] as const;
 export type MemoryReason = typeof MEMORY_REASONS[number];
 
-export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build'] as const;
+export const ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build', 'trade'] as const;
 export type Action = typeof ACTIONS[number];
 
 /** One decision step: every option with its score and the factors behind it, best first, and the one chosen (its
@@ -388,6 +407,10 @@ export interface CenturyStats {
    *  demand for copper, tin, iron, timber and stone is met on average among the civilizations demanding it (−1: none
    *  does); expansions chosen partly for a resource so far. */
   shortCivs: number; metCopper: number; metTin: number; metIron: number; metTimber: number; metStone: number; resourceExpansions: number;
+  /** Trade (M5.4): agreements made so far and active now, proposals and refusals so far, the share of all
+   *  civilizations' shortfall that imports cover now, and agreements ended so far by cause. */
+  tradeAgreements: number; tradeActive: number; tradeOffers: number; tradeRefused: number; importsCover: number;
+  tradeNeedPassed: number; tradeNoSurplus: number; tradeUnpaid: number; tradeSoured: number; tradeGone: number;
   arrearsBegun: number; taxesRaised: number; taxesEased: number;
   /** Famine relief so far: food landed and lost on the way (person-months), wealth paid for carriage, episodes begun;
    *  and famine deaths a year per 1,000 people over their lives so far in the third of living civilizations (of at
@@ -477,6 +500,8 @@ export interface Metrics {
   decisionSteps: number; causesShort: number;
   /** Expansions chosen with land holding a resource it lacked among their reasons (M5.3). */
   resourceExpansions: number;
+  /** Trade (M5.4): proposals made and refused, agreements made, and agreements ended by cause. */
+  tradeOffers: number; tradeRefused: number; tradeAgreements: number; tradeEnded: Record<TradeEnd, number>;
   /** Story health's dominance rule, yearly: years in a row the largest polity has held more than 35% of the world's
    *  people, the longest such run and all such years. */
   dominanceRun: number; longestDominance: number; dominanceYears: number;
@@ -555,6 +580,8 @@ export interface SimulationState {
   harshness: Float64Array;
   /** Regions with food for some method at full game, and the landmasses that started with bands. */
   habitable: Uint8Array; settledLandmasses: number[];
+  /** Every treaty ever made, by id (M5.4: trade agreements; pacts and alliances come with M5.5). */
+  treaties: Treaty[];
   ledger: Ledger;
   metrics: Metrics;
   timing: { ms: Float64Array; calls: Float64Array };

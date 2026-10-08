@@ -5,7 +5,8 @@ import type { Rng } from './rng.ts';
 import { TENETS } from './religions.ts';
 import { VALUE_KEYS, type CultureValues, type Polity, type PopulationGroup, type Religion, type SimulationState, type TickContext } from './state.ts';
 import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
-import { FAITH_TUNING } from './tunables.ts';
+import { FAITH_TUNING, TRADE_TUNING } from './tunables.ts';
+import { hubOf } from './hubs.ts';
 
 /**
  * Faiths (VISION.md "Religion", M4): a second, faster-moving identity on a region's people. Before organized religion
@@ -93,19 +94,20 @@ const SHRINES = new Set([BUILDING_INDEX.get('shrine')!, BUILDING_INDEX.get('temp
 const spreadOf = (religion: Religion) => religion.tenets.reduce((product, tenet) => product * (TENETS[tenet].spread ?? 1), 1);
 
 /** What draws a people to one religion, by kind (they add up to its draw). */
-export interface Draw { neighbours: number; stateSupport: number; shrine: number; holyLand: number }
+export interface Draw { neighbours: number; stateSupport: number; shrine: number; holyLand: number; trade: number }
 
 /**
  * What draws a people to each religion (VISION.md "Spread"; until M5 only same-region and neighbouring contact): the
  * share of its neighbouring peoples who follow it (another polity's at `foreignContact`), its realm's state religion
  * (`stateSupport`, `templeSupport` more with a shrine or temple in its region) and the holy land beside or under it
- * (`holyDraw`). Its own faith draws nothing.
+ * (`holyDraw`), and its trading partners' faiths where its realm's hub stands (`hubRegion`, given by a caller that
+ * asks for many of one realm's peoples). Its own faith draws nothing.
  */
-export function faithDraws(state: SimulationState, group: PopulationGroup) {
+export function faithDraws(state: SimulationState, group: PopulationGroup, hubRegion = tradeHubRegion(state, state.polities[group.polity])) {
   const tuning = FAITH_TUNING, polity = state.polities[group.polity], region = state.partition.regions[group.region], draws = new Map<number, Draw>();
   const add = (religion: number, kind: keyof Draw, weight: number) => {
     if (religion < 0 || religion === group.faith) return;
-    const draw = draws.get(religion) ?? { neighbours: 0, stateSupport: 0, shrine: 0, holyLand: 0 };
+    const draw = draws.get(religion) ?? { neighbours: 0, stateSupport: 0, shrine: 0, holyLand: 0, trade: 0 };
     draw[kind] += weight; draws.set(religion, draw);
   };
   let contacts = 0;
@@ -124,10 +126,20 @@ export function faithDraws(state: SimulationState, group: PopulationGroup) {
     if (religion.deathTick !== null) continue;
     if (religion.holyRegion === group.region || region.neighbors.some(edge => edge.region === religion.holyRegion)) add(religion.id, 'holyLand', tuning.holyDraw);
   }
+  // Trade carries faith (VISION.md "Trade"; M5.4): each trading partner's faith (once, however many agreements they
+  // share) draws the people of its hub's region.
+  if (hubRegion === group.region) for (const other of new Set(polity.trading)) add(state.polities[other].stateReligion, 'trade', TRADE_TUNING.faithDraw);
   return draws;
 }
 
-const total = (draw: Draw) => draw.neighbours + draw.stateSupport + draw.shrine + draw.holyLand;
+/** The region of a trading civilization's hub (−1 for one that trades with no one). */
+export function tradeHubRegion(state: SimulationState, polity: Polity) {
+  if (polity.kind !== 'civ' || !polity.trading.length) return -1;
+  const hub = hubOf(state, polity);
+  return hub >= 0 ? state.settlements[hub].region : -1;
+}
+
+const total = (draw: Draw) => draw.neighbours + draw.stateSupport + draw.shrine + draw.holyLand + draw.trade;
 
 /**
  * A people's year of faith: all that draws it together (at most 1) gives a chance of `conversionRate` × that × the
@@ -137,8 +149,8 @@ const total = (draw: Draw) => draw.neighbours + draw.stateSupport + draw.shrine 
  * the draws (a graded choice: the stronger draw is likelier, never certain). Returns the religion taken up and what
  * drew it, or null.
  */
-export function faithYear(state: SimulationState, rng: Rng, group: PopulationGroup) {
-  const tuning = FAITH_TUNING, draws = [...faithDraws(state, group)].sort((a, b) => a[0] - b[0]);
+export function faithYear(state: SimulationState, rng: Rng, group: PopulationGroup, hubRegion?: number) {
+  const tuning = FAITH_TUNING, draws = [...faithDraws(state, group, hubRegion)].sort((a, b) => a[0] - b[0]);
   if (!draws.length) return null;
   const pick = rng.weighted(draws.map(([, draw]) => total(draw)));
   if (pick < 0) return null;

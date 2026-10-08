@@ -19,7 +19,7 @@ import { TENETS } from './religions.ts';
 import { TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'fields' | 'wonders' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'inspect'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -75,6 +75,12 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
   }
   const roads = { a: [] as number[], b: [] as number[], tiers: [] as number[], bridges: [] as number[], conditions: [] as number[] };
   for (const road of state.roads.values()) { roads.a.push(road.a); roads.b.push(road.b); roads.tiers.push(road.tier); roads.bridges.push(road.bridge ? 1 : 0); roads.conditions.push(Math.round(road.condition * 100)); }
+  const trades = { from: [] as number[], to: [] as number[], resources: [] as number[], sea: [] as number[] };
+  for (const treaty of state.treaties) {
+    if (treaty.endTick !== null) continue;
+    const from = state.settlements[treaty.hubs[0]], to = state.settlements[treaty.hubs[1]];
+    trades.from.push(from.cell); trades.to.push(to.cell); trades.resources.push(treaty.resource); trades.sea.push(from.bonus.harbor && to.bonus.harbor ? 1 : 0);
+  }
   const fields = { regions: [] as number[], cells: [] as number[] };
   for (let region = 0; region < state.fields.length; region++) {
     if (!(state.fields[region] > 0)) continue;
@@ -94,7 +100,7 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
       const religion = state.religions[id];
       return { id, name: religion.name, hue: round(religion.hue, 2), regions: entry.regions, population: entry.population, civs: entry.civs.size };
     }),
-    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds, faiths }, settlements, roads, fields, series,
+    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds, faiths }, settlements, roads, trades, fields, series,
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
@@ -139,8 +145,12 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
       reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: Math.round(kmFromCapital),
       lastDecision: lastDecision(polity),
-      resources: polity.kind !== 'civ' ? [] : RESOURCE_IDS.flatMap((resource, at) => polity.supply[at] > 0 || polity.demand[at] > 0
+      resources: polity.kind !== 'civ' ? [] : RESOURCE_IDS.flatMap((resource, at) => polity.supply[at] > 0 || polity.demand[at] > 0 || polity.imports[at] > 0
         ? [{ resource, supply: significant(available(polity, at)), demand: significant(polity.demand[at]), met: round(metFor(polity, at)) }] : []),
+      treaties: polity.kind !== 'civ' ? [] : state.treaties.filter(treaty => treaty.endTick === null && (treaty.exporter === polity.id || treaty.importer === polity.id)).slice(0, 32).map(treaty => ({
+        partner: state.polities[treaty.exporter === polity.id ? treaty.importer : treaty.exporter].name, resource: RESOURCE_IDS[treaty.resource], amount: significant(treaty.amount), imports: treaty.importer === polity.id,
+        barter: treaty.barter >= 0 ? RESOURCE_IDS[treaty.barter] : null, barterAmount: significant(treaty.barterAmount), price: treaty.price, since: Math.floor(treaty.startTick / 12),
+      })),
       diplomacy: polity.kind !== 'civ' ? [] : [...polity.relations].filter(([other]) => state.polities[other].deathTick === null)
         .sort((a, b) => b[1].intimacy - a[1].intimacy || b[1].opinion - a[1].opinion || a[0] - b[0]).slice(0, 24).map(([other, relation]) => {
           const them = state.polities[other];

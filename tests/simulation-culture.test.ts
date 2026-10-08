@@ -74,7 +74,7 @@ function strip(count = 6) {
     metrics: { cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0 }, chronicle: new Chronicle(),
   } as unknown as SimulationState;
   const culture = foundCulture(state, createRng(1, 0, 1), 'founding', null, flat(0.5), 40);
-  const polity = { id: 0, kind: 'civ', name: 'Kesh', culture: culture.id, groups: [] as number[], core: 0, knowledge: { sea: 0, era: 2, known: [] }, deathTick: null, capital: null, wealth: 0, together: -1, togetherRuling: -1, togetherYears: 0, stateReligion: -1 } as unknown as Polity;
+  const polity = { id: 0, kind: 'civ', name: 'Kesh', culture: culture.id, groups: [] as number[], core: 0, knowledge: { sea: 0, era: 2, known: [] }, deathTick: null, capital: null, wealth: 0, together: -1, togetherRuling: -1, togetherYears: 0, stateReligion: -1, trading: [] as number[] } as unknown as Polity;
   state.polities.push(polity); state.living.push(0);
   for (const region of regions) {
     const group = { id: region.id, polity: 0, culture: culture.id, region: region.id, size: 10_000, values: flat(0.5), faith: -1, deathTick: null, farmShare: 0 } as unknown as PopulationGroup;

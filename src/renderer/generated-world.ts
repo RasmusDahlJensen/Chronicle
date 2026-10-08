@@ -22,6 +22,8 @@ export interface SettlementMark { x: number; y: number; capital: boolean; tier: 
 /** A road between two places in world cell coordinates (the main settlements, or centres, of the regions it joins), by
  *  tier (1 road, 2 paved road, 3 railway, 4 highway), and whether a bridge carries it over a river. */
 export interface RoadMark { x1: number; y1: number; x2: number; y2: number; tier: number; bridge: boolean; condition: number }
+/** A trade route between two hubs (M5.4), by cell; `sea` when it runs between two harbors. */
+export interface TradeMark { x1: number; y1: number; x2: number; y2: number; sea: boolean }
 /** Road lines by tier: colour, width in pixels and dash. */
 export const ROAD_STYLE: readonly { color: string; width: number; dash: number[] }[] = [
   { color: '#8a6a43', width: 1.1, dash: [3, 2] }, { color: '#5e4630', width: 1.7, dash: [] },
@@ -92,7 +94,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let resources = true;
   let rivers = true;
   let regionCells: Uint16Array | null = null, regionBorders: Path2D | null = null, regionBorderCount = 0, showRegions = false;
-  let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' }, roads: RoadMark[] = [];
+  let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' }, roads: RoadMark[] = [], trades: TradeMark[] = [];
   // Territories: one pixel per world cell, coloured by the people living in its region (drawn scaled on the overlay).
   let territoryFill: Uint32Array | null = null, territoryImage: HTMLCanvasElement | null = null, territoryCount = 0;
   // Cultivated land: one pixel per world cell (1 where cultivated), drawn as wheat-coloured furrows over the territories.
@@ -319,6 +321,25 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       }
       target.restore();
     }
+    // Trade routes (M5.4) between the hubs, over the roads: gold dashes, overland as the crow flies, longer dashes by sea.
+    if (trades.length) {
+      target.save(); target.lineCap = 'round'; target.globalAlpha = 0.85;
+      for (const sea of [false, true]) {
+        target.beginPath(); target.strokeStyle = sea ? '#2f6f8f' : '#b8862b'; target.lineWidth = Math.max(1.2, Math.min(2.4, m.scale * 0.25)); target.setLineDash(sea ? [6, 4] : [3, 3]);
+        let drawn = false;
+        for (let copy = startCopy - 1; copy <= endCopy + 1; copy++) for (const trade of trades) {
+          if (trade.sea !== sea) continue;
+          const dx = wrap(trade.x2 - trade.x1 + world.width / 2, world.width) - world.width / 2;
+          const x1 = left + (copy * world.width + trade.x1 + 0.5) * m.scale, y1 = top + (trade.y1 + 0.5) * m.scale;
+          const x2 = x1 + dx * m.scale, y2 = top + (trade.y2 + 0.5) * m.scale;
+          if (Math.max(x1, x2) < -4 || Math.min(x1, x2) > m.width + 4 || Math.max(y1, y2) < -4 || Math.min(y1, y2) > m.height + 4) continue;
+          target.moveTo(x1, y1); target.lineTo(x2, y2); drawn = true;
+        }
+        if (drawn) target.stroke();
+      }
+      target.restore();
+    }
+    canvas.dataset.tradeMarks = String(trades.length);
     canvas.dataset.roadMarks = String(roads.length);
     canvas.dataset.wornRoadMarks = String(wornRoads);
     canvas.dataset.bridgeMarks = String(bridgeMarks);
@@ -585,6 +606,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     },
     /** Roads in world cell coordinates; replaces the previous set. */
     setRoads(next: RoadMark[]) { roads = next; safe(() => overlay ? drawOverlay() : draw()); },
+    setTrades(next: TradeMark[]) { trades = next; safe(() => overlay ? drawOverlay() : draw()); },
     /** Settlement marks in world cell coordinates, in the observer's palette; replaces the previous set. */
     setSettlements(next: SettlementMark[], style: { fill: string; stroke: string }) { villages = next; villageStyle = style; safe(() => overlay ? drawOverlay() : draw()); },
     /** Region index from the simulation (region id + 1, 0 for water); null clears it. */

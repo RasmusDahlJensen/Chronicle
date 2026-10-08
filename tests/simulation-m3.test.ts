@@ -39,7 +39,7 @@ function strip() {
   } as unknown as SimulationState;
   const polity = (kind: 'band' | 'civ', name: string, region: number) => {
     const entry = {
-      id: state.polities.length, kind, name, groups: [] as number[], map: emptyMap(7), met: new Map<number, number>(), knowledge: { sea: 0 }, deathTick: null,
+      id: state.polities.length, kind, name, groups: [] as number[], map: emptyMap(7), met: new Map<number, number>(), knowledge: { sea: 0 }, deathTick: null, trading: [] as number[],
     } as unknown as Polity;
     state.polities.push(entry);
     place(entry, region);
@@ -183,9 +183,9 @@ test('a tribe that settles starts to remember; a newer view is kept when neighbo
 function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] = []): PolityView {
   return {
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
-    needs: { hunger: 0, landPressure: 0.5, shortage: 0, threat: 0, unrest: 0, friction: 0, opportunity: 0, grievance: 0, infrastructure: 0 }, threats: [],
+    needs: { hunger: 0, landPressure: 0.5, shortage: 0, threat: 0, unrest: 0, friction: 0, opportunity: 0, grievance: 0, infrastructure: 0 }, threats: [], trades: [],
     reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
-    budget: { rate: 0.2, output: 0, sites: 0, costs: 0, treasury: 0, revenue: 0, surplus: 0, strain: 0, tradition: 0.5, calm: 0.9 },
+    budget: { rate: 0.2, output: 0, sites: 0, trade: 0, costs: 0, treasury: 0, revenue: 0, surplus: 0, strain: 0, tradition: 0.5, calm: 0.9 },
     build: { monuments: 1, piety: 1, regions: 4, catalog: [], settlements: [], wonders: [], stability: 0.9, roads: { tier: 0, one: '', many: '', routes: [] } },
     candidates: candidates.map((entry, at) => ({ region: at + 10, from: 1, fromPeople: 10_000, pressure: 0.8, crossingKm: 400, capitalKm: 600, value: 100_000, tribe: false, short: 0, ...entry })),
     ...overrides,
@@ -213,7 +213,7 @@ test('decision scores: crowding, good land and Expansionism draw a civilization 
   // Do nothing is always weighed; the choice is weighted random among the best options above the minimum.
   const all = options(view({ unknownFrontier: 8 }, [{}]));
   assert.deepEqual(all.map(option => option.action).sort(), ['expand', 'explore', 'nothing']);
-  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0 };
+  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0, trade: 0 };
   for (let draw = 0; draw < 2000; draw++) picks[choose(view({ unknownFrontier: 8 }, [{}]), createRng(5, draw)).chosen.action]++;
   assert.ok(picks.expand > picks.explore && picks.explore > 0 && picks.nothing > 0, JSON.stringify(picks));
 });

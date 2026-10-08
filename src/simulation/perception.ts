@@ -11,11 +11,15 @@ import { CostHeap } from './heap.ts';
 import { edgeKm, edgeTravel, knownRoadTier, ROAD_TIERS, roadRoutes } from './roads.ts';
 import { landPressure } from './pressure.ts';
 import { beliefBias, estimate, truthOf } from './relations.ts';
-import { reliefThere, shortfallFor } from './supply.ts';
+import { landStock, reliefThere, shortfallFor } from './supply.ts';
+import { hubOf } from './hubs.ts';
+import { activeTrade, lackOf, routeOf, spareOf } from './trade.ts';
+import { depositState } from './deposits.ts';
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { effectiveValues } from './values.ts';
 export { effectiveValues };
 import { NEED_NAMES, type BeliefKind, type CultureValues, type MapKnowledge, type NeedName, type Polity, type SimulationState } from './state.ts';
-import { BUDGET_TUNING, FAITH_TUNING, MOBILITY_TUNING, NEED_TUNING, REACH_TUNING, SHARE_TUNING, UNITE_TUNING } from './tunables.ts';
+import { BUDGET_TUNING, FAITH_TUNING, MOBILITY_TUNING, NEED_TUNING, REACH_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING } from './tunables.ts';
 
 /**
  * What each polity knows of the world (VISION.md "Knowledge of the world"), and the query layer through which choices
@@ -201,6 +205,8 @@ export function shareSurroundings(state: SimulationState, polity: Polity, tick: 
 export interface PolityView {
   /** Its effective values (M5.2: all its people's, people-weighted, with its ruler's and government's modifiers). */
   id: number; tick: number; values: CultureValues;
+  /** Trades it could propose (M5.4; `tradeOptions`). */
+  trades: TradeOption[];
   /** Its needs, each 0–1 (VISION.md "Needs"; `needsOf`), and the threat it feels from each neighbouring civilization
    *  that threatens it (by id, those above 0): what threatens it is not where it seeks shelter. */
   needs: Record<NeedName, number>; threats: { civ: number; threat: number }[];
@@ -230,7 +236,7 @@ export interface PolityView {
    * costs exceed that revenue, as a share of it (0–1), its people's Tradition (how much of a reserve they keep), and how
    * calm its regions are apart from its taxes and arrears (their people-weighted mean calm, as last judged).
    */
-  budget: { rate: number; output: number; sites: number; costs: number; treasury: number; revenue: number; surplus: number; strain: number; tradition: number; calm: number };
+  budget: { rate: number; output: number; sites: number; trade: number; costs: number; treasury: number; revenue: number; surplus: number; strain: number; tradition: number; calm: number };
   /** What it could build, and where (VISION.md "Buildings"; the Build action). */
   build: {
     /** Its regions (how widely it builds at once). */
@@ -288,6 +294,19 @@ export interface Neighbour {
   /** The typical crossing between their lands (the median travel-km of the edges they share: a mountain range with one
    *  pass still divides them), and its own region on the cheapest crossing (where they meet). */
   crossingKm: number; border: number;
+}
+
+/**
+ * A trade it could propose (M5.4): a partner it has met whose land it knows to hold sites of a resource it lacks,
+ * with its shortfall (0–1), what it lacks (units a year), the sites it knows there, its opinion of them, their culture's
+ * Openness, the route between the hubs (km, how far trade reaches, what it carries) and the wealth a year it would pay.
+ */
+export interface TradeOption {
+  /** (`lack`: what it lacks, units a year; `spare`: what it believes they could spare of it, units a year, a belief off
+   *  as its belief of their people, `believedPeople`, is. The route is measured between their true hubs: a people
+   *  knows where its partners' great markets and harbors are, and how far trade reaches from them.) */
+  partner: number; name: string; resource: number; resourceName: string; shortfall: number; lack: number; spare: number; believedPeople: number; opinion: number; openness: number;
+  km: number; reachKm: number; capacity: number; cost: number;
 }
 
 export interface Candidate {
@@ -472,7 +491,15 @@ export function wonderOptions(state: SimulationState, civ: Polity): PolityView['
 /** A civilization's budget as it knows it: its own output, sites, costs (all it holds kept up: letting far regions go
  *  does not make it less strained) and treasury (`PolityView['budget']`). */
 export function budgetView(state: SimulationState, civ: Polity, costs: Costs = fullCostsOf(state, civ)): PolityView['budget'] {
-  const { output, sites } = outputOf(state, civ), total = totalCosts(costs), revenue = BUDGET_TUNING.customaryRate * output + sites;
+  const { output, sites } = outputOf(state, civ), total = totalCosts(costs);
+  // What its trade agreements bring in a year, net: what it is paid less what it pays (M5.4).
+  let trade = 0;
+  for (const treaty of state.treaties) {
+    if (treaty.endTick !== null || treaty.price === 0) continue;
+    if (treaty.exporter === civ.id) trade += treaty.price;
+    else if (treaty.importer === civ.id) trade -= treaty.price;
+  }
+  const revenue = BUDGET_TUNING.customaryRate * output + sites + trade;
   let calm = 0, people = 0;
   for (const groupId of civ.groups) {
     const group = state.groups[groupId], region = group.region;
@@ -480,7 +507,7 @@ export function budgetView(state: SimulationState, civ: Polity, costs: Costs = f
     people += group.size;
   }
   return {
-    rate: civ.taxRate, output, sites, costs: total, treasury: civ.wealth, revenue, surplus: revenue - total,
+    rate: civ.taxRate, output, sites, trade, costs: total, treasury: civ.wealth, revenue, surplus: revenue - total,
     strain: revenue > 0 ? Math.max(0, Math.min(1, total / revenue - 1)) : total > 0 ? 1 : 0, tradition: effectiveValues(state, civ).tradition,
     calm: people > 0 ? Math.max(0, calm / people) : 1,
   };
@@ -610,7 +637,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   const view: PolityView = {
     budget: budgetView(state, polity), build: buildView(state, polity),
     id: polity.id, tick: state.tick, values: effectiveValues(state, polity), needs: Object.fromEntries(NEED_NAMES.map(need => [need, 0])) as PolityView['needs'], threats: [],
-    sea: polity.knowledge.sea, seaTick: polity.seaTick,
+    sea: polity.knowledge.sea, seaTick: polity.seaTick, trades: tradeOptions(state, polity),
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,
     ownValue: own.size ? value / own.size : 0,
@@ -622,6 +649,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
   return view;
 }
 
+const TIMBER = RESOURCE_IDS.indexOf('timber'), STONE = RESOURCE_IDS.indexOf('stone');
 const TOLERANCE = TENETS.findIndex(tenet => tenet.key === 'tolerance');
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
@@ -660,6 +688,65 @@ function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: 
     friction: frictionOf(bordering.size ? rivals / bordering.size : 0, view.values.zeal, secularity(polity)),
     opportunity: clamp01(Math.max(land, chance)), grievance: 0, infrastructure: infrastructureNeed(view),
   };
+}
+
+/**
+ * The trades a civilization could propose (M5.4): for its largest shortfalls, each civilization it has met with a hub,
+ * whose land as it knows it (its map) holds sites of that resource, more than it believes they need themselves, that
+ * sends it none of it now and has not lately refused it.
+ */
+function tradeOptions(state: SimulationState, polity: Polity): TradeOption[] {
+  const tuning = TRADE_TUNING;
+  if (polity.kind !== 'civ') return [];
+  // What it lacks enough of to trade for (and does not itself send away).
+  const wanted: number[] = [];
+  for (let resource = 0; resource < polity.demand.length; resource++) {
+    if (shortfallFor(polity, resource) > tuning.minShort && lackOf(polity, resource) >= tuning.minAmount && polity.exports[resource] === 0) wanted.push(resource);
+  }
+  const hub = wanted.length ? hubOf(state, polity) : -1;
+  if (hub < 0) return [];
+  wanted.sort((a, b) => shortfallFor(polity, b) - shortfallFor(polity, a) || a - b);
+  wanted.length = Math.min(wanted.length, tuning.resources);
+  // Civilizations whose land it knows to hold what it lacks: sites of it (a deposit it knows of), or forest and rough
+  // land for timber and stone.
+  const holders = new Map<number, boolean[]>(), stock = landStock(state.geography, state.partition), timber = wanted.indexOf(TIMBER), stone = wanted.indexOf(STONE);
+  const count = (region: number) => {
+    const owner = regionView(state, polity, region)?.owner ?? -1;
+    if (owner < 0 || owner === polity.id) return;
+    let holds = holders.get(owner);
+    const add = (at: number) => { holds ??= wanted.map(() => false); holds[at] = true; holders.set(owner, holds); };
+    if (timber >= 0 && stock.forest[region] > 0) add(timber);
+    if (stone >= 0 && stock.rough[region] > 0) add(stone);
+    for (const [, code] of state.partition.regions[region].sites) {
+      const at = wanted.indexOf(code - 1);
+      if (at >= 0 && depositState(polity.knowledge, RESOURCE_IDS[code - 1]) !== 'unknown') add(at);
+    }
+  };
+  for (const region of polity.map.observed) count(region);
+  polity.map.snapshots.forEach((_, region) => count(region));
+  const options: TradeOption[] = [];
+  for (const [partner, holds] of [...holders].sort((a, b) => a[0] - b[0])) {
+    const them = state.polities[partner];
+    if (them.deathTick !== null || them.kind !== 'civ' || !polity.met.has(partner)) continue;
+    const refused = polity.relations.get(partner)?.memories.some(memory => memory.reason === 'refusedTrade' && state.tick - memory.tick < tuning.refusedYears * 12);
+    const theirHub = hubOf(state, them);
+    if (refused || theirHub < 0) continue;
+    const route = routeOf(state, polity, them, hub, theirHub);
+    // What it believes they could spare: a belief like that of their people (off by the same bias, shrunk by intimacy).
+    const bias = beliefBias(state.seed, polity.id, partner, 'people'), intimacy = polity.relations.get(partner)?.intimacy ?? 0;
+    const believedPeople = Math.round(believe(state, polity, them, 'people').estimate);
+    wanted.forEach((resource, at) => {
+      const lack = lackOf(polity, resource);
+      if (!holds[at] || activeTrade(state, partner, polity.id, resource)) return;
+      const spare = estimate(spareOf(them, resource), bias, intimacy, 'people');
+      if (spare < tuning.minAmount) return;
+      options.push({
+        partner, name: them.name, resource, resourceName: RESOURCE_IDS[resource], shortfall: shortfallFor(polity, resource), lack, spare: Math.round(spare * 1000) / 1000, believedPeople, opinion: opinionOf(polity, partner),
+        openness: state.cultures[them.culture].values.openness, km: route.km, reachKm: route.reachKm, capacity: route.capacity, cost: tuning.price * Math.min(lack, spare, route.capacity),
+      });
+    });
+  }
+  return options;
 }
 
 /** Threat from one neighbour (NEED_TUNING): believed `ratio` times as strong as itself, and disliked (none without

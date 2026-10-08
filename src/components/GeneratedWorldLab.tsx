@@ -115,17 +115,24 @@ function PolityDetail({ polity }: { polity: NonNullable<Inspected['polity']> }) 
           <span>{option.factors.slice(0, 4).map(entry => `${entry.factor} ${entry.weight >= 0 ? '+' : ''}${entry.weight.toFixed(2)}`).join(', ')}</span>
           {option.beliefs?.map(belief => <span key={`${belief.polity}-${belief.kind}`} className="world-decision-belief">believed {BELIEF_NAMES[belief.kind]} {number.format(belief.estimate)} (truly {number.format(belief.truth)})</span>)}
         </li>)}</ol>
-      </> : <p className="atlas-panel-note">No decision yet: a civilization weighs expanding, exploring, uniting, sharing knowledge or doing nothing every six months.</p>}
+      </> : <p className="atlas-panel-note">No decision yet: every six months a civilization weighs expanding, exploring, uniting, sharing knowledge, building, trading or doing nothing.</p>}
     </section>}
     {civ && polity.resources.length > 0 && <section className="world-polity-resources" aria-label="Resources">
-      <p className="atlas-detail-label">Resources · worked in its land against what its techs demand, a year</p>
+      <p className="atlas-detail-label">Resources · what it has (worked in its land, with imports, less exports) against what its techs demand, a year</p>
       <ul className="world-resources" id="polity-resources">{polity.resources.map(entry => {
         const short = entry.demand > 0 && entry.met < 0.9;
         return <li key={entry.resource} className={short ? 'world-resource-short' : undefined}>
           <span>{entry.resource}{short ? ' · short' : ''}</span> <span>{units(entry.supply)}{entry.demand > 0 ? ` of ${units(entry.demand)} needed (${Math.round(entry.met * 100)}%)` : ' (not needed)'}</span>
         </li>;
       })}</ul>
-      <p className="atlas-panel-note">A shortfall weakens the techs that need the resource (never below a quarter of their effect); trade will bring imports (M5.4).</p>
+      <p className="atlas-panel-note">A shortfall weakens the techs that need the resource (never below a quarter of their effect).</p>
+    </section>}
+    {civ && polity.treaties.length > 0 && <section className="world-polity-trade" aria-label="Trade">
+      <p className="atlas-detail-label">Trade agreements</p>
+      <ul className="world-resources" id="polity-trade">{polity.treaties.map((treaty, index) => <li key={index}>
+        <span>{treaty.imports ? `imports ${treaty.resource} from` : `exports ${treaty.resource} to`} the {treaty.partner}</span>
+        <span>{units(treaty.amount)} a year, {treaty.barter ? `for ${units(treaty.barterAmount)} ${treaty.barter}` : `${treaty.imports ? 'paying' : 'paid'} ${number.format(treaty.price)} wealth a year`} · since {number.format(treaty.since)}</span>
+      </li>)}</ul>
     </section>}
     {civ && polity.diplomacy.length > 0 && <section className="world-polity-diplomacy" aria-label="Diplomacy">
       <p className="atlas-detail-label">Diplomacy · the peoples it knows best</p>
@@ -166,19 +173,20 @@ const NEED_LABELS = [['hunger', 'hunger'], ['landPressure', 'land pressure'], ['
 const BELIEF_NAMES = { people: 'people', strength: 'strength', wealth: 'wealth', era: 'era' } as const;
 /** Opinion's reasons as the inspector names them. */
 const REASON_NAMES: Record<string, string> = {
-  sameFaith: 'same faith', rivalFaith: 'rival faith', culture: 'culture', kin: 'kin', sharing: 'sharing knowledge', borderTension: 'border tension',
-  turnedAway: 'turned them away', refusedExchange: 'refused to share',
+  sameFaith: 'same faith', rivalFaith: 'rival faith', culture: 'culture', kin: 'kin', sharing: 'sharing knowledge', trading: 'trading', borderTension: 'border tension',
+  turnedAway: 'turned them away', refusedExchange: 'refused to share', refusedTrade: 'refused to trade',
 };
 
-const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build' } as const;
-const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build' } as const;
+const DECISION_LABELS = { expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build', trade: 'Propose trade with' } as const;
+const ACTION_NAMES = { expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build', trade: 'Trade' } as const;
 
-/** What a decision was aimed at: the region to expand into, the civilization to unite or share with, or what to build. */
+/** What a decision was aimed at: the region to expand into, the civilization to unite, share or trade with (and the
+ *  resource it would import), or what to build. */
 function decisionTarget(step: NonNullable<NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision']>) {
   const option = step.options[step.pick];
   if (!option || option.target === null) return '';
   if (option.action === 'build') return ` ${option.label ?? '?'}`;
-  return option.action === 'unite' || option.action === 'share' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
+  return option.action === 'unite' || option.action === 'share' || option.action === 'trade' ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
 }
 
 const formatPeople = (people: number) => people >= 1e6 ? `${(people / 1e6).toFixed(1)} M` : people >= 1e4 ? `${Math.round(people / 1e3)} k` : number.format(people);
@@ -230,6 +238,7 @@ export function GeneratedWorldLab() {
   const [rivers, setRivers] = useState(true);
   const [showRegions, setShowRegions] = useState(false);
   const [showFields, setShowFields] = useState(true);
+  const [showTrade, setShowTrade] = useState(true);
   // Territories of the peoples living on the land, coloured by polity (each tribe or civilization), by descent (which
   // starting band) or by era.
   const [peoples, setPeoples] = useState<'polity' | 'descent' | 'culture' | 'faith' | 'era' | 'off'>('polity');
@@ -349,7 +358,12 @@ export function GeneratedWorldLab() {
       const from = place(a), to = place(frame.roads.b[index]);
       return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), tier: frame.roads.tiers[index], bridge: frame.roads.bridges[index] === 1, condition: frame.roads.conditions[index] / 100 };
     }));
-  }, [frame, regions, world, canvasRevision]);
+    // Trade routes (M5.4) between the two hubs of each active agreement.
+    renderer.current.setTrades(showTrade ? frame.trades.from.map((from, index) => {
+      const to = frame.trades.to[index];
+      return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), sea: frame.trades.sea[index] === 1 };
+    }) : []);
+  }, [frame, regions, world, canvasRevision, showTrade]);
   // Cultivated land: a region's farmland cells ranked below its cultivated count (VISION.md "Cultivated land").
   const fieldKey = frame && showFields ? `${frame.fields.regions.join(',')}:${frame.fields.cells.join(',')}` : '';
   useEffect(() => {
@@ -447,6 +461,8 @@ export function GeneratedWorldLab() {
             <p className="atlas-panel-note">{regions ? `${number.format(regions.map.regions.length)} simulation regions of 20,000–60,000 km²; small islands are their own region.` : regionError ?? 'Dividing the land into regions…'}</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={showFields} onChange={event => setShowFields(event.target.checked)} /> Fields</label>
             <p className="atlas-panel-note">Cultivated land, as wheat-coloured furrows: each region's best farmland near its main settlement, as much as its farmers work.</p>
+            <label className="world-resource-toggle"><input type="checkbox" checked={showTrade} onChange={event => setShowTrade(event.target.checked)} /> Trade routes</label>
+            <p className="atlas-panel-note">Trade agreements in force, between the two hubs: gold over land, blue by sea.</p>
             <label className="world-resource-toggle"><input type="checkbox" checked={resources} onChange={event => setResources(event.target.checked)} /> Resource sites</label>
             <p className="atlas-panel-note">Site markers appear at detail zoom. Every selected cell uses its full-resolution data.</p>
             <ul className="world-resource-legend" aria-label="Resource site legend">{RESOURCE_IDS.map(resource => <li key={resource} title={`Extraction: ${RESOURCE_RULES[resource].extractionTechnology}`}><ResourceIcon resource={resource} />{RESOURCES[resource].label}</li>)}</ul>

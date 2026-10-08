@@ -2,6 +2,7 @@ import { BUILDINGS } from './buildings.ts';
 import { WONDERS } from './wonders.ts';
 import { bonusOf, housingOf } from './settlements.ts';
 import { EVENT_TYPES } from '../../shared/simulation.ts';
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import type { RegionPartition } from './regions.ts';
 import { cellNeighbors, type SimulationGeography } from './geography.ts';
 import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
@@ -151,10 +152,10 @@ export function checkInvariants(state: SimulationState) {
     const knowledge = polity.knowledge;
     // Resources (M5.3): supply and demand are counts of units; access is 1 for a tribe and where nothing is demanded,
     // otherwise within (0, 1] and never below the share actually met (the floor only raises it; a fork that changes the
-    // floor takes effect at each civilization's next yearly assessment).
+    // floor takes effect at each civilization's next yearly assessment). M5.4: nothing sends more than it works.
     for (let resource = 0; resource < knowledge.access.length; resource++) {
-      const access = knowledge.access[resource], supply = polity.supply[resource], demand = polity.demand[resource];
-      if (!(supply >= 0) || !(demand >= 0) || !(access > 0 && access <= 1) || ((polity.kind === 'band' || demand === 0) && access !== 1) || (demand > 0 && access < Math.min(1, supply / demand))) {
+      const access = knowledge.access[resource], supply = polity.supply[resource], demand = polity.demand[resource], has = supply + polity.imports[resource] - polity.exports[resource];
+      if (!(supply >= 0) || !(demand >= 0) || !(has >= -1e-9) || polity.exports[resource] > supply + 1e-9 || !(access > 0 && access <= 1) || ((polity.kind === 'band' || demand === 0) && access !== 1) || (demand > 0 && access < Math.min(1, has / demand) - 1e-12)) {
         fail(`polity ${id} has resource ${resource} supplied ${supply} of ${demand} at access ${access}`);
       }
     }
@@ -221,6 +222,30 @@ export function checkInvariants(state: SimulationState) {
         || !Number.isInteger(project.waited) || project.waited < 0 || project.waited >= BUILD_TUNING.waitMonths) fail(`polity ${id} has an invalid work ${JSON.stringify(project)}`);
     }
     if (polity.kind === 'civ' && !ledger.wealth.has(id) && polity.wealth !== 0) fail(`civilization ${id}'s treasury changed with no flows recorded`);
+  }
+  // Trade (M5.4): active agreements are between two living civilizations with positive amounts through their hubs, and
+  // every civilization's imports, exports and partners are exactly the sums over its active agreements.
+  const imports = new Map<number, Float64Array>(), exports = new Map<number, Float64Array>(), partners = new Map<number, number[]>();
+  const tally = (map: Map<number, Float64Array>, id: number, resource: number, amount: number) => {
+    let list = map.get(id);
+    if (!list) { list = new Float64Array(RESOURCE_IDS.length); map.set(id, list); }
+    list[resource] += amount;
+  };
+  for (const treaty of state.treaties) {
+    if (treaty.endTick !== null) { if (treaty.endCause === null) fail(`treaty ${treaty.id} ended without a cause`); continue; }
+    const exporter = state.polities[treaty.exporter], importer = state.polities[treaty.importer];
+    if (!exporter || !importer || exporter.kind !== 'civ' || importer.kind !== 'civ' || treaty.exporter === treaty.importer || !(treaty.amount > 0) || !(treaty.resource >= 0 && treaty.resource < RESOURCE_IDS.length)
+      || (treaty.barter >= 0) !== (treaty.barterAmount > 0) || (treaty.barter >= 0) === (treaty.price > 0) || !(treaty.carry >= 0 && treaty.carry < 1)) fail(`treaty ${treaty.id} is invalid ${JSON.stringify(treaty)}`);
+    tally(exports, treaty.exporter, treaty.resource, treaty.amount); tally(imports, treaty.importer, treaty.resource, treaty.amount);
+    if (treaty.barter >= 0) { tally(exports, treaty.importer, treaty.barter, treaty.barterAmount); tally(imports, treaty.exporter, treaty.barter, treaty.barterAmount); }
+    partners.set(treaty.exporter, [...(partners.get(treaty.exporter) ?? []), treaty.importer]); partners.set(treaty.importer, [...(partners.get(treaty.importer) ?? []), treaty.exporter]);
+  }
+  for (const id of state.living) {
+    const polity = state.polities[id], mine = imports.get(id), theirs = exports.get(id);
+    for (let resource = 0; resource < RESOURCE_IDS.length; resource++) {
+      if (Math.abs(polity.imports[resource] - (mine?.[resource] ?? 0)) > 1e-9 || Math.abs(polity.exports[resource] - (theirs?.[resource] ?? 0)) > 1e-9) fail(`polity ${id}'s imports or exports of resource ${resource} are not its agreements'`);
+    }
+    if ([...polity.trading].sort((a, b) => a - b).join() !== [...(partners.get(id) ?? [])].sort((a, b) => a - b).join()) fail(`polity ${id}'s trading partners are not its agreements'`);
   }
   // Exact wealth accounting (VISION.md rule 8): every treasury is explained by this tick's flows.
   for (const [id, flows] of ledger.wealth) {

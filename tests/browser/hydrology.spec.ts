@@ -186,6 +186,8 @@ test('river edges cross the longitude seam locally and leave climate colors unch
   await rivers.uncheck();
   expect(await patch(canvas, 400, 229, 8, 3)).toEqual(away);
   await rivers.check();
+  // Toggling the layer may have scrolled the page to the checkbox: drag on the map where it is on screen.
+  await canvas.scrollIntoViewIfNeeded();
   const box = (await canvas.boundingBox())!, scale = Number(await canvas.getAttribute('data-scale'));
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();

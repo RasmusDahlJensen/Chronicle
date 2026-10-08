@@ -634,7 +634,7 @@ export const RELATION_TUNING = {
   biasSpread: 0.5, biasMin: -0.7, biasMax: 2,
   rise: 0.08, fade: 0.03, border: 0.5, contact: 0.2, exchange: 0.3,
   sameFaith: 25, rivalFaith: 30, culture: 30, culturePivot: 0.85, kin: 10, sharing: 15, borderTension: 40, borderScale: 4, correction: 0.3,
-  memories: { turnedAway: { points: -20, halfLifeYears: 25 }, refusedExchange: { points: -10, halfLifeYears: 15 } },
+  memories: { turnedAway: { points: -20, halfLifeYears: 25 }, refusedExchange: { points: -10, halfLifeYears: 15 }, refusedTrade: { points: -10, halfLifeYears: 15 } },
   forgetBelow: 1, reasonCount: 3,
 } as const;
 
@@ -665,6 +665,36 @@ export const NEED_TUNING = { threatScale: 2, hostileAt: 50, calmStability: 0.8, 
  * about as many people as live then (unevenly: trade evens it out), and its ~9 tin sites a third of them.
  */
 export const RESOURCE_TUNING = { peoplePerSite: 40_000_000, siteUnits: 1, forestKm2: 50_000, roughKm2: 50_000, floor: 0.25 } as const;
+
+/**
+ * Trade (VISION.md "Trade"; M5.4).
+ * - Hubs and routes: a civilization trades through its hub, its largest living settlement with a market or harbor
+ *   (else its capital). A hub carries `baseCapacity` units a year, `market` more with a market and `harbor` more with
+ *   a harbor; a route carries what the poorer of its two hubs does. A route reaches `rangeKm` × the larger of the two
+ *   sides' trade range (techs' `tradeRange`) between the hubs (great-circle), or `seaRangeKm` × that between two
+ *   harbors.
+ * - Proposing (the decision step; its view lists partners for its `resources` largest shortfalls above `minShort`, where
+ *   it lacks at least `minAmount`, whose land it knows to hold the resource (its sites, or forest and rough land for
+ *   timber and stone) and that it believes could spare at least `minAmount`, a belief off like that of their people):
+ *   score = need × shortfall + opinionWeight × opinion ÷ 100 + openness × their culture's Openness − distance × route
+ *   km ÷ its reach − cost × wealth a year ÷ its revenue.
+ * - Accepting (the partner's own judgement, in truth): it spares at most `spare` of its surplus (so its own growing
+ *   demand does not end the agreement at once) and needs that to be at least `minAmount`; it accepts with
+ *   chance clamp01(base + gain × (what it gets: a share of its revenue, or its own shortfall relieved by barter) +
+ *   opinion × its opinion ÷ 100 + openness × its Openness − tradition × its Tradition). A refusal is remembered.
+ * - Terms: the amount is at most the importer's shortfall, what the exporter spares and the route's capacity; paid in
+ *   barter (a resource the exporter is short of and the importer spares) or `price` wealth a unit a year.
+ * - Effects: imports join what the importer has; trading partners' intimacy target rises by `intimacy` and opinion by
+ *   `opinion` points; each one's faith draws the people of the other's hub by `faithDraw`.
+ * - Ending (yearly per agreement): the importer's shortfall without it below `minShort`, the exporter short itself, a
+ *   payment missed, opinion on either side below `cancelOpinion`, or a party gone.
+ */
+export const TRADE_TUNING = {
+  baseCapacity: 0.5, market: 1, harbor: 1, rangeKm: 3000, seaRangeKm: 6000, resources: 2, minShort: 0.05, minAmount: 0.02, spare: 0.5,
+  price: 400_000, need: 0.4, opinionWeight: 0.1, openness: 0.1, distance: 0.1, cost: 0.5,
+  accept: { base: 0.6, gain: 2, opinion: 0.3, openness: 0.3, tradition: 0.3 },
+  intimacy: 0.3, opinion: 15, faithDraw: 0.2, cancelOpinion: -50, refusedYears: 15,
+} as const;
 
 /** Story health measures (VISION.md "Story health"): the largest polity's share of the world's people it may hold except
  *  for a while. */
@@ -797,6 +827,10 @@ export function validateTunables() {
   const st2 = STABILITY_TUNING;
   if (!(st2.base > 0 && st2.base <= 1 && st2.hunger >= 0 && st2.overextension >= 0 && st2.overextensionCap >= 0 && st2.foreignRule >= 0 && st2.strain >= 0 && st2.strainCore >= 0 && st2.strainCore <= 1 && st2.unrestBelow > 0 && st2.unrestBelow + st2.hysteresis <= 1 && st2.hysteresis >= 0 && st2.outputLoss >= 0 && st2.outputLoss < 1 && st2.researchLoss >= 0 && st2.researchLoss <= 1)) problems.push('stability settings are invalid');
   if (!(STORY_TUNING.dominantShare > 0 && STORY_TUNING.dominantShare < 1)) problems.push('story health settings are invalid');
+  const tr = TRADE_TUNING;
+  if (!([tr.baseCapacity, tr.market, tr.harbor, tr.rangeKm, tr.seaRangeKm, tr.price, tr.need, tr.opinionWeight, tr.openness, tr.distance, tr.cost, tr.intimacy, tr.opinion, tr.faithDraw].every(value => value >= 0) && tr.baseCapacity > 0 && tr.price > 0
+    && Number.isInteger(tr.resources) && tr.resources >= 1 && tr.minShort > 0 && tr.minShort < 1 && tr.minAmount > 0 && tr.spare > 0 && tr.spare <= 1 && tr.cancelOpinion >= -100 && tr.cancelOpinion <= 0 && tr.refusedYears > 0
+    && Object.values(tr.accept).every(value => value >= 0))) problems.push('trade settings are invalid');
   const rs = RESOURCE_TUNING;
   if (!(rs.peoplePerSite > 0 && rs.siteUnits > 0 && rs.forestKm2 > 0 && rs.roughKm2 > 0 && rs.floor >= 0 && rs.floor <= 1)) problems.push('resource settings are invalid');
   const nt = NEED_TUNING;

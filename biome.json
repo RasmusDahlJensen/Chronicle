@@ -150,7 +150,8 @@
                       "Neighbour",
                       "Partner",
                       "JoinView",
-                      "JoinOption"
+                      "JoinOption",
+                      "TradeOption"
                     ]
                   }
                 },

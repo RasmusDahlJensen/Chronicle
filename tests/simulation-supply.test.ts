@@ -12,6 +12,8 @@ import { RESOURCE_TUNING } from '../src/simulation/tunables.ts';
 
 /** Resource supply and demand (M5.3; VISION.md "Supply and demand"). */
 const index = (name: string) => RESOURCE_IDS.indexOf(name as typeof RESOURCE_IDS[number]);
+// No trade agreements (M5.4): nothing imported or exported.
+const unTraded = () => ({ imports: new Float64Array(RESOURCE_IDS.length), exports: new Float64Array(RESOURCE_IDS.length), trading: [] as number[] });
 const knowing = (...names: string[]) => {
   let knowledge = startingKnowledge();
   // Everything they need first, in graph order.
@@ -51,7 +53,7 @@ test('demand follows the techs known; supply counts worked sites and land by are
     partition: { regions }, regionSettlements: [[0], []], settlements: [settlement],
     groups: [{ region: 0, size: 60_000_000 }, { region: 1, size: 20_000_000 }],
   } as unknown as SimulationState;
-  const civ = { kind: 'civ', groups: [0, 1], knowledge: knowing('Bronze working', 'Boatbuilding'), supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length) } as unknown as Polity;
+  const civ = { kind: 'civ', groups: [0, 1], knowledge: knowing('Bronze working', 'Boatbuilding'), supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length), ...unTraded() } as unknown as Polity;
   const wanted = demanded(civ);
   for (const name of ['copper', 'tin', 'timber', 'stone']) assert.equal(wanted[index(name)], 1, `${name} is demanded`);
   assert.equal(wanted[index('iron')], 0, 'not before Iron working');
@@ -69,7 +71,7 @@ test('demand follows the techs known; supply counts worked sites and land by are
   assert.equal(civ.knowledge.access[index('tin')], accessOf(RESOURCE_TUNING.siteUnits, 80_000_000 / RESOURCE_TUNING.peoplePerSite));
   assert.equal(civ.knowledge.access[index('iron')], 1, 'nothing demanded');
   // A tribe is never assessed.
-  const tribe = { id: 1, kind: 'band', groups: [1], knowledge: knowing('Bronze working') as Knowledge, supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length) } as unknown as Polity;
+  const tribe = { id: 1, kind: 'band', groups: [1], knowledge: knowing('Bronze working') as Knowledge, supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length), ...unTraded() } as unknown as Polity;
   Object.assign(state, { living: [1], polities: [civ, tribe] });
   resourcesYear(state, { tick: 1 } as never);
   assert.ok(tribe.knowledge.access.every(value => value === 1) && tribe.demand.every(value => value === 0));
@@ -134,7 +136,7 @@ test('land weighs by what it would make good now: workable sites, forest and rou
   const civ = (names: string[], short: Record<string, number>) => {
     const supply = new Float64Array(RESOURCE_IDS.length), demand = new Float64Array(RESOURCE_IDS.length);
     for (const [name, shortfall] of Object.entries(short)) { demand[index(name)] = 2; supply[index(name)] = 2 * (1 - shortfall); }
-    return { kind: 'civ', knowledge: knowing(...names), supply, demand } as unknown as Polity;
+    return { kind: 'civ', knowledge: knowing(...names), supply, demand, ...unTraded() } as unknown as Polity;
   };
   // Timber short by half: two forest cells (50,000 km²) give one unit of a demand of two, as much as it lacks.
   assert.equal(reliefThere(state, civ(['Boatbuilding'], { timber: 0.5 }), 0), 0.5);

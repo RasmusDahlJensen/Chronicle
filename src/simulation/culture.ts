@@ -4,7 +4,7 @@ import type { Rng } from './rng.ts';
 import { VALUE_KEYS, type Culture, type CultureOrigin, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TickContext } from './state.ts';
 import { TRAITS, type TraitCondition } from './traits.ts';
 import { TENETS } from './religions.ts';
-import { CONVERSION_STREAM, faithYear, realmFaith, refreshReligion, tenetPulls } from './faith.ts';
+import { CONVERSION_STREAM, faithYear, realmFaith, refreshReligion, tenetPulls, tradeHubRegion } from './faith.ts';
 import { CULTURE_PULLS, CULTURE_TUNING, TRAIT_TUNING, type PullMeasure } from './tunables.ts';
 
 /**
@@ -231,11 +231,12 @@ export function cultureYear(state: SimulationState, context: TickContext) {
   for (const id of state.living.slice()) {
     if (!due(id) || state.polities[id].deathTick !== null) continue;
     const polity = state.polities[id], converted = new Map<number, { regions: number; people: number; region: number; parts: Record<string, number> }>();
+    const hubRegion = tradeHubRegion(state, polity);
     for (const groupId of polity.groups.slice()) {
-      const group = state.groups[groupId], taken = faithYear(state, context.stream(groupId, CONVERSION_STREAM), group);
+      const group = state.groups[groupId], taken = faithYear(state, context.stream(groupId, CONVERSION_STREAM), group, hubRegion);
       if (!taken) continue;
       state.metrics.conversions++;
-      const entry = converted.get(taken.religion) ?? { regions: 0, people: 0, region: group.region, parts: { neighbours: 0, stateSupport: 0, shrine: 0, holyLand: 0 } };
+      const entry = converted.get(taken.religion) ?? { regions: 0, people: 0, region: group.region, parts: { neighbours: 0, stateSupport: 0, shrine: 0, holyLand: 0, trade: 0 } };
       entry.regions++; entry.people += group.size;
       for (const key of Object.keys(entry.parts) as (keyof typeof taken.draw)[]) entry.parts[key] += taken.draw[key];
       converted.set(taken.religion, entry);

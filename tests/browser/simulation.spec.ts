@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { ERA_NAMES } from '../../shared/simulation.ts';
 
 // One shared simulation per host and world: these scenarios change its clock, so they run in order.
@@ -194,7 +195,7 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await expect(history(page).getByRole('note')).toHaveCount(0);
 });
 
-test('farming bands settle into civilizations with villages, specialists, research the inspector explains, and roads', async ({ page }) => {
+test('farming bands settle into civilizations with villages, specialists, research the inspector explains, roads and trade', async ({ page }) => {
   // Fourteen centuries or more of history run in the worker.
   test.setTimeout(300_000);
   await ready(page);
@@ -245,7 +246,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(details.getByRole('region', { name: 'Decisions' })).toContainText('reach');
   // M3.3: each civilization region has a stability, with what lowers it.
   await expect(page.locator('#polity-stability')).toContainText(/Stability here [01]\.\d\d/);
-  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing|Unite with|Share knowledge with|Build/);
+  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing|Unite with|Share knowledge with|Build|Propose trade with/);
   // Do nothing is always weighed; Expand only when it knows land next to its own that nobody holds.
   const weighed = details.getByRole('list', { name: 'Options weighed' });
   await expect(weighed).toContainText('Do nothing');
@@ -290,6 +291,23 @@ test('farming bands settle into civilizations with villages, specialists, resear
   // M3c.5: roads worn below 80% are drawn worn, as many as the frame reports.
   expect(later.roads.conditions.length).toBe(later.roads.a.length);
   await expect.poll(async () => Number(await canvas.getAttribute('data-worn-road-marks'))).toBe(later.roads.conditions.filter((condition: number) => condition < 80).length);
+  // M5.4: trade agreements are drawn between their two hubs on the trade-routes layer, and the inspector lists them.
+  // (Run on a century at a time until one is in force.)
+  for (let year = await tick(page) / 12 + 100; year <= 2000 && !later.trades.from.length; year += 100) {
+    await history(page).getByLabel('Run to year').fill(String(year));
+    await history(page).getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 120_000 });
+    later = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  }
+  expect(later.trades.from.length).toBeGreaterThan(0);
+  await expect.poll(async () => Number(await canvas.getAttribute('data-trade-marks'))).toBe(later.trades.from.length);
+  await page.getByLabel('Trade routes').uncheck();
+  await expect(canvas).toHaveAttribute('data-trade-marks', '0');
+  await page.getByLabel('Trade routes').check();
+  await page.getByRole('button', { name: 'Fit map' }).click();
+  const importerHub = later.trades.to[0];
+  await clickCell(page, { x: importerHub % WIDTH, y: Math.floor(importerHub / WIDTH) });
+  await expect(details.getByRole('region', { name: 'Trade' })).toContainText(`imports ${RESOURCE_IDS[later.trades.resources[0]]} from the`);
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

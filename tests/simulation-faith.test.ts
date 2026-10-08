@@ -35,7 +35,7 @@ function world(count = 6, split = 3) {
     groups: [] as PopulationGroup[], polities: [] as Polity[], living: [0, 1],
     metrics: { religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0 }, chronicle: new Chronicle(),
   } as unknown as SimulationState;
-  const polity = (id: number, name: string, core: number) => ({ id, kind: 'civ', name, culture: 0, groups: [] as number[], core, capital: null, stateReligion: -1, knowledge: startingKnowledge() }) as unknown as Polity;
+  const polity = (id: number, name: string, core: number) => ({ id, kind: 'civ', name, culture: 0, groups: [] as number[], core, capital: null, stateReligion: -1, trading: [] as number[], knowledge: startingKnowledge() }) as unknown as Polity;
   state.polities.push(polity(0, 'Kesh', 0), polity(1, 'Ilu', split));
   for (const region of regions) {
     const owner = region.id < split ? 0 : 1;
@@ -101,7 +101,7 @@ test('a people is drawn to its neighbours\' religions (another realm\'s less), t
   kesh.knowledge = learn(kesh.knowledge, ORGANIZED);
   const religion = foundReligion(state, context(0), createRng(3, 0, 3), kesh, { crisis: 1, zealous: 0 });
   // Region 1 lies beside the holy land (region 0), whose people follow it, and is in Kesh, whose state religion it is.
-  assert.deepEqual(faithDraws(state, state.groups[1]).get(religion.id), { neighbours: 1 / 2, stateSupport: FAITH_TUNING.stateSupport, shrine: 0, holyLand: FAITH_TUNING.holyDraw });
+  assert.deepEqual(faithDraws(state, state.groups[1]).get(religion.id), { neighbours: 1 / 2, stateSupport: FAITH_TUNING.stateSupport, shrine: 0, holyLand: FAITH_TUNING.holyDraw, trade: 0 });
   state.settlements.push({ status: 'alive', buildings: [{ type: BUILDING_INDEX.get('shrine')!, condition: 1 }] } as never); state.regionSettlements[1].push(0);
   assert.equal(faithDraws(state, state.groups[1]).get(religion.id)!.shrine, FAITH_TUNING.templeSupport, 'a shrine adds');
   // Region 3 is Ilu's heartland: its neighbour in Kesh (region 2) follows the folk ways, so nothing draws it yet.

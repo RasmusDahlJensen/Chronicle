@@ -9,10 +9,10 @@ import { BUDGET_TUNING } from '../tunables.ts';
  */
 export function taxRate(budget: PolityView['budget']) {
   const tuning = BUDGET_TUNING;
-  // What it must raise from taxes this year: its costs, less what its mines and quarries pay, and a share of the gap
-  // between its treasury and its reserve.
+  // What it must raise from taxes this year: its costs, less what its mines and quarries pay and its trade brings in
+  // (more where it pays for imports), and a share of the gap between its treasury and its reserve.
   const reserve = (tuning.reserveYears + tuning.reserveTradition * budget.tradition) * budget.costs;
-  const wanted = budget.costs - budget.sites + (reserve - budget.treasury) / tuning.refillYears;
+  const wanted = budget.costs - budget.sites - budget.trade + (reserve - budget.treasury) / tuning.refillYears;
   const target = budget.output > 0 ? wanted / budget.output : tuning.customaryRate;
   const tolerance = Math.max(0, Math.min(1, (budget.calm - tuning.calmFloor) / (tuning.calmFull - tuning.calmFloor)));
   const bearable = tuning.customaryRate + (tuning.maxRate - tuning.customaryRate) * tolerance;
