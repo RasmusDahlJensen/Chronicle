@@ -609,8 +609,8 @@ export const CULTURE_PULLS: Record<typeof VALUE_NAMES[number], { base: number; p
 /** Name shapes: a third syllable, an initial consonant cluster, an initial consonant and a final coda, by chance. */
 export const NAME_TUNING = { thirdSyllable: 0.3, initialCluster: 0.25, initialConsonant: 0.85, coda: 0.55, minLength: 3, maxLength: 11 } as const;
 
-/** Statistics sampled for the lab's world chart. */
-export const SERIES_YEARS = 1;
+/** Statistics sampled for the lab's world chart, and the census of civilizations (U.3) for the observer's stories. */
+export const SERIES_YEARS = 1, CENSUS_YEARS = 10;
 
 /**
  * Beliefs, intimacy and opinion (VISION.md "Beliefs about other polities", "Relations and memory"; M5.1), yearly per
@@ -816,6 +816,7 @@ export function validateTunables() {
   const n = NAME_TUNING;
   if (![n.thirdSyllable, n.initialCluster, n.initialConsonant, n.coda].every(value => value >= 0 && value <= 1) || !(n.minLength >= 1 && n.maxLength >= n.minLength)) problems.push('name shapes are invalid');
   if (!(Number.isInteger(SERIES_YEARS) && SERIES_YEARS >= 1)) problems.push('the chart series step must be whole years');
+  if (!(Number.isInteger(CENSUS_YEARS) && CENSUS_YEARS >= 1)) problems.push('the census step must be whole years');
   const sp = SPAWN_TUNING;
   if (!(Number.isInteger(sp.bands) && sp.bands >= 1 && sp.minPopulation >= 1 && sp.maxPopulation >= sp.minPopulation && sp.minSpacingKm >= 0)) problems.push('spawn settings are invalid');
   if (!(sp.temperatureWidth > 0 && sp.waterBonus >= 0)) problems.push('spawn weights are invalid');

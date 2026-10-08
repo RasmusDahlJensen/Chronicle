@@ -548,6 +548,8 @@ export interface Metrics {
   dominanceRun: number; longestDominance: number; dominanceYears: number;
 }
 
+/** One census (U.3): the year, and each living civilization (by id, ascending) with its people and regions. */
+export interface Census { year: number; ids: number[]; people: number[]; regions: number[] }
 /** The first discovery of each tech in the world (VISION.md "firsts"). */
 export interface FirstDiscovery { tech: number; tick: number; polity: number; region: number }
 
@@ -629,6 +631,9 @@ export interface SimulationState {
   stats: CenturyStats[];
   /** Every SERIES_YEARS (yearly): [year, world population, living polities]. */
   series: [number, number, number][];
+  /** Every CENSUS_YEARS, each living civilization's people and regions (U.3: the observer's story of who rises and
+   *  falls). Observation only: no system reads it. */
+  census: Census[];
   /** Highest event id already checked by the invariants. */
   checkedEvents: number;
   /** Development controls used on this history (Dev 02's scenario triggers; 0 in every history left to its rules). */

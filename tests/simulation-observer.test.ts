@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
-import { ERA_NAMES, parseObserverFrame, SIMULATION_PROTOCOL_VERSION, type ObserverFrame } from '../shared/simulation.ts';
+import { ERA_NAMES, MAX_FRAME_STORIES, parseObserverFrame, SIMULATION_PROTOCOL_VERSION, STORY_KINDS, type ObserverFrame } from '../shared/simulation.ts';
+import { describeStory, STORY_TEMPLATES } from '../src/observer/stories.ts';
+import { agesOf, KIND_LIMIT, storiesOf, storiesView, storyCandidates } from '../src/simulation/stories.ts';
 import { decodeGeography } from '../src/simulation/geography.ts';
 import { actorNames, HISTORY_IMPORTANCE, HISTORY_LENGTH, HISTORY_RUN_YEARS, observerView } from '../src/simulation/observer.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
@@ -8,7 +10,8 @@ import { truthOf } from '../src/simulation/relations.ts';
 import { keeperOf, roadUnkept } from '../src/simulation/roads.ts';
 import { createSimulation, stepSimulation } from '../src/simulation/simulation.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
-import { TECHS } from '../src/simulation/techs.ts';
+import { TENETS } from '../src/simulation/religions.ts';
+import { ERAS, TECHS } from '../src/simulation/techs.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 
@@ -141,7 +144,7 @@ function frameOf(state: SimulationState, region: number): ObserverFrame {
     counters: { regions: state.partition.regions.length, landmasses: 1 }, population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [], largest: [], civList: [],
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
-    roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], wonders: [], names: [], events: [],
+    roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], wonders: [], names: [], events: [], ...storiesView(state),
     inspect: observerView(state, region).inspect,
   } as ObserverFrame;
 }
@@ -174,4 +177,161 @@ test('its techs carry their eras, and its beliefs about others carry the truth b
     assert.equal(row.truePeople, Math.round(truthOf(history, other, 'people')));
     assert.equal(row.trueStrength, Math.round(truthOf(history, other, 'strength')));
   }
+});
+
+/** A copy of the history to change, stepped to its next census (every ten years). */
+function copied() {
+  const state: SimulationState = structuredClone(history);
+  Object.setPrototypeOf(state.chronicle, Object.getPrototypeOf(history.chronicle));
+  while (state.tick % 120 !== 0) stepSimulation(state, () => 0, false);
+  return state;
+}
+const peopleOf = (state: SimulationState, polity: Polity) => polity.groups.reduce((sum, id) => sum + state.groups[id].size, 0);
+
+test('the census records each civilization\'s people and regions every ten years', () => {
+  const state = copied(), last = state.census[state.census.length - 1];
+  assert.deepEqual(state.census.map(entry => entry.year), state.census.map((_, at) => (at + 1) * 10), 'every ten years from year 10');
+  assert.equal(last.year, state.tick / 12);
+  const civs = state.living.filter(id => state.polities[id].kind === 'civ').sort((a, b) => a - b);
+  assert.ok(civs.length > 0);
+  assert.deepEqual(last.ids, civs);
+  assert.deepEqual(last.people, civs.map(id => peopleOf(state, state.polities[id])));
+  assert.deepEqual(last.regions, civs.map(id => state.polities[id].groups.length));
+});
+
+test('a rise and a decline are read from the census; a realm that joined another is a union, not a decline', () => {
+  const state = copied(), year = state.tick / 12;
+  const censusOf = (at: number, id: number) => { const entry = state.census.find(sample => sample.year === at)!; const place = entry.ids.indexOf(id); return { people: entry.people[place], regions: entry.regions[place] }; };
+  const rises = storiesOf(state).filter(story => story.kind === 'rise');
+  assert.ok(rises.length > 0, 'a realm has risen');
+  for (const story of rises) {
+    const then = censusOf(story.from, story.polity), civ = state.polities[story.polity], gain = peopleOf(state, civ) - then.people;
+    assert.ok(story.from >= year - 100 && story.to === year);
+    assert.deepEqual([story.data.before, story.data.regionsBefore], [then.people, then.regions]);
+    assert.deepEqual([story.data.people, story.data.regions], [peopleOf(state, civ), civ.groups.length]);
+    assert.ok(Number(story.data.people) >= 1.25 * then.people);
+    // How it grew, from its events since that census: settlers sent, tribes joined, bands taken in, realms united, and
+    // the people who came with them.
+    const since = state.chronicle.events.filter(event => event.tick >= story.from * 12);
+    const by = (type: string, role: string) => since.filter(event => event.type === type && event.actors.some(actor => actor.id === civ.id && actor.role === role));
+    const joined = [...by('bandJoined', 'civ'), ...by('bandAbsorbed', 'civ'), ...by('unification', 'union')];
+    assert.deepEqual([story.data.expansions, story.data.joined, story.data.absorbed, story.data.united], [by('expansion', 'civ').length, by('bandJoined', 'civ').length, by('bandAbsorbed', 'civ').length, by('unification', 'union').length]);
+    assert.equal(story.data.byOthers, Math.min(gain, joined.reduce((sum, event) => sum + Number(event.data.population), 0)));
+    assert.equal(story.data.ownGrowth, gain - Number(story.data.byOthers));
+    assert.deepEqual(story.regions, civ.groups.map(id => state.groups[id].region).sort((a, b) => a - b));
+  }
+  // A decline: the largest realm loses half its people.
+  const civ = largestCiv(state)!;
+  for (const id of civ.groups) state.groups[id].size = Math.floor(state.groups[id].size / 2);
+  const decline = storyCandidates(state).find(story => story.kind === 'decline' && story.polity === civ.id)!;
+  const samples = state.census.filter(sample => sample.year >= year - 200 && sample.ids.includes(civ.id)), peak = Math.max(...samples.map(sample => sample.people[sample.ids.indexOf(civ.id)]));
+  assert.ok(decline, 'the realm declines');
+  assert.deepEqual([decline.data.peak, decline.data.people, decline.data.ended], [peak, peopleOf(state, civ), false]);
+  assert.equal(decline.data.peakYear, samples.find(sample => sample.people[sample.ids.indexOf(civ.id)] === peak)!.year);
+  // Another realm joins it and ends: a union, not a decline.
+  const other = state.living.map(id => state.polities[id]).find(polity => polity.kind === 'civ' && polity.id !== civ.id)!;
+  assert.ok(other);
+  other.deathTick = state.tick; state.living = state.living.filter(id => id !== other.id);
+  state.chronicle.emit({ type: 'unification', actors: [{ id: other.id, role: 'civ' }, { id: civ.id, role: 'union' }], region: null, importance: 0.5,
+    data: { name: other.name, civ: civ.name, regions: other.groups.length, population: 123_456, kin: false, into: 1, techs: 0, learned: false } });
+  state.chronicle.flush(state.tick);
+  const told = storyCandidates(state);
+  assert.ok(!told.some(story => story.kind === 'decline' && story.polity === other.id));
+  const union = told.find(story => story.kind === 'union' && story.polity === civ.id)!;
+  const unions = state.chronicle.events.filter(event => event.type === 'unification' && event.tick >= (year - 100) * 12 && event.actors.some(actor => actor.id === civ.id && actor.role === 'union'));
+  assert.deepEqual([union.id, union.data.joined, union.data.count, union.data.people], [`union:${civ.id}`, other.name, unions.length, unions.reduce((sum, event) => sum + Number(event.data.population), 0)]);
+  // A realm that comes to an end otherwise is a decline to nothing.
+  const ending = copied(), gone = ending.living.map(id => ending.polities[id]).find(polity => polity.kind === 'civ' && polity.id !== civ.id)!;
+  gone.deathTick = ending.tick; ending.living = ending.living.filter(id => id !== gone.id);
+  const end = storyCandidates(ending).find(story => story.kind === 'decline' && story.polity === gone.id)!;
+  assert.ok(end, 'an ended realm declines');
+  assert.deepEqual([end.data.ended, end.data.people, end.to, end.alive], [true, 0, year, false]);
+  for (const story of [decline, union, end, ...rises]) for (const text of Object.values(describeStory(story))) assert.ok(!text.includes('?') && !/#\d/.test(text), `${story.kind}: ${text}`);
+});
+
+test('each kind of story is told from the history\'s events and state, the strongest eight first, in words', () => {
+  const state = copied(), year = state.tick / 12, civ = largestCiv(state)!, region = state.groups[civ.groups[0]].region;
+  const others = state.living.filter(id => id !== civ.id).slice(0, 3);
+  // What M1–M5 make happen, made to happen now: voyages, a famine, a wonder, two peoples become one, a faith and a
+  // sect, trade, a new age, a union and a decline.
+  const emit = (type: Parameters<typeof state.chronicle.emit>[0]['type'], data: Record<string, string | number | boolean>, role = 'civ', settlement: number | null = null, actor = civ.id) =>
+    state.chronicle.emit({ type, actors: [{ id: actor, role }], region, settlement, importance: 0.5, causes: [{ factor: 'test', weight: 1 }], data });
+  const voyage = (km: number, newLand: boolean) => emit('newLandsDiscovered', { explorer: newLand ? 'Tester' : 'Coaster', from: 'Port', km, regions: 5, met: 2, metOne: false, metMany: true, newLand, farCoast: !newLand, large: true, otherLand: true });
+  voyage(99_999, true); voyage(199_999, false);
+  emit('famine', { name: civ.name, deaths: 5_000_000, population: 9_000_000, regions: 1, more: 0, moreRegions: false }, 'polity');
+  const city = state.settlements.find(settlement => settlement.owner === civ.id && settlement.status === 'alive')!;
+  emit('wonderCompleted', { wonder: 'the Pyramids', name: city.name, civ: civ.name, years: 40 }, 'civ', city.id);
+  emit('hybridCulture', { culture: 'Testai', first: 'Aye', second: 'Bee', civ: civ.name, firstShare: 60, secondShare: 40, population: 50_000_000 });
+  const faith = state.religions.length;
+  state.religions.push({ id: faith, name: 'Testfaith', tenets: [], founder: civ.id, holyRegion: region, parent: null, foundedTick: state.tick, hue: 0, people: 100_000, regions: 3, deathTick: null });
+  state.religions.push({ id: faith + 1, name: 'Testsect', tenets: [0], founder: civ.id, holyRegion: region, parent: faith, foundedTick: state.tick, hue: 0, people: 50_000, regions: 2, deathTick: null });
+  state.groups[civ.groups[0]].faith = faith;
+  emit('religionFounded', { religion: 'Testfaith', civ: civ.name, tenets: '', reformed: false, from: '' });
+  emit('schism', { religion: 'Testsect', parent: 'Testfaith', regions: 2, population: 50_000, polity: civ.name, holyLand: true, mainBody: false }, 'polity');
+  for (const other of others) state.treaties.push({ id: state.treaties.length, type: 'trade', exporter: civ.id, importer: other, resource: 0, amount: 1, barter: -1, barterAmount: 0, price: 1, carry: 0, hubs: [0, 0], startTick: state.tick, endTick: null, endCause: null });
+  const reached = Math.max(0, ...agesOf(state).map(age => age.era)), tech = TECHS.findIndex(entry => ERAS.indexOf(entry.era) === reached + 1);
+  state.firsts.push({ tech, tick: state.tick, polity: civ.id, region });
+  emit('techDiscovered', { tech: TECHS[tech].name, era: TECHS[tech].era, name: civ.name, first: true, taught: false }, 'polity');
+  const joiner = state.living.map(id => state.polities[id]).find(polity => polity.kind === 'civ' && polity.id !== civ.id)!;
+  state.chronicle.emit({ type: 'unification', actors: [{ id: joiner.id, role: 'civ' }, { id: civ.id, role: 'union' }], region, importance: 0.5,
+    data: { name: joiner.name, civ: civ.name, regions: 1, population: 1, kin: false, into: 1, techs: 0, learned: false } });
+  for (const id of joiner.groups) state.groups[id].size = Math.floor(state.groups[id].size / 2);
+  state.chronicle.flush(state.tick);
+
+  const candidates = storyCandidates(state), of = (kind: string, polity = civ.id) => candidates.filter(story => story.kind === kind && story.polity === polity);
+  for (const kind of ['voyage', 'hardship', 'wonder', 'peoples', 'trade', 'first', 'union'] as const) assert.equal(of(kind).length, 1, kind);
+  assert.equal(of('decline', joiner.id).length, 1);
+  const recent = state.chronicle.events.filter(event => event.tick >= (year - 100) * 12), mine = (type: string) => recent.filter(event => event.type === type && event.actors.some(actor => actor.id === civ.id));
+  const landfalls = mine('newLandsDiscovered').filter(event => event.data.newLand === true);
+  assert.deepEqual([of('voyage')[0].data.km, of('voyage')[0].data.explorer, of('voyage')[0].data.voyages], [99_999, 'Tester', landfalls.length], 'only voyages that reached new lands');
+  assert.equal(of('hardship')[0].data.deaths, mine('famine').reduce((sum, event) => sum + Number(event.data.deaths), 0));
+  assert.deepEqual([of('wonder')[0].data.wonder, of('wonder')[0].focus], ['the Pyramids', city.cell]);
+  assert.deepEqual([of('peoples')[0].data.culture, of('peoples')[0].data.hybrid], ['Testai', true]);
+  const [founded, sect] = [faith, faith + 1].map(id => of('faith').find(story => story.id === `faith:${civ.id}:${id}`)!);
+  assert.deepEqual([founded.data.religion, founded.data.people, founded.data.founded, founded.data.sect], ['Testfaith', 100_000, true, false]);
+  assert.deepEqual([sect.data.religion, sect.data.sect, sect.data.parentFaith, sect.data.tenets], ['Testsect', true, 'Testfaith', TENETS[0].name]);
+  assert.ok(founded.regions.includes(region));
+  const trades = state.treaties.filter(treaty => treaty.type === 'trade' && treaty.endTick === null && (treaty.exporter === civ.id || treaty.importer === civ.id));
+  assert.equal(of('trade')[0].data.agreements, trades.length);
+  assert.deepEqual([of('first')[0].data.era, of('first')[0].data.tech], [TECHS[tech].era, TECHS[tech].name]);
+  assert.deepEqual(agesOf(state).at(-1), { era: reached + 1, year, polity: civ.id, name: civ.name, tech: TECHS[tech].name });
+  for (const story of candidates) {
+    assert.ok(story.causes.length <= 3 && story.events.length <= 3 && story.from <= story.to && story.to <= year, story.id);
+    assert.ok(story.events.every((event, at) => at === 0 || event.id < story.events[at - 1].id), 'key events newest first');
+  }
+  assert.equal(new Set(candidates.map(story => story.id)).size, candidates.length, 'each story once');
+  // The rail: at most eight, the strongest first, at most two of a rise, decline or union and one of any other kind.
+  const told = storiesOf(state);
+  const selectable = STORY_KINDS.reduce((sum, kind) => sum + Math.min(KIND_LIMIT[kind] ?? 1, candidates.filter(story => story.kind === kind).length), 0);
+  assert.equal(told.length, Math.min(MAX_FRAME_STORIES, selectable));
+  assert.ok(told.every((story, at) => at === 0 || story.weight <= told[at - 1].weight));
+  for (const kind of STORY_KINDS) assert.ok(told.filter(story => story.kind === kind).length <= (KIND_LIMIT[kind] ?? 1), kind);
+  assert.equal(told[0].weight, Math.max(...candidates.map(story => story.weight)), 'the story of the age is the strongest');
+  // Every kind has its words, every story reads without gaps or ids, and counts of one take the singular.
+  assert.deepEqual(Object.keys(STORY_TEMPLATES).sort(), [...STORY_KINDS].sort());
+  assert.deepEqual(new Set(candidates.map(story => story.kind)), new Set(STORY_KINDS), 'every kind told');
+  for (const story of candidates) {
+    const ones = { ...story, data: Object.fromEntries(Object.entries(story.data).map(([key, value]) => [key, typeof value === 'number' ? 1 : value])) };
+    for (const told of [story, ones]) {
+      const words = describeStory(told);
+      for (const text of [words.title, words.text]) {
+        assert.ok(!text.includes('?'), `${story.kind}: ${text}`); assert.doesNotMatch(text, /#\d/); assert.match(text, /^[A-Z0-9]/);
+        assert.doesNotMatch(text, /\b1 (?:more |new |trade )?[a-z]+s\b/, `${story.kind}: ${text}`);
+      }
+    }
+  }
+});
+
+test('a frame\'s stories and ages are validated', () => {
+  const state = copied(), civ = largestCiv(state)!, frame = frameOf(state, state.groups[civ.groups[0]].region);
+  assert.ok(frame.stories.length > 0 && frame.ages.length > 0);
+  assert.equal(parseObserverFrame(structuredClone(frame)).stories.length, frame.stories.length);
+  const altered = (change: (copy: ObserverFrame) => void) => { const copy = structuredClone(frame); change(copy); return copy; };
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.stories.push(structuredClone(copy.stories[0])); copy.stories.at(-1)!.weight = 0; })), 'each story once');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.stories.at(-1)!.weight = copy.stories[0].weight + 1; })), 'strongest first');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.stories[0].to = Math.floor(copy.tick / 12) + 1; })), 'not beyond the history');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.stories[0].from = copy.stories[0].to + 1; })), 'from before to');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.stories[0].regions = [copy.counters.regions]; })), 'regions of this world');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.ages.push({ ...copy.ages[0] }); })), 'each later age once');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.ages[0].year = Math.floor(copy.tick / 12) + 1; })), 'ages within the history');
 });

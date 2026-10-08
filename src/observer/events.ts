@@ -89,11 +89,25 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
 /** Fill an event's template; missing values show as "?" so gaps stay visible instead of silently vanishing. `{@role}`
  *  names the actor in that role (`names`, for example "the Vraye"); the sentence starts with a capital. */
 export function describeEvent(event: ChronicleEvent, names: (id: number) => string = id => `#${id}`) {
-  const optional = EVENT_TEMPLATES[event.type].replace(/\{\?(\w+)\|((?:[^{}]|\{@?\w+\})*)\}/g, (_match, key: string, text: string) => event.data[key] === true ? text : '');
-  const text = optional.replace(/\{(@?)(\w+)\}/g, (_match, actor: string, key: string) => {
-    if (actor) { const found = event.actors.find(entry => entry.role === key); return found ? names(found.id) : '?'; }
-    if (key === 'region') return event.region === null ? '?' : String(event.region);
-    const value = event.data[key];
+  return fillTemplate(EVENT_TEMPLATES[event.type], event.data, {
+    region: event.region, actor: role => { const found = event.actors.find(entry => entry.role === role); return found ? names(found.id) : '?'; },
+  });
+}
+
+/** Fill a template from data (shared by events and stories): `{key}` reads `data[key]` (numbers in English digits),
+ *  `{key|one|many}` a count with its noun ("1 region", "3 regions"), `{?key|text}` keeps the text when `data[key]` is
+ *  true (conditionals do not nest), `{region}` and `{@role}` come from `context`. Missing values show as "?"; the text
+ *  starts with a capital. */
+export function fillTemplate(template: string, data: Readonly<Record<string, string | number | boolean>>, context: { region?: number | null; actor?: (role: string) => string } = {}) {
+  const optional = template.replace(/\{\?(\w+)\|((?:[^{}]|\{@?\w+(?:\|[^{}|]*\|[^{}|]*)?\})*)\}/g, (_match, key: string, text: string) => data[key] === true ? text : '');
+  const counted = optional.replace(/\{(\w+)\|([^{}|]*)\|([^{}|]*)\}/g, (_match, key: string, one: string, many: string) => {
+    const value = data[key];
+    return typeof value === 'number' ? `${value.toLocaleString('en')} ${value === 1 ? one : many}` : '?';
+  });
+  const text = counted.replace(/\{(@?)(\w+)\}/g, (_match, actor: string, key: string) => {
+    if (actor) return context.actor?.(key) ?? '?';
+    if (key === 'region' && context.region !== undefined) return context.region === null ? '?' : String(context.region);
+    const value = data[key];
     return value === undefined ? '?' : typeof value === 'number' ? value.toLocaleString('en') : String(value);
   });
   return text.charAt(0).toUpperCase() + text.slice(1);

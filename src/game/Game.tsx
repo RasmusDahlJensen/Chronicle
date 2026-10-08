@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import '@fontsource/cormorant-garamond/600.css';
 import '@fontsource/cormorant-garamond/700.css';
 import '@fontsource/source-sans-3/400.css';
@@ -14,6 +14,8 @@ import { useObserver } from '../observer/useObserver.ts';
 import { useRegionMap, useWorldMap, type PeoplesLens } from '../observer/useWorldMap.ts';
 import { chosenWorld, rememberWorld } from '../observer/world-choice.ts';
 import { people, RealmPanel, RegionDetail, type RealmTab } from './RealmPanel.tsx';
+import { Ages, StoryRail } from './StoryRail.tsx';
+import { Tabs } from './Tabs.tsx';
 import './game.css';
 
 const number = new Intl.NumberFormat('en');
@@ -25,6 +27,9 @@ const LENSES: { lens: PeoplesLens; label: string }[] = [
 ];
 /** Events shown in the ticker: the notable ones (`importance`), newest first. */
 const TICKER_IMPORTANCE = 0.1, TICKER_LENGTH = 5;
+const SIDE_TABS = ['stories', 'powers'] as const;
+const SIDE_NAMES = { stories: 'Stories', powers: 'Great powers' } as const;
+type Story = ObserverFrame['stories'][number];
 
 /**
  * The game (milestone U; VISION.md "Observer views"). The map is the stage: the top bar keeps time, lenses colour the
@@ -42,6 +47,10 @@ export function Game() {
   const [menu, setMenu] = useState(false);
   // The realm panel's tab, kept while other land is chosen so realms can be compared.
   const [tab, setTab] = useState<RealmTab>('overview');
+  // The right-hand panel's tab, and the story chosen to be shown on the map: followed by its id into each new frame (its
+  // regions grow and change as it goes on), and kept as last told when the rail no longer tells it.
+  const [side, setSide] = useState<typeof SIDE_TABS[number]>('stories');
+  const [chosen, setStory] = useState<Story | null>(null);
   // Choosing another world in this tab starts that world's history again at year 0 (until saving exists).
   const shown = useRef<{ key: string; fresh: boolean }>({ key: '', fresh: false });
   if (world && shown.current.key !== world.worldKey) shown.current = { key: world.worldKey, fresh: shown.current.key !== '' };
@@ -58,7 +67,11 @@ export function Game() {
   const { regions, regionError } = useRegionMap(world);
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
   useEffect(() => { setFrame(null); }, [world]);
-  const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116' });
+  const story = chosen ? frame?.stories.find(entry => entry.id === chosen.id) ?? chosen : null;
+  // The highlight changes only when the story's regions do, not with every frame.
+  const storyRegions = story?.regions.join(',') ?? '';
+  const highlight = useMemo(() => storyRegions ? new Set(storyRegions.split(',').map(Number)) : null, [storyRegions]);
+  const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight });
   const region = map.cellRegion;
   const observer = useObserver({ settings: world?.settings ?? null, startFresh: shown.current.fresh, inspect: region?.id ?? null, onFrame: setFrame });
   const names = observer.names;
@@ -72,6 +85,17 @@ export function Game() {
   const date = frame ? simulationDate(frame.tick) : null;
   const powers = frame ? frame.civList.slice(0, 10) : [];
   const ticker = observer.events.filter(event => event.importance >= TICKER_IMPORTANCE).slice(-TICKER_LENGTH).reverse();
+  // A story ends with its history (a reset or another run) and when the selection it showed is closed.
+  const history = frame ? `${frame.instance.runId}:${frame.epoch}` : '';
+  useEffect(() => { setStory(null); }, [history]);
+  const selected = !!map.cell || map.inspecting;
+  const wasSelected = useRef(false);
+  useEffect(() => { if (wasSelected.current && !selected) setStory(null); wasSelected.current = selected; }, [selected]);
+  function chooseStory(next: Story) {
+    if (story?.id === next.id) { setStory(null); return; }
+    setStory(next);
+    if (next.focus !== null) map.focusCell(next.focus);
+  }
 
   return <div className="game">
     <header className="game-bar">
@@ -128,13 +152,15 @@ export function Game() {
             {map.cell && <h2 className="game-place-title">{WORLD_BIOME_STYLE[map.cell.biome].label}</h2>}
             {region && <RegionDetail inspected={inspected} region={region} biome={map.cell ? WORLD_BIOME_STYLE[map.cell.biome].label : null} names={names} />}
           </>}
+        {!map.cell && map.inspecting && !realmShown && <p className="game-muted" role="status">Reading the land…</p>}
         {map.cell && !region && <p className="game-muted" role="status">{!regions ? 'Reading the land…' : map.cell.water.kind === 'ocean' ? 'Open sea.' : map.cell.water.kind === 'lake' ? 'A lake.' : 'Land outside the regions.'}</p>}
         </div>
       </aside>}
 
-      {powers.length > 0 && frame && <aside className="game-panel game-powers" aria-label="Great powers">
-        <h2>Great powers</h2>
-        <ol aria-label="Civilizations by people">{powers.map(civ => <li key={civ.id}>
+      {frame && <aside className="game-panel game-side" aria-label="Stories and great powers">
+        <Tabs id="game-side" label="The world now" tabs={SIDE_TABS} names={SIDE_NAMES} chosen={side} onChoose={setSide} className="game-side-tabs" panelClassName="game-side-body">
+        {side === 'stories' ? <StoryRail stories={frame.stories} chosen={story?.id ?? null} onChoose={chooseStory} names={names} /> : powers.length === 0 ? <p className="game-muted">No civilization has risen yet.</p> : <>
+        <ol aria-label="Civilizations by people" className="game-powers">{powers.map(civ => <li key={civ.id}>
           <button type="button" onClick={() => map.focusCell(civ.capitalCell)} title={`Go to ${civ.capital}, the capital`}>
             <span className="game-swatch" style={{ backgroundColor: cssColor(polityColor(civ.id)) }} aria-hidden="true" />
             <span className="game-power-name">{civ.name}<span className="game-power-era">{ERA_NAMES[civ.era]}</span></span>
@@ -143,6 +169,8 @@ export function Game() {
           </button>
         </li>)}</ol>
         <p className="game-muted">{number.format(frame.civs)} civilizations and {number.format(frame.polities - frame.civs)} tribes in all; share of the world's people.</p>
+        </>}
+        </Tabs>
       </aside>}
 
       <section className="game-panel game-ticker" aria-label="Lenses and chronicle">
@@ -156,6 +184,7 @@ export function Game() {
             <button type="button" onClick={map.fit}>Fit</button>
           </div>
         </div>
+        {frame && <Ages ages={frame.ages} year={Math.floor(frame.tick / 12)} />}
         {ticker.length ? <ol className="game-events" aria-label="Latest in the chronicle">{ticker.map(event => <TickerEvent key={event.id} event={event} names={names} />)}</ol>
           : <p className="game-muted">{frame?.tick === 0 ? 'Press Play: the first bands are about to wander.' : 'Nothing notable among the latest events.'}</p>}
       </section>

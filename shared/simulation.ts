@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 34;
+export const SIMULATION_PROTOCOL_VERSION = 35;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -55,6 +55,11 @@ export const DECISION_ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share
 /** A people's standing with a civilization in its Diplomacy (VISION.md "Civ panel"; M5.5), and the treaties it may hold. */
 export const DIPLOMATIC_STATUSES = ['allied', 'pact', 'trade', 'rival', 'neutral'] as const;
 export const AGREEMENT_KINDS = ['alliance', 'nonAggression', 'road', 'trade'] as const;
+/** The kinds of story the observer is told (U.3), from what M1–M5 simulate. */
+export const STORY_KINDS = ['rise', 'decline', 'union', 'first', 'faith', 'peoples', 'trade', 'voyage', 'hardship', 'wonder'] as const;
+export type StoryKind = typeof STORY_KINDS[number];
+/** At most this many stories in a frame. */
+export const MAX_FRAME_STORIES = 8;
 const OriginSchema = Type.Union([Type.Literal('founding'), Type.Literal('breakaway'), Type.Literal('split'), Type.Literal('hybrid')]);
 const ValuesSchema = Type.Object(Object.fromEntries(VALUE_NAMES.map(key => [key, Type.Number({ minimum: 0, maximum: 1 })])) as Record<typeof VALUE_NAMES[number], ReturnType<typeof Type.Number>>, { additionalProperties: false });
 /**
@@ -197,6 +202,23 @@ export const ObserverFrameSchema = Type.Object({
   }, { additionalProperties: false }), { maxItems: 32 }),
   /** [year, world population, living polities] every SERIES_YEARS, for the world chart. */
   series: Type.Array(Type.Tuple([Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 }), Type.Integer({ minimum: 0 })]), { maxItems: 1_000 }),
+  /** (U.3) The history's main stories now, strongest first: each its kind, its realm (the polity, its name and whether
+   *  it lives), the years it spans, its weight (how much of the world it touched, by recency), the numbers its text is
+   *  written from (`data`, as an event's), its strongest causes, its key events, the regions where it happened and a
+   *  cell to show (null for none). */
+  stories: Type.Array(Type.Object({
+    id: Type.String({ minLength: 1, maxLength: 64 }), kind: Type.Enum(STORY_KINDS), polity: id(), name: Type.String({ maxLength: 40 }), alive: Type.Boolean(),
+    from: Type.Integer({ minimum: 0 }), to: Type.Integer({ minimum: 0 }), weight: Type.Number({ minimum: 0 }),
+    data: Type.Record(Type.String({ maxLength: 32 }), Type.Union([Type.String({ maxLength: 120 }), Type.Number(), Type.Boolean()])),
+    causes: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 3 }),
+    events: Type.Array(ChronicleEventSchema, { maxItems: 3 }),
+    regions: Type.Array(id(), { maxItems: 2_048 }), focus: Type.Union([Type.Null(), id()]),
+  }, { additionalProperties: false }), { maxItems: MAX_FRAME_STORIES }),
+  /** (U.3) The ages of the world: each era after the Stone age with the year a people first reached it (its first tech
+   *  of that era), that people and the tech, in order. */
+  ages: Type.Array(Type.Object({
+    era: Type.Integer({ minimum: 1, maximum: ERA_NAMES.length - 1 }), year: Type.Integer({ minimum: 0 }), polity: id(), name: Type.String({ maxLength: 40 }), tech: Type.String({ maxLength: 40 }),
+  }, { additionalProperties: false }), { maxItems: ERA_NAMES.length - 1 }),
   /** Details of the region the observer asked about, or null. */
   inspect: Type.Union([Type.Null(), Type.Object({
     region: id(), capacity: Type.Number({ minimum: 0 }), gameStock: Type.Number({ minimum: 0, maximum: 1 }),
@@ -475,6 +497,15 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   if (polity?.history.some(({ event, from }, at) => event.tick > frame.tick || from > event.tick || event.id >= frame.eventCount || (at > 0 && event.id >= polity.history[at - 1].event.id))) throw invalid();
   if (frame.inspect && frame.inspect.region >= frame.counters.regions) throw invalid();
   if (frame.series.some(([year], at) => year * 12 > frame.tick || (at > 0 && year <= frame.series[at - 1][0]))) throw invalid();
+  // (U.3) Stories: each once, strongest first, within the history so far and this world's regions, their events too.
+  const year = Math.floor(frame.tick / 12);
+  if (new Set(frame.stories.map(story => story.id)).size !== frame.stories.length) throw invalid();
+  for (const [at, story] of frame.stories.entries()) {
+    if (story.from > story.to || story.to > year || (at > 0 && story.weight > frame.stories[at - 1].weight)) throw invalid();
+    if (story.regions.some(region => region >= frame.counters.regions) || story.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
+  }
+  // The ages: later eras, each reached no earlier than the one before.
+  if (frame.ages.some((age, at) => age.year > year || (at > 0 && (age.era <= frame.ages[at - 1].era || age.year < frame.ages[at - 1].year)))) throw invalid();
   return frame;
 }
 

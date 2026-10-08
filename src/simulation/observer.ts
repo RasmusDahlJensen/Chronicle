@@ -14,6 +14,7 @@ import { truthOf } from './relations.ts';
 import { keeperOf, roadUnkept } from './roads.ts';
 import { available, metFor } from './supply.ts';
 import { stabilityOf } from './stability.ts';
+import { storiesView } from './stories.ts';
 import { NEED_NAMES, VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type SimulationState, type TradeTreaty } from './state.ts';
 import { tradeIncome, treatyBetween } from './treaties.ts';
 import { ancestry, lineOf } from './culture.ts';
@@ -22,7 +23,7 @@ import { TENETS } from './religions.ts';
 import { ERAS, TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'inspect'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -107,7 +108,7 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
-    }), inspect: inspect === null ? null : inspectRegion(state, inspect, living),
+    }), ...storiesView(state), inspect: inspect === null ? null : inspectRegion(state, inspect, living),
   };
 }
 

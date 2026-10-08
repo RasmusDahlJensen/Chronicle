@@ -22,11 +22,11 @@ import { cultureStats, cultureYear, harshLand } from './culture.ts';
 import { faithStats } from './faith.ts';
 import { ageFactor, costsOf, realmYears, settlementAccount, sizeFactor, totalCosts } from './budget.ts';
 import { wealthFlows, wonderBonus } from './economy.ts';
-import { ACTIONS, MEMORY_REASONS, NEED_NAMES, SYSTEMS, VALUE_KEYS, type CenturyStats, type NeedName, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
+import { ACTIONS, MEMORY_REASONS, NEED_NAMES, SYSTEMS, VALUE_KEYS, type Census, type CenturyStats, type NeedName, type Ledger, type SimulationState, type SystemKey, type TickContext } from './state.ts';
 import type { RegionPartition } from './regions.ts';
 import { seedFromText, systemStream } from './rng.ts';
 import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
-import { CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
+import { CENSUS_YEARS, CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
 export const SIMULATION_RULES_VERSION = 30;
@@ -69,7 +69,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, decisionSteps: 0, causesShort: 0, resourceExpansions: 0, tradeOffers: 0, tradeRefused: 0, tradeAgreements: 0, tradeEnded: { needPassed: 0, noSurplus: 0, unpaid: 0, relationsSoured: 0, partyGone: 0 },
       pactsMade: 0, alliancesMade: 0, roadDealsMade: 0, treatiesRefused: 0, crossBorderRoads: 0, pactEnded: { relationsSoured: 0, partyGone: 0, routeLost: 0 },
       voyages: 0, voyagesLost: 0, voyagesEmpty: 0, voyagesOtherLand: 0, voyagesNewLand: 0, voyageContacts: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0 },
-    timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], checkedEvents: 0, devActions: 0,
+    timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], census: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
   state.affinity = regionAffinities(state);
@@ -102,6 +102,7 @@ export function stepSimulation(state: SimulationState, now: () => number = () =>
   state.tick = tick + 1;
   if (state.tick % 12 === 0) trackDominance(state);
   if (state.tick % 12 === 0 && (state.tick / 12) % SERIES_YEARS === 0) state.series.push(seriesPoint(state, state.tick / 12));
+  if (state.tick % (CENSUS_YEARS * 12) === 0) state.census.push(census(state, state.tick / 12));
   if (state.tick % (CLOCK_TUNING.statsYears * 12) === 0) state.stats.push(collectStats(state, state.tick / 12));
   if (verify) checkInvariants(state);
 }
@@ -220,6 +221,19 @@ function trackDominance(state: SimulationState) {
   const m = state.metrics;
   if (total > 0 && largest / total > STORY_TUNING.dominantShare) { m.dominanceRun++; m.dominanceYears++; m.longestDominance = Math.max(m.longestDominance, m.dominanceRun); }
   else m.dominanceRun = 0;
+}
+
+/** Each living civilization's people and regions now (U.3), by id. */
+function census(state: SimulationState, year: number): Census {
+  const entry: Census = { year, ids: [], people: [], regions: [] };
+  for (const id of [...state.living].sort((a, b) => a - b)) {
+    const polity = state.polities[id];
+    if (polity.kind !== 'civ') continue;
+    let people = 0;
+    for (const group of polity.groups) people += state.groups[group].size;
+    entry.ids.push(id); entry.people.push(people); entry.regions.push(polity.groups.length);
+  }
+  return entry;
 }
 
 function seriesPoint(state: SimulationState, year: number): [number, number, number] {

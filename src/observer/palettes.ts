@@ -20,6 +20,9 @@ export const SETTLEMENT_STROKE = '#2b1d12';
 
 /** Territory opacity: bands roam lightly over their land; settled civilizations hold theirs. */
 export const TERRITORY_ALPHA = { band: 0.55, civ: 0.78 } as const;
+/** A chosen story's regions (U.3): the rest of the map's territories fade to this share of their alpha, its own are
+ *  drawn fully, and its land no one holds now in this brass colour. */
+export const HIGHLIGHT = { fade: 0.25, alpha: 0.9, empty: [226, 189, 114] as [number, number, number], emptyAlpha: 0.6 } as const;
 
 /**
  * A distinct colour for each founding people (lineage), as [r, g, b]: hues a golden angle apart, skipping the blues

@@ -1,4 +1,3 @@
-import { useRef, type KeyboardEvent } from 'react';
 import { ERA_NAMES, SETTLEMENT_TIERS, simulationDate, VALUE_NAMES, type ObserverFrame } from '../../shared/simulation.ts';
 import type { RegionSummary } from '../../shared/simulation.ts';
 import { describeEvent } from '../observer/events.ts';
@@ -6,6 +5,7 @@ import {
   AGREEMENT_NAMES, BELIEF_NAMES, causeText, DECISION_LABELS, decisionTarget, factorName, NEED_LABELS, STATUS_NAMES, units, type InspectedPolity,
 } from '../observer/labels.ts';
 import { cssColor, polityColor } from '../observer/palettes.ts';
+import { Tabs } from './Tabs.tsx';
 
 const number = new Intl.NumberFormat('en');
 /** People (or wealth) in millions or thousands. */
@@ -42,14 +42,6 @@ interface Props {
 export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab, names }: Props) {
   const polity = inspected.polity!, civ = polity.kind === 'civ';
   const tabs = tabsFor(polity), shown = tabs.includes(tab) ? tab : 'overview';
-  const buttons = useRef(new Map<RealmTab, HTMLButtonElement>());
-  function key(event: KeyboardEvent) {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const at = tabs.indexOf(shown), step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-    const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : step ? tabs[(at + step + tabs.length) % tabs.length] : null;
-    if (!next) return;
-    event.preventDefault(); onTab(next); buttons.current.get(next)?.focus();
-  }
   return <>
     <p className="game-place-line" id="game-place-line">{stale ? <span role="status">Region {region.id}{biome ? ` · ${biome.toLowerCase()}` : ''} · reading the land…</span>
       : `Region ${region.id}${biome ? ` · ${biome.toLowerCase()}` : ''} · ${plural(polity.population, 'person', 'people')} of the ${polity.name} here`}</p>
@@ -65,19 +57,14 @@ export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab
         {polity.wealth && <div><dt>treasury</dt><dd>{people(polity.wealth.treasury)}</dd></div>}
       </dl>
     </section>
-    <div className="game-tabs" role="tablist" aria-label={civ ? 'About the realm' : 'About the tribe'} onKeyDown={key}>
-      {tabs.map(entry => <button key={entry} ref={element => { if (element) buttons.current.set(entry, element); else buttons.current.delete(entry); }}
-        type="button" role="tab" id={`game-tab-${entry}`} aria-selected={entry === shown} aria-controls="game-tab-panel" tabIndex={entry === shown ? 0 : -1}
-        onClick={() => onTab(entry)}>{TAB_LABELS[entry]}</button>)}
-    </div>
-    <div className="game-tab-panel" role="tabpanel" id="game-tab-panel" aria-labelledby={`game-tab-${shown}`} data-tab={shown} tabIndex={0} aria-busy={stale}>
+    <Tabs id="game-realm" label={civ ? 'About the realm' : 'About the tribe'} tabs={tabs} names={TAB_LABELS} chosen={shown} onChoose={onTab} busy={stale}>
       {shown === 'overview' ? <Overview polity={polity} />
         : shown === 'diplomacy' ? <Diplomacy polity={polity} />
         : shown === 'economy' ? <Economy polity={polity} />
         : shown === 'knowledge' ? <Knowledge polity={polity} />
         : shown === 'history' ? <History polity={polity} names={names} />
         : <RegionDetail inspected={stale ? null : inspected} region={region} biome={biome} names={names} />}
-    </div>
+    </Tabs>
   </>;
 }
 

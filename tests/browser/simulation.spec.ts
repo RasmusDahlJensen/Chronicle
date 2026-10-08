@@ -288,6 +288,34 @@ test('farming bands settle into civilizations with villages, specialists, resear
   // there is shown; after several paused polls the ticker still names every people.
   const game = await page.context().newPage();
   await openGame(game);
+  // U.3: the story rail tells the history's stories; choosing one shows it on the map and opens its realm, choosing it
+  // again or closing the selection ends it. The ages run from the Stone age.
+  const side = game.getByRole('complementary', { name: 'Stories and great powers' });
+  const told = (await (await game.request.get(`/api/simulation/frame?${query}&cursor=0`)).json()).stories;
+  expect(told.length).toBeGreaterThan(0);
+  const stories = side.getByRole('list', { name: 'Stories of the age' }).getByRole('listitem');
+  await expect(stories).toHaveCount(told.length);
+  await expect(stories.first()).toContainText('The story of the age');
+  await expect(stories.first()).toContainText(told[0].name);
+  for (const text of await stories.allTextContents()) expect(text).not.toMatch(/#\d|\?/);
+  const lead = stories.first().getByRole('button'), mapCanvas = game.locator('#game-map-canvas');
+  await lead.click();
+  await expect(lead).toHaveAttribute('aria-pressed', 'true');
+  await expect(mapCanvas).toHaveAttribute('data-highlight-regions', String(told[0].regions.length));
+  await lead.click();
+  await expect(mapCanvas).toHaveAttribute('data-highlight-regions', '0');
+  // A living realm's story (a rise, decline, union or trade web) goes to that realm and opens its panel.
+  const realmStory = told.findIndex((story: { kind: string; alive: boolean }) => ['rise', 'decline', 'union', 'trade'].includes(story.kind) && story.alive);
+  expect(realmStory).toBeGreaterThanOrEqual(0);
+  await stories.nth(realmStory).getByRole('button').click();
+  await expect(game.locator('#game-realm-name')).toHaveText(`The ${told[realmStory].name}`);
+  await expect(mapCanvas).toHaveAttribute('data-highlight-regions', String(told[realmStory].regions.length));
+  await game.getByRole('complementary', { name: 'Selected place' }).getByRole('button', { name: 'Close' }).click();
+  await expect(mapCanvas).toHaveAttribute('data-highlight-regions', '0');
+  const ages = game.getByRole('list', { name: 'The ages' }).getByRole('listitem');
+  await expect(ages.first()).toContainText('Stone');
+  await expect(ages.nth(1)).toContainText('Neolithic');
+  await side.getByRole('tab', { name: 'Great powers' }).click();
   const powers = game.getByRole('list', { name: 'Civilizations by people' });
   await expect(powers.getByRole('listitem')).toHaveCount(Math.min(10, frame.civList.length));
   await expect(powers.getByRole('listitem').first()).toContainText(frame.civList[0].name);

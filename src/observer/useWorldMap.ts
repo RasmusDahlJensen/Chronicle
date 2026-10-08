@@ -4,7 +4,7 @@ import type { ObserverFrame, RegionMap } from '../../shared/simulation.ts';
 import { createWorldTileClient } from '../api/generated-world.ts';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { createGeneratedWorldRenderer, type WorldCoordinate, type WorldLayer } from '../renderer/generated-world.ts';
-import { cultureColor, ERA_COLORS, eraColor, faithColor, FOLK_COLOR, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from './palettes.ts';
+import { cultureColor, ERA_COLORS, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, TERRITORY_ALPHA } from './palettes.ts';
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
 
@@ -39,6 +39,8 @@ export interface WorldMapOptions {
   peoples: PeoplesLens; showTrade: boolean; showFields: boolean; showRoads?: boolean;
   /** The colour around the world (the renderer's default unless given). */
   background?: string;
+  /** Regions to show above the rest (a chosen story's, U.3): the other territories fade. */
+  highlight?: ReadonlySet<number> | null;
 }
 
 /**
@@ -46,7 +48,7 @@ export interface WorldMapOptions {
  * and the simulation's marks drawn on its overlay from each frame (polity markers, territories, settlements, roads,
  * trade routes and cultivated land). Attach `canvas` and `overlay` to the page's canvases.
  */
-export function useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields, showRoads = true, background }: WorldMapOptions) {
+export function useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields, showRoads = true, background, highlight = null }: WorldMapOptions) {
   const [canvasRevision, setCanvasRevision] = useState(0);
   const [tileError, setTileError] = useState<string | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(null);
@@ -153,21 +155,26 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
     // Recomputed only when the cultivated counts change (`fieldKey` follows them), not with every frame.
   }, [fieldKey, regions, world, showFields, canvasRevision]);
 
-  // Each occupied region filled with its people's colour; bands lighter than settled civilizations.
+  // Each occupied region filled with its people's colour; bands lighter than settled civilizations. A highlight (a
+  // chosen story's regions) fades the rest, draws its own fully, and marks its land no one holds in brass.
   useEffect(() => {
     if (!renderer.current) return;
-    if (peoples === 'off' || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
+    const shown = highlight && highlight.size > 0 ? highlight : null;
+    if (canvas.current) canvas.current.dataset.highlightRegions = String(shown && regions ? [...shown].filter(region => region < regions.map.regions.length).length : 0);
+    if ((peoples === 'off' && !shown) || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
     const fill = new Uint32Array(regions.map.regions.length);
     const { ids, regions: at, kinds, eras, lineages, cultures, faiths } = frame.markers;
     const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue])), faithHues = new Map(frame.religions.map(entry => [entry.id, entry.hue]));
-    for (let index = 0; index < at.length; index++) {
+    if (peoples !== 'off') for (let index = 0; index < at.length; index++) {
       const color = peoples === 'era' ? eraColor(eras[index]) : peoples === 'descent' ? lineageColor(lineages[index])
         : peoples === 'culture' ? cultureColor(hues.get(cultures[index]) ?? 0, cultures[index])
         : peoples === 'faith' ? (faiths[index] < 0 ? FOLK_COLOR : faithColor(faithHues.get(faiths[index]) ?? 0)) : polityColor(ids[index]);
-      if (at[index] < fill.length) fill[at[index]] = packColor(color, kinds[index] === 1 ? TERRITORY_ALPHA.civ : TERRITORY_ALPHA.band);
+      const alpha = kinds[index] === 1 ? TERRITORY_ALPHA.civ : TERRITORY_ALPHA.band;
+      if (at[index] < fill.length) fill[at[index]] = packColor(color, !shown ? alpha : shown.has(at[index]) ? HIGHLIGHT.alpha : alpha * HIGHLIGHT.fade);
     }
+    if (shown) for (const region of shown) if (region < fill.length && (peoples === 'off' || !fill[region])) fill[region] = packColor(HIGHLIGHT.empty, HIGHLIGHT.emptyAlpha);
     renderer.current.setTerritories(fill);
-  }, [frame, regions, world, peoples, canvasRevision]);
+  }, [frame, regions, world, peoples, canvasRevision, highlight]);
 
   /** The simulation region of the selected cell (null when none is selected or the region map is not in yet). */
   const cellRegion = cell && regions ? regions.map.regions[regions.cells[cell.id] - 1] ?? null : null;
