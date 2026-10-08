@@ -173,6 +173,13 @@ test('simulation routes validate controls, report method errors and serve frames
   assert.ok(older.events.every(event => event.id < read.events[4].id));
   for (const bad of ['&types=nothing', '&limit=0', '&limit=201', '&min=2', '&before=-1', '&polity=x']) assert.equal((await app.inject(`/api/simulation/chronicle${query}${bad}`)).statusCode, 400, bad);
   assert.equal((await app.inject({ method: 'POST', url: `/api/simulation/chronicle${query}` })).statusCode, 405);
+  // U.6: a people's perspective, in a frame or a control's reply; malformed ids are refused, an unknown people has none.
+  const viewer = read.events[0].actors[0].id;
+  const seen = parseObserverFrame((await app.inject(`/api/simulation/frame${query}&cursor=0&view=${viewer}`)).json()).perspective;
+  assert.ok(seen && seen.polity === viewer && seen.observed.length > 0);
+  assert.equal(parseObserverFrame((await app.inject({ method: 'POST', url: `/api/simulation/control${query}&view=${viewer}`, payload: { action: 'pause' } })).json()).perspective?.polity, viewer);
+  assert.equal(parseObserverFrame((await app.inject(`/api/simulation/frame${query}&cursor=0&view=99999`)).json()).perspective, null);
+  for (const bad of ['-1', 'x', '1234567890', '']) assert.equal((await app.inject(`/api/simulation/frame${query}&cursor=0&view=${bad}`)).statusCode, 400, `view=${bad}`);
   const regions = await app.inject(`/api/simulation/regions${query}`);
   assert.equal(regions.statusCode, 200);
   const { map, cells } = parseRegionMap(regions.json());

@@ -99,8 +99,9 @@ export class SimulationWorker {
     });
   }
 
-  frame(cursor: number, inspect?: number) { return this.request<ObserverFrame>({ kind: 'frame', cursor, inspect }); }
-  control(control: SimulationControl, cursor = Number.MAX_SAFE_INTEGER, inspect?: number) { return this.request<ObserverFrame>({ kind: 'control', control, cursor, inspect }); }
+  /** A frame with events from `cursor` on; `inspect` asks for a region's details, `view` for a people's perspective (U.6). */
+  frame(cursor: number, inspect?: number, view?: number) { return this.request<ObserverFrame>({ kind: 'frame', cursor, inspect, view }); }
+  control(control: SimulationControl, cursor = Number.MAX_SAFE_INTEGER, inspect?: number, view?: number) { return this.request<ObserverFrame>({ kind: 'control', control, cursor, inspect, view }); }
   regions() { return this.request<RegionMap>({ kind: 'regions' }); }
   report(events = false) { return this.request<SimulationReport>({ kind: 'report', events }); }
   /** A page of the chronicle (U.5). */

@@ -27,17 +27,20 @@ async function requestJson(path: string, maximum: number, callerSignal: AbortSig
   return body;
 }
 
-/** The newest frame with events from `cursor` on; `inspect` asks for one region's details. */
-export async function fetchObserverFrame(settings: WorldSettings, cursor: number, signal: AbortSignal, inspect: number | null = null): Promise<ObserverFrame> {
+/** The newest frame with events from `cursor` on; `inspect` asks for one region's details, `view` for one people's
+ *  perspective (U.6). */
+export async function fetchObserverFrame(settings: WorldSettings, cursor: number, signal: AbortSignal, inspect: number | null = null, view: number | null = null): Promise<ObserverFrame> {
   const extra: Record<string, string> = { cursor: String(cursor) };
   if (inspect !== null) extra.inspect = String(inspect);
+  if (view !== null) extra.view = String(view);
   return parseObserverFrame(await requestJson(`/api/simulation/frame?${query(settings, extra)}`, MAX_FRAME_BYTES, signal));
 }
 
 /** Apply a control; the reply is a frame with the events from `cursor` on, including any the control itself caused. */
-export async function sendSimulationControl(settings: WorldSettings, control: SimulationControl, cursor: number, signal: AbortSignal, inspect: number | null = null): Promise<ObserverFrame> {
+export async function sendSimulationControl(settings: WorldSettings, control: SimulationControl, cursor: number, signal: AbortSignal, inspect: number | null = null, view: number | null = null): Promise<ObserverFrame> {
   const extra: Record<string, string> = { cursor: String(cursor) };
   if (inspect !== null) extra.inspect = String(inspect);
+  if (view !== null) extra.view = String(view);
   return parseObserverFrame(await requestJson(`/api/simulation/control?${query(settings, extra)}`, MAX_FRAME_BYTES, signal, {
     method: 'POST', body: JSON.stringify(control), headers: { 'Content-Type': 'application/json' },
   }));

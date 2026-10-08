@@ -53,6 +53,11 @@
 .game-date { margin: 0; font-family: var(--game-display); font-weight: 600; font-size: 22px; }
 .game-era { padding: 2px 8px; border: 1px solid var(--game-accent-line); border-radius: 3px; color: var(--game-accent); font-size: 12px; }
 .game-time, .game-speed { display: flex; gap: 4px; }
+.game-run-to { display: flex; align-items: center; gap: 6px; margin-left: 6px; }
+.game-run-to label { display: flex; align-items: center; gap: 6px; color: var(--game-muted); }
+.game-run-to input { width: 76px; min-height: 36px; padding: 0 8px; border: 1px solid var(--game-line); border-radius: 4px; background: #111a21; color: var(--game-text); }
+/* Wide enough for "to 4,000…", so a run does not reflow the bar. */
+.game-run-to button { min-width: 92px; }
 .game-speed { margin-left: 6px; }
 .game-totals { display: flex; gap: 12px; margin: 0 0 0 auto; }
 .game-totals div { display: flex; flex-direction: row-reverse; gap: 5px; }
@@ -165,6 +170,19 @@
 .game-history { gap: 6px; }
 .game-history li { grid-template-columns: 48px minmax(0, 1fr); }
 .game-settlement-name { font-weight: 600; }
+.game-settlements > li { padding: 4px 0 6px; border-bottom: 1px solid #1c252d; }
+.game-settlement-history { list-style: none; margin: 4px 0 0; padding: 0; font-size: 12px; color: var(--game-muted); display: flex; flex-direction: column; gap: 2px; }
+.game-settlement-history .game-event-year { display: inline-block; min-width: 40px; }
+
+/* The perspective lens (U.6): whose view the map shows, and how they know the selected land. */
+.game-view-as { margin-top: 10px; }
+.game-view-chip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 10px; padding: 6px 10px; border: 1px solid var(--game-accent-line); border-radius: 4px; background: var(--game-accent-ground); color: var(--game-accent-strong); font-size: 13px; }
+.game-view-chip button { min-height: 30px; }
+.game-perspective-note { margin: 0 0 8px; padding-right: 40px; color: var(--game-accent-strong); font-size: 13px; }
+/* The density lens's key (U.6). */
+.game-density-scale { position: relative; max-width: 320px; height: 26px; margin: 0 12px; font-size: 11px; }
+.game-density-bar { position: absolute; left: 0; right: 0; top: 0; height: 8px; border-radius: 4px; }
+.game-density-scale span:not(.game-density-bar) { position: absolute; top: 10px; transform: translateX(-50%); }
 
 .game-side { right: 16px; top: 16px; width: 340px; max-height: calc(100% - 32px); display: flex; flex-direction: column; overflow: hidden; }
 .game-side .game-side-tabs { position: static; margin: 0; padding: 4px 12px 0; justify-content: flex-start; gap: 6px; background: transparent; }

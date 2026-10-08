@@ -32,6 +32,9 @@ interface Props {
   tab: RealmTab;
   onTab: (tab: RealmTab) => void;
   names: (id: number) => string;
+  /** Whether the map shows the world as this people knows it (U.6), and the switch for it. */
+  viewing?: boolean;
+  onViewAs?: (people: { id: number; name: string }) => void;
 }
 
 /**
@@ -39,7 +42,7 @@ interface Props {
  * realm at a glance, its diplomacy, its economy, its knowledge, its own history, and the region itself. Every figure is
  * the simulation's state as the frame carries it.
  */
-export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab, names }: Props) {
+export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab, names, viewing = false, onViewAs }: Props) {
   const polity = inspected.polity!, civ = polity.kind === 'civ';
   const tabs = tabsFor(polity), shown = tabs.includes(tab) ? tab : 'overview';
   return <>
@@ -56,6 +59,7 @@ export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab
         <div><dt>regions</dt><dd>{number.format(polity.regions)}</dd></div>
         {polity.wealth && <div><dt>treasury</dt><dd>{people(polity.wealth.treasury)}</dd></div>}
       </dl>
+      {onViewAs && <button type="button" className="game-view-as" aria-pressed={viewing} onClick={() => onViewAs({ id: polity.id, name: polity.name })}>View as the {polity.name}</button>}
     </section>
     <Tabs id="game-realm" label={civ ? 'About the realm' : 'About the tribe'} tabs={tabs} names={TAB_LABELS} chosen={shown} onChoose={onTab} busy={stale}>
       {shown === 'overview' ? <Overview polity={polity} />
@@ -263,10 +267,13 @@ export function RegionDetail({ inspected, region, biome, names }: { inspected: I
       {stability && <p id="game-region-stability" className={stability.unrest ? 'game-cold' : undefined}>Stability {stability.value.toFixed(2)}{stability.unrest ? ', in unrest' : ''}{burdens.length ? `, lowered by ${burdens.map(([factor, weight]) => `${factor} −${weight.toFixed(2)}`).join(', ')}` : ''}{stability.taxes < -0.005 ? `; light taxes +${(-stability.taxes).toFixed(2)}` : ''}{stability.faith < -0.005 ? `; an ascetic faith +${(-stability.faith).toFixed(2)}` : ''}.</p>}
       {inspected.neglected && <p className="game-cold">Let go unkept by its realm: its buildings and roads wear.</p>}
       {settlements.length > 0 && <ul className="game-settlements" aria-label="Settlements here">{settlements.map(settlement => <li key={settlement.id}>
-        <span className="game-settlement-name">{settlement.capital ? '★ ' : ''}{settlement.name}</span> <span>{SETTLEMENT_TIERS[settlement.tier]}{settlement.capital ? ', capital' : ''} · {number.format(settlement.urban)} townspeople</span>
-        {(settlement.buildings.length > 0 || settlement.wonder) && <p className="game-muted">{[...(settlement.wonder ? [settlement.wonder.standing ? settlement.wonder.name : `${settlement.wonder.name} (being built, ${percent(settlement.wonder.progress)} paid)`] : []),
-          ...settlement.buildings.map(building => building.name), ...settlement.building.map(work => `${work.name} (being built)`)].join(' · ')}</p>}
-        {settlement.events.length > 0 && <p className="game-muted">{year(settlement.events[0].tick)}: {describeEvent(settlement.events[0], names)}</p>}
+        <span className="game-settlement-name">{settlement.capital ? '★ ' : ''}{settlement.name}</span> <span>{SETTLEMENT_TIERS[settlement.tier]}{settlement.capital ? ', capital' : ''} · {number.format(settlement.urban)} townspeople of {number.format(settlement.housing)} it can house · founded year {year(settlement.founded)}</span>
+        {settlement.wonder && <p>{settlement.wonder.standing ? `Home of ${settlement.wonder.name}.` : `${settlement.wonder.name[0].toUpperCase()}${settlement.wonder.name.slice(1)} is being built here (${percent(settlement.wonder.progress)} paid).`}</p>}
+        {(settlement.buildings.length > 0 || settlement.building.length > 0) && <p className="game-muted game-buildings">{[
+          ...settlement.buildings.map(building => building.condition < 0.995 ? `${building.name} (${percent(building.condition)} kept up)` : building.name),
+          ...settlement.building.map(work => `${work.name} being built (${percent(work.progress)} paid)`)].join(' · ')}</p>}
+        {settlement.events.length > 0 && <ol className="game-settlement-history" aria-label={`The history of ${settlement.name}`}>{settlement.events.map(event =>
+          <li key={event.id}><span className="game-event-year">{year(event.tick)}</span> {describeEvent(event, names)}</li>)}</ol>}
       </li>)}</ul>}
       <p className="game-muted">Last harvest {percent(inspected.weather.harvest)} of the crops{inspected.weather.drought ? ` · drought, ${inspected.weather.drought} months left` : ''}{inspected.weather.relief ? ' · relief food arriving' : ''}{inspected.fields.cells > 0 ? ` · ${percent(inspected.fields.share)} of its farmland cultivated` : ''}.</p>
     </> : <p className="game-muted" role="status">Reading the land…</p>}

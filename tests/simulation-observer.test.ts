@@ -12,6 +12,8 @@ import { keeperOf, roadUnkept } from '../src/simulation/roads.ts';
 import { createSimulation, stepSimulation } from '../src/simulation/simulation.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
 import { TENETS } from '../src/simulation/religions.ts';
+import { KNOWN, OBSERVED } from '../src/simulation/perception.ts';
+import { DENSITY_RANGE, densityColor, regionDensities } from '../src/observer/palettes.ts';
 import { ERAS, TECHS } from '../src/simulation/techs.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
@@ -145,7 +147,7 @@ function frameOf(state: SimulationState, region: number): ObserverFrame {
     counters: { regions: state.partition.regions.length, landmasses: 1 }, population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [], largest: [], civList: [], treaties: [], census: { years: [], civs: [], ids: [], people: [] },
     markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] },
-    roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], wonders: [], names: [], events: [], ...storiesView(state),
+    roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], wonders: [], names: [], events: [], perspective: null, ...storiesView(state),
     inspect: observerView(state, region).inspect,
   } as ObserverFrame;
 }
@@ -493,4 +495,47 @@ test('a chronicle page is validated', () => {
   assert.throws(() => parseChroniclePage({ ...reply, events: [...reply.events].reverse() }), 'newest first');
   assert.throws(() => parseChroniclePage({ ...reply, eventCount: reply.events[0].id }), 'within the history');
   assert.throws(() => parseChroniclePage({ ...reply, next: reply.events[0].id + 1 }), 'the next page starts below this one');
+});
+
+test('the perspective lens shows the map as a people knows it: in sight, remembered as last seen, or unknown', () => {
+  const state = copied(), civ = largestCiv(state)!;
+  const view = observerView(state, null, civ.id).perspective!;
+  assert.equal(view.polity, civ.id);
+  assert.deepEqual(view.observed, [...civ.map.observed].sort((a, b) => a - b));
+  const remembered = [...civ.map.status.keys()].filter(region => civ.map.status[region] === KNOWN);
+  assert.ok(remembered.length > 0, 'it remembers land out of sight');
+  assert.deepEqual(view.remembered.regions, remembered);
+  for (const [at, region] of view.remembered.regions.entries()) {
+    const snapshot = civ.map.snapshots.get(region)!;
+    assert.deepEqual([view.remembered.occupants[at], view.remembered.years[at]], [snapshot.occupant, Math.floor(snapshot.tick / 12)]);
+    if (snapshot.occupant >= 0) assert.equal(new Map(view.names).get(snapshot.occupant), state.polities[snapshot.occupant].name);
+  }
+  assert.ok(view.observed.every(region => civ.map.status[region] === OBSERVED));
+  // Nothing asked, or a people gone: no perspective.
+  assert.equal(observerView(state, null).perspective, null);
+  const gone = state.polities.find(polity => polity.deathTick !== null);
+  if (gone) assert.equal(observerView(state, null, gone.id).perspective, null);
+  // The contract.
+  const frame = { ...frameOf(state, state.groups[civ.groups[0]].region), perspective: view } as ObserverFrame;
+  assert.equal(parseObserverFrame(structuredClone(frame)).perspective!.observed.length, view.observed.length);
+  const altered = (change: (copy: NonNullable<ObserverFrame['perspective']>) => void) => { const copy = structuredClone(frame); change(copy.perspective!); return copy; };
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.remembered.regions[0] = copy.observed[0]; copy.remembered.regions.sort((a, b) => a - b); })), 'in sight or remembered, not both');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.observed.reverse(); })), 'ascending');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.remembered.years[0] = Math.floor(frame.tick / 12) + 1; })), 'seen no later than now');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.names = []; })), 'every remembered people named');
+  assert.throws(() => parseObserverFrame(altered(copy => { copy.remembered.occupants.pop(); })), 'one occupant per region');
+});
+
+test('the density lens shows each region\'s people over its area, from dark at 0.01 per km² to bright at 300 and more', () => {
+  const state = copied(), view = observerView(state, null), densities = regionDensities(view.markers, region => state.partition.regions[region].areaKm2);
+  assert.equal(densities.size, view.markers.regions.length, 'every inhabited region');
+  for (const id of state.living) for (const group of state.polities[id].groups) {
+    const { region, size } = state.groups[group];
+    assert.ok(Math.abs(densities.get(region)! - size / state.partition.regions[region].areaKm2) < 1e-9, `region ${region}`);
+  }
+  const lightness = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const scale = [0.001, 0.01, 0.1, 0.5, 1, 5, 10, 50, 100, 300, 3000].map(density => lightness(densityColor(density)));
+  assert.ok(scale.every((value, at) => at === 0 || value >= scale[at - 1]), 'brighter the denser');
+  assert.deepEqual(densityColor(0.001), densityColor(DENSITY_RANGE[0]));
+  assert.deepEqual(densityColor(3000), densityColor(DENSITY_RANGE[1]));
 });

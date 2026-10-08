@@ -9,7 +9,7 @@ import { realmAccount, settlementAccount } from './budget.ts';
 import { regionFarm, wonderBonus } from './economy.ts';
 import { researchRate, teacherOf } from './research.ts';
 import { polityPopulation } from './bands.ts';
-import { believe, capitalKm, knownRegionCount } from './perception.ts';
+import { believe, capitalKm, KNOWN, knownRegionCount } from './perception.ts';
 import { truthOf } from './relations.ts';
 import { keeperOf, roadUnkept } from './roads.ts';
 import { available, metFor } from './supply.ts';
@@ -23,7 +23,7 @@ import { TENETS } from './religions.ts';
 import { ERAS, TECHS } from './techs.ts';
 import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -38,7 +38,7 @@ function worn(state: SimulationState, settlement: SimulationState['settlements']
  * What an observer may see of the true world (VISION.md "Observer views": the god view). Built on request from the
  * state; it never changes the simulation.
  */
-export function observerView(state: SimulationState, inspect: number | null): View {
+export function observerView(state: SimulationState, inspect: number | null, perspective: number | null = null): View {
   const ids: number[] = [], regions: number[] = [], populations: number[] = [], kinds: number[] = [], eras: number[] = [], lineages: number[] = [], cultureIds: number[] = [], faiths: number[] = [];
   const living = new Map<number, { regions: number; population: number }>(), followed = new Map<number, { regions: number; population: number; civs: Set<number> }>();
   let population = 0, civs = 0, specialists = 0, leadingEra = 0;
@@ -129,7 +129,7 @@ export function observerView(state: SimulationState, inspect: number | null): Vi
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
-    }), ...storiesView(state), inspect: inspect === null ? null : inspectRegion(state, inspect, living),
+    }), ...storiesView(state), perspective: perspective === null ? null : perspectiveOf(state, perspective), inspect: inspect === null ? null : inspectRegion(state, inspect, living),
   };
 }
 
@@ -330,6 +330,21 @@ function realmSummary(state: SimulationState, civ: Polity): NonNullable<NonNulla
     cultures: top(cultures).map(([id, size]) => ({ name: state.cultures[id].name, share: round(people > 0 ? size / people : 0) })),
     faiths: top(faiths).map(([id, size]) => ({ name: id >= 0 ? state.religions[id].name : null, share: round(people > 0 ? size / people : 0) })),
   };
+}
+
+/** The perspective lens (U.6; VISION.md "Perspective lens"): the map as a living people knows it, from its own map
+ *  knowledge (M3.1): the regions in sight, and the regions it remembers with their last-seen snapshots. */
+export function perspectiveOf(state: SimulationState, id: number): ObserverFrame['perspective'] {
+  const polity = state.polities[id];
+  if (!polity || polity.deathTick !== null) return null;
+  const remembered = { regions: [] as number[], occupants: [] as number[], years: [] as number[] }, names = new Map<number, string>();
+  for (let region = 0; region < polity.map.status.length; region++) {
+    if (polity.map.status[region] !== KNOWN) continue;
+    const snapshot = polity.map.snapshots.get(region)!;
+    remembered.regions.push(region); remembered.occupants.push(snapshot.occupant); remembered.years.push(Math.floor(snapshot.tick / 12));
+    if (snapshot.occupant >= 0) names.set(snapshot.occupant, state.polities[snapshot.occupant].name);
+  }
+  return { polity: id, name: polity.name, observed: [...polity.map.observed].sort((a, b) => a - b), remembered, names: [...names] };
 }
 
 /** A page of the chronicle (U.5), read backward from `query.before`: the matching events, newest first, and where the

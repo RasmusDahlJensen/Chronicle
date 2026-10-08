@@ -28,6 +28,26 @@ export const STANDING_COLORS: Record<'self' | 'allied' | 'pact' | 'trade' | 'riv
   self: [238, 200, 118], allied: [96, 186, 112], pact: [110, 200, 210], trade: [92, 124, 222], rival: [176, 52, 44], neutral: [150, 140, 122], unknown: [46, 52, 58],
 };
 export const TREATY_COLORS: Record<'alliance' | 'nonAggression' | 'trade' | 'road', string> = { alliance: '#60ba70', nonAggression: '#40a0b0', trade: '#6f8ff0', road: '#d8c79a' };
+/** The perspective lens (U.6): unknown land under fog; remembered land muted toward grey in its last-known people's
+ *  colour, or under a grey veil where no one lived. */
+export const PERSPECTIVE = { fog: [8, 11, 14] as [number, number, number], fogAlpha: 0.88, rememberedAlpha: 0.5, veil: [120, 120, 120] as [number, number, number], veilAlpha: 0.3 } as const;
+export const muted = (color: [number, number, number]): [number, number, number] => [0, 1, 2].map(at => Math.round(color[at] * 0.45 + 120 * 0.55)) as [number, number, number];
+/** The population density lens (U.6): people per km² on a logarithmic scale from 0.01 (a forager's land) to 300 (the
+ *  crowded heartlands of a late history), dark violet to yellow. */
+export const DENSITY_RANGE = [0.01, 300] as const;
+const DENSITY_STOPS: [number, number, number][] = [[48, 18, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
+export function densityColor(density: number): [number, number, number] {
+  const [low, high] = DENSITY_RANGE, at = Math.max(0, Math.min(1, (Math.log10(Math.max(density, low)) - Math.log10(low)) / (Math.log10(high) - Math.log10(low)))) * (DENSITY_STOPS.length - 1);
+  const from = DENSITY_STOPS[Math.floor(at)], to = DENSITY_STOPS[Math.min(DENSITY_STOPS.length - 1, Math.floor(at) + 1)], part = at - Math.floor(at);
+  return [0, 1, 2].map(index => Math.round(from[index] + (to[index] - from[index]) * part)) as [number, number, number];
+}
+/** Each inhabited region's people per km²: its people (one marker per region) over its area. */
+export function regionDensities(markers: { regions: readonly number[]; populations: readonly number[] }, areaOf: (region: number) => number) {
+  const densities = new Map<number, number>();
+  markers.regions.forEach((region, index) => { const area = areaOf(region); if (area > 0) densities.set(region, markers.populations[index] / area); });
+  return densities;
+}
+export const DENSITY_GRADIENT = `linear-gradient(to right, ${DENSITY_STOPS.map(stop => `rgb(${stop.join(' ')})`).join(', ')})`;
 /** A chosen story's regions (U.3): the rest of the map's territories fade to this share of their alpha, its own are
  *  drawn fully, and its land no one holds now in this brass colour. */
 export const HIGHLIGHT = { fade: 0.25, alpha: 0.9, empty: [226, 189, 114] as [number, number, number], emptyAlpha: 0.6 } as const;

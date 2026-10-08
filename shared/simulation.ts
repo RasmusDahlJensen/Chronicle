@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 37;
+export const SIMULATION_PROTOCOL_VERSION = 38;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -235,6 +235,16 @@ export const ObserverFrameSchema = Type.Object({
   ages: Type.Array(Type.Object({
     era: Type.Integer({ minimum: 1, maximum: ERA_NAMES.length - 1 }), year: Type.Integer({ minimum: 0 }), polity: id(), name: Type.String({ maxLength: 40 }), tech: Type.String({ maxLength: 40 }),
   }, { additionalProperties: false }), { maxItems: ERA_NAMES.length - 1 }),
+  /** (U.6) The perspective lens: the map as the requested people knows it (null when none is asked for, or that people
+   *  is gone). The regions it has in sight now, ascending; the regions it remembers (known, out of sight), ascending,
+   *  with who lived there (−1 for no one) and the year it last saw each; and the names of those peoples. */
+  perspective: Type.Union([Type.Null(), Type.Object({
+    polity: id(), name: Type.String({ maxLength: 40 }), observed: Type.Array(id(), { maxItems: 65_535 }),
+    remembered: Type.Object({
+      regions: Type.Array(id(), { maxItems: 65_535 }), occupants: Type.Array(Type.Integer({ minimum: -1 }), { maxItems: 65_535 }), years: Type.Array(Type.Integer({ minimum: 0 }), { maxItems: 65_535 }),
+    }, { additionalProperties: false }),
+    names: Type.Array(Type.Tuple([id(), Type.String({ maxLength: 40 })]), { maxItems: 20_000 }),
+  }, { additionalProperties: false })]),
   /** Details of the region the observer asked about, or null. */
   inspect: Type.Union([Type.Null(), Type.Object({
     region: id(), capacity: Type.Number({ minimum: 0 }), gameStock: Type.Number({ minimum: 0, maximum: 1 }),
@@ -534,6 +544,15 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   const census = frame.census;
   if (census.civs.length !== census.years.length || census.people.length !== census.ids.length || census.people.some(row => row.length !== census.years.length)) throw invalid();
   if (census.years.some((at, index) => at > year || (index > 0 && at <= census.years[index - 1]))) throw invalid();
+  // (U.6) A perspective: regions of this world, ascending, each in sight or remembered (not both), snapshots no later
+  // than now, every remembered people named.
+  const perspective = frame.perspective;
+  if (perspective) {
+    const { observed, remembered } = perspective, seen = new Set(observed), named = new Set(perspective.names.map(([id]) => id));
+    if (remembered.occupants.length !== remembered.regions.length || remembered.years.length !== remembered.regions.length) throw invalid();
+    for (const list of [observed, remembered.regions]) if (list.some((region, at) => region >= frame.counters.regions || (at > 0 && region <= list[at - 1]))) throw invalid();
+    if (remembered.regions.some(region => seen.has(region)) || remembered.years.some(at => at > year) || remembered.occupants.some(id => id >= 0 && !named.has(id))) throw invalid();
+  }
   // The ages: later eras, each reached no earlier than the one before.
   if (frame.ages.some((age, at) => age.year > year || (at > 0 && (age.era <= frame.ages[at - 1].era || age.year < frame.ages[at - 1].year)))) throw invalid();
   return frame;
@@ -620,9 +639,9 @@ export function parseChroniclePage(value: unknown): ChroniclePage {
 
 /** Messages between the host and its simulation worker (structured clone, same process). */
 export type SimulationRequest =
-  | { kind: 'frame'; id: number; cursor: number; inspect?: number }
+  | { kind: 'frame'; id: number; cursor: number; inspect?: number; view?: number }
   | { kind: 'chronicle'; id: number; query: ChronicleQuery }
-  | { kind: 'control'; id: number; control: SimulationControl; cursor: number; inspect?: number }
+  | { kind: 'control'; id: number; control: SimulationControl; cursor: number; inspect?: number; view?: number }
   | { kind: 'regions'; id: number }
   | { kind: 'report'; id: number; events: boolean };
 export type SimulationReply =

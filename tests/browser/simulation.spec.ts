@@ -91,6 +91,12 @@ test('the game is the main page: the world map with its time bar, lenses and a c
   await expect.poll(async () => Number(await gameTime(page).getAttribute('data-tick')), { timeout: 10_000 }).toBeGreaterThan(3);
   await gameTime(page).getByRole('button', { name: 'Pause' }).click();
   await expect(gameTime(page)).toHaveAttribute('data-playing', 'false');
+  // U.6: run to a year, as the lab can.
+  const goal = Math.floor(Number(await gameTime(page).getAttribute('data-tick')) / 12) + 2;
+  await gameTime(page).getByLabel('To year').fill(String(goal));
+  await gameTime(page).getByRole('button', { name: 'Run' }).click();
+  await expect(gameTime(page)).toHaveAttribute('data-tick', String(goal * 12));
+  await expect(page.locator('#game-date')).toHaveText(`Year ${goal} · January`);
   // Lenses colour the peoples' land, or show the bare terrain.
   await expect.poll(async () => Number(await canvas.getAttribute('data-territory-regions'))).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Terrain' }).click();
@@ -419,6 +425,58 @@ test('farming bands settle into civilizations with villages, specialists, resear
   // The ticker is curated too: no two of its lines belong to one run (of one type, for one people, within 25 years).
   const runs = await game.getByRole('list', { name: 'Latest in the chronicle' }).locator('[data-run]').evaluateAll(spans => spans.map(span => ({ run: span.getAttribute('data-run'), from: Number(span.getAttribute('data-from')), year: Number(span.closest('li')?.querySelector('.game-event-year')?.textContent?.replace(/,/g, '')) })));
   for (const [at, line] of runs.entries()) for (const older of runs.slice(at + 1)) if (older.run === line.run) expect(line.from - older.year).toBeGreaterThan(25);
+  // U.6: the perspective lens, the world as the largest realm knows it: its regions in sight, remembered, and fogged.
+  const viewer = frame.civList[0], regionOfCell = (cell: number) => Buffer.from(regions.data, 'base64').readUInt16LE(cell * 2) - 1;
+  await powers.getByRole('button').first().click();
+  await expect(game.locator('#game-realm-name')).toHaveText(`The ${viewer.name}`);
+  const knownMap = (await (await game.request.get(`/api/simulation/frame?${query}&cursor=0&view=${viewer.id}`)).json()).perspective;
+  await place.getByRole('button', { name: `View as the ${viewer.name}` }).click();
+  const fogged = regions.regions.length - knownMap.observed.length - knownMap.remembered.regions.length;
+  expect(knownMap.remembered.regions.length + fogged).toBeGreaterThan(0);
+  await expect(mapCanvasNow).toHaveAttribute('data-perspective', `seen:${knownMap.observed.length} remembered:${knownMap.remembered.regions.length} fog:${fogged}`);
+  await expect(game.locator('#game-perspective-note')).toHaveText(`In sight of the ${viewer.name}.`);
+  // Another realm's capital, as the viewer knows it.
+  const other = frame.civList[1], otherRegion = regionOfCell(other.capitalCell), memory = knownMap.remembered.regions.indexOf(otherRegion);
+  await powers.getByRole('button').nth(1).click();
+  await expect(game.locator('#game-realm-name')).toHaveText(`The ${other.name}`);
+  await expect(game.locator('#game-perspective-note')).toHaveText(knownMap.observed.includes(otherRegion) ? `In sight of the ${viewer.name}.`
+    : memory >= 0 ? new RegExp(`^Last seen by the ${viewer.name} in year ${knownMap.remembered.years[memory].toLocaleString('en')}`) : `Unknown to the ${viewer.name}.`);
+  // A region it remembers, someone living there when last seen: selecting it says when, and who.
+  await game.getByRole('group', { name: 'Map view' }).getByRole('button', { name: 'Fit' }).click();
+  const remembered = knownMap.remembered.regions.map((region: number, at: number) => ({ region, at })).filter(({ at }: { at: number }) => knownMap.remembered.occupants[at] >= 0);
+  expect(remembered.length).toBeGreaterThan(0);
+  const target = await mapCanvasNow.evaluate((element: HTMLCanvasElement, { candidates, centroids, width }) => {
+    const rect = element.getBoundingClientRect(), scale = Number(element.dataset.scale);
+    for (const candidate of candidates) {
+      const cell = centroids[candidate.region], x = rect.x + rect.width / 2 + (cell % width + 0.5 - Number(element.dataset.centerX)) * scale, y = rect.y + rect.height / 2 + (Math.floor(cell / width) + 0.5 - Number(element.dataset.centerY)) * scale;
+      if (document.elementFromPoint(x, y) === element || document.elementFromPoint(x, y)?.classList.contains('game-map-overlay')) return { ...candidate, x, y };
+    }
+    return null;
+  }, { candidates: remembered, centroids: regions.regions.map((region: { centroid: number }) => region.centroid), width: WIDTH });
+  expect(target).not.toBeNull();
+  await game.mouse.click(target!.x, target!.y);
+  const names = new Map<number, string>(knownMap.names);
+  await expect(game.locator('#game-perspective-note')).toHaveText(`Last seen by the ${viewer.name} in year ${knownMap.remembered.years[target!.at].toLocaleString('en')}, held by the ${names.get(knownMap.remembered.occupants[target!.at])} then.`);
+  await game.locator('.game-view-chip').getByRole('button', { name: 'Leave their view' }).click();
+  await expect(mapCanvasNow).toHaveAttribute('data-perspective', '');
+  // The density lens: each region's people over its area; the densest as the frame and the region map give it.
+  await game.getByRole('group', { name: 'Map lens' }).getByRole('button', { name: 'Density' }).click();
+  await expect(mapCanvasNow).toHaveAttribute('data-territory-regions', String(frame.markers.regions.length));
+  const densest = frame.markers.regions.map((region: number, index: number) => [region, frame.markers.populations[index] / regions.regions[region].areaKm2] as [number, number])
+    .sort((a: [number, number], b: [number, number]) => b[1] - a[1] || a[0] - b[0])[0];
+  await expect(mapCanvasNow).toHaveAttribute('data-densest', `${densest[0]}:${densest[1].toFixed(3)}`);
+  // The settlement inspector: a capital's buildings with their condition, and its own history.
+  const capitals = await Promise.all(frame.civList.slice(0, 10).map(async (civ: { capitalCell: number }) => (await (await game.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${regionOfCell(civ.capitalCell)}`)).json()).inspect));
+  const builtAt = capitals.findIndex((inspect: { settlements: { capital: boolean; buildings: unknown[] }[] }) => inspect.settlements.some(settlement => settlement.capital && settlement.buildings.length > 0));
+  expect(builtAt).toBeGreaterThanOrEqual(0);
+  const seat = capitals[builtAt].settlements.find((settlement: { capital: boolean }) => settlement.capital);
+  await powers.getByRole('button').nth(builtAt).click();
+  await expect(game.locator('#game-realm-name')).toHaveText(`The ${frame.civList[builtAt].name}`);
+  await place.getByRole('tablist', { name: 'About the realm' }).getByRole('tab', { name: 'Region' }).click();
+  const buildings = place.locator('#game-region li').filter({ hasText: seat.name }).locator('.game-buildings');
+  for (const building of seat.buildings) await expect(buildings).toContainText(building.condition < 0.995 ? `${building.name} (${Math.round(building.condition * 100)}% kept up)` : building.name);
+  await expect(place.getByRole('list', { name: `The history of ${seat.name}` }).getByRole('listitem').first()).toBeVisible();
+  await expect(place.locator('#game-region')).toContainText('it can house');
   await game.waitForTimeout(2_500);
   for (const text of await game.getByRole('list', { name: 'Latest in the chronicle' }).getByRole('listitem').allTextContents()) expect(text).not.toMatch(/#\d/);
   await game.close();

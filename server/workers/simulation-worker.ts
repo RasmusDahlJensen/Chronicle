@@ -150,8 +150,8 @@ function load(year: number) {
   if (goal > state.tick) { target = goal; loadGoal = goal; play(); }
 }
 
-function frame(cursor: number, inspect: number | null = null): ObserverFrame {
-  const events = state.chronicle.since(cursor, MAX_FRAME_EVENTS), view = observerView(state, inspect);
+function frame(cursor: number, inspect: number | null = null, perspective: number | null = null): ObserverFrame {
+  const events = state.chronicle.since(cursor, MAX_FRAME_EVENTS), view = observerView(state, inspect, perspective);
   return {
     protocolVersion: SIMULATION_PROTOCOL_VERSION, instance, tick: state.tick, playing, speed, epoch,
     runTo: target === null ? null : target / 12, dev: { actions: state.devActions, refused: devRefused, checkpoints: store ? [...saved].sort((a, b) => a - b).slice(-256) : null, loadedFrom }, eventCount: state.chronicle.events.length,
@@ -198,9 +198,9 @@ function report(events: boolean) {
 
 port.on('message', (request: SimulationRequest) => {
   try {
-    const body = request.kind === 'frame' ? frame(request.cursor, request.inspect ?? null)
+    const body = request.kind === 'frame' ? frame(request.cursor, request.inspect ?? null, request.view ?? null)
       : request.kind === 'chronicle' ? chronicle(request.query)
-      : request.kind === 'control' ? (control(request.control), frame(request.cursor, request.inspect ?? null))
+      : request.kind === 'control' ? (control(request.control), frame(request.cursor, request.inspect ?? null, request.view ?? null))
       : request.kind === 'regions' ? regions()
       : report(request.events);
     port.postMessage({ kind: 'reply', id: request.id, ok: true, body } satisfies SimulationReply);

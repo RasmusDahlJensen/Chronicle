@@ -4,15 +4,15 @@ import '@fontsource/cormorant-garamond/700.css';
 import '@fontsource/source-sans-3/400.css';
 import '@fontsource/source-sans-3/600.css';
 import type { WorldManifest, WorldSettings } from '../../shared/generated-world.ts';
-import { ERA_NAMES, SIMULATION_SPEEDS, simulationDate, type ObserverFrame, type SimulationSpeed } from '../../shared/simulation.ts';
+import { ERA_NAMES, MAX_SIMULATION_YEAR, SIMULATION_SPEEDS, simulationDate, type ObserverFrame, type SimulationSpeed } from '../../shared/simulation.ts';
 import { loadGeneratedWorld } from '../api/generated-world.ts';
 import { WORLD_BIOME_STYLE } from '../renderer/generated-world.ts';
 import { curate, runKey, type CuratedEntry } from '../observer/chronicle.ts';
 import { describeEvent, MONTH_NAMES } from '../observer/events.ts';
 import { factorName } from '../observer/labels.ts';
-import { cssColor, polityColor, STANDING_COLORS } from '../observer/palettes.ts';
+import { cssColor, DENSITY_GRADIENT, DENSITY_RANGE, polityColor, STANDING_COLORS } from '../observer/palettes.ts';
 import { useObserver } from '../observer/useObserver.ts';
-import { useRegionMap, useWorldMap, type PeoplesLens, type Standing } from '../observer/useWorldMap.ts';
+import { useRegionMap, useWorldMap, type PeoplesLens, type Perspective, type Standing } from '../observer/useWorldMap.ts';
 import { chosenWorld, rememberWorld } from '../observer/world-choice.ts';
 import { people, RealmPanel, RegionDetail, type RealmTab } from './RealmPanel.tsx';
 import { ChronicleView } from './ChronicleView.tsx';
@@ -26,7 +26,7 @@ const message = (cause: unknown) => cause instanceof Error ? cause.message : 'Th
 const SPEED_LABELS: Record<SimulationSpeed, string> = { month: 'month', year: 'year', decade: 'decade', max: 'fastest' };
 const LENSES: { lens: PeoplesLens; label: string }[] = [
   { lens: 'polity', label: 'Political' }, { lens: 'culture', label: 'Culture' }, { lens: 'faith', label: 'Faith' },
-  { lens: 'era', label: 'Era' }, { lens: 'descent', label: 'Descent' }, { lens: 'diplomacy', label: 'Diplomacy' }, { lens: 'off', label: 'Terrain' },
+  { lens: 'era', label: 'Era' }, { lens: 'descent', label: 'Descent' }, { lens: 'diplomacy', label: 'Diplomacy' }, { lens: 'density', label: 'Density' }, { lens: 'off', label: 'Terrain' },
 ];
 /** Events shown in the ticker: the notable ones (`importance`), newest first. */
 const TICKER_IMPORTANCE = 0.1, TICKER_LENGTH = 5;
@@ -80,9 +80,16 @@ export function Game() {
   const highlight = useMemo(() => storyRegions ? new Set(storyRegions.split(',').map(Number)) : null, [storyRegions]);
   // The diplomacy lens (U.4): the standings of the civilization the place panel shows (set below, once it is known).
   const [standings, setStandings] = useState<{ self: number; name: string; of: ReadonlyMap<number, Standing> } | null>(null);
-  const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight, standings });
+  // The perspective lens (U.6): the people whose view of the world the map shows, and that view from the frame.
+  const [viewAs, setViewAs] = useState<{ id: number; name: string } | null>(null);
+  const seenBy = frame?.perspective && viewAs && frame.perspective.polity === viewAs.id ? frame.perspective : null;
+  const perspective = useMemo<Perspective | null>(() => seenBy ? {
+    observed: new Set(seenBy.observed),
+    remembered: new Map(seenBy.remembered.regions.map((region, at) => [region, { occupant: seenBy.remembered.occupants[at], year: seenBy.remembered.years[at] }])),
+  } : null, [seenBy]);
+  const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight, standings, perspective });
   const region = map.cellRegion;
-  const observer = useObserver({ settings: world?.settings ?? null, startFresh: shown.current.fresh, inspect: region?.id ?? null, onFrame: setFrame });
+  const observer = useObserver({ settings: world?.settings ?? null, startFresh: shown.current.fresh, inspect: region?.id ?? null, view: viewAs?.id ?? null, onFrame: setFrame });
   const names = observer.names;
   const inspected = frame?.inspect && region && frame.inspect.region === region.id ? frame.inspect : null;
   // The realm last shown stays (dimmed) while newly chosen land is read, so the panel neither flickers nor loses focus.
@@ -105,7 +112,8 @@ export function Game() {
   const ticker = useMemo(() => curate(observer.events.filter(event => event.importance >= TICKER_IMPORTANCE).reverse()).slice(0, TICKER_LENGTH), [observer.events]);
   // A story ends with its history (a reset or another run) and when the selection it showed is closed.
   const history = frame ? `${frame.instance.runId}:${frame.epoch}` : '';
-  useEffect(() => { setStory(null); }, [history]);
+  // A perspective too: polity ids start again with a new history, so the same id would be another people.
+  useEffect(() => { setStory(null); setViewAs(null); }, [history]);
   const selected = !!map.cell || map.inspecting;
   const wasSelected = useRef(false);
   useEffect(() => { if (wasSelected.current && !selected) setStory(null); wasSelected.current = selected; }, [selected]);
@@ -128,6 +136,7 @@ export function Game() {
         <button type="button" disabled={!frame} onClick={() => void observer.send({ action: 'step' })}>Step</button>
         <div className="game-speed" role="group" aria-label="Speed">{SIMULATION_SPEEDS.map(speed => <button key={speed} type="button" aria-pressed={frame?.speed === speed}
           disabled={!frame} onClick={() => void observer.send({ action: 'speed', speed })}>{SPEED_LABELS[speed]}</button>)}</div>
+        <RunTo frame={frame} onRun={year => void observer.send({ action: 'runTo', year })} />
       </div>
       </div>
       <div className="game-views" role="group" aria-label="View">
@@ -176,8 +185,10 @@ export function Game() {
       {(map.cell || map.inspecting) && <aside className="game-panel game-place" aria-label="Selected place">
         <button type="button" className="game-close" aria-label="Close" onClick={map.clearSelection}>×</button>
         <div className="game-place-body">
+        {seenBy && region && <PerspectiveNote perspective={seenBy} region={region.id} />}
         {realmShown && region
-          ? <RealmPanel inspected={realmShown} stale={!inspected} region={region} biome={map.cell ? WORLD_BIOME_STYLE[map.cell.biome].label : null} tab={tab} onTab={setTab} names={names} />
+          ? <RealmPanel inspected={realmShown} stale={!inspected} region={region} biome={map.cell ? WORLD_BIOME_STYLE[map.cell.biome].label : null} tab={tab} onTab={setTab} names={names}
+            viewing={viewAs?.id === realmShown.polity?.id} onViewAs={people => setViewAs(current => current?.id === people.id ? null : people)} />
           : <>
             {map.cell && <h2 className="game-place-title">{WORLD_BIOME_STYLE[map.cell.biome].label}</h2>}
             {region && <RegionDetail inspected={inspected} region={region} biome={map.cell ? WORLD_BIOME_STYLE[map.cell.biome].label : null} names={names} />}
@@ -214,7 +225,12 @@ export function Game() {
             <button type="button" onClick={map.fit}>Fit</button>
           </div>
         </div>
+        {viewAs && <p className="game-view-chip"><span role="status">The world as the {seenBy?.name ?? viewAs.name} know it{frame && !frame.markers.ids.includes(viewAs.id) ? ' (they are gone)' : ''}: fog where they have never been, muted where they remember.</span>
+          <button type="button" onClick={() => setViewAs(null)}>Leave their view</button></p>}
         {lens === 'diplomacy' && <DiplomacyKey realm={standings?.name ?? null} />}
+        {lens === 'density' && <div className="game-lens-key" role="group" aria-label="Density lens"><p>People per km² in each region:</p>
+          <div className="game-density-scale"><span className="game-density-bar" style={{ background: DENSITY_GRADIENT }} aria-hidden="true" />
+            {[DENSITY_RANGE[0], 0.1, 1, 10, 100, DENSITY_RANGE[1]].map(value => <span key={value} style={{ left: `${(Math.log10(value) - Math.log10(DENSITY_RANGE[0])) / (Math.log10(DENSITY_RANGE[1]) - Math.log10(DENSITY_RANGE[0])) * 100}%` }}>{value === DENSITY_RANGE[1] ? `${value}+` : value}</span>)}</div></div>}
         {frame && <Ages ages={frame.ages} year={Math.floor(frame.tick / 12)} />}
         {ticker.length ? <ol className="game-events" aria-label="Latest in the chronicle">{ticker.map(entry => <TickerEvent key={entry.event.id} entry={entry} names={names} />)}</ol>
           : <p className="game-muted">{frame?.tick === 0 ? 'Press Play: the first bands are about to wander.' : 'Nothing notable among the latest events.'}</p>}
@@ -243,6 +259,28 @@ function TickerEvent({ entry, names }: { entry: CuratedEntry; names: (id: number
     <span data-run={runKey(event) ?? undefined} data-from={simulationDate(entry.from).year}>{describeEvent(event, names)}{more > 0 && <span className="game-history-more"> And {number.format(more)} more like it{deaths !== null ? `: ${number.format(deaths)} died in all` : ''}.</span>}</span>
     {cause && <span className="game-event-cause">{factorName(cause.factor)}</span>}
   </li>;
+}
+
+/** Run the history on to a later year (U.6; as the lab's Run to year), or say where it is running to. */
+function RunTo({ frame, onRun }: { frame: ObserverFrame | null; onRun: (year: number) => void }) {
+  const now = frame ? Math.floor(frame.tick / 12) : 0, [year, setYear] = useState(''), target = Number(year);
+  const valid = year !== '' && Number.isInteger(target) && target > now && target <= MAX_SIMULATION_YEAR, running = frame?.runTo ?? null;
+  function submit(event: FormEvent) { event.preventDefault(); if (valid) onRun(target); }
+  // The button says where the history is running to, so the bar does not reflow.
+  return <form className="game-run-to" onSubmit={submit}>
+    <label>To year <input type="number" inputMode="numeric" min={now + 1} max={MAX_SIMULATION_YEAR} value={year} onChange={event => setYear(event.target.value)} disabled={!frame || now >= MAX_SIMULATION_YEAR} /></label>
+    <button type="submit" disabled={!frame || !valid}>{running !== null ? `to ${number.format(running)}…` : 'Run'}</button>
+    <span className="game-sr-only" role="status">{running !== null ? `Running to year ${number.format(running)}` : ''}</span>
+  </form>;
+}
+
+/** How the people whose view the map shows knows the selected region (U.6). */
+function PerspectiveNote({ perspective, region }: { perspective: NonNullable<ObserverFrame['perspective']>; region: number }) {
+  const at = perspective.remembered.regions.indexOf(region), names = new Map(perspective.names);
+  const text = perspective.observed.includes(region) ? `In sight of the ${perspective.name}.`
+    : at >= 0 ? `Last seen by the ${perspective.name} in year ${number.format(perspective.remembered.years[at])}, ${perspective.remembered.occupants[at] >= 0 ? `held by the ${names.get(perspective.remembered.occupants[at]) ?? '?'} then` : 'with no one living there then'}.`
+    : `Unknown to the ${perspective.name}.`;
+  return <p className="game-perspective-note" id="game-perspective-note">{text}</p>;
 }
 
 /** True from the first time `value` is true. */

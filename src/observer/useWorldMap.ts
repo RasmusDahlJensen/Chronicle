@@ -4,12 +4,14 @@ import type { ObserverFrame, RegionMap } from '../../shared/simulation.ts';
 import { createWorldTileClient } from '../api/generated-world.ts';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { createGeneratedWorldRenderer, type WorldCoordinate, type WorldLayer } from '../renderer/generated-world.ts';
-import { cultureColor, ERA_COLORS, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, packColor, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, STANDING_COLORS, TERRITORY_ALPHA } from './palettes.ts';
+import { cultureColor, densityColor, ERA_COLORS, regionDensities, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, muted, packColor, PERSPECTIVE, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, STANDING_COLORS, TERRITORY_ALPHA } from './palettes.ts';
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
 
 /** How the peoples' territories are coloured: by polity, by descent (starting band), culture, faith or era, or not at all. */
-export type PeoplesLens = 'polity' | 'descent' | 'culture' | 'faith' | 'era' | 'diplomacy' | 'off';
+export type PeoplesLens = 'polity' | 'descent' | 'culture' | 'faith' | 'era' | 'diplomacy' | 'density' | 'off';
+/** The perspective lens (U.6): the regions a people has in sight, and those it remembers (who lived there, when seen). */
+export interface Perspective { observed: ReadonlySet<number>; remembered: ReadonlyMap<number, { occupant: number; year: number }> }
 export type Standing = 'allied' | 'pact' | 'trade' | 'rival' | 'neutral';
 /** The simulation's region partition for a world: the region map, cell → region id + 1, and cell → farmland rank. */
 export interface RegionData { map: RegionMap; cells: Uint16Array; fieldRank: Uint16Array }
@@ -44,6 +46,8 @@ export interface WorldMapOptions {
   highlight?: ReadonlySet<number> | null;
   /** The diplomacy lens's realm (U.4) and its standing with each people it has met; null when none is chosen. */
   standings?: { self: number; of: ReadonlyMap<number, Standing> } | null;
+  /** The map as one people knows it (U.6): only what it sees is drawn as it is, its memories muted, the rest fogged. */
+  perspective?: Perspective | null;
 }
 
 /**
@@ -51,7 +55,7 @@ export interface WorldMapOptions {
  * and the simulation's marks drawn on its overlay from each frame (polity markers, territories, settlements, roads,
  * trade routes and cultivated land). Attach `canvas` and `overlay` to the page's canvases.
  */
-export function useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields, showRoads = true, background, highlight = null, standings = null }: WorldMapOptions) {
+export function useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields, showRoads = true, background, highlight = null, standings = null, perspective = null }: WorldMapOptions) {
   const [canvasRevision, setCanvasRevision] = useState(0);
   const [tileError, setTileError] = useState<string | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(null);
@@ -118,14 +122,17 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
     if (!renderer.current) return;
     if (!frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setBands([]); renderer.current.setSettlements([], { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE }); renderer.current.setRoads([]); renderer.current.setTrades([]); return; }
     const { regions: at, populations, kinds, eras } = frame.markers;
-    renderer.current.setBands(at.map((region, index) => {
+    // In a people's perspective (U.6) only what it sees is drawn: bands, settlements, roads and trade routes there.
+    const seen = (region: number) => !perspective || perspective.observed.has(region), regionOf = (cell: number) => regions.cells[cell] - 1;
+    renderer.current.setBands(at.flatMap((region, index) => {
+      if (!seen(region)) return [];
       const centroid = regions.map.regions[region]?.centroid ?? 0;
-      return { x: centroid % world.width, y: Math.floor(centroid / world.width), population: populations[index], color: ERA_COLORS[eras[index]] ?? ERA_COLORS[0], settled: kinds[index] === 1 };
+      return [{ x: centroid % world.width, y: Math.floor(centroid / world.width), population: populations[index], color: ERA_COLORS[eras[index]] ?? ERA_COLORS[0], settled: kinds[index] === 1 }];
     }));
-    renderer.current.setSettlements(frame.settlements.cells.map((cell, index) => ({
+    renderer.current.setSettlements(frame.settlements.cells.flatMap((cell, index) => !seen(regionOf(cell)) ? [] : [{
       x: cell % world.width, y: Math.floor(cell / world.width), capital: frame.settlements.capitals[index] === 1, tier: frame.settlements.tiers[index], name: frame.settlements.names[index],
       features: frame.settlements.features[index],
-    })),
+    }]),
       { fill: SETTLEMENT_COLOR, stroke: SETTLEMENT_STROKE });
     // Roads join the regions' main places: a capital, else the largest settlement, else the region's centre.
     const anchor = new Map<number, { cell: number; rank: number }>();
@@ -134,29 +141,32 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
       if (region >= 0 && (!held || rank > held.rank)) anchor.set(region, { cell, rank });
     });
     const place = (region: number) => anchor.get(region)?.cell ?? regions.map.regions[region]?.centroid ?? 0;
-    renderer.current.setRoads(showRoads ? frame.roads.a.map((a, index) => {
+    renderer.current.setRoads(showRoads ? frame.roads.a.flatMap((a, index) => {
+      if (!seen(a) || !seen(frame.roads.b[index])) return [];
       const from = place(a), to = place(frame.roads.b[index]);
-      return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), tier: frame.roads.tiers[index], bridge: frame.roads.bridges[index] === 1, condition: frame.roads.conditions[index] / 100 };
+      return [{ x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), tier: frame.roads.tiers[index], bridge: frame.roads.bridges[index] === 1, condition: frame.roads.conditions[index] / 100 }];
     }) : []);
     // Trade routes (M5.4) between the two hubs of each active agreement.
-    renderer.current.setTrades(showTrade ? frame.trades.from.map((from, index) => {
+    renderer.current.setTrades(showTrade ? frame.trades.from.flatMap((from, index) => {
       const to = frame.trades.to[index];
-      return { x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), sea: frame.trades.sea[index] === 1 };
+      if (!seen(regionOf(from)) || !seen(regionOf(to))) return [];
+      return [{ x1: from % world.width, y1: Math.floor(from / world.width), x2: to % world.width, y2: Math.floor(to / world.width), sea: frame.trades.sea[index] === 1 }];
     }) : []);
-  }, [frame, regions, world, canvasRevision, showTrade, showRoads]);
+  }, [frame, regions, world, canvasRevision, showTrade, showRoads, perspective]);
 
   // Cultivated land: a region's farmland cells ranked below its cultivated count (VISION.md "Cultivated land").
-  const fieldKey = frame && showFields ? `${frame.fields.regions.join(',')}:${frame.fields.cells.join(',')}` : '';
+  // In a people's perspective only the fields it can see are drawn (U.6).
+  const fieldKey = frame && showFields ? `${frame.fields.regions.join(',')}:${frame.fields.cells.join(',')}:${perspective ? [...perspective.observed].join(',') : ''}` : '';
   useEffect(() => {
     if (!renderer.current) return;
     if (!showFields || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setFields(null); return; }
     const counts = new Uint16Array(regions.map.regions.length);
-    frame.fields.regions.forEach((region, index) => { counts[region] = frame.fields.cells[index]; });
+    frame.fields.regions.forEach((region, index) => { if (!perspective || perspective.observed.has(region)) counts[region] = frame.fields.cells[index]; });
     const cells = new Uint8Array(regions.cells.length);
     for (let cell = 0; cell < cells.length; cell++) { const region = regions.cells[cell]; if (region && regions.fieldRank[cell] < counts[region - 1]) cells[cell] = 1; }
     renderer.current.setFields(cells);
     // Recomputed only when the cultivated counts change (`fieldKey` follows them), not with every frame.
-  }, [fieldKey, regions, world, showFields, canvasRevision]);
+  }, [fieldKey, regions, world, showFields, canvasRevision, perspective]);
 
   // Each occupied region filled with its people's colour; bands lighter than settled civilizations. A highlight (a
   // chosen story's regions) fades the rest, draws its own fully, and marks its land no one holds in brass.
@@ -164,13 +174,26 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
     if (!renderer.current) return;
     const shown = highlight && highlight.size > 0 ? highlight : null;
     if (canvas.current) canvas.current.dataset.highlightRegions = String(shown && regions ? [...shown].filter(region => region < regions.map.regions.length).length : 0);
-    if ((peoples === 'off' && !shown) || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
+    if (canvas.current) canvas.current.dataset.perspective = '';
+    if ((peoples === 'off' && !shown && !perspective) || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
     const fill = new Uint32Array(regions.map.regions.length);
     const { ids, regions: at, kinds, eras, lineages, cultures, faiths } = frame.markers;
     const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue])), faithHues = new Map(frame.religions.map(entry => [entry.id, entry.hue]));
     // The diplomacy lens: the regions of each standing, counted on the canvas.
     const standingCounts: Record<string, number> = { self: 0, allied: 0, pact: 0, trade: 0, rival: 0, neutral: 0, unknown: 0 };
+    // The density lens (U.6): each region's people per km²; the canvas reports the densest.
+    const densities = peoples === 'density' ? regionDensities(frame.markers, region => regions.map.regions[region]?.areaKm2 ?? 0) : null;
+    if (canvas.current) {
+      const densest = densities && [...densities].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
+      canvas.current.dataset.densest = densest ? `${densest[0]}:${densest[1].toFixed(3)}` : '';
+    }
     if (peoples !== 'off') for (let index = 0; index < at.length; index++) {
+      if (perspective && !perspective.observed.has(at[index])) continue;
+      if (peoples === 'density') {
+        const density = densities?.get(at[index]);
+        if (at[index] < fill.length && density !== undefined) fill[at[index]] = packColor(densityColor(density), !shown ? TERRITORY_ALPHA.civ : shown.has(at[index]) ? HIGHLIGHT.alpha : TERRITORY_ALPHA.civ * HIGHLIGHT.fade);
+        continue;
+      }
       if (peoples === 'diplomacy') {
         const standing = !standings ? 'unknown' : ids[index] === standings.self ? 'self' : standings.of.get(ids[index]) ?? 'unknown';
         standingCounts[standing]++;
@@ -184,10 +207,18 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
       if (at[index] < fill.length) fill[at[index]] = packColor(color, !shown ? alpha : shown.has(at[index]) ? HIGHLIGHT.alpha : alpha * HIGHLIGHT.fade);
     }
     // (Not in the diplomacy lens, whose brass is the chosen realm's own land.)
-    if (shown && peoples !== 'diplomacy') for (const region of shown) if (region < fill.length && (peoples === 'off' || !fill[region])) fill[region] = packColor(HIGHLIGHT.empty, HIGHLIGHT.emptyAlpha);
+    // (Not in the diplomacy lens, whose brass is the realm, nor in a perspective, whose fog and memories stand.)
+    if (shown && peoples !== 'diplomacy' && !perspective) for (const region of shown) if (region < fill.length && (peoples === 'off' || !fill[region])) fill[region] = packColor(HIGHLIGHT.empty, HIGHLIGHT.emptyAlpha);
+    // A people's perspective (U.6): its memories muted in the colour of who lived there, the unknown under fog.
+    if (perspective) {
+      let fogged = 0;
+      for (const [region, memory] of perspective.remembered) if (region < fill.length) fill[region] = memory.occupant >= 0 ? packColor(muted(polityColor(memory.occupant)), PERSPECTIVE.rememberedAlpha) : packColor(PERSPECTIVE.veil, PERSPECTIVE.veilAlpha);
+      for (let region = 0; region < fill.length; region++) if (!perspective.observed.has(region) && !perspective.remembered.has(region)) { fill[region] = packColor(PERSPECTIVE.fog, PERSPECTIVE.fogAlpha); fogged++; }
+      if (canvas.current) canvas.current.dataset.perspective = `seen:${perspective.observed.size} remembered:${perspective.remembered.size} fog:${fogged}`;
+    }
     if (canvas.current) canvas.current.dataset.standings = peoples === 'diplomacy' ? Object.entries(standingCounts).map(([standing, count]) => `${standing}:${count}`).join(' ') : '';
     renderer.current.setTerritories(fill);
-  }, [frame, regions, world, peoples, canvasRevision, highlight, standings]);
+  }, [frame, regions, world, peoples, canvasRevision, highlight, standings, perspective]);
 
   /** The simulation region of the selected cell (null when none is selected or the region map is not in yet). */
   const cellRegion = cell && regions ? regions.map.regions[regions.cells[cell.id] - 1] ?? null : null;

@@ -23,6 +23,8 @@ export interface ObserverOptions {
   startFresh?: boolean;
   /** Region whose details each frame should carry (null for none). */
   inspect?: number | null;
+  /** The people whose perspective each frame should carry (U.6; null for none). */
+  view?: number | null;
   onFrame?: (frame: ObserverFrame) => void;
 }
 
@@ -32,7 +34,7 @@ export interface ObserverOptions {
  * latest chronicle events, and sends controls. A frame from another world, run or reset epoch never mixes into the
  * displayed history.
  */
-export function useObserver({ settings, startFresh = false, inspect = null, onFrame }: ObserverOptions) {
+export function useObserver({ settings, startFresh = false, inspect = null, view = null, onFrame }: ObserverOptions) {
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
   const [events, setEvents] = useState<ChronicleEvent[]>([]);
   // The names of the peoples in the kept events, gathered from every frame of this run and epoch.
@@ -42,8 +44,8 @@ export function useObserver({ settings, startFresh = false, inspect = null, onFr
   const latest = useRef({ key: '', sequence: 0, applied: 0, runId: '', epoch: -1, cursor: 0, playing: false });
   const onFrameRef = useRef(onFrame);
   onFrameRef.current = onFrame;
-  const inspectRef = useRef(inspect);
-  inspectRef.current = inspect;
+  const inspectRef = useRef(inspect), viewRef = useRef(view);
+  inspectRef.current = inspect; viewRef.current = view;
   const pollNow = useRef<() => void>(() => {});
   const key = settings ? worldKey(settings) : '';
 
@@ -82,7 +84,7 @@ export function useObserver({ settings, startFresh = false, inspect = null, onFr
       try {
         // After a reset or restart the cursor from the old history would skip the new one's first events.
         const cursor = latest.current.runId ? latest.current.cursor : 0;
-        apply(sequence, await fetchObserverFrame(settings!, cursor, controller.signal, inspectRef.current), cursor);
+        apply(sequence, await fetchObserverFrame(settings!, cursor, controller.signal, inspectRef.current, viewRef.current), cursor);
       } catch (cause) { if (!controller.signal.aborted) setError(message(cause)); }
       if (!controller.signal.aborted) timer = setTimeout(poll, latest.current.playing ? POLL_PLAYING_MS : POLL_PAUSED_MS);
     }
@@ -106,8 +108,8 @@ export function useObserver({ settings, startFresh = false, inspect = null, onFr
   // The world key identifies the world; startFresh is read when that world is first shown.
   }, [key]);
 
-  // A new selection should show its region's details now, not at the next paused poll.
-  useEffect(() => { pollNow.current(); }, [inspect]);
+  // A new selection or perspective should show now, not at the next paused poll.
+  useEffect(() => { pollNow.current(); }, [inspect, view]);
 
   /** Apply a control (play, pause, step, speed, run to a year, reset, and the development controls). */
   async function send(control: SimulationControl) {
@@ -115,7 +117,7 @@ export function useObserver({ settings, startFresh = false, inspect = null, onFr
     const sequence = ++latest.current.sequence, world = latest.current.key;
     const cursor = control.action === 'reset' ? 0 : latest.current.cursor;
     try {
-      const next = await sendSimulationControl(settings, control, cursor, AbortSignal.timeout(30_000), inspectRef.current);
+      const next = await sendSimulationControl(settings, control, cursor, AbortSignal.timeout(30_000), inspectRef.current, viewRef.current);
       if (latest.current.key === world) apply(sequence, next, cursor);
     } catch (cause) { if (latest.current.key === world) setError(message(cause)); }
   }
