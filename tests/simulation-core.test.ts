@@ -5,6 +5,7 @@ import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { decodeGeography } from '../src/simulation/geography.ts';
+import { CostHeap } from '../src/simulation/heap.ts';
 import { checkInvariants, InvariantError } from '../src/simulation/invariants.ts';
 import { partitionRegions } from '../src/simulation/regions.ts';
 import { createRng, mix, stepProbability, systemStream } from '../src/simulation/rng.ts';
@@ -32,6 +33,24 @@ test('system streams are reproducible and independent of each other', () => {
   assert.ok(Math.abs(stepProbability(0.1, 1) - 0.1) < 1e-15);
   assert.ok(Math.abs(stepProbability(0.1, 1 / 12) * 12 - 0.1) < 0.006, 'monthly steps of a yearly probability add up to about the yearly value');
   assert.ok(Math.abs(1 - (1 - stepProbability(0.2, 1 / 12)) ** 12 - 0.2) < 1e-12, 'twelve monthly steps compound exactly to the yearly probability');
+});
+
+test('the cost heap gives entries cheapest first, ties in a fixed order, without allocating per entry', () => {
+  const rng = createRng(7), entries: [number, number][] = [];
+  for (let item = 0; item < 500; item++) entries.push([Math.floor(rng.next() * 40), item]);
+  const drain = () => {
+    const heap = new CostHeap(), out: [number, number][] = [];
+    for (const [cost, item] of entries) heap.push(cost, item);
+    while (heap.size) { heap.take(); out.push([heap.cost, heap.item]); }
+    return out;
+  };
+  const first = drain();
+  assert.equal(first.length, entries.length);
+  assert.ok(first.every((entry, at) => at === 0 || first[at - 1][0] <= entry[0]), 'cheapest first');
+  assert.deepEqual(drain(), first, 'ties leave in the same order every run');
+  const heap = new CostHeap();
+  heap.push(3, 9); heap.push(1, 4);
+  assert.deepEqual(heap.pop(), [1, 4], 'pop gives [cost, item]');
 });
 
 test('the chronicle assigns ids in flush order, hashes its log and pages from a cursor', () => {

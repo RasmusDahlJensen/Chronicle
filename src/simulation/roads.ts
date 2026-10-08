@@ -148,7 +148,8 @@ export function roadRoutes(state: SimulationState, civ: Polity, tier: number): R
   routeStamp[origin] = routeMark; routeCost[origin] = 0; routeFrom[origin] = -1;
   routeHeap.clear(); routeHeap.push(0, origin);
   while (routeHeap.size) {
-    const [at, region] = routeHeap.pop();
+    routeHeap.take();
+    const at = routeHeap.cost, region = routeHeap.item;
     if (at > routeCost[region]) continue;
     for (const edge of regions[region].neighbors) {
       if (state.owner[edge.region] !== civ.id) continue;

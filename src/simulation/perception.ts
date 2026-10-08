@@ -339,7 +339,8 @@ function travelFromCapital(state: SimulationState, polity: Polity) {
   heap.clear();
   reach(origin, 0);
   while (heap.size) {
-    const [at, region] = heap.pop();
+    heap.take();
+    const at = heap.cost, region = heap.item;
     if (at > cost[region]) continue;
     // Its own land relays at the crossings' cost; known land it does not hold relays at a premium.
     const factor = own.has(region) ? 1 : tuning.foreignRelay;

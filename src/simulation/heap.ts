@@ -9,6 +9,9 @@ export class CostHeap {
 
   clear() { this.entries.length = 0; }
 
+  /** The cost and item `take` removed last. */
+  cost = 0; item = 0;
+
   push(cost: number, item: number) {
     const heap = this.entries;
     heap.push(cost, item);
@@ -16,16 +19,15 @@ export class CostHeap {
     while (child > 0) {
       const parent = (child - 1) >> 1;
       if (heap[parent * 2] <= heap[child * 2]) break;
-      [heap[parent * 2], heap[child * 2]] = [heap[child * 2], heap[parent * 2]];
-      [heap[parent * 2 + 1], heap[child * 2 + 1]] = [heap[child * 2 + 1], heap[parent * 2 + 1]];
+      this.swap(parent, child);
       child = parent;
     }
   }
 
-  /** The cheapest entry, removed: [cost, item]. */
-  pop(): [number, number] {
+  /** Removes the cheapest entry, leaving it in `cost` and `item` (allocation-free: searches call this in hot loops). */
+  take() {
     const heap = this.entries;
-    const top: [number, number] = [heap[0], heap[1]];
+    this.cost = heap[0]; this.item = heap[1];
     const lastItem = heap.pop()!, lastCost = heap.pop()!;
     if (heap.length) {
       heap[0] = lastCost; heap[1] = lastItem;
@@ -37,11 +39,21 @@ export class CostHeap {
         if (left < size && heap[left * 2] < heap[smallest * 2]) smallest = left;
         if (right < size && heap[right * 2] < heap[smallest * 2]) smallest = right;
         if (smallest === parent) break;
-        [heap[parent * 2], heap[smallest * 2]] = [heap[smallest * 2], heap[parent * 2]];
-        [heap[parent * 2 + 1], heap[smallest * 2 + 1]] = [heap[smallest * 2 + 1], heap[parent * 2 + 1]];
+        this.swap(parent, smallest);
         parent = smallest;
       }
     }
-    return top;
+  }
+
+  /** The cheapest entry, removed: [cost, item]. */
+  pop(): [number, number] {
+    this.take();
+    return [this.cost, this.item];
+  }
+
+  private swap(a: number, b: number) {
+    const heap = this.entries, cost = heap[a * 2], item = heap[a * 2 + 1];
+    heap[a * 2] = heap[b * 2]; heap[a * 2 + 1] = heap[b * 2 + 1];
+    heap[b * 2] = cost; heap[b * 2 + 1] = item;
   }
 }

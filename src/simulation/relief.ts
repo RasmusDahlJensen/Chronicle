@@ -32,7 +32,8 @@ function overland(state: SimulationState, civ: Polity, origin: number) {
   heap.clear();
   reach(origin, 0);
   while (heap.size) {
-    const [at, region] = heap.pop();
+    heap.take();
+    const at = heap.cost, region = heap.item;
     if (at > km[region]) continue;
     for (const edge of regions[region].neighbors) if (state.owner[edge.region] === civ.id) reach(edge.region, at + edgeTravel(state, region, edge));
   }

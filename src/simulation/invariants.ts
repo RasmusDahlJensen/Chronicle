@@ -22,6 +22,23 @@ const eventTypes = new Set<string>(EVENT_TYPES);
 const SAILING = TECH_INDEX.get('Sailing')!;
 
 /** Per-tick invariants (VISION.md "Tests"): no negative or NaN values, valid references, ordered history. */
+/** Per-region scratch for the checks, reused from tick to tick (they run every month: VISION.md "invariants each tick"). */
+let scratch = { regions: -1, now: new Int32Array(0), seen: new Int32Array(0), villages: new Int32Array(0), urban: new Float64Array(0), harbors: new Int32Array(0), farm: new Float64Array(0), shield: new Float64Array(0), store: new Float64Array(0), spoilage: new Float64Array(0), listed: new Int32Array(0) };
+function scratchFor(regions: number, settlements: number) {
+  if (scratch.regions !== regions) scratch = { regions, now: new Int32Array(regions), seen: new Int32Array(regions), villages: new Int32Array(regions), urban: new Float64Array(regions), harbors: new Int32Array(regions), farm: new Float64Array(regions), shield: new Float64Array(regions), store: new Float64Array(regions), spoilage: new Float64Array(regions), listed: scratch.listed };
+  if (scratch.listed.length < settlements) scratch.listed = new Int32Array(Math.max(settlements, scratch.listed.length * 2, 1024));
+  scratch.now.fill(0); scratch.seen.fill(-1); scratch.villages.fill(0); scratch.urban.fill(0); scratch.harbors.fill(0);
+  scratch.farm.fill(1); scratch.shield.fill(0); scratch.store.fill(1); scratch.spoilage.fill(1); scratch.listed.fill(-1, 0, settlements);
+  return scratch;
+}
+
+/** A group's values are each within 0–1: the first that is not, or null. */
+function valueOutOfRange(values: SimulationState['groups'][number]['values']) {
+  if (values.militarism >= 0 && values.militarism <= 1 && values.zeal >= 0 && values.zeal <= 1 && values.openness >= 0 && values.openness <= 1
+    && values.tradition >= 0 && values.tradition <= 1 && values.expansionism >= 0 && values.expansionism <= 1) return null;
+  return VALUE_KEYS.find(key => !(values[key] >= 0 && values[key] <= 1)) ?? null;
+}
+
 export function checkInvariants(state: SimulationState) {
   const fail = (message: string) => { throw new InvariantError(`Tick ${state.tick} (${state.seedText}): ${message}`); };
   if (!Number.isInteger(state.tick) || state.tick < 0) fail('the clock must be a non-negative month count');
@@ -41,15 +58,17 @@ export function checkInvariants(state: SimulationState) {
   for (const [index, value] of state.timing.ms.entries()) if (!(value >= 0)) fail(`system ${index} timing is ${value}`);
   // Exact accounting (VISION.md rule 8): every region's population change is explained by this tick's births,
   // deaths by cause and migration; every band's food store change by production, consumption, spoilage and carrying.
-  const { ledger } = state;
-  const now = new Int32Array(regions);
-  const seen = new Int32Array(regions).fill(-1);
+  const { ledger } = state, lowest = lowestHarvest();
+  const { now, seen, villages, urban, harbors, farm, shield, store, spoilage, listed } = scratchFor(regions, state.settlements.length);
+  // The region index: each settlement listed once, in its own region's list (with the count below, nothing else is listed).
+  for (let region = 0; region < state.regionSettlements.length; region++) for (const id of state.regionSettlements[region]) {
+    if (!(id >= 0 && id < state.settlements.length) || listed[id] !== -1) fail(`region ${region}'s list names settlement ${id} twice or not at all`);
+    listed[id] = region;
+  }
   // Settlements (VISION.md "Settlements"): each living one stands on a land cell of a region its owner holds, listed in
   // that region's index, housing at most its housing; the urban of a region add up to its townspeople (checked below).
-  const villages = new Int32Array(regions), urban = new Float64Array(regions), harbors = new Int32Array(regions);
-  const farm = new Float64Array(regions).fill(1), shield = new Float64Array(regions), store = new Float64Array(regions).fill(1), spoilage = new Float64Array(regions).fill(1);
   for (const settlement of state.settlements) {
-    if (!state.regionSettlements[settlement.region]?.includes(settlement.id)) fail(`settlement ${settlement.id} is missing from region ${settlement.region}'s list`);
+    if (listed[settlement.id] !== settlement.region) fail(`settlement ${settlement.id} is missing from region ${settlement.region}'s list`);
     if (settlement.status !== 'alive') { if (settlement.capital || settlement.urban !== 0 || settlement.buildings.length) fail(`settlement ${settlement.id} in ruins is a capital or has people or buildings`); continue; }
     if (state.owner[settlement.region] !== settlement.owner) fail(`settlement ${settlement.id} stands in region ${settlement.region}, which its owner ${settlement.owner} does not hold`);
     if (state.partition.regionOf[settlement.cell] !== settlement.region) fail(`settlement ${settlement.id} is not on a land cell of its region`);
@@ -72,7 +91,7 @@ export function checkInvariants(state: SimulationState) {
   }
   // The environment: weather and harvests within their bounds, droughts no longer than they last, famine as a flag.
   for (let region = 0; region < regions; region++) {
-    if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowestHarvest() && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
+    if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowest && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
     if (state.drought[region] > ENVIRONMENT_TUNING.droughtYears * 12 || state.famine[region] > 1 || !(state.famineRecent[region] >= 0)) fail(`region ${region} has drought ${state.drought[region]}, famine ${state.famine[region]} and recent famine deaths ${state.famineRecent[region]}`);
     // Cultivated land lies within the region's farmland (VISION.md "Cultivated land").
     if (!(state.fields[region] >= 0 && state.fields[region] <= fieldLand(state.fieldRanking, region))) fail(`region ${region} has ${state.fields[region]} fields on ${fieldLand(state.fieldRanking, region)} of farmland`);
@@ -110,7 +129,7 @@ export function checkInvariants(state: SimulationState) {
   for (const culture of state.cultures) {
     if (culture.parents.length && Math.abs(culture.parents.reduce((sum, parent) => sum + parent.weight, 0) - 1) > 1e-9) fail(`culture ${culture.id}'s parents' weights do not sum to 1`);
     if (culture.parents.some(parent => parent.id >= culture.id)) fail(`culture ${culture.id} names a later parent`);
-    if (culture.traits.length > TRAIT_TUNING.max || new Set(culture.traits).size !== culture.traits.length || culture.traits.some(trait => !TRAITS[trait]) || culture.traitYears.length !== TRAITS.length) fail(`culture ${culture.id} has inconsistent traits`);
+    if (culture.traits.length > TRAIT_TUNING.max || culture.traitYears.length !== TRAITS.length || culture.traits.some((trait, at) => !TRAITS[trait] || culture.traits.indexOf(trait) !== at)) fail(`culture ${culture.id} has inconsistent traits`);
   }
   for (const id of state.living) {
     const polity = state.polities[id];
@@ -141,7 +160,8 @@ export function checkInvariants(state: SimulationState) {
       if (!culture || culture.deathTick !== null) fail(`group ${groupId} lives by culture ${group.culture}, which is gone`);
       if (group.faith !== -1 && (!state.religions[group.faith] || state.religions[group.faith].deathTick !== null)) fail(`group ${groupId} follows religion ${group.faith}, which is gone`);
       if (!Number.isInteger(group.faithApart) || group.faithApart < 0) fail(`group ${groupId} has been cut off from its faith for ${group.faithApart} years`);
-      for (const key of VALUE_KEYS) if (!(group.values[key] >= 0 && group.values[key] <= 1)) fail(`group ${groupId} has ${key} ${group.values[key]}`);
+      const outside = valueOutOfRange(group.values);
+      if (outside) fail(`group ${groupId} has ${outside} ${group.values[outside]}`);
       if (region < 0 || region >= regions) fail(`group ${groupId} is in missing region ${region}`);
       if (seen[region] >= 0) fail(`region ${region} holds bands of polities ${seen[region]} and ${id}`);
       if (state.occupant[region] !== id || state.groupAt[region] !== groupId) fail(`region ${region} does not record its band ${groupId} of polity ${id}`);
@@ -162,7 +182,7 @@ export function checkInvariants(state: SimulationState) {
         fail(`group ${groupId}'s food store ${group.store} is not explained by its flows ${JSON.stringify(flows)}`);
       } else if (!Number.isInteger(group.planted) || group.planted < 0 || group.planted !== flows.plantedBefore + flows.sown - flows.harvested - flows.cropsLost) {
         fail(`group ${groupId}'s crops in the field ${group.planted} are not explained by its flows ${JSON.stringify(flows)}`);
-      } else if (!(flows.factor >= lowestHarvest() && flows.factor <= ENVIRONMENT_TUNING.harvestMax) || flows.weather !== Math.round(flows.harvested * flows.factor) - flows.harvested) {
+      } else if (!(flows.factor >= lowest && flows.factor <= ENVIRONMENT_TUNING.harvestMax) || flows.weather !== Math.round(flows.harvested * flows.factor) - flows.harvested) {
         fail(`group ${groupId}'s harvest gained ${flows.weather} from the weather on ${flows.harvested} harvested at ${flows.factor}, not what that share gives`);
       }
     }
