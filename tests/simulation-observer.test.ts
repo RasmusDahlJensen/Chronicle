@@ -16,6 +16,7 @@ import { TENETS } from '../src/simulation/religions.ts';
 import { KNOWN, OBSERVED } from '../src/simulation/perception.ts';
 import { DENSITY_RANGE, densityColor, regionDensities } from '../src/observer/palettes.ts';
 import { ERAS, TECHS } from '../src/simulation/techs.ts';
+import { DECISION_TUNING } from '../src/simulation/tunables.ts';
 import { encodeGeneratedWorld } from '../src/world/generation/encode.ts';
 import { generateWorld } from '../src/world/generation/generate.ts';
 
@@ -562,10 +563,19 @@ test('the frame\'s ruins are the history\'s ruined and razed settlements, and th
   assert.deepEqual(parseObserverFrame(structuredClone(frame)).ruins, view.ruins);
   assert.throws(() => parseObserverFrame({ ...frame, ruins: { ...view.ruins, names: view.ruins.names.slice(1) } }));
   assert.throws(() => parseObserverFrame({ ...frame, ruins: { ...view.ruins, razed: view.ruins.razed.map(() => 2) } }));
-  // Each belief a decision weighed is named.
+  // Each belief a decision weighed is named; an option is marked drawn when the choice could draw it (the best
+  // DECISION_TUNING.topChoices of those scoring at least minScore), and the chosen one always was.
+  let decisions = 0;
   for (const id of state.living) {
     const polity = state.polities[id];
     if (polity.kind !== 'civ') continue;
-    for (const option of observerView(state, state.groups[polity.groups[0]].region).inspect!.polity!.lastDecision?.options ?? []) for (const belief of option.beliefs ?? []) assert.equal(belief.name, state.polities[belief.polity].name);
+    const decision = observerView(state, state.groups[polity.groups[0]].region).inspect!.polity!.lastDecision;
+    if (!decision) continue;
+    decisions++;
+    for (const option of decision.options) for (const belief of option.beliefs ?? []) assert.equal(belief.name, state.polities[belief.polity].name);
+    const logged = polity.decisions.at(-1)!.options, eligible = logged.map((option, at) => ({ option, at })).filter(entry => entry.option.score >= DECISION_TUNING.minScore).slice(0, DECISION_TUNING.topChoices).map(entry => entry.at);
+    decision.options.forEach((option, at) => assert.equal(option.drawn, eligible.includes(at), `${polity.name}'s option ${at}`));
+    if (decision.pick < decision.options.length) assert.ok(decision.options[decision.pick].drawn, 'the chosen option was in the draw');
   }
+  assert.ok(decisions > 0);
 });

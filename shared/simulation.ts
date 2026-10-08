@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 39;
+export const SIMULATION_PROTOCOL_VERSION = 40;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -331,7 +331,8 @@ export const ObserverFrameSchema = Type.Object({
       farmShare: Type.Number({ minimum: 0, maximum: 1 }), specialists: Type.Integer({ minimum: 0 }),
       capital: Type.Union([Type.Null(), Type.Object({ name: Type.String({ maxLength: 40 }), cell: id(), settled: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })]),
       era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),
-      /** Known techs in graph order; research points a year; contacts within two regions. */
+      /** Known techs in graph order; research points a year; peoples met within two regions whose contact quickens its
+       *  research (at most as many as count: RESEARCH_TUNING.contactCap). */
       known: Type.Array(Type.String({ maxLength: 40 }), { maxItems: 200 }), researchPerYear: Type.Number({ minimum: 0 }), contacts: Type.Integer({ minimum: 0 }),
       /** (U.2) The era of each known tech, in the same order. */
       knownEras: Type.Array(Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }), { maxItems: 200 }),
@@ -361,6 +362,8 @@ export const ObserverFrameSchema = Type.Object({
         causes: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
         options: Type.Array(Type.Object({
           action: Type.Enum(DECISION_ACTIONS), score: Type.Number(),
+          /** (U close-out) Whether the choice could draw it: among the best few scoring at least the least worth considering. */
+          drawn: Type.Boolean(),
           /** The region to expand into, the civilization to unite or share knowledge with (and that people's name), or for
            *  Build the building type, the wonder type or the road tier (and what is built where, as the label). */
           target: Type.Union([Type.Null(), id()]), label: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),

@@ -24,6 +24,10 @@ export const RISE_GROWTH = 1.25, DECLINE_SHARE = 0.8;
 /** Each kind's weight per share of the world's people it touched. */
 const KIND_SCALE: Record<StoryKind, number> = { rise: 1, decline: 1, union: 1, first: 0.5, faith: 0.5, peoples: 0.5, trade: 0.4, voyage: 0.3, hardship: 10, wonder: 0.3 };
 export const KIND_LIMIT: Partial<Record<StoryKind, number>> = { rise: 2, decline: 2, union: 2 };
+/** Stories of standing facts (a first, a trade web, voyages, a wonder) weigh by their realm's people only up to this
+ *  share of the world's, so they do not lead the rail over who rises, falls and unites merely for a realm's size (the
+ *  U close-out review). */
+export const STANDING_SHARE = 0.03;
 const MAX_REGIONS = 2_048;
 
 const peopleOf = (state: SimulationState, polity: Polity) => polity.groups.reduce((sum, id) => sum + state.groups[id].size, 0);
@@ -202,7 +206,7 @@ export function storyCandidates(state: SimulationState): Story[] {
   if (newest && newest.year >= recentFrom) {
     const leader = state.polities[newest.polity], alive = leader.deathTick === null;
     const found = (mine.get(leader.id) ?? []).filter(event => event.type === 'techDiscovered' && event.data.first === true && event.data.tech === newest.tech);
-    tell('first', leader, newest.year, newest.year, alive ? peopleOf(state, leader) / world : 0.01, { name: leader.name, era: ERAS[newest.era], tech: newest.tech },
+    tell('first', leader, newest.year, newest.year, alive ? Math.min(STANDING_SHARE, peopleOf(state, leader) / world) : 0.01, { name: leader.name, era: ERAS[newest.era], tech: newest.tech },
       found, alive ? landOf(state, leader) : regionsOf(found), alive ? capitalCell(state, leader) : centroid(state, found[0]?.region ?? null), newest.era);
   }
 
@@ -254,7 +258,8 @@ export function storyCandidates(state: SimulationState): Story[] {
     if (civ.deathTick !== null || entry.agreements < 2) continue;
     const reach = entry.agreements + civ.roadPartners.length;
     const deals = (mine.get(id) ?? []).filter(event => event.tick >= recentFrom * 12 && event.type === 'tradeAgreement');
-    tell('trade', civ, yearOf(entry.since), year, Math.min(1, reach / 10) * peopleOf(state, civ) / world, {
+    // As recent as its newest agreement: a web that has not grown in a century fades from the rail.
+    tell('trade', civ, yearOf(entry.since), Math.max(yearOf(entry.since), deals.length ? yearOf(deals[deals.length - 1].tick) : 0), Math.min(1, reach / 10) * Math.min(STANDING_SHARE, peopleOf(state, civ) / world), {
       name: civ.name, agreements: entry.agreements, partners: entry.partners.size, roads: civ.roadPartners.length, joint: civ.roadPartners.length > 0,
     }, deals, landOf(state, civ), capitalCell(state, civ));
   }
@@ -267,7 +272,7 @@ export function storyCandidates(state: SimulationState): Story[] {
   }
   for (const [id, sailed] of voyages) {
     const civ = state.polities[id], farthest = [...sailed].sort((a, b) => number(b.data.km) - number(a.data.km) || a.id - b.id)[0], met = sailed.reduce((sum, event) => sum + number(event.data.met), 0);
-    tell('voyage', civ, yearOf(sailed[0].tick), yearOf(sailed[sailed.length - 1].tick), Math.min(1, sailed.length / 2) * (civ.deathTick === null ? peopleOf(state, civ) : 0) / world, {
+    tell('voyage', civ, yearOf(sailed[0].tick), yearOf(sailed[sailed.length - 1].tick), Math.min(1, sailed.length / 2) * Math.min(STANDING_SHARE, (civ.deathTick === null ? peopleOf(state, civ) : 0) / world), {
       name: civ.name, voyages: sailed.length, one: sailed.length === 1, many: sailed.length > 1, km: number(farthest.data.km), explorer: String(farthest.data.explorer ?? '?'), met, metAny: met > 0,
     }, sailed, regionsOf(sailed), centroid(state, farthest.region));
   }
@@ -293,7 +298,7 @@ export function storyCandidates(state: SimulationState): Story[] {
     const event = events[at];
     if (event.type !== 'wonderCompleted') continue;
     const civ = state.polities[event.actors[0].id];
-    tell('wonder', civ, yearOf(event.tick), yearOf(event.tick), civ.deathTick === null ? peopleOf(state, civ) / world : 0.01, {
+    tell('wonder', civ, yearOf(event.tick), yearOf(event.tick), civ.deathTick === null ? Math.min(STANDING_SHARE, peopleOf(state, civ) / world) : 0.01, {
       name: civ.name, wonder: String(event.data.wonder ?? '?'), city: String(event.data.name ?? '?'), years: number(event.data.years),
     }, [event], event.region === null ? [] : [event.region], event.settlement === null ? centroid(state, event.region) : state.settlements[event.settlement].cell, event.id);
   }

@@ -225,6 +225,8 @@
 }
 .game .game-story:hover { background: var(--game-control); }
 .game .game-story[aria-pressed='true'] { border-color: var(--game-accent); background: var(--game-accent-ground); color: var(--game-text); }
+/* The card's text wrapper describes the button; its parts keep the card's own layout. */
+.game-story > span { display: contents; }
 .game-story-kind { display: flex; justify-content: space-between; gap: 8px; color: var(--game-accent); font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
 .game-story-years { color: var(--game-muted); letter-spacing: 0; text-transform: none; font-weight: 400; white-space: nowrap; }
 .game-story-title { font-family: var(--game-display); font-size: 19px; font-weight: 700; line-height: 1.15; }

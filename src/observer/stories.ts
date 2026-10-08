@@ -37,7 +37,7 @@ export const STORY_TEMPLATES: Record<StoryKind, { title: string; text: string }>
   },
   peoples: {
     title: '{?split|The {culture} grow apart}{?hybrid|Two peoples become the {culture}}{?assimilation|The {culture} take up the ways of the {ruling}}',
-    text: '{?split|{population} people of the {parent} in the realm of the {name} have become a people of their own, the {culture}}{?hybrid|In the realm of the {name}, the {first} and the {second} have become one people of {population}, the {culture}}{?assimilation|{population} people of the {culture} in the realm of the {name} have taken up the ways of the {ruling}, its ruling people}.',
+    text: '{?split|{population} people of the {parent} among the {name} have become a people of their own, the {culture}}{?hybrid|Among the {name}, the {first} and the {second} have become one people of {population}, the {culture}}{?assimilation|{population} people of the {culture} among the {name} have taken up the ways of the {ruling}, the people who lead them}.',
   },
   trade: {
     title: 'The trade web of the {name}',

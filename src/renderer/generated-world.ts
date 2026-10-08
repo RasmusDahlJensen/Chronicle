@@ -19,6 +19,8 @@ export interface BandMarker { x: number; y: number; population: number; color: s
 /** A settlement mark at its cell, by tier (0 village, 1 town, 2 city, 3 metropolis); capitals are stars. `name` is
  *  empty for places the map does not label. */
 export interface SettlementMark { x: number; y: number; capital: boolean; tier: number; name: string; features?: number }
+/** How far panels cover a canvas from each side (CSS px). */
+export interface ViewInsets { left: number; top: number; right: number; bottom: number }
 /** Ruins (U.7): where a settlement was abandoned, or razed (crossed out). */
 export interface RuinMark { x: number; y: number; name: string; razed: boolean }
 /** A road between two places in world cell coordinates (the main settlements, or centres, of the regions it joins), by
@@ -104,6 +106,9 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   // Cultivated land: one pixel per world cell (1 where cultivated), drawn as wheat-coloured furrows over the territories.
   let fieldCells: Uint8Array | null = null, fieldImage: HTMLCanvasElement | null = null, fieldCount = 0;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
+  // The parts of the canvas the page covers with panels (CSS px), as last shown with `showCells`: zoomed in, the camera
+  // may scroll past the world's top and bottom edges by as much, so places by those edges can be seen clear of them.
+  let insets: ViewInsets = { left: 0, top: 0, right: 0, bottom: 0 };
   let selection: WorldCoordinate | null = null;
   let focus: WorldCoordinate = { x: Math.floor(world.width / 2), y: Math.floor(world.height / 2) };
   let tiles: WorldTile[] = [];
@@ -146,7 +151,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     const scale = Math.min(width / world.width, height / world.height) * zoom;
     const halfHeight = height / scale / 2;
     centerX = wrap(centerX, world.width);
-    centerY = halfHeight >= world.height / 2 ? world.height / 2 : clamp(centerY, halfHeight, world.height - halfHeight);
+    centerY = halfHeight >= world.height / 2 ? world.height / 2 : clamp(centerY, halfHeight - insets.top / scale, world.height - halfHeight + insets.bottom / scale);
     return { width, height, ratio, scale, detail: scale >= Math.max(2, width / 384, height / 256) };
   }
   function visibleTiles(): WorldCoordinate[] {
@@ -241,10 +246,13 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     if (selection) {
       const offsetX = wrap(selection.x + 0.5 - centerX + world.width / 2, world.width) - world.width / 2;
       const x = m.width / 2 + offsetX * m.scale, y = top + (selection.y + 0.5) * m.scale;
+      // Where the selected cell is on the canvas (CSS px), so a page can check it is not under its panels.
+      canvas.dataset.selectionPoint = `${Math.round(x)},${Math.round(y)}`;
       const edge = Math.max(8, m.scale);
       ctx.strokeStyle = '#172c26'; ctx.lineWidth = 3; ctx.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
       ctx.strokeStyle = '#fff7d5'; ctx.lineWidth = 1.5; ctx.strokeRect(x - edge / 2, y - edge / 2, edge, edge);
     }
+    if (!selection) delete canvas.dataset.selectionPoint;
     canvas.dataset.rendered = 'true'; canvas.dataset.worldKey = world.worldKey; canvas.dataset.layer = layer;
     canvas.dataset.zoom = String(zoom); canvas.dataset.centerX = String(centerX); canvas.dataset.centerY = String(centerY);
     canvas.dataset.scale = String(m.scale); canvas.dataset.detail = String(m.detail);
@@ -616,6 +624,31 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     clearSelection() { select(null); },
     /** Centre the view on a cell and select it (for example a civilization's capital picked from a list). */
     focusCell(cell: WorldCoordinate) { centerX = cell.x + 0.5; centerY = cell.y + 0.5; changed(); select(cell); },
+    /** Select a cell without moving the view. */
+    selectCell(cell: WorldCoordinate) { select(cell); },
+    /**
+     * Show a set of cells (a story's regions, a realm, one place) in the part of the canvas the page leaves free
+     * (`free`: the panels' insets, CSS px): zoomed so their bounds, with a margin, fit it (between `minZoom`, enough for
+     * the camera to move north and south, and `maxZoom`), their middle at its middle. Longitude wraps: the bounds are
+     * the narrowest span around the world that holds them.
+     */
+    showCells(cells: WorldCoordinate[], free: ViewInsets, limits: { minZoom: number; maxZoom: number }) {
+      if (!cells.length) return;
+      insets = { ...free };
+      const before = metrics(), x0 = cells[0].x, margin = 3;
+      let minX = 0, maxX = 0, minY = cells[0].y, maxY = cells[0].y;
+      for (const cell of cells) {
+        const dx = wrap(cell.x - x0 + world.width / 2, world.width) - world.width / 2;
+        minX = Math.min(minX, dx); maxX = Math.max(maxX, dx); minY = Math.min(minY, cell.y); maxY = Math.max(maxY, cell.y);
+      }
+      const freeWidth = Math.max(40, before.width - free.left - free.right), freeHeight = Math.max(40, before.height - free.top - free.bottom);
+      const base = before.scale / zoom, fits = Math.min(freeWidth / (maxX - minX + 1 + 2 * margin), freeHeight / (maxY - minY + 1 + 2 * margin)) / base;
+      zoom = clamp(Math.min(fits, limits.maxZoom), Math.max(1, limits.minZoom), 64);
+      const scale = base * zoom;
+      centerX = x0 + (minX + maxX + 1) / 2 - (free.left + freeWidth / 2 - before.width / 2) / scale;
+      centerY = (minY + maxY + 1) / 2 - (free.top + freeHeight / 2 - before.height / 2) / scale;
+      changed();
+    },
     /** Band markers in world cell coordinates; replaces the previous set. */
     setBands(next: BandMarker[]) { markers = next; safe(() => overlay ? drawOverlay() : draw()); },
     /**

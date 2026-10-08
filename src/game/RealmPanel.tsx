@@ -2,7 +2,7 @@ import { ERA_NAMES, SETTLEMENT_TIERS, simulationDate, VALUE_NAMES, type Observer
 import type { RegionSummary } from '../../shared/simulation.ts';
 import { describeEvent } from '../observer/events.ts';
 import {
-  ACTION_NAMES, AGREEMENT_NAMES, BELIEF_NAMES, causeText, COST_KINDS, COST_NAMES, DECISION_LABELS, decisionTarget, factorName, NEED_LABELS, STATUS_NAMES, totalCost, units,
+  ACTION_NAMES, AGREEMENT_NAMES, BELIEF_NAMES, causeText, COST_KINDS, COST_NAMES, DECISION_LABELS, decisionTarget, factorName, NEED_LABELS, REVENUE_KINDS, REVENUE_NAMES, STATUS_NAMES, totalCost, totalRevenue, units,
   type InspectedPolity,
 } from '../observer/labels.ts';
 import { cssColor, polityColor } from '../observer/palettes.ts';
@@ -14,7 +14,7 @@ const number = new Intl.NumberFormat('en');
 export const people = (count: number) => count >= 1e6 ? `${(count / 1e6).toFixed(1)} M` : count >= 1e4 ? `${Math.round(count / 1e3)} k` : number.format(Math.round(count));
 const year = (tick: number) => number.format(simulationDate(tick).year);
 const percent = (share: number) => `${Math.round(share * 100)}%`;
-const signed = (value: number) => `${value >= 0 ? '+' : '−'}${number.format(Math.abs(Math.round(value)))}`;
+const signed = (value: number) => { const shown = Math.round(value); return `${shown >= 0 ? '+' : '−'}${number.format(Math.abs(shown))}`; };
 const plural = (count: number, one: string, many: string) => `${number.format(count)} ${count === 1 ? one : many}`;
 const TIER_PLURALS = ['villages', 'towns', 'cities', 'metropolises'] as const;
 
@@ -100,11 +100,12 @@ function Overview({ polity }: { polity: InspectedPolity }) {
         <h3>Its strongest options</h3>
         <ol className="game-weighed" aria-label="What it weighed">{decision.options.map((option, at) => <li key={at} className={at === decision.pick ? 'game-weighed-chosen' : undefined}>
           <p className="game-row-head"><strong>{ACTION_NAMES[option.action]}{option.label ? ` · ${option.label}` : option.target !== null && option.action === 'expand' ? ` · region ${option.target}` : ''}</strong>
-            {at === decision.pick && <span className="game-standing">chosen</span>}{option.score < 0 ? <span className="game-muted game-bar-value">ruled out</span> : <span className="game-bar-value">{option.score.toFixed(2)}</span>}</p>
+            {at === decision.pick && <span className="game-standing">chosen</span>}{option.score < 0 ? <span className="game-muted game-bar-value">ruled out</span>
+              : <span className="game-bar-value">{!option.drawn && <span className="game-muted">not in the draw · </span>}{option.score.toFixed(2)}</span>}</p>
           {option.factors.length > 0 && <p className="game-muted">{option.factors.slice(0, 4).map(entry => `${factorName(entry.factor)} ${entry.weight >= 0 ? '+' : '−'}${Math.abs(entry.weight).toFixed(2)}`).join(', ')}</p>}
           {option.beliefs?.map(belief => <p key={`${belief.polity}-${belief.kind}`} className="game-muted">Believed the {belief.name}'s {BELIEF_NAMES[belief.kind]} {belief.kind === 'era' ? ERA_NAMES[Math.round(belief.estimate)] ?? '?' : people(belief.estimate)} (truly {belief.kind === 'era' ? ERA_NAMES[Math.round(belief.truth)] ?? '?' : people(belief.truth)}).</p>)}
         </li>)}</ol>
-        <p className="game-muted">The options it weighed highest. It picks among its best three by chance, weighted by score; doing nothing is always weighed, and an option scored below zero is ruled out.</p>
+        <p className="game-muted">The options it weighed highest. It draws by chance among its best three that score enough to be worth considering, weighted by score; doing nothing is always weighed, and an option scored below zero could not be taken.</p>
       </> : <p className="game-muted">No decision yet: every six months it weighs expanding, exploring, uniting, sharing knowledge, building, trading, treaties, voyages or doing nothing.</p>}
     </section>}
     {realm ? <section aria-label="At a glance" id="game-realm-glance">
@@ -154,6 +155,7 @@ function Diplomacy({ polity }: { polity: InspectedPolity }) {
         {trade.length > 0 && <p className="game-muted">{trade.map(treaty => `${treaty.imports ? 'Buys' : 'Sells'} ${units(treaty.amount)} ${treaty.resource} a year`).join('; ')}.</p>}
       </li>;
     })}</ol>
+    {polity.met > polity.diplomacy.length && <p className="game-muted" id="game-diplomacy-more">And {plural(polity.met - polity.diplomacy.length, 'other people', 'other peoples')} it has met and knows less well.</p>}
     <p className="game-muted">Opinion runs from −100 to +100. It comes from faith, likeness, kinship, borders, sharing, trade, pacts, alliances, joint roads and what it remembers.</p>
     {unmet}
   </>;
@@ -165,7 +167,7 @@ function Economy({ polity }: { polity: InspectedPolity }) {
   const wealth = polity.wealth;
   if (!wealth) return null;
   const { revenue, costs } = wealth;
-  const income = revenue.trades + revenue.farms + revenue.sites + wealth.agreements, spending = totalCost(costs);
+  const income = totalRevenue(revenue) + wealth.agreements, spending = totalCost(costs);
   const line = (name: string, value: number) => <div key={name}><dt>{name}</dt><dd>{number.format(Math.round(value))}</dd></div>;
   return <>
     <section aria-label="The purse" id="game-economy-purse">
@@ -173,7 +175,7 @@ function Economy({ polity }: { polity: InspectedPolity }) {
       <p>Treasury {number.format(wealth.treasury)} · taxes {percent(wealth.taxRate)} of what its people produce.</p>
       <div className="game-ledger">
         <dl aria-label="Revenue"><dt className="game-ledger-head">Revenue</dt><dd className="game-ledger-head">{number.format(Math.round(income))}</dd>
-          {line('trades', revenue.trades)}{line('farms', revenue.farms)}{revenue.sites > 0 && line('mines and quarries', revenue.sites)}
+          {REVENUE_KINDS.map(kind => (revenue[kind] > 0 || kind !== 'sites') && line(REVENUE_NAMES[kind], revenue[kind]))}
           {wealth.agreements !== 0 && <div><dt>trade agreements</dt><dd>{signed(wealth.agreements)}</dd></div>}</dl>
         <dl aria-label="Costs"><dt className="game-ledger-head">Costs</dt><dd className="game-ledger-head">{number.format(Math.round(spending))}</dd>
           {COST_KINDS.map(cost => line(COST_NAMES[cost], costs[cost]))}</dl>
@@ -209,11 +211,11 @@ function Knowledge({ polity }: { polity: InspectedPolity }) {
   return <>
     <section aria-label="Research">
       <h3>Research · {polity.researchPerYear.toLocaleString('en', { maximumFractionDigits: 1 })} points a year</h3>
-      {polity.contacts > 0 && <p className="game-muted">Quickened by {plural(polity.contacts, 'people', 'peoples')} it has met within two regions of its land.</p>}
+      {polity.contacts > 0 && <p className="game-muted">Quickened by its contact with {plural(polity.contacts, 'people', 'peoples')} it has met within two regions of its land (as many as count).</p>}
       {research ? <>
         <p id="game-research"><strong>{research.tech}</strong> <span className="game-muted">{percent(share)}</span></p>
         <span className="game-bar-track game-progress" aria-hidden="true"><span style={{ width: `${share * 100}%` }} /></span>
-        {research.reasons.length > 0 && <p className="game-muted">Chosen for {research.reasons.map(reason => `${factorName(reason.factor)} ${reason.weight >= 0 ? '+' : ''}${reason.weight.toFixed(2)}`).join(', ')}.</p>}
+        {research.reasons.length > 0 && <p className="game-muted">{causeText(research.reasons, factorName, 'Chosen for')}</p>}
         {research.candidates.length > 0 && <Bars label="Research options" entries={research.candidates.map(option => ({ name: option.tech, value: option.weight / Math.max(1e-9, ...research.candidates.map(entry => entry.weight)) }))} />}
         {research.candidates.length > 0 && <p className="game-muted">The strongest options at its last choice, by weight against the strongest: it picks by chance, weighted, among everything it could research, and keeps its target unless another grows much stronger.</p>}
         {(research.sharedBy || research.catchUp > 1) && <p className="game-muted">Faster{research.sharedBy ? ` ×${research.shareSpeed.toFixed(1)} while the ${research.sharedBy} share what they know` : ''}{research.sharedBy && research.catchUp > 1 ? ' and' : ''}{research.catchUp > 1 ? ` ×${research.catchUp.toFixed(2)} catching up on an older era` : ''}.</p>}

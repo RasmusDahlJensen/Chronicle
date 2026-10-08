@@ -222,8 +222,18 @@ test('before the first month no scenario applies, and a fresh history is unalter
 
 test('event templates never nest conditionals (the renderer cannot)', () => {
   for (const type of EVENT_TYPES) {
-    const flat = EVENT_TEMPLATES[type].replace(/\{\?(\w+)\|((?:[^{}]|\{@?\w+\})*)\}/g, '');
+    // A conditional may hold names and counted nouns ({key|one|many}), never another conditional.
+    const flat = EVENT_TEMPLATES[type].replace(/\{\?(\w+)\|((?:[^{}]|\{@?\w+(?:\|[^{}|]*\|[^{}|]*)?\})*)\}/g, '').replace(/\{\w+\|[^{}|]*\|[^{}|]*\}/g, '');
     assert.ok(!flat.includes('{?') && !flat.includes('|'), `${type}: ${EVENT_TEMPLATES[type]}`);
+  }
+});
+
+test('counted nouns in event texts agree with their counts: one region, one art (the U close-out review)', () => {
+  // A plain count before a plural noun is right only inside a guard that holds for more than one (more, many, several…).
+  const plural = /^(more|many|moreRegions|severalYears|others|both)$/;
+  for (const type of EVENT_TYPES) {
+    const unguarded = EVENT_TEMPLATES[type].replace(/\{\?(\w+)\|((?:[^{}]|\{@?\w+(?:\|[^{}|]*\|[^{}|]*)?\})*)\}/g, (_match, flag: string, text: string) => plural.test(flag) ? '' : text);
+    assert.doesNotMatch(unguarded, /\{\w+\} (regions|arts|realms|peoples|settlements|soldiers|years)\b/, `${type}: ${EVENT_TEMPLATES[type]}`);
   }
 });
 

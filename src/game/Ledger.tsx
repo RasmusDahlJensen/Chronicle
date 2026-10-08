@@ -12,7 +12,7 @@ type Civ = ObserverFrame['civList'][number];
  * The ledger (U.4; the "Observatory" direction): the world over time, the table of realms and the treaty web, from the
  * frame. Choosing a realm returns to the map at its capital.
  */
-export function Ledger({ frame, regions, width, height, onChoose }: { frame: ObserverFrame; regions: RegionData | null; width: number; height: number; onChoose: (cell: number) => void }) {
+export function Ledger({ frame, regions, width, height, onChoose }: { frame: ObserverFrame; regions: RegionData | null; width: number; height: number; onChoose: (cell: number, civ: number) => void }) {
   return <section className="game-ledger-view" aria-label="Ledger">
     <div className="game-ledger-charts">
       <PeopleChart frame={frame} />
@@ -108,7 +108,7 @@ const COLUMNS: Column[] = [
 ];
 
 /** Every civilization (the 100 largest), sortable by any column. */
-function RealmTable({ civs, total, onChoose }: { civs: Civ[]; total: number; onChoose: (cell: number) => void }) {
+function RealmTable({ civs, total, onChoose }: { civs: Civ[]; total: number; onChoose: (cell: number, civ: number) => void }) {
   const [sort, setSort] = useState<{ key: keyof Civ; descending: boolean }>({ key: 'population', descending: true });
   const rows = useMemo(() => [...civs].sort((a, b) => {
     const x = a[sort.key] ?? '', y = b[sort.key] ?? '';
@@ -124,7 +124,7 @@ function RealmTable({ civs, total, onChoose }: { civs: Civ[]; total: number; onC
         <button type="button" onClick={() => setSort(current => ({ key: column.key, descending: current.key === column.key ? !current.descending : column.numeric }))}>{column.label}</button>
       </th>)}</tr></thead>
       <tbody>{rows.map(civ => <tr key={civ.id}>{COLUMNS.map(column => column.key === 'name'
-        ? <th key="name" scope="row"><button type="button" onClick={() => onChoose(civ.capitalCell)} title={`Show the ${civ.name} on the map`}>
+        ? <th key="name" scope="row"><button type="button" onClick={() => onChoose(civ.capitalCell, civ.id)} title={`Show the ${civ.name} on the map`}>
           <span className="game-swatch" style={{ backgroundColor: cssColor(polityColor(civ.id)) }} aria-hidden="true" />{civ.name}</button></th>
         : <td key={column.key} className={column.numeric ? 'game-numeric' : undefined}>{column.format(civ)}</td>)}</tr>)}</tbody>
     </table></div> : <p className="game-muted">No civilization has risen yet.</p>}
@@ -189,7 +189,7 @@ const WEB_KINDS = ['alliance', 'nonAggression', 'trade', 'road'] as const;
 const WEB_COUNTS: Record<typeof WEB_KINDS[number], [string, string]> = { alliance: ['alliance', 'alliances'], nonAggression: ['pact', 'pacts'], trade: ['pair trading', 'pairs trading'], road: ['joint road', 'joint roads'] };
 
 /** The civilizations at their capitals, joined by their treaties; choosing one shows its own and names its partners. */
-function TreatyWeb({ frame, regions, width, height, onChoose }: { frame: ObserverFrame; regions: RegionData | null; width: number; height: number; onChoose: (cell: number) => void }) {
+function TreatyWeb({ frame, regions, width, height, onChoose }: { frame: ObserverFrame; regions: RegionData | null; width: number; height: number; onChoose: (cell: number, civ: number) => void }) {
   const [chosen, setChosen] = useState<number | null>(null);
   // The land (every region's centre) changes only with the world, not with each frame.
   const land = useMemo(() => regions && <g className="game-web-land">{regions.map.regions.map(region => <circle key={region.id} cx={region.centroid % width + 0.5} cy={Math.floor(region.centroid / width) + 0.5} r={1.6 * width / 512} />)}</g>, [regions, width]);
@@ -214,7 +214,7 @@ function TreatyWeb({ frame, regions, width, height, onChoose }: { frame: Observe
       <option value="">All realms</option>
       {frame.civList.map(civ => <option key={civ.id} value={civ.id}>The {civ.name}</option>)}
     </select></label>
-    <svg viewBox={`0 0 ${width} ${height}`} className="game-web-map" role="img" aria-label={`Treaty web: ${shown.length} treaties between ${civs.size} civilizations`} data-treaties={shown.length}>
+    <svg viewBox={`0 0 ${width} ${height}`} className="game-web-map" role="img" aria-label={`Treaty web: ${count(shown.length, 'treaty', 'treaties')} between ${count(civs.size, 'civilization', 'civilizations')}`} data-treaties={shown.length}>
       <rect x={0} y={0} width={width} height={height} className="game-web-sea" />
       {land}
       {shown.map(treaty => segments(at(civs.get(treaty.a)!), at(civs.get(treaty.b)!)).map((part, index) => <line key={`${treaty.a}-${treaty.b}-${treaty.kind}-${index}`}
@@ -229,7 +229,7 @@ function TreatyWeb({ frame, regions, width, height, onChoose }: { frame: Observe
       {mine.length ? <ul>{WEB_KINDS.map(kind => { const partners = mine.filter(treaty => treaty.kind === kind).map(treaty => civs.get(treaty.a === focus.id ? treaty.b : treaty.a)!.name);
         return partners.length ? <li key={kind}><span className="game-swatch" style={{ backgroundColor: TREATY_COLORS[kind] }} aria-hidden="true" />{AGREEMENT_NAMES[kind]}: {partners.map(name => `the ${name}`).join(', ')}</li> : null; })}</ul>
         : <p className="game-muted">No treaties with the largest realms now.</p>}
-      <button type="button" onClick={() => onChoose(focus.capitalCell)}>Show the {focus.name} on the map</button>
+      <button type="button" onClick={() => onChoose(focus.capitalCell, focus.id)}>Show the {focus.name} on the map</button>
     </div>}
   </section>;
 }

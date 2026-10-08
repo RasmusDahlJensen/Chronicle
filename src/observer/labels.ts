@@ -32,6 +32,11 @@ export const AGREEMENT_NAMES: Record<typeof AGREEMENT_KINDS[number], string> = {
 /** A realm's yearly costs in words, in the budget's order (a typed record: a new cost needs its name). */
 export const COST_NAMES: Record<keyof NonNullable<InspectedPolity['wealth']>['costs'], string> = { administration: 'administration', services: 'services', upkeep: 'upkeep', roads: 'roads' };
 export const COST_KINDS = Object.keys(COST_NAMES) as (keyof typeof COST_NAMES)[];
+/** A realm's yearly revenue in words (a typed record: a new source of income, such as M6's tribute and loot, needs its
+ *  name, and the totals sum every source). */
+export const REVENUE_NAMES: Record<keyof NonNullable<InspectedPolity['wealth']>['revenue'], string> = { trades: 'trades', farms: 'farms', sites: 'mines and quarries' };
+export const REVENUE_KINDS = Object.keys(REVENUE_NAMES) as (keyof typeof REVENUE_NAMES)[];
+export const totalRevenue = (revenue: Record<keyof typeof REVENUE_NAMES, number>) => Object.values(revenue).reduce((sum, value) => sum + value, 0);
 /** The sum of a realm's yearly costs. */
 export const totalCost = (costs: Record<keyof typeof COST_NAMES, number>) => Object.values(costs).reduce((sum, value) => sum + value, 0);
 
@@ -48,10 +53,10 @@ export function decisionTarget(step: Decision) {
 }
 
 /** A decision's causes: what drove it, and what held it back ("despite"). */
-export function causeText(causes: { factor: string; weight: number }[], name = (factor: string) => factor) {
+export function causeText(causes: { factor: string; weight: number }[], name = (factor: string) => factor, lead = 'Because of') {
   const why = causes.filter(cause => cause.weight > 0).map(cause => `${name(cause.factor)} +${cause.weight.toFixed(2)}`);
-  const despite = causes.filter(cause => cause.weight < 0).map(cause => `${name(cause.factor)} ${cause.weight.toFixed(2)}`);
-  return `${why.length ? `Because of ${why.join(', ')}` : 'Chosen'}${despite.length ? `, despite ${despite.join(', ')}` : ''}.`;
+  const despite = causes.filter(cause => cause.weight < 0).map(cause => `${name(cause.factor)} −${Math.abs(cause.weight).toFixed(2)}`);
+  return `${why.length ? `${lead} ${why.join(', ')}` : 'Chosen'}${despite.length ? `, despite ${despite.join(', ')}` : ''}.`;
 }
 
 /** Resource units, readable from thousandths to hundreds. */

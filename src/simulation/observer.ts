@@ -21,7 +21,7 @@ import { ancestry, lineOf } from './culture.ts';
 import { TRAITS } from './traits.ts';
 import { TENETS } from './religions.ts';
 import { ERAS, TECHS } from './techs.ts';
-import { FOOD_TUNING, REACH_TUNING } from './tunables.ts';
+import { DECISION_TUNING, FOOD_TUNING, REACH_TUNING, RESEARCH_TUNING } from './tunables.ts';
 
 type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'ruins' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect'>;
 
@@ -205,7 +205,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       capital: capital ? { name: capital.name, cell: capital.cell, settled: polity.settledTick ?? capital.foundedTick } : null,
       era: knowledge.era, known: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => definition.name),
       knownEras: TECHS.filter((_, tech) => knowledge.known[tech]).map(definition => ERAS.indexOf(definition.era)),
-      researchPerYear: round(researchRate(state, polity), 2), contacts: polity.contacts.length,
+      researchPerYear: round(researchRate(state, polity), 2), contacts: Math.min(polity.contacts.length, RESEARCH_TUNING.contactCap),
       reachKm: Math.round(REACH_TUNING.baseKm * knowledge.multipliers.reach), capitalKm: Math.round(kmFromCapital),
       lastDecision: lastDecision(state, polity),
       resources: polity.kind !== 'civ' ? [] : RESOURCE_IDS.flatMap((resource, at) => polity.supply[at] > 0 || polity.demand[at] > 0 || polity.imports[at] > 0
@@ -437,6 +437,18 @@ function peopleView(state: SimulationState, group: PopulationGroup, living: { re
   };
 }
 
+/** Whether the choice could draw an option (the log keeps them best first): among the best DECISION_TUNING.topChoices of
+ *  those scoring at least DECISION_TUNING.minScore. */
+function drawable(options: readonly { score: number }[], at: number) {
+  let place = 0;
+  for (let index = 0; index < options.length; index++) {
+    if (options[index].score < DECISION_TUNING.minScore) continue;
+    if (index === at) return place < DECISION_TUNING.topChoices;
+    place++;
+  }
+  return false;
+}
+
 /** The polity's last decision step for the inspector: each option's strongest factors (by size), best option first. */
 function lastDecision(state: SimulationState, polity: Polity): NonNullable<NonNullable<ObserverFrame['inspect']>['polity']>['lastDecision'] {
   const step = polity.decisions.at(-1);
@@ -445,8 +457,8 @@ function lastDecision(state: SimulationState, polity: Polity): NonNullable<NonNu
     tick: step.tick, chosen: step.chosen, pick: step.pick, outcome: step.outcome.slice(0, 80),
     values: roundValues(step.values),
     needs: Object.fromEntries(NEED_NAMES.map(need => [need, round(step.needs[need])])) as typeof step.needs, causes: step.causes.slice(0, 4),
-    options: step.options.slice(0, 4).map(option => ({
-      action: option.action, score: option.score, target: option.target, label: option.label,
+    options: step.options.slice(0, 4).map((option, at) => ({
+      action: option.action, score: option.score, drawn: drawable(step.options, at), target: option.target, label: option.label,
       factors: option.factors.filter(entry => entry.weight !== 0).sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight)).slice(0, 8),
       ...(option.beliefs ? { beliefs: option.beliefs.slice(0, 4).map(belief => ({ ...belief, name: state.polities[belief.polity].name })) } : {}),
     })),

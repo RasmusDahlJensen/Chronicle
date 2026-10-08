@@ -108,7 +108,7 @@ test('every event type has a text template that fills its data, actors and regio
     describeEvent({ id: 3, tick: 0, type, actors: [], region: 3, settlement: null, causes: [], parents: [], importance: 0, data });
   assert.equal(event('techDiscovered', { name: 'Kavo', tech: 'Pottery', era: 'Neolithic', first: false, taught: true, teacher: 'Ora' }), 'The Kavo learn Pottery (Neolithic era), helped by the Ora.');
   assert.equal(event('techDiscovered', { name: 'Kavo', tech: 'Pottery', era: 'Neolithic', first: false, taught: false }), 'The Kavo learn Pottery (Neolithic era).');
-  assert.equal(event('bandJoined', { name: 'Kesh', civ: 'Ora', population: 900, regions: 2, kin: false, learned: true, techs: 1 }), 'The Kesh tribe of 900 people joins the Ora, bringing 2 regions and 1 arts the Ora did not know.');
+  assert.equal(event('bandJoined', { name: 'Kesh', civ: 'Ora', population: 900, regions: 2, kin: false, learned: true, techs: 1 }), 'The Kesh tribe of 900 people joins the Ora, bringing 2 regions and 1 art the Ora did not know.');
   assert.equal(event('unification', { name: 'Tal', civ: 'Ora', regions: 3, population: 5000, kin: true, learned: false, techs: 0 }), 'The Tal join the Ora, their kin: 3 regions and 5,000 people unite under one rule.');
   assert.equal(event('knowledgeShared', { name: 'Ora', other: 'Kesh', years: 40 }), 'The Ora and the Kesh agree to share what they know for 40 years.');
 });

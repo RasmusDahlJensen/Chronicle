@@ -23,6 +23,20 @@ async function ready(page: Page) {
 }
 
 /** The game page (U.1) on this world, in its own tab: the world chosen in the tab is this test's. */
+/** Whether the map's selected cell lies clear of the game's panels (the place panel, the rail, the lenses and ticker). */
+async function selectionClear(page: Page) {
+  return page.evaluate(() => {
+    const canvas = document.querySelector('#game-map-canvas') as HTMLCanvasElement | null, point = canvas?.dataset.selectionPoint;
+    if (!canvas || !point) return false;
+    const box = canvas.getBoundingClientRect(), [x, y] = point.split(',').map(Number), at = { x: box.left + x, y: box.top + y };
+    if (at.x < box.left || at.x > box.right || at.y < box.top || at.y > box.bottom) return false;
+    return ['.game-place', '.game-side', '.game-ticker'].every(selector => {
+      const rect = document.querySelector(selector)?.getBoundingClientRect();
+      return !rect || at.x < rect.left || at.x > rect.right || at.y < rect.top || at.y > rect.bottom;
+    });
+  });
+}
+
 async function openGame(page: Page) {
   await page.addInitScript(([seed, size]) => sessionStorage.setItem('chronicle.world', JSON.stringify({ seed, size })), [SEED, SIZE]);
   await page.goto('/');
@@ -314,6 +328,8 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await lead.click();
   await expect(lead).toHaveAttribute('aria-pressed', 'true');
   await expect(mapCanvas).toHaveAttribute('data-highlight-regions', String(told[0].regions.length));
+  // The map shows where it happened, clear of the panels (the U close-out review).
+  await expect.poll(() => selectionClear(game)).toBe(true);
   await lead.click();
   await expect(mapCanvas).toHaveAttribute('data-highlight-regions', '0');
   // A living realm's story (a rise, decline, union or trade web) goes to that realm and opens its panel.
@@ -321,6 +337,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   expect(realmStory).toBeGreaterThanOrEqual(0);
   await stories.nth(realmStory).getByRole('button').click();
   await expect(game.locator('#game-realm-name')).toHaveText(`The ${told[realmStory].name}`);
+  await expect.poll(() => selectionClear(game)).toBe(true);
   await expect(mapCanvas).toHaveAttribute('data-highlight-regions', String(told[realmStory].regions.length));
   await game.getByRole('complementary', { name: 'Selected place' }).getByRole('button', { name: 'Close' }).click();
   await expect(mapCanvas).toHaveAttribute('data-highlight-regions', '0');
@@ -333,6 +350,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(powers.getByRole('listitem').first()).toContainText(frame.civList[0].name);
   await powers.getByRole('button').first().click();
   await expect(game.locator('#game-realm-name')).toHaveText(`The ${frame.civList[0].name}`);
+  await expect.poll(() => selectionClear(game)).toBe(true);
   const place = game.getByRole('complementary', { name: 'Selected place' });
   await expect(place).toContainText(`capital ${frame.civList[0].capital}`);
   // U.2: its realm panel. Each tab shows this realm's state, as the frame for its capital's region carries it.

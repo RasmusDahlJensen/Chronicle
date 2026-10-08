@@ -48,6 +48,8 @@ export function Game() {
   const [showTrade, setShowTrade] = useState(true);
   const [showRoads, setShowRoads] = useState(true);
   const [menu, setMenu] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const closeMenu = () => { setMenu(false); requestAnimationFrame(() => menuButton.current?.focus()); };
   // The realm panel's tab, kept while other land is chosen so realms can be compared.
   const [tab, setTab] = useState<RealmTab>('overview');
   // The right-hand panel's tab, and the story chosen to be shown on the map: followed by its id into each new frame (its
@@ -73,7 +75,7 @@ export function Game() {
 
   const { regions, regionError } = useRegionMap(world);
   const [frame, setFrame] = useState<ObserverFrame | null>(null);
-  const [restartSeen, setRestartSeen] = useState(false);
+  const [restartSeen, setRestartSeen] = useState<string | null>(null);
   useEffect(() => { setFrame(null); }, [world]);
   const story = chosen ? frame?.stories.find(entry => entry.id === chosen.id) ?? chosen : null;
   // The highlight changes only when the story's regions do, not with every frame.
@@ -91,7 +93,6 @@ export function Game() {
   const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight, standings, perspective });
   const region = map.cellRegion;
   const observer = useObserver({ settings: world?.settings ?? null, startFresh: shown.current.fresh, inspect: region?.id ?? null, view: viewAs?.id ?? null, onFrame: setFrame });
-  useEffect(() => { if (!observer.restarted) setRestartSeen(false); }, [observer.restarted]);
   const names = observer.names;
   const inspected = frame?.inspect && region && frame.inspect.region === region.id ? frame.inspect : null;
   // The realm last shown stays (dimmed) while newly chosen land is read, so the panel neither flickers nor loses focus.
@@ -122,7 +123,24 @@ export function Game() {
   function chooseStory(next: Story) {
     if (story?.id === next.id) { setStory(null); return; }
     setStory(next);
-    if (next.focus !== null) map.focusCell(next.focus);
+    if (next.focus !== null) map.show(next.focus, next.regions, freeOfPanels);
+  }
+  /** The part of the map the panels leave free (the place panel, the stories and powers, the lenses and ticker), as
+   *  insets from the map canvas's edges: what "show on the map" fits a place or a realm into. */
+  function freeOfPanels() {
+    const canvas = map.canvas.current?.getBoundingClientRect(), gap = 16;
+    if (!canvas) return { left: 0, top: 0, right: 0, bottom: 0 };
+    const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect() ?? null;
+    const place = rect('.game-place'), side = rect('.game-side'), ticker = rect('.game-ticker');
+    return {
+      left: place ? Math.max(0, place.right - canvas.left) + gap : gap, top: gap,
+      right: side ? Math.max(0, canvas.right - side.left) + gap : gap, bottom: ticker ? Math.max(0, canvas.bottom - ticker.top) + gap : gap,
+    };
+  }
+  /** Shows a realm: its capital selected, its land in view. */
+  function showRealm(id: number, capitalCell: number) {
+    const held = frame ? frame.markers.regions.filter((_, at) => frame.markers.ids[at] === id) : [];
+    map.show(capitalCell, held, freeOfPanels);
   }
 
   return <div className="game">
@@ -156,10 +174,10 @@ export function Game() {
         <div><dt>settlements</dt><dd>{number.format(frame.settlementCount)}</dd></div>
       </dl>}
       <div className="game-menu">
-        <button type="button" aria-expanded={menu} onClick={() => setMenu(open => !open)}>World</button>
-        {menu && <WorldMenu settings={world?.settings ?? request.settings} onClose={() => setMenu(false)}
-          onChoose={settings => { setMenu(false); setRequest(current => ({ settings, revision: current.revision + 1 })); }}
-          onReset={() => { setMenu(false); void observer.send({ action: 'reset' }); }} />}
+        <button type="button" ref={menuButton} aria-expanded={menu} onClick={() => setMenu(open => !open)}>World</button>
+        {menu && <WorldMenu settings={world?.settings ?? request.settings} onClose={closeMenu}
+          onChoose={settings => { closeMenu(); setRequest(current => ({ settings, revision: current.revision + 1 })); }}
+          onReset={() => { closeMenu(); void observer.send({ action: 'reset' }); }} />}
         <a href="?lab" className="game-lab-link">Lab</a>
       </div>
     </header>
@@ -178,14 +196,14 @@ export function Game() {
         {map.canvasError && <p className="game-error" role="alert">{map.canvasError} <button type="button" onClick={map.retryCanvas}>Retry</button></p>}
         {map.tileError && <p className="game-error" role="alert">{map.tileError} <button type="button" onClick={map.retryDetail}>Retry detail</button></p>}
         {regionError && <p className="game-error" role="alert">The simulation's regions could not be read: {regionError}</p>}
-        {observer.restarted && !restartSeen && <p className="game-notice" role="status">This world's history started again at year 0: Chronicle restarted or the simulation was stopped. <button type="button" onClick={() => setRestartSeen(true)}>Dismiss</button></p>}
+        {observer.restarted && frame && restartSeen !== frame.instance.runId && <p className="game-notice" role="status">This world's history started again at year 0: Chronicle restarted or the simulation was stopped. <button type="button" onClick={() => setRestartSeen(frame.instance.runId)}>Dismiss</button></p>}
       </div>
 
       {chronicleOpened && frame && world && <ChronicleView settings={world.settings} frame={frame} regions={regions} hidden={view !== 'chronicle'}
         selected={realmShown?.polity ? { id: realmShown.polity.id, name: realmShown.polity.name } : null}
-        onShow={cell => { setView('map'); map.focusCell(cell); requestAnimationFrame(() => map.canvas.current?.focus()); }} />}
+        onShow={cell => { setView('map'); map.show(cell, [], freeOfPanels); requestAnimationFrame(() => map.canvas.current?.focus()); }} />}
       {view === 'ledger' && frame && world && <Ledger frame={frame} regions={regions} width={world.width} height={world.height}
-        onChoose={cell => { setView('map'); map.focusCell(cell); requestAnimationFrame(() => map.canvas.current?.focus()); }} />}
+        onChoose={(cell, id) => { setView('map'); showRealm(id, cell); requestAnimationFrame(() => map.canvas.current?.focus()); }} />}
 
       {view === 'map' && <>
       {(map.cell || map.inspecting) && <aside className="game-panel game-place" aria-label="Selected place">
@@ -208,14 +226,14 @@ export function Game() {
         <Tabs id="game-side" label="The world now" tabs={SIDE_TABS} names={SIDE_NAMES} chosen={side} onChoose={setSide} className="game-side-tabs" panelClassName="game-side-body">
         {side === 'stories' ? <StoryRail stories={frame.stories} chosen={story?.id ?? null} onChoose={chooseStory} names={names} /> : powers.length === 0 ? <p className="game-muted">No civilization has risen yet.</p> : <>
         <ol aria-label="Civilizations by people" className="game-powers">{powers.map(civ => <li key={civ.id}>
-          <button type="button" onClick={() => map.focusCell(civ.capitalCell)} title={`Go to ${civ.capital}, the capital`}>
+          <button type="button" onClick={() => showRealm(civ.id, civ.capitalCell)} title={`Go to ${civ.capital}, the capital`}>
             <span className="game-swatch" style={{ backgroundColor: cssColor(polityColor(civ.id)) }} aria-hidden="true" />
             <span className="game-power-name">{civ.name}<span className="game-power-era">{ERA_NAMES[civ.era]}</span></span>
             <span className="game-power-bar" aria-hidden="true"><span style={{ width: `${Math.min(100, civ.population / Math.max(1, powers[0].population) * 100)}%` }} /></span>
             <span className="game-power-share">{(civ.population / Math.max(1, frame.population) * 100).toFixed(1)}%</span>
           </button>
         </li>)}</ol>
-        <p className="game-muted">{number.format(frame.civs)} civilizations and {number.format(frame.polities - frame.civs)} tribes in all; share of the world's people.</p>
+        <p className="game-muted">{number.format(frame.civs)} {frame.civs === 1 ? 'civilization' : 'civilizations'} and {number.format(frame.polities - frame.civs)} {frame.polities - frame.civs === 1 ? 'tribe' : 'tribes'} in all; share of the world's people.</p>
         </>}
         </Tabs>
       </aside>}
@@ -233,7 +251,7 @@ export function Game() {
         </div>
         {viewAs && <p className="game-view-chip"><span role="status">The world as the {seenBy?.name ?? viewAs.name} know it{frame && !frame.markers.ids.includes(viewAs.id) ? ' (they are gone)' : ''}: fog where they have never been, muted where they remember.</span>
           <button type="button" onClick={() => setViewAs(null)}>Leave their view</button></p>}
-        {frame && <LensKey lens={lens} frame={frame} />}
+        {frame && <LensKey lens={lens} frame={frame} viewing={viewAs?.name ?? null} />}
         {lens === 'diplomacy' && <DiplomacyKey realm={standings?.name ?? null} />}
         {lens === 'density' && <div className="game-lens-key" role="group" aria-label="Density lens"><p>People per km² in each region:</p>
           <div className="game-density-scale"><span className="game-density-bar" style={{ background: DENSITY_GRADIENT }} aria-hidden="true" />
@@ -252,7 +270,7 @@ const STANDING_WORDS: Record<StandingKey, string> = { self: 'the realm', allied:
 const STANDING_KEY = Object.keys(STANDING_COLORS) as StandingKey[];
 
 /** What the political, culture, faith, era and descent lenses' colours mean (U.7), from the frame: the largest first. */
-function LensKey({ lens, frame }: { lens: PeoplesLens; frame: ObserverFrame }) {
+function LensKey({ lens, frame, viewing }: { lens: PeoplesLens; frame: ObserverFrame; viewing: string | null }) {
   const { entries, more } = useMemo((): { entries: { key: string; color: string; name: string; note: string }[]; more: number } => {
     const regions = (count: number) => `${number.format(count)} ${count === 1 ? 'region' : 'regions'}`;
     if (lens === 'polity') return { entries: frame.largest.map(entry => ({ key: String(entry.id), color: cssColor(polityColor(entry.id)), name: `The ${entry.name}`, note: `${entry.kind === 'civ' ? 'civilization' : 'tribe'} · ${people(entry.population)}` })), more: Math.max(0, frame.polities - frame.largest.length) };
@@ -279,7 +297,7 @@ function LensKey({ lens, frame }: { lens: PeoplesLens; frame: ObserverFrame }) {
   if (!entries.length) return null;
   const intro = { polity: 'Each people its own colour, the largest:', culture: 'The culture of the people living in each region, the largest:', faith: 'The faith of the people in each region:', era: 'Each people by the era it has reached:', descent: 'Each people by the starting people it descends from:' } as Record<string, string>;
   return <div className="game-lens-key" role="group" aria-label={`${LENSES.find(entry => entry.lens === lens)?.label ?? ''} lens`}>
-    <p>{intro[lens]}</p>
+    <p>{intro[lens]}{viewing ? ` (the true world, not only what the ${viewing} know)` : ''}</p>
     <ul>{entries.map(entry => <li key={entry.key}><span className="game-swatch" style={{ backgroundColor: entry.color }} aria-hidden="true" />{entry.name} <span className="game-muted">{entry.note}</span></li>)}</ul>
     {more > 0 && <p className="game-muted">And {number.format(more)} more.</p>}
   </div>;

@@ -3,7 +3,7 @@ import { inspectWorldCell, type InspectedWorldCell, type WorldManifest } from '.
 import type { DIPLOMATIC_STATUSES, ObserverFrame, RegionMap } from '../../shared/simulation.ts';
 import { createWorldTileClient } from '../api/generated-world.ts';
 import { fetchRegionMap } from '../api/simulation.ts';
-import { createGeneratedWorldRenderer, type WorldCoordinate, type WorldLayer } from '../renderer/generated-world.ts';
+import { createGeneratedWorldRenderer, type ViewInsets, type WorldCoordinate, type WorldLayer } from '../renderer/generated-world.ts';
 import { cultureColor, densityColor, ERA_COLORS, regionDensities, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, muted, packColor, PERSPECTIVE, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, STANDING_COLORS, TERRITORY_ALPHA, type StandingKey } from './palettes.ts';
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
@@ -229,5 +229,16 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
     clearSelection: () => renderer.current?.clearSelection(), retryDetail: () => retryDetail.current(), retryCanvas: () => setCanvasRevision(current => current + 1),
     /** Centre the map on a cell (by index) and select it. */
     focusCell: (target: number) => { if (world) renderer.current?.focusCell({ x: target % world.width, y: Math.floor(target / world.width) }); },
+    /**
+     * Select a cell (by index) and show it, with these regions if any (a story's, a realm's), clear of the page's panels
+     * (`free`, measured once the selection has opened its panel): a single place close up, a set of regions as a whole.
+     */
+    show: (target: number, regionIds: readonly number[] = [], free: () => ViewInsets = () => ({ left: 0, top: 0, right: 0, bottom: 0 })) => {
+      if (!world || !renderer.current) return;
+      const at = (index: number) => ({ x: index % world.width, y: Math.floor(index / world.width) });
+      renderer.current.selectCell(at(target));
+      const cells = [at(target), ...(regions ? regionIds.flatMap(id => { const region = regions.map.regions[id]; return region ? [at(region.centroid)] : []; }) : [])];
+      requestAnimationFrame(() => renderer.current?.showCells(cells, free(), cells.length > 1 ? { minZoom: 1.5, maxZoom: 5 } : { minZoom: 3, maxZoom: 5 }));
+    },
   };
 }

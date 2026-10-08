@@ -14,11 +14,15 @@ export function StoryRail({ stories, chosen, onChoose, names }: { stories: Obser
   return <ol className="game-stories" aria-label="Stories of the age">{stories.map((story, at) => {
     const told = describeStory(story), open = chosen === story.id;
     return <li key={story.id} data-story-kind={story.kind}>
-      <button type="button" className={at === 0 ? 'game-story game-story-lead' : 'game-story'} aria-pressed={open} onClick={() => onChoose(story)}>
-        <span className="game-story-kind">{at === 0 ? `The story of the age · ${told.kind}` : told.kind}<span className="game-story-years">{told.years}</span></span>
-        <span className="game-story-title">{told.title}</span>
-        <span className="game-story-text">{told.text}</span>
-        {told.why && <span className="game-story-why">{told.why}</span>}
+      {/* Named by its title; the rest describes it (so a screen reader does not read the whole card as the name). */}
+      <button type="button" className={at === 0 ? 'game-story game-story-lead' : 'game-story'} aria-pressed={open} onClick={() => onChoose(story)}
+        aria-labelledby={`game-story-${at}-title`} aria-describedby={`game-story-${at}-about`}>
+        <span id={`game-story-${at}-about`}>
+          <span className="game-story-kind">{at === 0 ? `The story of the age · ${told.kind}` : told.kind}<span className="game-story-years">{told.years}</span></span>
+          <span className="game-story-title" id={`game-story-${at}-title`}>{told.title}</span>
+          <span className="game-story-text">{told.text}</span>
+          {told.why && <span className="game-story-why">{told.why}</span>}
+        </span>
       </button>
       {open && story.events.length > 0 && <ol className="game-story-events" aria-label="From the record">{story.events.map(event => <StoryEvent key={event.id} event={event} names={names} />)}</ol>}
     </li>;
