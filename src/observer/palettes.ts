@@ -29,8 +29,10 @@ export const TERRITORY_ALPHA = { band: 0.55, civ: 0.78 } as const;
  *  M6's war, must be given a colour here), and peoples it has not met. */
 export type StandingKey = 'self' | typeof DIPLOMATIC_STATUSES[number] | 'unknown';
 export const STANDING_COLORS: Record<StandingKey, [number, number, number]> = {
-  self: [238, 200, 118], allied: [96, 186, 112], pact: [110, 200, 210], trade: [92, 124, 222], rival: [176, 52, 44], neutral: [150, 140, 122], unknown: [46, 52, 58],
+  self: [238, 200, 118], allied: [96, 186, 112], pact: [110, 200, 210], trade: [92, 124, 222], rival: [176, 52, 44], neutral: [150, 140, 122], war: [244, 88, 34], unknown: [46, 52, 58],
 };
+/** (M6.2) The wars layer: land fought for is striped in this red; land held by an enemy in its occupier's colour. */
+export const WAR_COLOR: [number, number, number] = [214, 46, 38];
 export const TREATY_COLORS: Record<'alliance' | 'nonAggression' | 'trade' | 'road', string> = { alliance: '#60ba70', nonAggression: '#40a0b0', trade: '#6f8ff0', road: '#d8c79a' };
 /** The perspective lens (U.6): unknown land under fog; remembered land muted toward grey in its last-known people's
  *  colour, or under a grey veil where no one lived. */

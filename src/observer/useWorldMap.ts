@@ -4,7 +4,7 @@ import type { DIPLOMATIC_STATUSES, ObserverFrame, RegionMap } from '../../shared
 import { createWorldTileClient } from '../api/generated-world.ts';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { createGeneratedWorldRenderer, type ViewInsets, type WorldCoordinate, type WorldLayer } from '../renderer/generated-world.ts';
-import { cultureColor, densityColor, ERA_COLORS, regionDensities, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, muted, packColor, PERSPECTIVE, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, STANDING_COLORS, TERRITORY_ALPHA, type StandingKey } from './palettes.ts';
+import { cultureColor, densityColor, ERA_COLORS, regionDensities, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, muted, packColor, PERSPECTIVE, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, STANDING_COLORS, TERRITORY_ALPHA, WAR_COLOR, type StandingKey } from './palettes.ts';
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
 
@@ -48,6 +48,8 @@ export interface WorldMapOptions {
   standings?: { self: number; of: ReadonlyMap<number, Standing> } | null;
   /** The map as one people knows it (U.6): only what it sees is drawn as it is, its memories muted, the rest fogged. */
   perspective?: Perspective | null;
+  /** (M6.2) The wars layer: land fought for striped red, land an enemy holds striped in its occupier's colour. */
+  showWars?: boolean;
 }
 
 /**
@@ -55,7 +57,7 @@ export interface WorldMapOptions {
  * and the simulation's marks drawn on its overlay from each frame (polity markers, territories, settlements, roads,
  * trade routes and cultivated land). Attach `canvas` and `overlay` to the page's canvases.
  */
-export function useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields, showRoads = true, background, highlight = null, standings = null, perspective = null }: WorldMapOptions) {
+export function useWorldMap({ world, layer, resources, rivers, regions, showRegions, frame, peoples, showTrade, showFields, showRoads = true, background, highlight = null, standings = null, perspective = null, showWars = false }: WorldMapOptions) {
   const [canvasRevision, setCanvasRevision] = useState(0);
   const [tileError, setTileError] = useState<string | null>(null);
   const [canvasError, setCanvasError] = useState<string | null>(null);
@@ -176,7 +178,8 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
     const shown = highlight && highlight.size > 0 ? highlight : null;
     if (canvas.current) canvas.current.dataset.highlightRegions = String(shown && regions ? [...shown].filter(region => region < regions.map.regions.length).length : 0);
     if (canvas.current) canvas.current.dataset.perspective = '';
-    if ((peoples === 'off' && !shown && !perspective) || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
+    const fighting = showWars && frame ? frame.wars.filter(war => war.ended === null) : [];
+    if ((peoples === 'off' && !shown && !perspective && !fighting.length) || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
     const fill = new Uint32Array(regions.map.regions.length);
     const { ids, regions: at, kinds, eras, lineages, cultures, faiths } = frame.markers;
     const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue])), faithHues = new Map(frame.religions.map(entry => [entry.id, entry.hue]));
@@ -218,8 +221,17 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
       if (canvas.current) canvas.current.dataset.perspective = `seen:${perspective.observed.size} remembered:${perspective.remembered.size} fog:${fogged}`;
     }
     if (canvas.current) canvas.current.dataset.standings = peoples === 'diplomacy' ? Object.entries(standingCounts).map(([standing, count]) => `${standing}:${count}`).join(' ') : '';
-    renderer.current.setTerritories(fill);
-  }, [frame, regions, world, peoples, canvasRevision, highlight, standings, perspective]);
+    // The wars layer (M6.2): the land fought over now in red stripes (the defender's while the attacker is ahead, the
+    // attacker's when the war turns), land held by an enemy in its occupier's; a perspective shows only the wars it sees.
+    let hatch: Uint32Array | null = null;
+    if (fighting.length) {
+      hatch = new Uint32Array(fill.length);
+      const seen = (region: number) => !perspective || perspective.observed.has(region);
+      for (const war of fighting) for (const region of war.score >= 0 ? war.goal : war.counter) if (region < hatch.length && seen(region)) hatch[region] = packColor(WAR_COLOR, 0.8);
+      for (const war of fighting) for (const entry of war.occupied) if (entry.region < hatch.length && seen(entry.region)) hatch[entry.region] = packColor(polityColor(entry.by), 0.95);
+    }
+    renderer.current.setTerritories(fill, hatch);
+  }, [frame, regions, world, peoples, canvasRevision, highlight, standings, perspective, showWars]);
 
   /** The simulation region of the selected cell (null when none is selected or the region map is not in yet). */
   const cellRegion = cell && regions ? regions.map.regions[regions.cells[cell.id] - 1] ?? null : null;

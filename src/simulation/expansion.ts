@@ -191,7 +191,7 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
   large.repairing ||= small.repairing;
   lookAgain(small);
   endPolity(state, small, tick);
-  state.metrics.unions++;
+  state.metrics.unions++; state.metrics.regionsUnited += regions;
   // Its regions are judged under their new rule at once (stability and unrest), and the united realm sets its army for
   // the land it now holds (M6.1).
   assess(state, large);

@@ -2,7 +2,7 @@ import { ERA_NAMES, SETTLEMENT_TIERS, simulationDate, VALUE_NAMES, type Observer
 import type { RegionSummary } from '../../shared/simulation.ts';
 import { describeEvent } from '../observer/events.ts';
 import {
-  ACTION_NAMES, AGREEMENT_NAMES, BELIEF_NAMES, causeText, COST_KINDS, COST_NAMES, DECISION_LABELS, decisionTarget, factorName, NEED_LABELS, REVENUE_KINDS, REVENUE_NAMES, STATUS_NAMES, totalCost, totalRevenue, units,
+  ACTION_NAMES, AGREEMENT_NAMES, BELIEF_NAMES, causeText, COST_KINDS, COST_NAMES, DECISION_LABELS, decisionTarget, factorName, FRAMING_NAMES, NEED_LABELS, OUTCOME_NAMES, REVENUE_KINDS, REVENUE_NAMES, STATUS_NAMES, totalCost, totalRevenue, units,
   type InspectedPolity,
 } from '../observer/labels.ts';
 import { cssColor, polityColor } from '../observer/palettes.ts';
@@ -19,11 +19,11 @@ const plural = (count: number, one: string, many: string) => `${number.format(co
 const TIER_PLURALS = ['villages', 'towns', 'cities', 'metropolises'] as const;
 
 type Inspected = NonNullable<ObserverFrame['inspect']>;
-export const REALM_TABS = ['overview', 'diplomacy', 'economy', 'knowledge', 'history', 'region'] as const;
+export const REALM_TABS = ['overview', 'diplomacy', 'wars', 'economy', 'knowledge', 'history', 'region'] as const;
 export type RealmTab = typeof REALM_TABS[number];
-const TAB_LABELS: Record<RealmTab, string> = { overview: 'Overview', diplomacy: 'Diplomacy', economy: 'Economy', knowledge: 'Knowledge', history: 'History', region: 'Region' };
-/** A tribe has no realm to keep, treaties or treasury: its panel leaves out Diplomacy and Economy. */
-export const tabsFor = (polity: InspectedPolity | null) => polity ? REALM_TABS.filter(tab => polity.kind === 'civ' || (tab !== 'diplomacy' && tab !== 'economy')) : [];
+const TAB_LABELS: Record<RealmTab, string> = { overview: 'Overview', diplomacy: 'Diplomacy', wars: 'Wars', economy: 'Economy', knowledge: 'Knowledge', history: 'History', region: 'Region' };
+/** A tribe has no realm to keep, treaties, wars or treasury: its panel leaves out Diplomacy, Wars and Economy. */
+export const tabsFor = (polity: InspectedPolity | null) => polity ? REALM_TABS.filter(tab => polity.kind === 'civ' || (tab !== 'diplomacy' && tab !== 'wars' && tab !== 'economy')) : [];
 
 interface Props {
   inspected: Inspected;
@@ -36,6 +36,8 @@ interface Props {
   names: (id: number) => string;
   /** Whether the map shows the world as this people knows it (U.6), and the switch for it. */
   viewing?: boolean;
+  /** (M6.2) The wars now and of the last century, as the frame carries them. */
+  wars?: ObserverFrame['wars'];
   onViewAs?: (people: { id: number; name: string }) => void;
 }
 
@@ -44,7 +46,7 @@ interface Props {
  * realm at a glance, its diplomacy, its economy, its knowledge, its own history, and the region itself. Every figure is
  * the simulation's state as the frame carries it.
  */
-export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab, names, viewing = false, onViewAs }: Props) {
+export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab, names, viewing = false, onViewAs, wars = [] }: Props) {
   const polity = inspected.polity!, civ = polity.kind === 'civ';
   const tabs = tabsFor(polity), shown = tabs.includes(tab) ? tab : 'overview';
   return <>
@@ -67,6 +69,7 @@ export function RealmPanel({ inspected, stale = false, region, biome, tab, onTab
       {({
         overview: () => <Overview polity={polity} />,
         diplomacy: () => <Diplomacy polity={polity} />,
+        wars: () => <Wars polity={polity} wars={wars} />,
         economy: () => <Economy polity={polity} />,
         knowledge: () => <Knowledge polity={polity} />,
         history: () => <History polity={polity} names={names} />,
@@ -144,7 +147,7 @@ function ArmyReasons({ army }: { army: NonNullable<InspectedPolity['army']> }) {
 }
 
 /** The treaty a standing comes from (shown once, as the standing). */
-const STANDING_AGREEMENT = { allied: 'alliance', pact: 'nonAggression', trade: 'trade', rival: null, neutral: null } as const;
+const STANDING_AGREEMENT = { allied: 'alliance', pact: 'nonAggression', trade: 'trade', rival: null, neutral: null, war: null } as const;
 
 /** Each people it knows: standing and since when, opinion and its reasons, the treaties and trade between them. */
 function Diplomacy({ polity }: { polity: InspectedPolity }) {
@@ -163,7 +166,7 @@ function Diplomacy({ polity }: { polity: InspectedPolity }) {
         <p className="game-row-head"><strong>The {row.name}</strong> <span className={`game-standing game-standing-${row.status}`}>{STATUS_NAMES[row.status]}</span>
           {row.status !== 'neutral' && row.status !== 'rival' && <span className="game-muted">since year {number.format(row.since)}</span>}
           <span className={row.opinion >= 0 ? 'game-warm' : 'game-cold'}>opinion {signed(row.opinion)}</span></p>
-        <p className="game-muted">{row.kind === 'civ' ? 'Civilization' : 'Tribe'} · met in year {number.format(row.met)}{also.length ? ` · also ${also.map(kind => AGREEMENT_NAMES[kind]).join(', ')}` : ''}{row.sharing ? ' · sharing knowledge' : ''}</p>
+        <p className="game-muted">{row.kind === 'civ' ? 'Civilization' : 'Tribe'} · met in year {number.format(row.met)}{also.length ? ` · also ${also.map(kind => AGREEMENT_NAMES[kind]).join(', ')}` : ''}{row.sharing ? ' · sharing knowledge' : ''}{row.claims ? ` · it claims ${plural(row.claims, 'region', 'regions')} they hold` : ''}{row.claimed ? ` · they claim ${plural(row.claimed, 'region', 'regions')} of its land` : ''}</p>
         <p className="game-muted">{row.reasons.length ? `Because of ${row.reasons.map(reason => `${factorName(reason.factor)} ${signed(reason.weight)}`).join(', ')}` : 'No strong feelings'}.</p>
         {trade.length > 0 && <p className="game-muted">{trade.map(treaty => `${treaty.imports ? 'Buys' : 'Sells'} ${units(treaty.amount)} ${treaty.resource} a year`).join('; ')}.</p>}
       </li>;
@@ -171,6 +174,30 @@ function Diplomacy({ polity }: { polity: InspectedPolity }) {
     {polity.met > polity.diplomacy.length && <p className="game-muted" id="game-diplomacy-more">And {plural(polity.met - polity.diplomacy.length, 'other people', 'other peoples')} it has met and knows less well.</p>}
     <p className="game-muted">Opinion runs from −100 to +100. It comes from faith, likeness, kinship, borders, sharing, trade, pacts, alliances, joint roads and what it remembers.</p>
     {unmet}
+  </>;
+}
+
+/** Its wars now and in the last century (M6.2): each its name, the enemy and why, the lead and both sides' exhaustion,
+ *  the dead, and the land held; an ended war how it ended. */
+function Wars({ polity, wars }: { polity: InspectedPolity; wars: ObserverFrame['wars'] }) {
+  const mine = wars.filter(war => war.attacker === polity.id || war.defender === polity.id);
+  if (!mine.length) return <p className="game-muted" id="game-wars-none">No war in the last century. A realm goes to war at its decision step, for land, a resource, its faith, land it lost or out of fear, when it believes it can win; most wars end when a side is exhausted.</p>;
+  return <>
+    <ol className="game-rows" aria-label="Its wars" id="game-wars">{mine.map(war => {
+      const attacker = war.attacker === polity.id, enemy = attacker ? war.defenderName : war.attackerName, lead = attacker ? war.score : -war.score;
+      const side = attacker ? 'attacker' : 'defender', other = attacker ? 'defender' : 'attacker';
+      const held = war.occupied.filter(entry => entry.by === polity.id).length, lost = war.occupied.length - held;
+      const why = `${FRAMING_NAMES[war.framing]}${war.resource ? ` (${war.resource})` : ''}${war.causes.length ? `, for ${war.causes.slice(0, 2).map(cause => factorName(cause.factor)).join(' and ')}` : ''}`;
+      return <li key={war.id} data-war={war.id}>
+        <p className="game-row-head"><strong>{war.name.charAt(0).toUpperCase() + war.name.slice(1)}</strong>
+          <span className={`game-standing game-standing-${war.ended === null ? 'war' : 'neutral'}`}>{war.ended === null ? 'at war' : OUTCOME_NAMES[war.outcome ?? 'white']}</span>
+          <span className="game-muted">{war.ended === null ? `since year ${number.format(war.since)}` : `${number.format(war.since)}–${number.format(war.ended)}`}</span></p>
+        <p className="game-muted">{attacker ? `It attacked the ${enemy}: ${why}.` : `The ${enemy} attacked it: ${why}.`}</p>
+        {war.ended === null && <Bars label={`${war.name}: how it stands`} entries={[{ name: lead >= 0 ? 'its lead' : 'their lead', value: Math.abs(lead) / 100 }, { name: 'its exhaustion', value: war.exhaustion[side] }, { name: 'their exhaustion', value: war.exhaustion[other] }]} />}
+        <p className="game-muted">Dead: {number.format(war.dead[side])} of its soldiers, {number.format(war.dead[other])} of theirs{war.ended === null ? ` · it holds ${plural(held, 'region', 'regions')} of theirs; they hold ${plural(lost, 'region', 'regions')} of its` : war.ceded.length ? ` · ${plural(war.ceded.length, 'region', 'regions')} changed hands` : ''}.</p>
+      </li>;
+    })}</ol>
+    <p className="game-muted">The lead runs to 100: a side ahead holds a region it fights for for each 25 points. A side whose exhaustion reaches 1 makes peace on terms the lead gives: white peace, tribute, land, or a small realm's end.</p>
   </>;
 }
 
@@ -295,6 +322,7 @@ export function RegionDetail({ inspected, region, biome, names }: { inspected: I
       {people && <PeopleHere people={people} />}
       {polity && <FoodHere inspected={inspected} polity={polity} />}
       {stability && <p id="game-region-stability" className={stability.unrest ? 'game-cold' : undefined}>Stability {stability.value.toFixed(2)}{stability.unrest ? ', in unrest' : ''}{burdens.length ? `, lowered by ${burdens.map(([factor, weight]) => `${factor} −${weight.toFixed(2)}`).join(', ')}` : ''}{stability.taxes < -0.005 ? `; light taxes +${(-stability.taxes).toFixed(2)}` : ''}{stability.faith < -0.005 ? `; an ascetic faith +${(-stability.faith).toFixed(2)}` : ''}.</p>}
+      {inspected.occupation && <p className="game-cold" id="game-region-occupation">Held by the {inspected.occupation.name} since year {number.format(inspected.occupation.since)}: it pays its realm nothing, and is restless.</p>}
       {inspected.neglected && <p className="game-cold">Let go unkept by its realm: its buildings and roads wear.</p>}
       {settlements.length > 0 && <ul className="game-settlements" aria-label="Settlements here">{settlements.map(settlement => <li key={settlement.id}>
         <span className="game-settlement-name">{settlement.capital ? '★ ' : ''}{settlement.name}</span> <span>{SETTLEMENT_TIERS[settlement.tier]}{settlement.capital ? ', capital' : ''} · {number.format(settlement.urban)} townspeople of {number.format(settlement.housing)} it can house · founded year {year(settlement.founded)}{settlement.formerName ? ` · once ${settlement.formerName}` : ''}</span>

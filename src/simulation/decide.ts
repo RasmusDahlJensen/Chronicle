@@ -7,6 +7,8 @@ import { share } from './sharing.ts';
 import { proposeTrade } from './trade.ts';
 import { proposePact, proposeRoadDeal } from './diplomacy.ts';
 import { voyage } from './voyages.ts';
+import { declareWar, seekPeace } from './war.ts';
+import { WAR_FRAMINGS } from '../../shared/simulation.ts';
 import { beginWonder, startProjects, startRoads } from './construction.ts';
 import type { SimulationState, TickContext } from './state.ts';
 import { DECISION_TUNING } from './tunables.ts';
@@ -46,6 +48,11 @@ export function decide(state: SimulationState, context: TickContext) {
     else if (chosen.action === 'alliance') outcome = proposePact(state, context, polity, state.polities[chosen.target!], 'alliance', state.polities[chosen.targets![0]], cited);
     else if (chosen.action === 'roadAgreement') outcome = proposeRoadDeal(state, context, polity, state.polities[chosen.target!], cited);
     else if (chosen.action === 'voyage') outcome = voyage(state, context.tick, context.stream(id, VOYAGING), polity, cited);
+    else if (chosen.action === 'war') {
+      // The dominant motive frames the war (VISION.md: the dominant factor names the action).
+      const framing = WAR_FRAMINGS.reduce((best, kind) => (chosen.factors.find(entry => entry.factor === kind)?.weight ?? 0) > (chosen.factors.find(entry => entry.factor === best)?.weight ?? 0) ? kind : best, WAR_FRAMINGS[0]);
+      outcome = declareWar(state, polity, state.polities[chosen.target!], chosen.targets ?? [], framing, framing === 'resource' ? chosen.resource ?? -1 : -1, cited);
+    } else if (chosen.action === 'peace') outcome = seekPeace(state, polity, state.wars[chosen.targets![0]], cited);
     else if (chosen.action === 'build' && chosen.road) outcome = startRoads(state, context.tick, polity, chosen.targets ?? [], cited);
     else if (chosen.action === 'build' && chosen.wonder) outcome = beginWonder(state, context.tick, polity, chosen.target!, chosen.targets![0], cited);
     else if (chosen.action === 'build') outcome = startProjects(state, context.tick, polity, chosen.target!, chosen.targets ?? [], cited);

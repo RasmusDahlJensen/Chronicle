@@ -1,5 +1,5 @@
 import type { ArmyView } from '../perception.ts';
-import { ARMY_TUNING, DIPLOMACY_TUNING } from '../tunables.ts';
+import { ARMY_TUNING, DIPLOMACY_TUNING, WAR_TUNING } from '../tunables.ts';
 import { threatOf } from './threat.ts';
 
 /**
@@ -24,11 +24,14 @@ export function armyTarget(view: ArmyView) {
   const garrison = view.people * tuning.garrison * keen, guard = Math.max(1, garrison * view.multiplier + view.allies);
   let threat = 0, feared: ArmyView['neighbours'][number] | null = null;
   for (const neighbour of view.neighbours) {
-    const fear = threatOf(neighbour.strength / guard, neighbour.opinion) * (neighbour.pact ? 1 - DIPLOMACY_TUNING.pact.calm : 1);
+    // An enemy at war threatens fully (M6.2).
+    const fear = neighbour.war ? 1 : threatOf(neighbour.strength / guard, neighbour.opinion) * (neighbour.pact ? 1 - DIPLOMACY_TUNING.pact.calm : 1);
     if (fear > threat) { threat = fear; feared = neighbour; }
   }
-  const threatened = view.people * tuning.threat * threat, wanted = garrison + threatened;
-  const budget = Math.min(tuning.afford * keen * view.revenue * (1 - view.arrears), Math.max(0, view.surplus + tuning.headroom * view.revenue));
+  // At war it wants more (each war, WAR_TUNING.army of its people) and spends more on them (WAR_TUNING.warBudget).
+  const threatened = view.people * tuning.threat * threat + view.people * WAR_TUNING.army * view.wars, wanted = garrison + threatened;
+  const spend = view.wars > 0 ? WAR_TUNING.warBudget : 1;
+  const budget = spend * Math.min(tuning.afford * keen * view.revenue * (1 - view.arrears), Math.max(0, view.surplus + tuning.headroom * view.revenue));
   const affordable = view.upkeep > 0 ? Math.max(0, budget) / view.upkeep : wanted;
   const target = Math.round(Math.max(tuning.floor * view.people, Math.min(wanted, affordable)));
   return {

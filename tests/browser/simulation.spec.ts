@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { ERA_NAMES, parseChroniclePage } from '../../shared/simulation.ts';
 import { curate, EVENT_KIND_NAMES, EVENT_KINDS, typesOf, type EventKind } from '../../src/observer/chronicle.ts';
+import { OUTCOME_NAMES } from '../../src/observer/labels.ts';
 
 // One shared simulation per host and world: these scenarios change its clock, so they run in order.
 test.describe.configure({ mode: 'serial' });
@@ -295,9 +296,9 @@ test('bands appear as markers and territories, the world chart grows and a band 
   await expect(history(page).getByRole('note')).toHaveCount(0);
 });
 
-test('farming bands settle into civilizations with villages, specialists, research the inspector explains, roads and trade', async ({ page }) => {
-  // Fourteen centuries or more of history run in the worker.
-  test.setTimeout(300_000);
+test('farming bands settle into civilizations with villages, specialists, research the inspector explains, roads, trade and war', async ({ page }) => {
+  // Fourteen centuries or more of history run in the worker, and again to a war.
+  test.setTimeout(480_000);
   await ready(page);
   const canvas = page.locator('#generated-world-canvas');
   await history(page).getByLabel('Run to year').fill('650');
@@ -357,7 +358,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   const capitalRegion = Buffer.from(regions.data, 'base64').readUInt16LE(frame.civList[0].capitalCell * 2) - 1;
   const realm = (await (await game.request.get(`/api/simulation/frame?${query}&cursor=0&inspect=${capitalRegion}`)).json()).inspect.polity;
   const tabs = place.getByRole('tablist', { name: 'About the realm' });
-  await expect(tabs.getByRole('tab')).toHaveText(['Overview', 'Diplomacy', 'Economy', 'Knowledge', 'History', 'Region']);
+  await expect(tabs.getByRole('tab')).toHaveText(['Overview', 'Diplomacy', 'Wars', 'Economy', 'Knowledge', 'History', 'Region']);
   await expect(place.locator('#game-realm-settlements')).toContainText(/village|town|city/);
   await expect(place.locator('#game-realm-glance')).toContainText(realm.realm.cultures[0].name);
   // M6.1: its army, its share of the people, strength and upkeep, and why it keeps that many.
@@ -372,7 +373,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(known).toHaveCount(realm.diplomacy.length);
   await expect(known.first()).toContainText(`The ${realm.diplomacy[0].name}`);
   await expect(known.first()).toContainText(/opinion [+−]\d/);
-  const standings = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' } as Record<string, string>;
+  const standings = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war' } as Record<string, string>;
   await expect(known.first().locator('.game-standing')).toHaveText(standings[realm.diplomacy[0].status]);
   if (realm.unmet.length) await expect(place.locator('#game-unmet').getByRole('listitem')).toHaveCount(realm.unmet.length);
   await tabs.getByRole('tab', { name: 'Economy' }).click();
@@ -401,7 +402,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(game.getByLabel('Diplomacy lens')).toContainText(`standing with the ${frame.civList[0].name}`);
   // Each region by its people's standing (as the frame for the realm's capital reports them), the rest not met.
   const standingOf = new Map<number, string>(realm.standings.map((entry: { id: number; status: string }) => [entry.id, entry.status]));
-  const expectedCounts: Record<string, number> = { self: 0, allied: 0, pact: 0, trade: 0, rival: 0, neutral: 0, unknown: 0 };
+  const expectedCounts: Record<string, number> = { self: 0, allied: 0, pact: 0, trade: 0, rival: 0, neutral: 0, war: 0, unknown: 0 };
   for (const id of frame.markers.ids as number[]) expectedCounts[id === realm.id ? 'self' : standingOf.get(id) ?? 'unknown']++;
   expect(expectedCounts.self).toBe(frame.civList[0].regions);
   expect(expectedCounts.unknown).toBeLessThan(frame.markers.ids.length - expectedCounts.self);
@@ -605,7 +606,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(details.getByRole('region', { name: 'Decisions' })).toContainText('reach');
   // M3.3: each civilization region has a stability, with what lowers it.
   await expect(page.locator('#polity-stability')).toContainText(/Stability here [01]\.\d\d/);
-  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing|Unite with|Share knowledge with|Build|Propose (trade|a non-aggression pact|an alliance|a joint road) with|Send a voyage overseas/);
+  await expect(page.locator('#polity-decision')).toContainText(/Expand into|Explore|Do nothing|Unite with|Share knowledge with|Build|Propose (trade|a non-aggression pact|an alliance|a joint road) with|Send a voyage overseas|Declare war on|Seek peace with/);
   // Do nothing is always weighed; Expand only when it knows land next to its own that nobody holds.
   const weighed = details.getByRole('list', { name: 'Options weighed' });
   await expect(weighed).toContainText('Do nothing');
@@ -626,7 +627,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(relations.getByRole('listitem').first()).toContainText(`intimacy ${inspected.diplomacy[0].intimacy.toFixed(2)}`);
   await expect(relations).toContainText(/opinion [+-]?\d+/);
   // M5.5: each people's standing (allied, pact, trade partner, rival or neutral) and its treaties.
-  const standing = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' } as const;
+  const standing = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war' } as const;
   await expect(relations.getByRole('listitem').first()).toContainText(standing[inspected.diplomacy[0].status as keyof typeof standing]);
   // The political map marks capitals with stars, and the civilization list takes the observer to one.
   await expect.poll(async () => Number(await canvas.getAttribute('data-capital-marks'))).toBeGreaterThan(0);
@@ -670,6 +671,55 @@ test('farming bands settle into civilizations with villages, specialists, resear
   const importerHub = later.trades.to[0];
   await clickCell(page, { x: importerHub % WIDTH, y: Math.floor(importerHub / WIDTH) });
   await expect(details.getByRole('region', { name: 'Trade' })).toContainText(`imports ${RESOURCE_IDS[later.trades.resources[0]]} from the`);
+  // M6.2: war and peace. Run on a century at a time until a war of two years or more has been fought (the frame
+  // carries the wars of the last century); the ledger lists it with how it ended.
+  type FrameWar = { id: number; name: string; attacker: number; attackerName: string; defender: number; defenderName: string; since: number; ended: number | null; outcome: string | null; score: number; goal: number[]; counter: number[]; occupied: { region: number; by: number }[] };
+  const fought = (wars: FrameWar[]) => wars.find(war => war.ended !== null && war.ended - war.since >= 2);
+  for (let year = await tick(page) / 12 + 100; year <= 3000 && !fought(later.wars); year += 100) {
+    await history(page).getByLabel('Run to year').fill(String(year));
+    await history(page).getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 120_000 });
+    later = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  }
+  const war = fought(later.wars)!;
+  expect(war).toBeTruthy();
+  const title = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
+  const afterwards = await page.context().newPage();
+  await openGame(afterwards);
+  await afterwards.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Ledger' }).click();
+  const warRows = afterwards.locator('#game-wars-table tbody tr');
+  await expect(warRows).toHaveCount(later.wars.length);
+  await expect(warRows.filter({ hasText: title(war.name) }).first()).toContainText(OUTCOME_NAMES[war.outcome as keyof typeof OUTCOME_NAMES]);
+  await afterwards.close();
+  // Back to a year it was being fought (the history is reproducible; Load year starts from the checkpoint saved before
+  // it): the wars layer stripes the land fought over, the attacker's Wars tab tells the war and its Diplomacy shows the
+  // enemy at war.
+  await history(page).getByLabel('Load year').fill(String(war.since + 1));
+  await history(page).getByRole('button', { name: 'Load', exact: true }).click();
+  await expect(history(page)).toHaveAttribute('data-tick', String((war.since + 1) * 12), { timeout: 120_000 });
+  const during = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  expect(during.wars.find((entry: FrameWar) => entry.id === war.id)?.ended).toBeNull();
+  const front = await page.context().newPage();
+  await openGame(front);
+  const frontMap = front.locator('#game-map-canvas');
+  // The land fought over now (the defender's while the attacker is ahead, else the attacker's), and land held.
+  const striped = new Set((during.wars as FrameWar[]).filter(entry => entry.ended === null).flatMap(entry => [...(entry.score >= 0 ? entry.goal : entry.counter), ...entry.occupied.map(held => held.region)]));
+  await expect(frontMap).toHaveAttribute('data-hatched-regions', String(striped.size));
+  await front.getByRole('checkbox', { name: 'Wars' }).uncheck();
+  await expect(frontMap).toHaveAttribute('data-hatched-regions', '0');
+  await front.getByRole('checkbox', { name: 'Wars' }).check();
+  await front.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Ledger' }).click();
+  await front.getByRole('region', { name: 'Realms' }).getByRole('rowheader', { name: war.attackerName, exact: true }).getByRole('button').click();
+  await expect(front.locator('#game-realm-name')).toHaveText(`The ${war.attackerName}`);
+  const warPlace = front.getByRole('complementary', { name: 'Selected place' }), warTabs = warPlace.getByRole('tablist', { name: 'About the realm' });
+  await warTabs.getByRole('tab', { name: 'Wars' }).click();
+  const warRow = warPlace.locator(`#game-wars li[data-war="${war.id}"]`);
+  await expect(warRow).toContainText(title(war.name));
+  await expect(warRow).toContainText('at war');
+  await expect(warRow).toContainText(`It attacked the ${war.defenderName}`);
+  await warTabs.getByRole('tab', { name: 'Diplomacy' }).click();
+  await expect(warPlace.getByRole('list', { name: 'Peoples it knows' }).getByRole('listitem').filter({ hasText: `The ${war.defenderName}` }).locator('.game-standing')).toHaveText('at war');
+  await front.close();
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

@@ -17,7 +17,7 @@ import { announceSettlement, foundSettlement, growSettlements, house, livingSett
 import { chooseJoin } from './decisions/join.ts';
 import { landPressure, unrestDepth } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
-import { noArmy, workersOf } from './soldiers.ts';
+import { noArmy, occupiedAway, workersOf } from './soldiers.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
 import { BAND_TUNING, BUDGET_TUNING, CLOCK_TUNING, CULTURE_TUNING, ENVIRONMENT_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING } from './tunables.ts';
 
@@ -164,7 +164,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(), relations: new Map(), supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length), imports: new Float64Array(RESOURCE_IDS.length), exports: new Float64Array(RESOURCE_IDS.length), trading: [], pacts: [], allies: [], roadPartners: [], voyageTick: -1, emptyVoyages: 0,
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
     taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,
-    army: noArmy(),
+    army: noArmy(), wars: [], claims: [], weariness: { value: 0, tick: 0 },
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -246,7 +246,7 @@ export function produce(state: SimulationState, context: TickContext) {
       if (polity.kind === 'civ') {
         group.specialists = house(state, region, group.specialists);
         const output = regionOutput(state, region, wonder);
-        income += polity.taxRate * output + regionSites(state, polity, region);
+        if (!occupiedAway(state, region, polity.id)) income += polity.taxRate * output + regionSites(state, polity, region);
         polity.outputSum += output / 12; polity.personMonths += group.size;
       }
       const at = region * METHOD_COUNT, before = group.store, plantedBefore = group.planted, need = group.size * UNITS;
@@ -523,7 +523,7 @@ export function removeGroup(state: SimulationState, polity: Polity, group: Popul
     state.owner[region] = -1;
     ruinSettlements(state, region, tick);
   }
-  state.hardship[region] = 0; state.reliefTick[region] = -1; state.neglected[region] = 0; state.unsettled[region] = 0;
+  state.hardship[region] = 0; state.reliefTick[region] = -1; state.neglected[region] = 0; state.unsettled[region] = 0; state.occupiedBy[region] = -1;
   if (polity.groups.length) return;
   endPolity(state, polity, tick);
   if (polity.kind === 'civ') {
@@ -532,7 +532,7 @@ export function removeGroup(state: SimulationState, polity: Polity, group: Popul
     state.chronicle.emit({
       type: 'civDestroyed', actors: [{ id: polity.id, role: 'civ' }], region, settlement: capital?.id ?? null,
       causes: causes({ hunger: Math.max(0, 1 - group.foodSecurity), dwindled: 0.001 }), importance: 0.5,
-      data: { name: polity.name, capital: capital?.name ?? '?' },
+      data: { name: polity.name, capital: capital?.name ?? '?', ruined: true },
     });
   }
 }

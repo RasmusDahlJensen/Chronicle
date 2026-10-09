@@ -154,7 +154,9 @@
                       "TradeOption",
                       "PactOption",
                       "RoadOption",
-                      "ArmyView"
+                      "ArmyView",
+                      "WarTarget",
+                      "AtWar"
                     ]
                   }
                 },
@@ -172,6 +174,58 @@
                 ]
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "src/simulation/perception.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "./war.ts": {
+                    "message": "Perception reads what wars leave behind from claims.ts (truces, claims, weariness, crossings, frontiers, defence), never the war module (M6.2; docs/ARCHITECTURE.md)."
+                  }
+                },
+                "patterns": [
+                  {
+                    "group": [
+                      "**/scripts/**",
+                      "**/tests/**",
+                      "**/server/**",
+                      "fastify",
+                      "@fastify/**",
+                      "piscina",
+                      "react",
+                      "react/**",
+                      "react-dom",
+                      "react-dom/**",
+                      "**/components/**",
+                      "**/renderer/**",
+                      "**/api/**",
+                      "**/App.tsx",
+                      "**/main.tsx",
+                      "vite",
+                      "vite/**",
+                      "@vitejs/**",
+                      "**/world/generation/**",
+                      "**/vendor/**",
+                      "node:*"
+                    ],
+                    "message": "This import crosses a Chronicle architecture boundary; see docs/ARCHITECTURE.md."
+                  }
+                ]
+              }
+            }
+          },
+          "correctness": {
+            "noNodejsModules": "error"
           }
         }
       }

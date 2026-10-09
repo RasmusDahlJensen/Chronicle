@@ -3,7 +3,7 @@ import { BUILDINGS } from './buildings.ts';
 import { depositState } from './deposits.ts';
 import { WONDERS } from './wonders.ts';
 import { unrestDepth } from './pressure.ts';
-import { workersOf } from './soldiers.ts';
+import { occupiedAway, workersOf } from './soldiers.ts';
 import type { Polity, PopulationGroup, Settlement, SimulationState, WealthFlows } from './state.ts';
 import { BUDGET_TUNING, FAITH_TUNING, STABILITY_TUNING, WEALTH_TUNING } from './tunables.ts';
 import { TENETS } from './religions.ts';
@@ -78,6 +78,8 @@ export function incomeOf(state: SimulationState, civ: Polity) {
 /** What one of a civilization's regions pays it a year: its taxes on the region's output (its townspeople's trades
  *  times `wonder`, a wonder's wealth, and its farmers' surplus) and what its sites pay. */
 export function regionIncome(state: SimulationState, civ: Polity, region: number, wonder: number) {
+  // Occupied in a war, it pays its owner nothing (M6.2).
+  if (occupiedAway(state, region, civ.id)) return 0;
   return civ.taxRate * regionOutput(state, region, wonder) + regionSites(state, civ, region);
 }
 
@@ -106,7 +108,10 @@ export function regionSites(state: SimulationState, civ: Polity, region: number)
 export function outputOf(state: SimulationState, civ: Polity) {
   const wonder = wonderBonus(state, civ).wealth;
   let output = 0, sites = 0;
-  for (const groupId of civ.groups) { const region = state.groups[groupId].region; output += regionOutput(state, region, wonder); sites += regionSites(state, civ, region); }
+  for (const groupId of civ.groups) {
+    const region = state.groups[groupId].region;
+    if (!occupiedAway(state, region, civ.id)) { output += regionOutput(state, region, wonder); sites += regionSites(state, civ, region); }
+  }
   return { output, sites };
 }
 

@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 41;
+export const SIMULATION_PROTOCOL_VERSION = 42;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -53,13 +53,20 @@ export const NEED_NAMES = ['hunger', 'landPressure', 'shortage', 'threat', 'unre
 export const BELIEF_KINDS = ['people', 'strength', 'wealth', 'era'] as const;
 /** What a civilization can decide at its decision step (M5.5 added proposing a pact, an alliance or a joint road; M5.6
  *  overseas voyages). */
-export const DECISION_ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build', 'trade', 'pact', 'alliance', 'roadAgreement', 'voyage'] as const;
-/** A people's standing with a civilization in its Diplomacy (VISION.md "Civ panel"; M5.5), and the treaties it may hold. */
-export const DIPLOMATIC_STATUSES = ['allied', 'pact', 'trade', 'rival', 'neutral'] as const;
+export const DECISION_ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build', 'trade', 'pact', 'alliance', 'roadAgreement', 'voyage', 'war', 'peace'] as const;
+/** A people's standing with a civilization in its Diplomacy (VISION.md "Civ panel"; M5.5; at war from M6.2), and the
+ *  treaties it may hold. */
+export const DIPLOMATIC_STATUSES = ['allied', 'pact', 'trade', 'rival', 'neutral', 'war'] as const;
 export const AGREEMENT_KINDS = ['alliance', 'nonAggression', 'road', 'trade'] as const;
 /** The kinds of story the observer is told (U.3), from what M1–M5 simulate. */
-export const STORY_KINDS = ['rise', 'decline', 'union', 'first', 'faith', 'peoples', 'trade', 'voyage', 'hardship', 'wonder'] as const;
+export const STORY_KINDS = ['rise', 'decline', 'union', 'first', 'faith', 'peoples', 'trade', 'voyage', 'hardship', 'wonder', 'war'] as const;
 export type StoryKind = typeof STORY_KINDS[number];
+/** (M6.2) What a war is fought for (the dominant factor of the decision that began it: VISION.md's war framing), and
+ *  how a war ended. */
+export const WAR_FRAMINGS = ['conquest', 'farmland', 'resource', 'holy', 'reclamation', 'preemptive', 'frontier'] as const;
+export const WAR_OUTCOMES = ['white', 'tribute', 'cession', 'annexation', 'gone'] as const;
+/** At most this many wars in a frame: every war now, then the latest ended. */
+export const MAX_FRAME_WARS = 64;
 /** At most this many stories in a frame. */
 export const MAX_FRAME_STORIES = 8;
 const OriginSchema = Type.Union([Type.Literal('founding'), Type.Literal('breakaway'), Type.Literal('split'), Type.Literal('hybrid')]);
@@ -241,6 +248,21 @@ export const ObserverFrameSchema = Type.Object({
     events: Type.Array(ChronicleEventSchema, { maxItems: 3 }),
     regions: Type.Array(id(), { maxItems: 2_048 }), focus: Type.Union([Type.Null(), id()]),
   }, { additionalProperties: false }), { maxItems: MAX_FRAME_STORIES }),
+  /** (M6.2) Wars: every war now, then those ended in the last century, newest first (at most MAX_FRAME_WARS): its name,
+   *  sides (ids and names), what it is fought for (and the resource), the years it began and ended and how, the score
+   *  (−100 to 100, the attacker's favour), each side's exhaustion and dead, the regions the attacker fights for, those
+   *  occupied (and by whom), those that changed hands at its peace, and its causes. */
+  wars: Type.Array(Type.Object({
+    id: id(), name: Type.String({ maxLength: 40 }), attacker: id(), attackerName: Type.String({ maxLength: 40 }), defender: id(), defenderName: Type.String({ maxLength: 40 }),
+    framing: Type.Enum(WAR_FRAMINGS), resource: Type.Union([Type.Null(), Type.String({ maxLength: 24 })]),
+    since: Type.Integer({ minimum: 0 }), ended: Type.Union([Type.Null(), Type.Integer({ minimum: 0 })]), outcome: Type.Union([Type.Null(), Type.Enum(WAR_OUTCOMES)]),
+    score: Type.Number({ minimum: -100, maximum: 100 }),
+    exhaustion: Type.Object({ attacker: Type.Number({ minimum: 0 }), defender: Type.Number({ minimum: 0 }) }, { additionalProperties: false }),
+    dead: Type.Object({ attacker: Type.Integer({ minimum: 0 }), defender: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
+    goal: Type.Array(id(), { maxItems: 8 }), counter: Type.Array(id(), { maxItems: 8 }), occupied: Type.Array(Type.Object({ region: id(), by: id() }, { additionalProperties: false }), { maxItems: 16 }),
+    ceded: Type.Array(id(), { maxItems: 4_096 }),
+    causes: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
+  }, { additionalProperties: false }), { maxItems: MAX_FRAME_WARS }),
   /** (U.3) The ages of the world: each era after the Stone age with the year a people first reached it (its first tech
    *  of that era), that people and the tech, in order. */
   ages: Type.Array(Type.Object({
@@ -288,6 +310,8 @@ export const ObserverFrameSchema = Type.Object({
     }, { additionalProperties: false })]),
     /** Whether its realm lets its buildings and roads go unkept this year (deferred maintenance; they wear). */
     neglected: Type.Boolean(),
+    /** (M6.2) The people occupying it in a war (its id and name, and the year it took it), or null. */
+    occupation: Type.Union([Type.Null(), Type.Object({ by: id(), name: Type.String({ maxLength: 40 }), since: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })]),
     /** Its cultivated land: the share of its farmland's labour under cultivation (0–1) and the cells it covers. */
     fields: Type.Object({ share: Type.Number({ minimum: 0, maximum: 1 }), cells: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
     /** The region's settlements, living and in ruins, main one first: tier, townspeople, housing, founding tick, the
@@ -361,8 +385,8 @@ export const ObserverFrameSchema = Type.Object({
         value: Type.Number({ minimum: 0, maximum: 1 }), unrest: Type.Boolean(),
         hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }), faith: Type.Number(),
         strain: Type.Number({ minimum: 0 }), taxes: Type.Number(), arrears: Type.Number({ minimum: 0 }),
-        /** (M6.1) Soldiers lately sent home. */
-        demobilized: Type.Number({ minimum: 0 }),
+        /** (M6.1) Soldiers lately sent home; (M6.2) an enemy holding it. */
+        demobilized: Type.Number({ minimum: 0 }), occupied: Type.Number({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
        *  action, and its index among the options: the chosen option is always among the best three) and what came of it. */
@@ -408,9 +432,12 @@ export const ObserverFrameSchema = Type.Object({
         sharing: Type.Boolean(), met: Type.Integer({ minimum: 0 }),
         /** (U.2) The truth beside its beliefs (the observer sees both): their people and strength now. */
         truePeople: Type.Integer({ minimum: 0 }), trueStrength: Type.Integer({ minimum: 0 }),
-        /** (M5.5) Its standing (allied, non-aggression pact, trade partner, rival at an opinion of −50 or below, else
-         *  neutral), the treaties between them now, and the year the standing began (its treaty's, else when they met). */
+        /** (M5.5) Its standing (at war from M6.2, allied, non-aggression pact, trade partner, rival at an opinion of −50 or
+         *  below, else neutral), the treaties between them now, and the year the standing began (its war's or treaty's,
+         *  else when they met). */
         status: Type.Enum(DIPLOMATIC_STATUSES), agreements: Type.Array(Type.Enum(AGREEMENT_KINDS), { maxItems: 4 }), since: Type.Integer({ minimum: 0 }),
+        /** (M6.2) Claims in either direction (VISION.md "Diplomacy tab"): its claims on regions they hold, and theirs on its. */
+        claims: Type.Integer({ minimum: 0 }), claimed: Type.Integer({ minimum: 0 }),
       }, { additionalProperties: false }), { maxItems: 24 }),
       /** A civilization's budget (null for a tribe; VISION.md "Wealth"): its treasury, the share of its people's output
        *  it takes in taxes, its revenue a year (taxes on trades and on farmers' surplus, and what its sites pay), its
@@ -560,6 +587,14 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   for (const [at, story] of frame.stories.entries()) {
     if (story.from > story.to || story.to > year || (at > 0 && story.weight > frame.stories[at - 1].weight)) throw invalid();
     if (story.regions.some(region => region >= frame.counters.regions) || story.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
+  }
+  // (M6.2) Wars: each once, two different peoples, within the history so far and this world's regions; ended wars carry
+  // an outcome, wars now none; occupied land is held by a side.
+  if (new Set(frame.wars.map(war => war.id)).size !== frame.wars.length) throw invalid();
+  for (const war of frame.wars) {
+    if (war.attacker === war.defender || war.since > year || (war.ended !== null && (war.ended < war.since || war.ended > year)) || (war.ended === null) !== (war.outcome === null)) throw invalid();
+    if ([...war.goal, ...war.ceded, ...war.occupied.map(entry => entry.region)].some(region => region >= frame.counters.regions)) throw invalid();
+    if (war.occupied.some(entry => entry.by !== war.attacker && entry.by !== war.defender)) throw invalid();
   }
   // (U.4) The treaty web: living civilizations of the list, lower id first, each pair and kind once.
   const pairs = new Set<string>();

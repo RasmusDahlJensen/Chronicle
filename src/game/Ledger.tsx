@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ERA_NAMES, SETTLEMENT_TIERS, type ObserverFrame } from '../../shared/simulation.ts';
-import { AGREEMENT_NAMES } from '../observer/labels.ts';
+import { AGREEMENT_NAMES, FRAMING_NAMES, OUTCOME_NAMES } from '../observer/labels.ts';
 import { cssColor, cultureColor, faithColor, polityColor, TREATY_COLORS } from '../observer/palettes.ts';
 import type { RegionData } from '../observer/useWorldMap.ts';
 import { people } from './RealmPanel.tsx';
@@ -25,6 +25,7 @@ export function Ledger({ frame, regions, width, height, onChoose }: { frame: Obs
       <Wonders frame={frame} />
       <Peoples frame={frame} />
     </div>
+    <WarTable wars={frame.wars} />
     <TreatyWeb frame={frame} regions={regions} width={width} height={height} onChoose={onChoose} />
   </section>;
 }
@@ -183,6 +184,25 @@ function Peoples({ frame }: { frame: ObserverFrame }) {
         <td className="game-numeric">{number.format(entry.civs)}</td><td className="game-numeric">{number.format(entry.regions)}</td><td className="game-numeric">{people(entry.population)}</td></tr>)}</tbody>
     </table> : <p className="game-muted">No religion has been founded yet: every people keeps the folk ways of its culture.</p>}
     {frame.religions.length > 12 && <p className="game-muted">And {number.format(frame.religions.length - 12)} more religions.</p>}
+  </section>;
+}
+
+/** The wars now and of the last century (M6.2): who fought whom, why, since when, how it stands or ended, the dead and
+ *  the land that changed hands. */
+function WarTable({ wars }: { wars: ObserverFrame['wars'] }) {
+  return <section className="game-ledger-card" aria-label="Wars">
+    <h2>Wars</h2>
+    {wars.length ? <div className="game-table-scroll"><table className="game-small-table" id="game-wars-table"><caption className="game-sr-only">Wars now and of the last century</caption>
+      <thead><tr><th scope="col">War</th><th scope="col">Sides</th><th scope="col">Years</th><th scope="col">Now</th><th scope="col" className="game-numeric">Dead</th><th scope="col" className="game-numeric">Land</th></tr></thead>
+      <tbody>{wars.map(war => <tr key={war.id}>
+        <th scope="row">{war.name.charAt(0).toUpperCase() + war.name.slice(1)}<span className="game-muted"> · {FRAMING_NAMES[war.framing]}</span></th>
+        <td>the {war.attackerName} against the {war.defenderName}</td>
+        <td>{number.format(war.since)}–{war.ended === null ? '' : number.format(war.ended)}</td>
+        <td>{war.ended === null ? `${war.score >= 0 ? `the ${war.attackerName}` : `the ${war.defenderName}`} ahead (${Math.round(Math.abs(war.score))})` : OUTCOME_NAMES[war.outcome ?? 'white']}</td>
+        <td className="game-numeric">{people(war.dead.attacker + war.dead.defender)}</td>
+        <td className="game-numeric">{war.ended === null ? `${number.format(war.occupied.length)} held` : number.format(war.ceded.length)}</td>
+      </tr>)}</tbody>
+    </table></div> : <p className="game-muted">No war in the last century.</p>}
   </section>;
 }
 

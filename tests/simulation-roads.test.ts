@@ -35,7 +35,7 @@ function strip(known: string[] = ['Wheel']) {
     tick: 0, partition: { regions }, geography: { width: 5, cells: 5 }, roads: new Map(), settlements: [] as Settlement[], regionSettlements: regions.map(() => [] as number[]),
     owner: new Int32Array(5).fill(0), occupant: new Int32Array(5).fill(0), harbors: new Uint8Array(5), wonders: [], chronicle: new Chronicle(), living: [0],
     groups: regions.map(region => ({ id: region.id, region: region.id, size: 10_000, specialists: 0, soldiers: 0 })), ledger: { wealth: new Map() },
-    remoteness: new Float64Array(5), remoteOwner: new Int32Array(5).fill(-1), neglected: new Uint8Array(5), unsettled: new Float64Array(5),
+    remoteness: new Float64Array(5), remoteOwner: new Int32Array(5).fill(-1), neglected: new Uint8Array(5), unsettled: new Float64Array(5), occupiedBy: new Int32Array(5).fill(-1),
     metrics: { roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, buildingsLost: 0, projectsAbandoned: 0, arrearsBegun: 0 },
   } as unknown as SimulationState;
   let knowledge = startingKnowledge();

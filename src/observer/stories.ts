@@ -6,7 +6,7 @@ type Story = ObserverFrame['stories'][number];
 
 /** Each kind of story as the rail labels it (U.3). */
 export const STORY_KIND_NAMES: Record<StoryKind, string> = {
-  rise: 'Rise', decline: 'Decline', union: 'Union', first: 'A first', faith: 'Faith', peoples: 'Peoples', trade: 'Trade', voyage: 'Voyages', hardship: 'Hardship', wonder: 'Wonders',
+  rise: 'Rise', decline: 'Decline', union: 'Union', first: 'A first', faith: 'Faith', peoples: 'Peoples', trade: 'Trade', voyage: 'Voyages', hardship: 'Hardship', wonder: 'Wonders', war: 'War',
 };
 
 /**
@@ -17,11 +17,11 @@ export const STORY_KIND_NAMES: Record<StoryKind, string> = {
 export const STORY_TEMPLATES: Record<StoryKind, { title: string; text: string }> = {
   rise: {
     title: 'The rise of the {name}',
-    text: 'In {years|year|years} the {name} have grown from {before} to {people} people{?regionsGrew| and from {regionsBefore} to {regions|region|regions}}{?regionsSame|, still in {regions|region|regions}}{?regionsShrank|, though in {regions|region|regions} where they held {regionsBefore}}{?mostlyOwn|, mostly by their own growth}{?expanded|. They sent settlers into {expansions|region|regions}}{?tribesJoined|; {joined|tribe|tribes} joined them}{?tookIn|; they took in {absorbed|band|bands}}{?unitedWith|; {united|realm|realms} united with them}.',
+    text: 'In {years|year|years} the {name} have grown from {before} to {people} people{?regionsGrew| and from {regionsBefore} to {regions|region|regions}}{?regionsSame|, still in {regions|region|regions}}{?regionsShrank|, though in {regions|region|regions} where they held {regionsBefore}}{?mostlyOwn|, mostly by their own growth}{?mostlyWar|, mostly by war}{?wonInWar|. They won {conquered|region|regions} in war}{?expanded|. They sent settlers into {expansions|region|regions}}{?tribesJoined|; {joined|tribe|tribes} joined them}{?tookIn|; they took in {absorbed|band|bands}}{?unitedWith|; {united|realm|realms} united with them}.',
   },
   decline: {
     title: '{?declining|The decline of the {name}}{?ended|The end of the {name}}',
-    text: '{?declining|Since year {peakYear} the {name} have fallen from {peak} to {people} people}{?regionsLost| and from {regionsPeak} to {regions|region|regions}}{?ended|From {peak} people in year {peakYear}, the {name} have come to an end}{?famine|. Famine killed {famineDeaths} of them}{?neglect|. Their strained realm let {neglected|region|regions} go unkept}.',
+    text: '{?declining|Since year {peakYear} the {name} have fallen from {peak} to {people} people}{?regionsLost| and from {regionsPeak} to {regions|region|regions}}{?ended|From {peak} people in year {peakYear}, the {name} have come to an end}{?war|. They lost {lostInWar|region|regions} in war}{?famine|. Famine killed {famineDeaths} of them}{?neglect|. Their strained realm let {neglected|region|regions} go unkept}.',
   },
   union: {
     title: '{?one|The {joined} join the {name}}{?many|{count} realms join the {name}}',
@@ -54,6 +54,10 @@ export const STORY_TEMPLATES: Record<StoryKind, { title: string; text: string }>
   wonder: {
     title: '{wonder}',
     text: 'The {name} completed {wonder} at {city}, after {years|year|years} of work.',
+  },
+  war: {
+    title: '{war}',
+    text: '{?fighting|The {attacker} have fought the {defender} since year {since}: {dead} dead so far}{?holding|, and the {attacker} hold {held|region|regions} of theirs}{?behind|, and the {defender} have the upper hand}{?endedWhite|The {attacker} and the {defender} fought for {years|year|years}, and neither won: {dead} dead}{?endedTribute|The {attacker} and the {defender} fought for {years|year|years}: the {loser} pay tribute to the {winner}, after {dead} dead}{?endedCession|After {years|year|years} of war and {dead} dead, the {loser} gave up {ceded|region|regions} to the {winner}}{?endedAnnexation|After {years|year|years} of war and {dead} dead, the {winner} took all the land of the {loser}}{?endedGone|The {attacker} and the {defender} fought until one of them was no more: {dead} dead}.',
   },
 };
 

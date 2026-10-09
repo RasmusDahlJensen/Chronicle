@@ -17,6 +17,7 @@ import { byWater } from './settlements.ts';
 import { edgeBetween, roadCoverage } from './roads.ts';
 import { construct } from './construction.ts';
 import { levy } from './army.ts';
+import { wageWars } from './war.ts';
 import { environment } from './environment.ts';
 import { cultivatedCells, rankFarmland } from './fields.ts';
 import { cultureStats, cultureYear, harshLand } from './culture.ts';
@@ -30,21 +31,21 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CENSUS_YEARS, CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 31;
+export const SIMULATION_RULES_VERSION = 32;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
 /** Rules per system. Empty systems keep their slot, cadence and timing until a milestone fills them. */
 const RUNS: Record<SystemKey, SystemRun> = {
   environment, production: produce, population: populate, knowledge: research, culture: cultureYear,
-  stability: stabilize, decisions: decide, construction: construct, diplomacy: (state, context) => { resourcesYear(state, context); tradeMonth(state, context); diplomacyMonth(state, context); relationsYear(state, context); }, war: levy, fracture: () => {},
+  stability: stabilize, decisions: decide, construction: construct, diplomacy: (state, context) => { resourcesYear(state, context); tradeMonth(state, context); diplomacyMonth(state, context); relationsYear(state, context); }, war: (state, context) => { wageWars(state, context); levy(state, context); }, fracture: () => {},
   chronicle: (state, context) => state.chronicle.flush(context.tick),
 };
 
 function emptyLedger(regions: number): Ledger {
   return {
     births: new Int32Array(regions), naturalDeaths: new Int32Array(regions), famineDeaths: new Int32Array(regions),
-    migrantsIn: new Int32Array(regions), migrantsOut: new Int32Array(regions), before: new Int32Array(regions), food: new Map(), wealth: new Map(),
+    migrantsIn: new Int32Array(regions), migrantsOut: new Int32Array(regions), warDeaths: new Int32Array(regions), before: new Int32Array(regions), food: new Map(), wealth: new Map(),
   };
 }
 
@@ -57,20 +58,20 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
     weather: new Float64Array(regions).fill(1), harvestFactor: new Float64Array(regions).fill(1), drought: new Uint8Array(regions), famineRecent: new Float64Array(regions), famine: new Uint8Array(regions),
     farmBonus: new Float64Array(regions).fill(1), droughtShield: new Float64Array(regions), storeBonus: new Float64Array(regions).fill(1), spoilageBonus: new Float64Array(regions).fill(1),
     fields: new Float64Array(regions), fieldRanking: rankFarmland(geography, partition), famineWatches: [],
-    famineSince: new Int32Array(regions).fill(-1), fieldShare: new Float64Array(regions).fill(1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), calm: new Float64Array(regions).fill(1), remoteness: new Float64Array(regions), remoteOwner: new Int32Array(regions).fill(-1), reliefTick: new Int32Array(regions).fill(-1), neglected: new Uint8Array(regions), unsettled: new Float64Array(regions), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions), harshness: new Float64Array(regions),
+    famineSince: new Int32Array(regions).fill(-1), fieldShare: new Float64Array(regions).fill(1), stability: new Float64Array(regions).fill(1), unrest: new Uint8Array(regions), calm: new Float64Array(regions).fill(1), remoteness: new Float64Array(regions), remoteOwner: new Int32Array(regions).fill(-1), reliefTick: new Int32Array(regions).fill(-1), neglected: new Uint8Array(regions), unsettled: new Float64Array(regions), wars: [], occupiedBy: new Int32Array(regions).fill(-1), firsts: [], agricultureQuarterYear: -1, affinity: [], landValue: new Float64Array(regions), harshness: new Float64Array(regions),
     lineages: [],
     gameStock: new Float64Array(regions).fill(1), occupant: new Int32Array(regions).fill(-1), groupAt: new Int32Array(regions).fill(-1),
     capacity: new Float64Array(regions), overCapacity: new Int32Array(regions), capacityGame: new Float64Array(regions),
     ledger: emptyLedger(regions), habitable: new Uint8Array(regions), settledLandmasses: [],
     metrics: { silentBandYears: 0, maxOverCapacityMonths: 0, moves: 0, movesCitingPressure: 0, movesLedByPressure: 0, splits: 0, breakaways: 0, births: 0, deaths: 0, famineDeaths: 0, settled: 0, discoveries: 0, firstContacts: 0,
-      chosen: { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0, trade: 0, pact: 0, alliance: 0, roadAgreement: 0, voyage: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0, unions: 0,
+      chosen: { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0, trade: 0, pact: 0, alliance: 0, roadAgreement: 0, voyage: 0, war: 0, peace: 0 }, expansions: 0, absorbed: 0, displaced: 0, expeditions: 0, migrants: 0, joined: 0, unrestOutbreaks: 0, unions: 0,
       exchangeOffers: 0, exchanges: 0, tribeExchanges: 0, agricultureInventions: 0, settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0,
       buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0,
       roadsBegun: 0, roadsBuilt: 0, roadsAbandoned: 0, roadEdgesBuilt: 0, bridgesBuilt: 0, roadsLost: 0, firstBridgeTick: -1, droughts: 0, famines: 0,
       faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, decisionSteps: 0, causesShort: 0, resourceExpansions: 0, tradeOffers: 0, tradeRefused: 0, tradeAgreements: 0, tradeEnded: { needPassed: 0, noSurplus: 0, unpaid: 0, relationsSoured: 0, partyGone: 0 },
-      pactsMade: 0, alliancesMade: 0, roadDealsMade: 0, treatiesRefused: 0, crossBorderRoads: 0, pactEnded: { relationsSoured: 0, partyGone: 0, routeLost: 0 },
+      pactsMade: 0, alliancesMade: 0, roadDealsMade: 0, treatiesRefused: 0, crossBorderRoads: 0, pactEnded: { relationsSoured: 0, partyGone: 0, routeLost: 0, broken: 0 },
       voyages: 0, voyagesLost: 0, voyagesEmpty: 0, voyagesOtherLand: 0, voyagesNewLand: 0, voyageContacts: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0,
-      mobilizations: 0, demobilizations: 0 },
+      mobilizations: 0, demobilizations: 0, warsDeclared: 0, warsEnded: { white: 0, tribute: 0, cession: 0, annexation: 0, gone: 0 }, warDeaths: 0, regionsConquered: 0, annexations: 0, regionsUnited: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], census: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -89,7 +90,7 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
 export function stepSimulation(state: SimulationState, now: () => number = () => 0, verify = true) {
   const tick = state.tick, { year, month } = simulationDate(tick);
   const ledger = state.ledger;
-  for (const array of [ledger.births, ledger.naturalDeaths, ledger.famineDeaths, ledger.migrantsIn, ledger.migrantsOut, ledger.before]) array.fill(0);
+  for (const array of [ledger.births, ledger.naturalDeaths, ledger.famineDeaths, ledger.migrantsIn, ledger.migrantsOut, ledger.warDeaths, ledger.before]) array.fill(0);
   ledger.food.clear(); ledger.wealth.clear();
   // Every civilization's treasury as the month begins (VISION.md rule 8).
   for (const id of state.living) { const polity = state.polities[id]; if (polity.kind === 'civ') wealthFlows(state, polity); }
@@ -325,6 +326,9 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     cultivatedCells: cultivated, cultivatedShare: state.fieldRanking.order.length ? Math.round(cultivated / state.fieldRanking.order.length * 1000) / 1000 : 0,
     faminesWatched: m.faminesWatched, fieldsShrank: m.fieldsShrank, fieldsRegrew: m.fieldsRegrew,
     ...budgetStats(state), arrearsBegun: m.arrearsBegun, taxesRaised: m.taxesRaised, taxesEased: m.taxesEased, mobilizations: m.mobilizations, demobilizations: m.demobilizations,
+    warsDeclared: m.warsDeclared, warsWhite: m.warsEnded.white, warsTribute: m.warsEnded.tribute, warsCession: m.warsEnded.cession, warsAnnexation: m.warsEnded.annexation, warsGone: m.warsEnded.gone,
+    warDeaths: m.warDeaths, regionsConquered: m.regionsConquered, annexations: m.annexations, warsActive: state.wars.filter(war => war.endTick === null).length, chosenWar: m.chosen.war, chosenPeace: m.chosen.peace,
+    ownedRegions: state.owner.reduce((count, owner) => count + (owner >= 0 ? 1 : 0), 0), regionsUnited: m.regionsUnited,
     reliefFood: Math.round(m.reliefUnits / FOOD_TUNING.unitsPerPersonMonth), reliefLost: Math.round(m.reliefLost / FOOD_TUNING.unitsPerPersonMonth), reliefCost: m.reliefCost, reliefBegun: m.reliefBegun,
     reliefShortTreasury: Math.round(m.reliefShortTreasury / FOOD_TUNING.unitsPerPersonMonth), reliefShortFood: Math.round(m.reliefShortFood / FOOD_TUNING.unitsPerPersonMonth),
     unionsRefusedForStrain: m.unionsRefusedForStrain, longestDominance: m.longestDominance, dominanceYears: m.dominanceYears,
@@ -456,6 +460,14 @@ export function stateHash(state: SimulationState) {
   add(state.tick);
   // Development controls used (Dev 02); unaltered histories hash as they did before the counter existed.
   if (state.devActions) add(state.devActions);
+  for (const war of state.wars) {
+    add(war.id); add(war.score * 1e6); add(war.exhaustion[0] * 1e6); add(war.exhaustion[1] * 1e6); add(war.deaths[0]); add(war.deaths[1]); add(war.carry[0] * 1e6); add(war.carry[1] * 1e6);
+    add(war.held); add(war.startTick); add(war.endTick ?? -1); add(war.ceded.length); add(war.yearDeaths[0]); add(war.yearDeaths[1]);
+    for (const region of war.goal) add(region);
+    for (const region of war.counter) add(region);
+    for (const entry of war.occupied) { add(entry.region); add(entry.by); add(entry.tick); }
+    if (war.tribute) { add(war.tribute.payer); add(war.tribute.payee); add(war.tribute.amount); add(war.tribute.until); add(war.tribute.carry * 1e6); add(war.tribute.paid); }
+  }
   for (const group of state.groups) {
     add(group.size); add(group.region); add(group.arrivedTick); add(group.store); add(group.planted); add(group.birthCarry); add(group.naturalCarry); add(group.famineCarry); add(group.specialists); add(group.soldiers); add(group.foodSecurity * 1e6);
     add(group.culture); add(group.faith); add(group.faithApart); for (const key of VALUE_KEYS) add(group.values[key] * 1e9);
@@ -493,6 +505,10 @@ export function stateHash(state: SimulationState) {
     add(polity.famineDeaths); add(polity.personMonths); add(polity.outputSum * 1e3);
     // Its army as last set (M6.1): what later soldiers and the causes of its events follow.
     add(polity.army.target); add(polity.army.garrison); add(polity.army.threatened); add(polity.army.cut); add(polity.army.feared); add(polity.army.tick);
+    // Its wars and claims (M6.2).
+    for (const war of polity.wars) add(war);
+    for (const claim of polity.claims) { add(claim.region); add(claim.tick); }
+    add(polity.weariness.value * 1e6); add(polity.weariness.tick);
     for (const id of polity.heardWonders) add(id);
     // Relations (M5.1): what it thinks of whom, how intimate they are, and what it remembers.
     for (const [other, relation] of polity.relations) { add(other); add(relation.intimacy * 1e6); add(relation.opinion * 10); for (const memory of relation.memories) { add(MEMORY_REASONS.indexOf(memory.reason)); add(memory.points); add(memory.tick); } }
@@ -512,7 +528,7 @@ export function stateHash(state: SimulationState) {
   }
   for (const settlement of state.settlements) { add(settlement.cell); add(settlement.owner); add(settlement.status === 'alive' ? 1 : 0); add(settlement.capital ? 1 : 0); add(settlement.tier); add(settlement.urban); add(settlement.housing); add(settlement.urbanMean * 1000); add(settlement.tierYears); for (const building of settlement.buildings) { add(building.type); add(building.condition * 1e6); } }
   for (const value of state.owner) add(value);
-  for (let region = 0; region < state.stability.length; region++) { add(state.stability[region] * 1e6); add(state.unrest[region]); add(state.calm[region] * 1e6); add(state.remoteness[region] * 1e6); add(state.remoteOwner[region]); add(state.reliefTick[region]); add(state.neglected[region]); add(state.unsettled[region] * 1e9); }
+  for (let region = 0; region < state.stability.length; region++) { add(state.stability[region] * 1e6); add(state.unrest[region]); add(state.calm[region] * 1e6); add(state.remoteness[region] * 1e6); add(state.remoteOwner[region]); add(state.reliefTick[region]); add(state.neglected[region]); add(state.unsettled[region] * 1e9); add(state.occupiedBy[region]); }
   // The capacity cache warm-starts later solves, so it is part of what determines history.
   for (let region = 0; region < state.capacity.length; region++) { add(state.capacity[region] * 1e3); add(state.capacityGame[region] * 1e6); add(state.overCapacity[region]); }
   for (const value of state.gameStock) add(value * 1e6);

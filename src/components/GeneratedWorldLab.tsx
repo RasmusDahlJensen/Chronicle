@@ -382,6 +382,7 @@ export function GeneratedWorldLab() {
                 {inspected && <div><dt>Capacity</dt><dd id="region-capacity">{number.format(inspected.capacity)} people</dd></div>}
                 {inspected && <div><dt>Game stock</dt><dd>{Math.round(inspected.gameStock * 100)}%</dd></div>}
                 {inspected?.neglected && <div><dt>Upkeep</dt><dd id="region-neglect">let go unkept by its realm: its buildings and roads wear</dd></div>}
+                {inspected?.occupation && <div><dt>Occupied</dt><dd id="region-occupation">held in war by the {inspected.occupation.name} since year {inspected.occupation.since.toLocaleString('en')}</dd></div>}
                 {inspected && inspected.fields.cells > 0 && <div><dt>Fields</dt><dd id="region-fields">{Math.round(inspected.fields.share * 100)}% of its farmland cultivated ({number.format(inspected.fields.cells)} cells)</dd></div>}
                 {inspected && <div><dt>Last harvest</dt><dd id="region-harvest">{Math.round(inspected.weather.harvest * 100)}% of the crops{inspected.weather.drought ? ` · drought, ${inspected.weather.drought} months left` : ''}{inspected.weather.famine ? ' · famine' : ''}{inspected.weather.relief ? ' · relief food arriving' : ''}{inspected.weather.irrigation > 1 ? ` · irrigated (farming ×${inspected.weather.irrigation.toFixed(2)})` : ''}</dd></div>}
               </dl>

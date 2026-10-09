@@ -264,6 +264,22 @@ export function checkInvariants(state: SimulationState) {
       if (sorted(list) !== sorted(partners[kind].get(id)) || new Set(list).size !== list.length) fail(`polity ${id}'s ${kind} partners are not its treaties'`);
     }
   }
+  // Wars (M6.2): a war now lists two living civilizations that list it; occupied land is held by a side of a war now
+  // and owned by the other; ended wars hold nothing.
+  const holding = new Map<number, number>();
+  for (const war of state.wars) {
+    const sides = [state.polities[war.attacker], state.polities[war.defender]];
+    if (war.endTick === null) {
+      if (sides.some(side => side.deathTick !== null || side.kind !== 'civ' || !side.wars.includes(war.id))) fail(`war ${war.id} is not fought by two living civilizations that know it`);
+      for (const entry of war.occupied) {
+        const owner = entry.by === war.attacker ? war.defender : war.attacker;
+        if ((entry.by !== war.attacker && entry.by !== war.defender) || state.owner[entry.region] !== owner || holding.has(entry.region)) fail(`war ${war.id} holds region ${entry.region} wrongly`);
+        holding.set(entry.region, entry.by);
+      }
+    } else if (war.occupied.length) fail(`war ${war.id} ended but still holds land`);
+  }
+  for (let region = 0; region < state.occupiedBy.length; region++) if ((holding.get(region) ?? -1) !== state.occupiedBy[region]) fail(`region ${region} is occupied by ${state.occupiedBy[region]}, not by its war`);
+  for (const id of state.living) for (const war of state.polities[id].wars) if (state.wars[war]?.endTick !== null) fail(`polity ${id} lists war ${war}, which is over`);
   // Exact wealth accounting (VISION.md rule 8): every treasury is explained by this tick's flows.
   for (const [id, flows] of ledger.wealth) {
     const polity = state.polities[id];
@@ -280,7 +296,7 @@ export function checkInvariants(state: SimulationState) {
   if (carriedIn !== carriedOut) fail(`${carriedOut} food units were carried out but ${carriedIn} carried in`);
   for (let region = 0; region < regions; region++) {
     if (seen[region] !== state.occupant[region] || (seen[region] < 0) !== (state.groupAt[region] < 0)) fail(`region ${region} records a band that is not there`);
-    const expected = ledger.before[region] + ledger.births[region] - ledger.naturalDeaths[region] - ledger.famineDeaths[region]
+    const expected = ledger.before[region] + ledger.births[region] - ledger.naturalDeaths[region] - ledger.famineDeaths[region] - ledger.warDeaths[region]
       + ledger.migrantsIn[region] - ledger.migrantsOut[region];
     if (now[region] !== expected) fail(`region ${region} population ${now[region]} differs from its accounted ${expected}`);
     const owner = state.owner[region];

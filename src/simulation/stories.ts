@@ -22,8 +22,10 @@ export const STORY_YEARS = 100, DECLINE_YEARS = 200;
 /** A rise: grown by at least a quarter; a decline: fallen to at most four fifths of its peak. */
 export const RISE_GROWTH = 1.25, DECLINE_SHARE = 0.8;
 /** Each kind's weight per share of the world's people it touched. */
-const KIND_SCALE: Record<StoryKind, number> = { rise: 1, decline: 1, union: 1, first: 0.5, faith: 0.5, peoples: 0.5, trade: 0.4, voyage: 0.3, hardship: 10, wonder: 0.3 };
-export const KIND_LIMIT: Partial<Record<StoryKind, number>> = { rise: 2, decline: 2, union: 2 };
+const KIND_SCALE: Record<StoryKind, number> = { rise: 1, decline: 1, union: 1, first: 0.5, faith: 0.5, peoples: 0.5, trade: 0.4, voyage: 0.3, hardship: 10, wonder: 0.3, war: 1 };
+export const KIND_LIMIT: Partial<Record<StoryKind, number>> = { rise: 2, decline: 2, union: 2, war: 2 };
+/** A war's dead weigh this many times a person living in the land it took (M6.2). */
+export const WAR_STORY_DEAD = 20;
 /** Stories of standing facts (a first, a trade web, voyages, a wonder) weigh by their realm's people only up to this
  *  share of the world's, so they do not lead the rail over who rises, falls and unites merely for a realm's size (the
  *  U close-out review). */
@@ -145,18 +147,24 @@ export function storyCandidates(state: SimulationState): Story[] {
     const people = peopleOf(state, civ), gain = people - base.people;
     if (gain <= 0 || people < base.people * RISE_GROWTH) continue;
     const growth = (mine.get(id) ?? []).filter(event => event.tick >= base.year * 12 && (
-      ((event.type === 'expansion' || event.type === 'bandJoined' || event.type === 'bandAbsorbed') && acts(event, id, 'civ')) || (event.type === 'unification' && acts(event, id, 'union'))));
+      ((event.type === 'expansion' || event.type === 'bandJoined' || event.type === 'bandAbsorbed') && acts(event, id, 'civ')) || (event.type === 'unification' && acts(event, id, 'union'))
+      || (event.type === 'regionConquered' && acts(event, id, 'attacker')) || (event.type === 'civDestroyed' && event.data.annexed === true && acts(event, id, 'by'))));
     const count = (type: string) => growth.filter(event => event.type === type).length;
     const expansions = count('expansion'), joined = count('bandJoined'), absorbed = count('bandAbsorbed'), united = count('unification');
-    // How much of its gain came with the peoples who joined it, and how much from its own growth (births over deaths,
-    // and migrants), as shares of the gain: the first causes of a rise.
-    const others = Math.min(gain, growth.filter(event => event.type !== 'expansion').reduce((sum, event) => sum + number(event.data.population), 0)), own = gain - others;
-    const shares = ([['ownGrowth', own / gain], ['peoplesJoined', others / gain]] as const).filter(([, part]) => part >= 0.05)
+    // (M6.2) Land won in war: regions ceded to it and realms it annexed.
+    const won = growth.filter(event => event.type === 'regionConquered' || event.type === 'civDestroyed');
+    const conquered = won.reduce((sum, event) => sum + (event.type === 'civDestroyed' ? number(event.data.regions) : 1), 0);
+    // How much of its gain came with the peoples who joined it, with the land it won in war, and from its own growth
+    // (births over deaths, and migrants), as shares of the gain: the first causes of a rise.
+    const byWar = Math.min(gain, won.reduce((sum, event) => sum + number(event.data.population), 0));
+    const others = Math.min(gain - byWar, growth.filter(event => event.type !== 'expansion' && !won.includes(event)).reduce((sum, event) => sum + number(event.data.population), 0));
+    const own = gain - others - byWar;
+    const shares = ([['ownGrowth', own / gain], ['peoplesJoined', others / gain], ['conquest', byWar / gain]] as const).filter(([, part]) => part >= 0.05)
       .sort((a, b) => b[1] - a[1]).map(([factor, part]) => ({ factor, weight: Math.round(part * 1000) / 1000 }));
     tell('rise', civ, base.year, year, gain / world, {
       name: civ.name, people, before: base.people, regions: civ.groups.length, regionsBefore: base.regions, years: year - base.year,
       expansions, expanded: expansions > 0, joined, tribesJoined: joined > 0, absorbed, tookIn: absorbed > 0, united, unitedWith: united > 0,
-      ownGrowth: own, byOthers: others, mostlyOwn: own >= others,
+      ownGrowth: own, byOthers: others, byWar, mostlyOwn: own >= others + byWar, mostlyWar: byWar > own && byWar >= others, conquered, wonInWar: conquered > 0,
       regionsGrew: civ.groups.length > base.regions, regionsSame: civ.groups.length === base.regions, regionsShrank: civ.groups.length < base.regions,
     }, growth, landOf(state, civ), capitalCell(state, civ), null, shares);
   }
@@ -178,12 +186,15 @@ export function storyCandidates(state: SimulationState): Story[] {
     const since = own.filter(event => event.tick >= peak.year * 12);
     const famines = since.filter(event => event.type === 'famine' && acts(event, civ.id)), deaths = famines.reduce((sum, event) => sum + number(event.data.deaths), 0);
     const neglected = since.filter(event => event.type === 'neglect' && event.data.begun === true).reduce((most, event) => Math.max(most, number(event.data.regions)), 0);
-    const hard = since.filter(event => ['famine', 'neglect', 'arrears', 'unrest', 'buildingDecayed', 'infrastructureDestroyed', 'civDestroyed', 'drought'].includes(event.type));
+    // (M6.2) Land lost in war: regions it ceded, and its end if it was annexed.
+    const lostInWar = since.filter(event => (event.type === 'regionConquered' && acts(event, civ.id, 'defender')) || (event.type === 'civDestroyed' && event.data.annexed === true && acts(event, civ.id, 'civ')));
+    const regionsLostInWar = lostInWar.reduce((sum, event) => sum + (event.type === 'civDestroyed' ? number(event.data.regions) : 1), 0);
+    const hard = since.filter(event => ['famine', 'neglect', 'arrears', 'unrest', 'buildingDecayed', 'infrastructureDestroyed', 'civDestroyed', 'drought', 'regionConquered', 'peaceSigned', 'warDeclared'].includes(event.type));
     const regions = ended ? regionsOf(since) : landOf(state, civ);
     tell('decline', civ, peak.year, ended ? yearOf(civ.deathTick!) : year, (peak.people - people) / world, {
       name: civ.name, peak: peak.people, peakYear: peak.year, people, regionsPeak: peak.regions, regions: civ.groups.length, ended, declining: !ended,
       regionsLost: !ended && civ.groups.length < peak.regions,
-      famineDeaths: deaths, famine: deaths > 0, neglected, neglect: neglected > 0,
+      famineDeaths: deaths, famine: deaths > 0, neglected, neglect: neglected > 0, lostInWar: regionsLostInWar, war: regionsLostInWar > 0,
     }, hard, regions, ended ? centroid(state, regions[0] ?? null) : capitalCell(state, civ));
   }
 
@@ -291,6 +302,26 @@ export function storyCandidates(state: SimulationState): Story[] {
     tell('hardship', polity, yearOf(famines[0].tick), yearOf(famines[famines.length - 1].tick), deaths / world, {
       name: polity.name, deaths, famines: famines.length, worst: number(worst.data.deaths), worstYear: yearOf(worst.tick),
     }, famines, regionsOf(famines), centroid(state, worst.region));
+  }
+
+  // Wars: those fought in the last century, by their dead and the people of the land they took (M6.2).
+  for (const war of state.wars) {
+    if (war.endTick !== null && war.endTick < recentFrom * 12) continue;
+    const attacker = state.polities[war.attacker], defender = state.polities[war.defender];
+    const dead = war.deaths[0] + war.deaths[1];
+    let taken = 0;
+    for (const region of war.ceded) if (state.groupAt[region] >= 0) taken += state.groups[state.groupAt[region]].size;
+    for (const entry of war.occupied) if (state.groupAt[entry.region] >= 0) taken += state.groups[state.groupAt[entry.region]].size;
+    const ended = war.endTick !== null, outcome = war.outcome ?? 'white';
+    const winner = war.score >= 0 ? attacker : defender, loser = winner === attacker ? defender : attacker;
+    const told = (mine.get(war.attacker) ?? []).filter(event => (event.type === 'warDeclared' || event.type === 'battleYear' || event.type === 'peaceSigned' || event.type === 'regionConquered') && event.data.warId === war.id);
+    tell('war', attacker, yearOf(war.startTick), ended ? yearOf(war.endTick!) : year, (dead * WAR_STORY_DEAD + taken) / world, {
+      war: war.name, attacker: attacker.name, defender: defender.name, since: yearOf(war.startTick), years: Math.max(1, Math.round(((ended ? war.endTick! : state.tick) - war.startTick) / 12)), dead,
+      fighting: !ended, ahead: !ended && war.score >= 0, behind: !ended && war.score < 0, held: war.occupied.filter(entry => entry.by === war.attacker).length, lost: war.occupied.filter(entry => entry.by === war.defender).length,
+      holding: !ended && war.occupied.some(entry => entry.by === war.attacker),
+      endedWhite: ended && outcome === 'white', endedTribute: ended && outcome === 'tribute', endedCession: ended && outcome === 'cession', endedAnnexation: ended && outcome === 'annexation', endedGone: ended && outcome === 'gone',
+      winner: winner.name, loser: loser.name, ceded: war.ceded.length,
+    }, told, [...new Set([...war.goal, ...war.ceded])].sort((a, b) => a - b), centroid(state, war.goal[0] ?? war.ceded[0] ?? null), war.id, war.causes.slice(0, 2));
   }
 
   // Wonders: a wonder completed in the last century.

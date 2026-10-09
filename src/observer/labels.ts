@@ -1,4 +1,4 @@
-import type { AGREEMENT_KINDS, BELIEF_KINDS, DECISION_ACTIONS, DIPLOMATIC_STATUSES, NEED_NAMES, ObserverFrame } from '../../shared/simulation.ts';
+import type { AGREEMENT_KINDS, BELIEF_KINDS, DECISION_ACTIONS, DIPLOMATIC_STATUSES, NEED_NAMES, ObserverFrame, WAR_FRAMINGS, WAR_OUTCOMES } from '../../shared/simulation.ts';
 
 /**
  * Words for the simulation's codes, shared by the game and the lab (U.2): decisions, opinion's reasons, standings and
@@ -10,10 +10,11 @@ type Decision = NonNullable<InspectedPolity['lastDecision']>;
 export const DECISION_LABELS: Record<typeof DECISION_ACTIONS[number], string> = {
   expand: 'Expand into', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite with', share: 'Share knowledge with', build: 'Build', trade: 'Propose trade with',
   pact: 'Propose a non-aggression pact with', alliance: 'Propose an alliance with', roadAgreement: 'Propose a joint road with', voyage: 'Send a voyage overseas',
+  war: 'Declare war on', peace: 'Seek peace with',
 };
 export const ACTION_NAMES: Record<typeof DECISION_ACTIONS[number], string> = {
   expand: 'Expand', explore: 'Explore', nothing: 'Do nothing', unite: 'Unite', share: 'Share knowledge', build: 'Build', trade: 'Trade', pact: 'Pact',
-  alliance: 'Alliance', roadAgreement: 'Joint road', voyage: 'Voyage',
+  alliance: 'Alliance', roadAgreement: 'Joint road', voyage: 'Voyage', war: 'War', peace: 'Peace',
 };
 export const NEED_LABELS: readonly (readonly [typeof NEED_NAMES[number], string])[] = [
   ['hunger', 'hunger'], ['landPressure', 'land pressure'], ['shortage', 'shortage'], ['threat', 'threat'], ['unrest', 'unrest'], ['friction', 'friction'],
@@ -27,7 +28,13 @@ export const REASON_NAMES: Record<string, string> = {
   pact: 'non-aggression pact', allied: 'allies', road: 'joint road', refusedTreaty: 'refused a treaty', treatySoured: 'a treaty soured',
 };
 /** A people's standing with a civilization and the treaties they may hold (M5.5). */
-export const STATUS_NAMES: Record<typeof DIPLOMATIC_STATUSES[number], string> = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral' };
+export const STATUS_NAMES: Record<typeof DIPLOMATIC_STATUSES[number], string> = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war' };
+/** (M6.2) What a war is fought for, and how it ended. */
+export const FRAMING_NAMES: Record<typeof WAR_FRAMINGS[number], string> = {
+  conquest: 'a war of conquest', farmland: 'a war for farmland', resource: 'a war for a resource', holy: 'a holy war', reclamation: 'a war to retake lost land', preemptive: 'a pre-emptive war',
+  frontier: 'a war for a natural frontier',
+};
+export const OUTCOME_NAMES: Record<typeof WAR_OUTCOMES[number], string> = { white: 'white peace', tribute: 'tribute', cession: 'land ceded', annexation: 'annexed', gone: 'a side gone' };
 export const AGREEMENT_NAMES: Record<typeof AGREEMENT_KINDS[number], string> = { alliance: 'alliance', nonAggression: 'pact', road: 'joint road', trade: 'trade' };
 /** A realm's yearly costs in words, in the budget's order (a typed record: a new cost needs its name). */
 export const COST_NAMES: Record<keyof NonNullable<InspectedPolity['wealth']>['costs'], string> = { administration: 'administration', services: 'services', upkeep: 'upkeep', roads: 'roads', army: 'army' };
@@ -49,7 +56,7 @@ export function decisionTarget(step: Decision) {
   const option = step.options[step.pick];
   if (!option || option.target === null) return '';
   if (option.action === 'build') return ` ${option.label ?? '?'}`;
-  return ['unite', 'share', 'trade', 'pact', 'alliance', 'roadAgreement'].includes(option.action) ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
+  return ['unite', 'share', 'trade', 'pact', 'alliance', 'roadAgreement', 'war', 'peace'].includes(option.action) ? ` the ${option.label ?? '?'}` : ` region ${option.target}`;
 }
 
 /** A decision's causes: what drove it, and what held it back ("despite"). */

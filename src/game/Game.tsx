@@ -47,6 +47,7 @@ export function Game() {
   const [lens, setLens] = useState<PeoplesLens>('polity');
   const [showTrade, setShowTrade] = useState(true);
   const [showRoads, setShowRoads] = useState(true);
+  const [showWars, setShowWars] = useState(true);
   const [menu, setMenu] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const closeMenu = () => { setMenu(false); requestAnimationFrame(() => menuButton.current?.focus()); };
@@ -90,7 +91,7 @@ export function Game() {
     observed: new Set(seenBy.observed),
     remembered: new Map(seenBy.remembered.regions.map((region, at) => [region, { occupant: seenBy.remembered.occupants[at], year: seenBy.remembered.years[at] }])),
   } : null, [seenBy]);
-  const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight, standings, perspective });
+  const map = useWorldMap({ world, layer: 'biomes', resources: false, rivers: true, regions, showRegions: false, frame, peoples: lens, showTrade, showFields: true, showRoads, background: '#0b1116', highlight, standings, perspective, showWars });
   const region = map.cellRegion;
   const observer = useObserver({ settings: world?.settings ?? null, startFresh: shown.current.fresh, inspect: region?.id ?? null, view: viewAs?.id ?? null, onFrame: setFrame });
   const names = observer.names;
@@ -211,7 +212,7 @@ export function Game() {
         <div className="game-place-body">
         {seenBy && region && <PerspectiveNote perspective={seenBy} region={region.id} />}
         {realmShown && region
-          ? <RealmPanel inspected={realmShown} stale={!inspected} region={region} biome={map.cell ? WORLD_BIOME_STYLE[map.cell.biome].label : null} tab={tab} onTab={setTab} names={names}
+          ? <RealmPanel inspected={realmShown} stale={!inspected} region={region} biome={map.cell ? WORLD_BIOME_STYLE[map.cell.biome].label : null} tab={tab} onTab={setTab} names={names} wars={frame?.wars ?? []}
             viewing={viewAs?.id === realmShown.polity?.id} onViewAs={people => setViewAs(current => current?.id === people.id ? null : people)} />
           : <>
             {map.cell && <h2 className="game-place-title">{WORLD_BIOME_STYLE[map.cell.biome].label}</h2>}
@@ -243,6 +244,7 @@ export function Game() {
           {LENSES.map(entry => <button key={entry.lens} type="button" aria-pressed={lens === entry.lens} onClick={() => setLens(entry.lens)}>{entry.label}</button>)}
           <label><input type="checkbox" checked={showTrade} onChange={event => setShowTrade(event.target.checked)} /> Trade routes</label>
           <label><input type="checkbox" checked={showRoads} onChange={event => setShowRoads(event.target.checked)} /> Roads</label>
+          <label><input type="checkbox" checked={showWars} onChange={event => setShowWars(event.target.checked)} /> Wars</label>
           <div className="game-zoom" role="group" aria-label="Map view">
             <button type="button" aria-label="Zoom in" onClick={() => map.zoomBy(1.6)}>+</button>
             <button type="button" aria-label="Zoom out" onClick={() => map.zoomBy(1 / 1.6)}>−</button>
@@ -266,7 +268,7 @@ export function Game() {
 }
 
 /** The lens key's words for each colour (a typed record: every standing the palette colours needs its word). */
-const STANDING_WORDS: Record<StandingKey, string> = { self: 'the realm', allied: 'allied', pact: 'pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', unknown: 'not met' };
+const STANDING_WORDS: Record<StandingKey, string> = { self: 'the realm', allied: 'allied', pact: 'pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war', unknown: 'not met' };
 const STANDING_KEY = Object.keys(STANDING_COLORS) as StandingKey[];
 
 /** What the political, culture, faith, era and descent lenses' colours mean (U.7), from the frame: the largest first. */

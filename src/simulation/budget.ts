@@ -1,7 +1,7 @@
 import { causes } from './causes.ts';
 import { farmOutput, regionSites, settlementOutput, wonderBonus } from './economy.ts';
 import { keeperOf, roadUpkeepOf } from './roads.ts';
-import { soldiersOf, soldierUpkeep } from './soldiers.ts';
+import { occupiedAway, soldiersOf, soldierUpkeep } from './soldiers.ts';
 import type { Polity, PopulationGroup, SimulationState } from './state.ts';
 import { BUDGET_TUNING, REACH_TUNING } from './tunables.ts';
 import { WONDERS } from './wonders.ts';
@@ -182,8 +182,9 @@ export function seatOf(state: SimulationState, region: number) {
  * surplus of the farmers around it and what the region's mines and quarries pay, and pays the region's administration.
  */
 export function settlementAccount(state: SimulationState, civ: Polity, id: number, wonder = wonderBonus(state, civ).wealth) {
-  const settlement = state.settlements[id], region = settlement.region;
-  const trades = civ.taxRate * settlementOutput(state, settlement) * wonder, served = services(settlement.urban);
+  const settlement = state.settlements[id], region = settlement.region, occupied = occupiedAway(state, region, civ.id);
+  // Occupied in a war, it pays its owner nothing (M6.2).
+  const trades = occupied ? 0 : civ.taxRate * settlementOutput(state, settlement) * wonder, served = services(settlement.urban);
   // In a region let go unkept, its upkeep is not paid.
   let upkeep = state.neglected[region] ? 0 : settlement.bonus.upkeep;
   if (settlement.wonder !== null && !state.neglected[region]) for (const standing of state.wonders) if (standing.settlement === id && standing.status === 'standing') upkeep += WONDERS[standing.type].upkeep;
@@ -196,7 +197,7 @@ export function settlementAccount(state: SimulationState, civ: Polity, id: numbe
 /** One region's account a year beyond its settlements' own: the taxes on its farmers' surplus, what its sites pay, and
  *  its administration (its seat's to keep). */
 export function regionAccount(state: SimulationState, civ: Polity, group: PopulationGroup) {
-  const region = group.region, farms = civ.taxRate * farmOutput(state, group), sites = regionSites(state, civ, region);
+  const region = group.region, occupied = occupiedAway(state, region, civ.id), farms = occupied ? 0 : civ.taxRate * farmOutput(state, group), sites = occupied ? 0 : regionSites(state, civ, region);
   const administered = administration(group.size, state.remoteness[region], sizeFactor(civ.groups.length), ageFactor(realmYears(state, civ)));
   return { farms, sites, administration: administered, balance: farms + sites - administered };
 }

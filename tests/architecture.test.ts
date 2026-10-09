@@ -94,6 +94,9 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   // M5.1: beliefs come to decisions only in the view; the query layer and the relations' truth stay out of reach.
   await source('src/simulation/decisions/believe.ts', "import { believe } from '../perception.ts'; export const guess = believe;");
   await source('src/simulation/decisions/truth.ts', "import { truthOf } from '../relations.ts'; export const peek = truthOf;");
+  // M6.2: perception reads what wars leave behind from claims.ts, never the war module.
+  await source('src/simulation/war.ts', 'export const wageWars = () => {};');
+  await source('src/simulation/perception.ts', "import type { SimulationState } from './state.ts'; import { wageWars } from './war.ts'; export type PolityView = { id: number }; export type Candidate = { region: number }; export const regionView = (state: SimulationState) => [state.tick, wageWars];");
 
   await source('server/app.ts', "export { island } from '../src/fixtures/island.ts';");
   await source('server/workers/terrain.ts', "import '../app.ts';");
@@ -114,7 +117,7 @@ test('architecture checks inspect TypeScript/TSX and reject broken boundaries, i
   for (const [path, target] of vendorLeaks) await source(path, `export const module = import('${target}');`);
   const invalid = check();
   assert.equal(invalid.status, 1, invalid.output);
-  for (const path of ['src/simulation/decisions/state.ts', 'src/simulation/decisions/query.ts', 'src/simulation/decisions/dynamic.ts', 'src/simulation/decisions/believe.ts', 'src/simulation/decisions/truth.ts', 'src/simulation/browser.ts', 'src/simulation/storage.ts', 'src/simulation/generation.ts', 'server/workers/simulation-worker.ts', 'src/components/simulation.ts', 'src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
+  for (const path of ['src/simulation/decisions/state.ts', 'src/simulation/decisions/query.ts', 'src/simulation/decisions/dynamic.ts', 'src/simulation/decisions/believe.ts', 'src/simulation/decisions/truth.ts', 'src/simulation/perception.ts', 'src/simulation/browser.ts', 'src/simulation/storage.ts', 'src/simulation/generation.ts', 'server/workers/simulation-worker.ts', 'src/components/simulation.ts', 'src/world/leak.ts', 'src/world/node.ts', 'src/world/vite.ts', 'shared/vite.ts', 'server/workers/vite.ts', 'server/development.ts', 'src/components/leak.tsx', 'src/components/generation.ts', 'src/components/world-generator.ts', 'src/renderer/world-generator.ts', 'server/world-generator.ts', 'src/renderer/map.ts', 'src/renderer/network.ts', 'server/app.ts', 'server/workers/terrain.ts', 'shared/leak.ts']) {
     assert.ok(invalid.output.includes(path), `Missing boundary diagnostic for ${path}: ${invalid.output}`);
   }
   for (const [path] of vendorLeaks) assert.ok(invalid.output.includes(path), `Missing vendor boundary diagnostic for ${path}: ${invalid.output}`);

@@ -1,6 +1,6 @@
-import type { Candidate, Neighbour, PactOption, Partner, PolityView, RoadOption, TradeOption } from '../perception.ts';
+import type { AtWar, Candidate, Neighbour, PactOption, Partner, PolityView, RoadOption, TradeOption, WarTarget } from '../perception.ts';
 import type { Rng } from '../rng.ts';
-import { BUDGET_TUNING, DECISION_TUNING, DIPLOMACY_TUNING, EXPAND_TUNING, EXPLORE_TUNING, NEED_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING, VOYAGE_TUNING } from '../tunables.ts';
+import { BUDGET_TUNING, DECISION_TUNING, DIPLOMACY_TUNING, EXPAND_TUNING, EXPLORE_TUNING, NEED_TUNING, SHARE_TUNING, TRADE_TUNING, UNITE_TUNING, VOYAGE_TUNING, WAR_TUNING } from '../tunables.ts';
 import { bestBuild, bestRoad, bestWonder } from './build.ts';
 
 /**
@@ -240,6 +240,53 @@ export function voyageScore(view: PolityView): Option | null {
   };
 }
 
+/**
+ * Declaring war (VISION.md "Decision step": Declare war; "war framing"): what a war could win it — a weaker or richer
+ * neighbour × Expansionism (conquest), better land when hungry or crowded (farmland), a resource it lacks (resource),
+ * a rival faith × Zeal (holy war), land it lost (reclamation), a stronger neighbour it fears (pre-emptive) — × its
+ * Militarism (force as an answer) × the odds it believes; held back by its arrears, a liked neighbour and the weariness
+ * of its last war (its exhaustion then, fading over decades). The dominant motive frames the war.
+ */
+export function warScore(view: PolityView, target: WarTarget): Option {
+  const tuning = WAR_TUNING.declare, values = view.values;
+  const keen = tuning.militarism + values.militarism, odds = clamp01((target.odds - tuning.oddsFloor) / tuning.oddsSpan), scale = tuning.weight * keen * odds;
+  const motives = {
+    conquest: tuning.conquest * target.opportunity * values.expansionism, farmland: tuning.farmland * Math.max(view.hunger, view.landPressure) * target.land,
+    resource: tuning.resource * target.shortage, holy: tuning.holy * target.holy * values.zeal, reclamation: tuning.reclamation * target.claims,
+    preemptive: tuning.preemptive * target.threat, frontier: tuning.frontier * target.frontier,
+  };
+  const risks = {
+    arrears: -tuning.arrears * view.arrears, liking: -tuning.liking * Math.max(0, target.opinion) / 100, weariness: -tuning.weariness * view.weariness,
+    treachery: target.pact ? -tuning.treachery : 0, reach: -tuning.reach * Math.max(0, target.reach - 1), futility: -tuning.futility * target.futility,
+  };
+  const score = Object.values(motives).reduce((sum, value) => sum + value, 0) * scale + Object.values(risks).reduce((sum, value) => sum + value, 0);
+  return {
+    action: 'war', score, target: target.enemy, label: target.name, targets: target.goal, resource: target.resource,
+    factors: [
+      ...Object.entries(motives).map(([factor, weight]) => ({ factor, weight: round(weight * scale) })),
+      { factor: `${MULTIPLIER}militarism`, weight: round(keen) }, { factor: `${MULTIPLIER}odds`, weight: round(odds) },
+      ...Object.entries(risks).map(([factor, weight]) => ({ factor, weight: round(weight) })),
+    ],
+    beliefs: [{ polity: target.enemy, kind: 'strength', estimate: target.strength }],
+  };
+}
+
+/**
+ * Seeking peace (VISION.md "Ending wars": both sides weigh Seek peace at each decision step): its exhaustion, a war going
+ * against it, and terms to be had when it is ahead and the enemy is tired; Militarism holds it back.
+ */
+export function peaceScore(view: PolityView, war: AtWar): Option {
+  const tuning = WAR_TUNING.peace;
+  const parts = {
+    exhaustion: tuning.exhaustion * war.exhaustion, losing: tuning.losing * clamp01(-war.lead / 100),
+    terms: tuning.terms * clamp01(war.lead / 100) * clamp01(war.theirs), militarism: -tuning.militarism * view.values.militarism, base: tuning.base,
+  };
+  return {
+    action: 'peace', score: Object.values(parts).reduce((sum, value) => sum + value, 0), target: war.enemy, label: war.name, targets: [war.war],
+    factors: Object.entries(parts).map(([factor, weight]) => ({ factor, weight: round(weight) })),
+  };
+}
+
 const bestOf = <T>(list: readonly T[], score: (entry: T) => Option) => {
   let best: Option | null = null;
   for (const entry of list) { const option = score(entry); if (!best || option.score > best.score) best = option; }
@@ -272,7 +319,12 @@ export function options(view: PolityView): Option[] {
   if (joint) all.push(joint);
   const voyage = voyageScore(view);
   if (voyage) all.push(voyage);
-  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'trade', 'alliance', 'pact', 'roadAgreement', 'voyage', 'nothing'];
+  // War and peace (M6.2).
+  const war = bestOf(view.warTargets, target => warScore(view, target));
+  if (war) all.push(war);
+  const peace = bestOf(view.atWar, entry => peaceScore(view, entry));
+  if (peace) all.push(peace);
+  const order: Action[] = ['expand', 'explore', 'unite', 'share', 'build', 'trade', 'alliance', 'pact', 'roadAgreement', 'voyage', 'peace', 'war', 'nothing'];
   return all.sort((a, b) => b.score - a.score || order.indexOf(a.action) - order.indexOf(b.action));
 }
 

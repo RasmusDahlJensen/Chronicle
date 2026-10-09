@@ -634,7 +634,8 @@ export const RELATION_TUNING = {
   biasSpread: 0.5, biasMin: -0.7, biasMax: 2,
   rise: 0.08, fade: 0.03, border: 0.5, contact: 0.2, exchange: 0.3,
   sameFaith: 25, rivalFaith: 30, culture: 30, culturePivot: 0.85, kin: 10, sharing: 15, borderTension: 40, borderScale: 4, correction: 0.3,
-  memories: { turnedAway: { points: -20, halfLifeYears: 25 }, refusedExchange: { points: -10, halfLifeYears: 15 }, refusedTrade: { points: -10, halfLifeYears: 15 }, refusedTreaty: { points: -5, halfLifeYears: 10 }, treatySoured: { points: -5, halfLifeYears: 15 } },
+  memories: { turnedAway: { points: -20, halfLifeYears: 25 }, refusedExchange: { points: -10, halfLifeYears: 15 }, refusedTrade: { points: -10, halfLifeYears: 15 }, refusedTreaty: { points: -5, halfLifeYears: 10 }, treatySoured: { points: -5, halfLifeYears: 15 },
+    war: { points: -40, halfLifeYears: 30 }, lostLand: { points: -30, halfLifeYears: 75 }, brokeTreaty: { points: -25, halfLifeYears: 40 } },
   forgetBelow: 1, reasonCount: 3,
 } as const;
 
@@ -651,7 +652,8 @@ export const RELATION_TUNING = {
  * - infrastructure: the largest of the share of its towns and cities in regions its roads do not reach, the share of
  *   its settlements going hungry (hardship of at least `hungry`) with no granary or silo, and 1 for a coast with
  *   somewhere to sail to but no harbor once it could sail and build one.
- * Resource shortage is the largest shortfall of what its techs demand (M5.3); grievance is 0 until M6.
+ * Resource shortage is the largest shortfall of what its techs demand (M5.3); grievance (M6.2) is the weight of its
+ * strongest claim on land another civilization holds (`grievanceOf`).
  */
 export const NEED_TUNING = { threatScale: 2, hostileAt: 50, calmStability: 0.8, weak: 0.5, rich: 0.3, hungry: 0.2 } as const;
 
@@ -777,6 +779,57 @@ export const ARMY_TUNING = {
   garrison: 0.004, threat: 0.02, floor: 0.001, maxShare: 0.08, raiseMonths: 12, releaseMonths: 3,
   upkeep: 1.2, arms: 0.5, afford: 0.2, headroom: 0.1, demobUnrest: 0.2, demobScale: 0.02, demobYears: 3, warriors: 0.1,
   eventChange: 0.5, eventSoldiers: 300,
+} as const;
+
+/**
+ * War and peace (VISION.md "Diplomacy and war"; M6.2).
+ * - Declaring (the decision step, `decisions/choose.ts` `warScore`) on a neighbour that is not an ally, outside a
+ *   truce of truceYears, while it fights no war. Its goal (`claims.ts` `chooseGoal`): up to `goalRegions` of their
+ *   regions, one at a time, each next to its land or the goal so far (their capital only when they hold no more), the
+ *   one worth most: exp(frontierWorth × the frontier gained) × land value ÷ (land value + its own regions' mean) ×
+ *   (1 + its claim). The frontier gained (`frontierGain`): each border edge taking the region would draw counts its
+ *   travel cost over the world's median edge less barrierEdge, each it would close the same negated. Motives:
+ *   conquest × a weaker or richer neighbour × Expansionism; farmland × hunger or land pressure × better land;
+ *   resource × the shortfall the goal's sites relieve; holy × a rival faith (cooled by the secular age) × Zeal;
+ *   reclamation × claims on the goal; preemptive × the threat it feels; frontier × the goal's frontier gained ÷
+ *   frontierScale (within 0–1). Their sum × `weight` × (militarism + Militarism) × clamp01((odds − oddsFloor) ÷
+ *   oddsSpan), the odds being its strength with its allies' × its supply to the goal against theirs with theirs × the
+ *   goal's ground (`defenseOf`, below, with the walls it sees) × their supply (from their capital as the crow flies ×
+ *   `winding`), less arrears × its arrears, liking × its opinion of them ÷ 100 when positive, weariness × its
+ *   war-weariness (its exhaustion when its last war ended, halving every `wearyHalfLife` years), reach × how far the
+ *   goal lies beyond its governance reach (its mean travel-km from the capital ÷ reach, less 1), futility × its wars on
+ *   them that came to nothing (white peace or lost, each halving every futilityHalfLife years), and `treachery` for
+ *   breaking a non-aggression pact with them (a war on a pact partner breaks it: an event, and the victim and the
+ *   breaker's treaty partners remember it). No treaty is proposed to an enemy while they fight.
+ * - Each month (the war system): strength × supply (1 ÷ (1 + travel-km from its capital to the front ÷ supplyKm)); the
+ *   front is the land of the side being pushed back (the defender's goal while the score favours the attacker, the
+ *   attacker's counter when it turns), and that side × its ground: (1 + ground × the front's mean defensibility + walls ×
+ *   its walls' defence) × (1 + barrier × the mean crossing into it: its easiest border edge's travel cost over the
+ *   world's median edge, less 1, within 0–maxCrossing). The score moves by scoreRate × (2 × odds − 1) plus
+ *   noise × (a triangular draw in −1..1); each side loses casualties ÷ 12 of its engaged soldiers (soldiers × supply) ×
+ *   2 × the other side's share of the strength. A side ahead holds one region it fights for per occupyStep points (one
+ *   war holds a region at a time); occupied land pays its owner nothing and costs it occupiedUnrest of stability.
+ *   Exhaustion rises a year by exhaustion.years + exhaustion.dead × its dead ÷ its people + exhaustion.occupied × the
+ *   share of its regions occupied + exhaustion.arrears × its arrears, × (1 − calm × Militarism), to exhaustion.max. A war whose yearly dead
+ *   reach notableDead (or whose occupation changed) is summarized yearly.
+ * - Peace: a side at `peaceAt` exhaustion, or the attacker holding its whole goal for `goalMonths`, ends it; a side that
+ *   seeks peace (peace.*) is accepted when the other is at acceptExhaustion or the terms favour it or are white. Terms
+ *   by the winner's lead: below terms.white a white peace; below terms.tribute tribute; below terms.annex cession of
+ *   what it holds (with tribute); above, annexation when the loser holds at most annexRegions regions or annexPeople of
+ *   the winner's people, else cession with tribute. Tribute: tributeShare of the loser's revenue a year for
+ *   tributeYears. Holding a small realm's capital, its whole goal, for goalMonths is annexation. The loser's claims on
+ *   land it lost weigh ½ every claimHalfLife years (forgotten below claimFloor); a truce of truceYears follows.
+ * - Armies at war: each war adds army × its people to the soldiers it wants, and its army budget × warBudget.
+ */
+export const WAR_TUNING = {
+  goalRegions: 3, truceYears: 25, wearyHalfLife: 25,
+  declare: { weight: 0.4, militarism: 0.25, oddsFloor: 0.35, oddsSpan: 0.35, conquest: 0.5, farmland: 0.4, resource: 0.5, holy: 0.3, reclamation: 0.5, preemptive: 0.3, frontier: 0.2, arrears: 0.3, liking: 0.15, weariness: 0.3, treachery: 0.04, reach: 0.1, futility: 0.1 },
+  supplyKm: 1500, winding: 1.4, ground: 0.5, walls: 1, barrier: 1, maxCrossing: 3, frontierWorth: 1, frontierScale: 2, barrierEdge: 1.25, scoreRate: 4, noise: 2, casualties: 0.12, occupyStep: 25,
+  exhaustion: { years: 0.08, dead: 40, occupied: 0.6, arrears: 0.3, max: 2 }, calm: 0.5, notableDead: 200,
+  peaceAt: 1, goalMonths: 12, acceptExhaustion: 0.4,
+  peace: { exhaustion: 0.4, losing: 0.3, terms: 0.3, militarism: 0.1, base: -0.05 },
+  terms: { white: 15, tribute: 40, annex: 75 }, tributeShare: 0.1, tributeYears: 10, annexRegions: 4, annexPeople: 0.25,
+  claimHalfLife: 75, claimFloor: 0.05, futilityHalfLife: 60, army: 0.02, warBudget: 1.5, occupiedUnrest: 0.3,
 } as const;
 
 export function validateTunables() {
@@ -933,6 +986,14 @@ export function validateTunables() {
   if (!([ar.garrison, ar.threat, ar.floor, ar.upkeep, ar.arms, ar.afford, ar.headroom, ar.demobUnrest, ar.eventSoldiers].every(value => value >= 0 && Number.isFinite(value)) && ar.floor <= ar.garrison
     && ar.maxShare > 0 && ar.maxShare <= 1 && ar.raiseMonths >= 1 && ar.releaseMonths >= 1 && ar.demobScale > 0 && ar.demobYears > 0 && ar.demobUnrest <= 1
     && ar.warriors >= 0 && ar.warriors <= 1 && ar.eventChange > 0 && ar.eventChange <= 1)) problems.push('army settings are invalid');
+  const wt = WAR_TUNING;
+  const warNumbers = (entry: object): number[] => Object.values(entry).flatMap(value => typeof value === 'number' ? [value] : warNumbers(value as object));
+  // (Seeking peace has a base below zero: Do nothing outweighs it until a war tires or turns.)
+  if (!(warNumbers({ ...wt, peace: { ...wt.peace, base: 0 } }).every(value => Number.isFinite(value) && value >= 0) && Number.isFinite(wt.peace.base) && wt.peace.base > -1 && Number.isInteger(wt.goalRegions) && wt.goalRegions >= 1 && wt.goalRegions <= 8
+    && wt.declare.oddsSpan > 0 && wt.declare.oddsFloor < 1 && wt.supplyKm > 0 && wt.occupyStep > 0 && wt.occupyStep <= 100 && wt.peaceAt > 0 && wt.acceptExhaustion <= wt.peaceAt
+    && wt.terms.white < wt.terms.tribute && wt.terms.tribute < wt.terms.annex && wt.terms.annex <= 100 && wt.tributeShare <= 1 && wt.annexPeople <= 1 && wt.claimHalfLife > 0
+    && wt.calm <= 1 && wt.casualties <= 1 && wt.occupiedUnrest <= 1 && wt.frontierScale > 0 && wt.winding >= 1 && wt.maxCrossing > 0 && wt.exhaustion.max >= wt.peaceAt
+    && wt.claimFloor < 1 && wt.futilityHalfLife > 0)) problems.push('war settings are invalid');
   const x = EXPLORE_TUNING;
   if (!(x.opennessWeight >= 0 && x.expansionismWeight >= 0 && x.base >= 0 && x.frontierScale > 0 && x.freshMobility >= 0 && x.freshYears > 0 && x.range.length === 3 && x.range.every(steps => Number.isInteger(steps) && steps >= 1))) problems.push('exploration settings are invalid');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);

@@ -1,4 +1,4 @@
-import { CULTURE_ORIGIN_NAMES, VALUE_NAMES } from '../../shared/simulation.ts';
+import { CULTURE_ORIGIN_NAMES, VALUE_NAMES, type WAR_FRAMINGS, type WAR_OUTCOMES } from '../../shared/simulation.ts';
 import type { Chronicle } from './chronicle.ts';
 import type { FoodModel } from './food.ts';
 import type { Knowledge } from './knowledge.ts';
@@ -147,6 +147,30 @@ export interface Polity {
    *  garrison its Militarism wants, the soldiers the threat adds and those its budget cuts (soldiers each) — the people
    *  it fears most (−1 none) and when it was set (−1 never). Its soldiers are its groups'. */
   army: { target: number; garrison: number; threatened: number; cut: number; feared: number; tick: number };
+  /** A civilization's wars now (ids into `state.wars`; M6.2), and its claims on land it lost in a war: the region and
+   *  when (their weight fades, `war.ts` `claimWeight`; a claim ends when it regains the region). */
+  wars: number[]; claims: { region: number; tick: number }[];
+  /** Its war-weariness (M6.2): its exhaustion when its last war ended, and when; it fades (halving every
+   *  WAR_TUNING.wearyHalfLife years) and weighs against a new war. */
+  weariness: { value: number; tick: number };
+}
+
+export type WarFraming = typeof WAR_FRAMINGS[number];
+export type WarOutcome = typeof WAR_OUTCOMES[number];
+/**
+ * A war (VISION.md "Data model": belligerents, goal, war score, exhaustion per side, start year, contested regions;
+ * M6.2), by id (its index in `state.wars`), never deleted. `goal`: the defender's regions the attacker fights for;
+ * `counter`: the attacker's border regions the defender may take. The score runs from −100 to 100 in the attacker's
+ * favour; exhaustion, the dead, the fraction of a death not yet counted and this year's dead are per side (attacker
+ * first). `held`: months the attacker has held its whole goal. Its peace: the outcome, the regions that changed hands
+ * and any tribute (yearly, until a tick, with the fraction not yet paid and what has been).
+ */
+export interface War {
+  id: number; name: string; attacker: number; defender: number; framing: WarFraming; resource: number;
+  goal: number[]; counter: number[]; occupied: { region: number; by: number; tick: number }[];
+  score: number; exhaustion: [number, number]; deaths: [number, number]; carry: [number, number]; yearDeaths: [number, number]; held: number;
+  startTick: number; endTick: number | null; outcome: WarOutcome | null; causes: { factor: string; weight: number }[];
+  ceded: number[]; tribute: { payer: number; payee: number; amount: number; until: number; carry: number; paid: number } | null;
 }
 
 /**
@@ -177,8 +201,9 @@ export interface RoadAgreement {
 export type Treaty = TradeTreaty | Pact | RoadAgreement;
 export const TRADE_ENDS = ['needPassed', 'noSurplus', 'unpaid', 'relationsSoured', 'partyGone'] as const;
 export type TradeEnd = typeof TRADE_ENDS[number];
-/** How a pact, an alliance or a road agreement ends (`routeLost`: its road can no longer be built). */
-export const PACT_ENDS = ['relationsSoured', 'partyGone', 'routeLost'] as const;
+/** How a pact, an alliance or a road agreement ends (`routeLost`: its road can no longer be built; `broken`: a party went
+ *  to war on the other, M6.2). */
+export const PACT_ENDS = ['relationsSoured', 'partyGone', 'routeLost', 'broken'] as const;
 export type PactEnd = typeof PACT_ENDS[number];
 
 /**
@@ -191,7 +216,7 @@ export interface Relation {
   intimacy: number; opinion: number; reasons: { factor: string; weight: number }[];
   memories: { reason: MemoryReason; points: number; tick: number }[];
 }
-export const MEMORY_REASONS = ['turnedAway', 'refusedExchange', 'refusedTrade', 'refusedTreaty', 'treatySoured'] as const;
+export const MEMORY_REASONS = ['turnedAway', 'refusedExchange', 'refusedTrade', 'refusedTreaty', 'treatySoured', 'war', 'lostLand', 'brokeTreaty'] as const;
 export type MemoryReason = typeof MEMORY_REASONS[number];
 
 export { DECISION_ACTIONS as ACTIONS } from '../../shared/simulation.ts';
@@ -464,11 +489,20 @@ export interface CenturyStats {
   /** Armies (M6.1): soldiers as a share of civilizations' people, the largest share any civilization keeps, army upkeep
    *  as a share of civilizations' costs, and mobilizations and demobilizations so far. */
   armyShare: number; armyMaxShare: number; armyCostShare: number; mobilizations: number; demobilizations: number;
+  /** Wars (M6.2) so far: declared, ended in a white peace, tribute, cession or annexation (or with a side gone), war
+   *  deaths, regions that changed hands at a peace, realms annexed; wars being fought now; and war and peace chosen at
+   *  decision steps so far. */
+  warsDeclared: number; warsWhite: number; warsTribute: number; warsCession: number; warsAnnexation: number; warsGone: number;
+  warDeaths: number; regionsConquered: number; annexations: number; warsActive: number; chosenWar: number; chosenPeace: number;
+  /** Regions civilizations hold now, and regions that passed to another realm by a union so far (turnover with conquest). */
+  ownedRegions: number; regionsUnited: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
 export interface Ledger {
   births: Int32Array; naturalDeaths: Int32Array; famineDeaths: Int32Array; migrantsIn: Int32Array; migrantsOut: Int32Array;
+  /** Soldiers killed in war this tick (M6.2). */
+  warDeaths: Int32Array;
   /** Region population before this tick. */
   before: Int32Array;
   /** Food flows per group id this tick: the store's (production includes the harvest) and the crops' in the field. */
@@ -558,6 +592,10 @@ export interface Metrics {
   dominanceRun: number; longestDominance: number; dominanceYears: number;
   /** Armies (M6.1): mobilizations and demobilizations (events). */
   mobilizations: number; demobilizations: number;
+  /** Wars (M6.2): declared, ended by outcome, soldiers killed, regions that changed hands at a peace, realms annexed. */
+  warsDeclared: number; warsEnded: Record<WarOutcome, number>; warDeaths: number; regionsConquered: number; annexations: number;
+  /** Regions that passed to another realm by a union (M3.4), for region ownership turnover with conquest (M6.2). */
+  regionsUnited: number;
 }
 
 /** One census (U.3): the year, and each living civilization (by id, ascending) with its people and regions. */
@@ -621,6 +659,8 @@ export interface SimulationState {
   /** Per region (M6.1): soldiers lately sent home, as a share of its people, fading over the years; they unsettle it
    *  (a stability burden, `stability.ts`). */
   unsettled: Float64Array;
+  /** Every war ever fought (M6.2), and per region the people occupying it in a war (−1 none). */
+  wars: War[]; occupiedBy: Int32Array;
   /** Per region: the tick famine relief last reached it (−1 never, or since its people left); relief again within
    *  RELIEF_TUNING.episodeMonths is the same episode. */
   reliefTick: Int32Array;

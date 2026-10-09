@@ -183,7 +183,7 @@ test('a tribe that settles starts to remember; a newer view is kept when neighbo
 function view(overrides: Partial<PolityView>, candidates: Partial<Candidate>[] = []): PolityView {
   return {
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, sea: 0, seaTick: -1,
-    needs: { hunger: 0, landPressure: 0.5, shortage: 0, threat: 0, unrest: 0, friction: 0, opportunity: 0, grievance: 0, infrastructure: 0 }, threats: [], trades: [], pacts: [], roads: [], voyage: null,
+    needs: { hunger: 0, landPressure: 0.5, shortage: 0, threat: 0, unrest: 0, friction: 0, opportunity: 0, grievance: 0, infrastructure: 0 }, threats: [], trades: [], pacts: [], roads: [], warTargets: [], atWar: [], arrears: 0, weariness: 0, voyage: null,
     reachKm: 1500, people: 10_000, landPressure: 0.5, hunger: 0, ownValue: 100_000, unknownFrontier: 0, regions: 4, unrestShare: 0, stability: 0.9, neighbours: [], partners: [], exchanges: 0,
     budget: { rate: 0.2, output: 0, sites: 0, trade: 0, costs: 0, treasury: 0, revenue: 0, surplus: 0, strain: 0, tradition: 0.5, calm: 0.9 },
     build: { monuments: 1, piety: 1, regions: 4, catalog: [], settlements: [], wonders: [], stability: 0.9, roads: { tier: 0, one: '', many: '', routes: [] } },
@@ -213,7 +213,7 @@ test('decision scores: crowding, good land and Expansionism draw a civilization 
   // Do nothing is always weighed; the choice is weighted random among the best options above the minimum.
   const all = options(view({ unknownFrontier: 8 }, [{}]));
   assert.deepEqual(all.map(option => option.action).sort(), ['expand', 'explore', 'nothing']);
-  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0, trade: 0, pact: 0, alliance: 0, roadAgreement: 0, voyage: 0 };
+  const picks = { expand: 0, explore: 0, nothing: 0, unite: 0, share: 0, build: 0, trade: 0, pact: 0, alliance: 0, roadAgreement: 0, voyage: 0, war: 0, peace: 0 };
   for (let draw = 0; draw < 2000; draw++) picks[choose(view({ unknownFrontier: 8 }, [{}]), createRng(5, draw)).chosen.action]++;
   assert.ok(picks.expand > picks.explore && picks.explore > 0 && picks.nothing > 0, JSON.stringify(picks));
 });
@@ -255,7 +255,7 @@ test('stability: hunger, distance beyond the capital\'s reach and foreign rule l
   const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
   const state = {
     cultures: [{ values }, { values: { ...values, tradition: 0.9, openness: 0.1 } }], stability: new Float64Array([1, 0.3, 0]),
-    settlements: [{ status: 'alive', buildings: [] as { type: number }[], bonus: { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0 } }], regionSettlements: [[], [0]], wonders: [], unsettled: new Float64Array(3),
+    settlements: [{ status: 'alive', buildings: [] as { type: number }[], bonus: { research: 1, wealth: 1, store: 1, spoilage: 1, stability: 0 } }], regionSettlements: [[], [0]], wonders: [], unsettled: new Float64Array(3), occupiedBy: new Int32Array(3).fill(-1),
   } as unknown as SimulationState;
   const civ = { culture: 0, knowledge: { multipliers: { reach: 1 } }, taxRate: BUDGET_TUNING.customaryRate, arrears: 0, groups: [], settledTick: null } as unknown as Polity;
   const group = (foodSecurity: number, culture = 0, region = 0) => ({ foodSecurity, culture, region }) as never;

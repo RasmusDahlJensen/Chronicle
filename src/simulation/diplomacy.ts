@@ -142,6 +142,8 @@ export function endTreaty(state: SimulationState, treaty: Pact | RoadAgreement, 
     state.metrics.roadsAbandoned += before - party.roadWorks.length;
   }
   state.metrics.pactEnded[cause]++;
+  // A pact broken by war is told as such by the war (M6.2).
+  if (cause === 'broken') return;
   // A treaty that soured is remembered by both: neither proposes another for a while.
   if (cause === 'relationsSoured') { remember(state, a, b.id, 'treatySoured'); remember(state, b, a.id, 'treatySoured'); }
   if (a.deathTick !== null && b.deathTick !== null) return;

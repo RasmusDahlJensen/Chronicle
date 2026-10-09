@@ -103,6 +103,8 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
   let markers: BandMarker[] = [], villages: SettlementMark[] = [], villageStyle = { fill: '#ffffff', stroke: '#000000' }, roads: RoadMark[] = [], trades: TradeMark[] = [], ruins: RuinMark[] = [];
   // Territories: one pixel per world cell, coloured by the people living in its region (drawn scaled on the overlay).
   let territoryFill: Uint32Array | null = null, territoryImage: HTMLCanvasElement | null = null, territoryCount = 0;
+  // Stripes over some regions (M6.2: land fought for, land occupied): packed RGBA per region, 0 for none.
+  let territoryHatch: Uint32Array | null = null;
   // Cultivated land: one pixel per world cell (1 where cultivated), drawn as wheat-coloured furrows over the territories.
   let fieldCells: Uint8Array | null = null, fieldImage: HTMLCanvasElement | null = null, fieldCount = 0;
   let zoom = 1, centerX = world.width / 2, centerY = world.height / 2;
@@ -275,7 +277,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
       target.setTransform(m.ratio, 0, 0, m.ratio, 0, 0);
     }
     if (territoryFill && regionCells) {
-      territoryImage ??= paintTerritories(territoryFill, regionCells);
+      territoryImage ??= paintTerritories(territoryFill, regionCells, territoryHatch);
       if (territoryImage) {
         // Strong at world scale, where a region is a few pixels; fainter zoomed in, so the terrain shows through.
         target.save(); target.imageSmoothingEnabled = false; target.globalAlpha = clamp(1.1 - m.scale * 0.05, 0.45, 1);
@@ -474,7 +476,7 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
    * edge of a colour (beside another colour or empty land; water does not count) are drawn darker and nearly opaque,
    * so each people's land reads as an outlined patch over the terrain.
    */
-  function paintTerritories(fill: Uint32Array, cells: Uint16Array) {
+  function paintTerritories(fill: Uint32Array, cells: Uint16Array, hatch: Uint32Array | null) {
     const { width, height } = world;
     if (cells.length !== width * height) return null;
     const image = document.createElement('canvas');
@@ -491,6 +493,9 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
     };
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
       const region = cells[y * width + x], value = region ? fill[region - 1] ?? 0 : 0;
+      // Every other pair of diagonals of a striped region takes its stripe's colour.
+      const stripe = hatch && region ? hatch[region - 1] ?? 0 : 0;
+      if (stripe && ((x + y) & 3) < 2) { packed[y * width + x] = stripe; continue; }
       if (!value) continue;
       const color = value & 0xffffff;
       const edge = colorAt(x - 1, y, color) !== color || colorAt(x + 1, y, color) !== color || colorAt(x, y - 1, color) !== color || colorAt(x, y + 1, color) !== color;
@@ -655,8 +660,9 @@ export function createGeneratedWorldRenderer(canvas: HTMLCanvasElement, world: W
      * Territories: packed little-endian RGBA per region (`r | g << 8 | b << 16 | a << 24`, 0 for nobody), drawn under the
      * borders and markers once the region map is set; null hides them.
      */
-    setTerritories(fill: Uint32Array | null) {
-      territoryFill = fill; territoryImage = null; territoryCount = fill ? fill.reduce((count, value) => count + (value ? 1 : 0), 0) : 0;
+    setTerritories(fill: Uint32Array | null, hatch: Uint32Array | null = null) {
+      territoryFill = fill; territoryHatch = hatch; territoryImage = null; territoryCount = fill ? fill.reduce((count, value) => count + (value ? 1 : 0), 0) : 0;
+      canvas.dataset.hatchedRegions = String(hatch ? hatch.reduce((count, value) => count + (value ? 1 : 0), 0) : 0);
       safe(() => overlay ? drawOverlay() : draw());
     },
     /** Cultivated land: 1 per world cell where it is cultivated (row-major), or null to hide it. */

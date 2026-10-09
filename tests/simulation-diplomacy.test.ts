@@ -112,9 +112,10 @@ test('the partner accepts only on its own score, never below the opinion at whic
   // Liked: accepted.
   feel(b, a, 80);
   assert.ok(total(pactAcceptance(state, b, a)) > 0);
+  const signed = events(state, 'nonAggressionPact').filter(event => event.actors[0].id === a.id).length;
   assert.match(proposePact(state, context, a, b, 'nonAggression', null, []), /signed a non-aggression pact/);
   assert.deepEqual(a.pacts, [b.id]); assert.deepEqual(b.pacts, [a.id]);
-  assert.equal(events(state, 'nonAggressionPact').filter(event => event.actors[0].id === a.id).length, 1);
+  assert.equal(events(state, 'nonAggressionPact').filter(event => event.actors[0].id === a.id).length, signed + 1, 'one event for the pact');
   checkInvariants(state);
   assert.match(proposePact(state, context, a, b, 'nonAggression', null, []), /already has/);
   // Detested: refused, whatever else it weighs, and remembered.

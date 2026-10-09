@@ -148,7 +148,7 @@ function frameOf(state: SimulationState, region: number): ObserverFrame {
     tick: state.tick, playing: false, speed: 'year', epoch: 0, runTo: null, dev: { actions: 0, refused: null, checkpoints: null, loadedFrom: null }, eventCount: state.chronicle.events.length,
     counters: { regions: state.partition.regions.length, landmasses: 1 }, population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [], largest: [], civList: [], treaties: [], census: { years: [], civs: [], ids: [], people: [] },
-    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] }, ruins: { cells: [], names: [], razed: [] },
+    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] }, ruins: { cells: [], names: [], razed: [] }, wars: [], 
     roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], wonders: [], names: [], events: [], perspective: null, ...storiesView(state),
     inspect: observerView(state, region).inspect,
   } as ObserverFrame;
@@ -215,14 +215,18 @@ test('a rise and a decline are read from the census; a realm that joined another
     assert.deepEqual([story.data.before, story.data.regionsBefore], [then.people, then.regions]);
     assert.deepEqual([story.data.people, story.data.regions], [peopleOf(state, civ), civ.groups.length]);
     assert.ok(Number(story.data.people) >= 1.25 * then.people);
-    // How it grew, from its events since that census: settlers sent, tribes joined, bands taken in, realms united, and
-    // the people who came with them.
+    // How it grew, from its events since that census: settlers sent, tribes joined, bands taken in, realms united, land
+    // won in war (M6.2), and the people who came with them.
     const since = state.chronicle.events.filter(event => event.tick >= story.from * 12);
     const by = (type: string, role: string) => since.filter(event => event.type === type && event.actors.some(actor => actor.id === civ.id && actor.role === role));
     const joined = [...by('bandJoined', 'civ'), ...by('bandAbsorbed', 'civ'), ...by('unification', 'union')];
     assert.deepEqual([story.data.expansions, story.data.joined, story.data.absorbed, story.data.united], [by('expansion', 'civ').length, by('bandJoined', 'civ').length, by('bandAbsorbed', 'civ').length, by('unification', 'union').length]);
-    assert.equal(story.data.byOthers, Math.min(gain, joined.reduce((sum, event) => sum + Number(event.data.population), 0)));
-    assert.equal(story.data.ownGrowth, gain - Number(story.data.byOthers));
+    const won = [...by('regionConquered', 'attacker'), ...by('civDestroyed', 'by').filter(event => event.data.annexed === true)];
+    const byWar = Math.min(gain, won.reduce((sum, event) => sum + Number(event.data.population), 0));
+    assert.equal(story.data.byWar, byWar);
+    assert.equal(story.data.conquered, won.reduce((sum, event) => sum + (event.type === 'civDestroyed' ? Number(event.data.regions) : 1), 0));
+    assert.equal(story.data.byOthers, Math.min(gain - byWar, joined.reduce((sum, event) => sum + Number(event.data.population), 0)));
+    assert.equal(story.data.ownGrowth, gain - Number(story.data.byOthers) - byWar);
     assert.deepEqual(story.regions, civ.groups.map(id => state.groups[id].region).sort((a, b) => a - b));
   }
   // A decline: the largest realm loses half its people.

@@ -1,5 +1,5 @@
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
-import { CHRONICLE_SCAN, MAX_CHRONICLE_PAGE, MAX_FRAME_NAMES, MAX_FRAME_RUINS, type ChronicleEvent, type ChronicleQuery, type ObserverFrame } from '../../shared/simulation.ts';
+import { CHRONICLE_SCAN, MAX_CHRONICLE_PAGE, MAX_FRAME_NAMES, MAX_FRAME_RUINS, MAX_FRAME_WARS, type ChronicleEvent, type ChronicleQuery, type ObserverFrame } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { cultivatedCells, fieldLand } from './fields.ts';
 import { speedOf } from './knowledge.ts';
@@ -22,9 +22,10 @@ import { ancestry, lineOf } from './culture.ts';
 import { TRAITS } from './traits.ts';
 import { TENETS } from './religions.ts';
 import { ERAS, TECHS } from './techs.ts';
-import { DECISION_TUNING, FOOD_TUNING, REACH_TUNING, RESEARCH_TUNING } from './tunables.ts';
+import { DECISION_TUNING, FOOD_TUNING, REACH_TUNING, RESEARCH_TUNING, WAR_TUNING } from './tunables.ts';
+import { claimWeight } from './claims.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'ruins' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'ruins' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect' | 'wars'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -120,7 +121,7 @@ export function observerView(state: SimulationState, inspect: number | null, per
   const step = Math.max(1, Math.ceil(state.series.length / 500));
   const series = state.series.filter((_, at) => at % step === 0 || at === state.series.length - 1);
   return {
-    population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest, civList,
+    population, polities: state.living.length, civs, settlementCount: settlements.ids.length, specialists, leadingEra, lineages: state.lineages, largest, civList, wars: warsView(state),
     treaties: [...web.values()].sort((x, y) => x.a - y.a || x.b - y.b || x.kind.localeCompare(y.kind)), census: censusSeries(state, civList.slice(0, 8).map(entry => entry.id)),
     cultures: [...living].sort(([a, x], [b, y]) => y.population - x.population || a - b).slice(0, 2_000).map(([id, entry]) => {
       const culture = state.cultures[id];
@@ -160,6 +161,8 @@ const significant = (value: number) => value === 0 ? 0 : Number(value.toPrecisio
  */
 function standingOf(state: SimulationState, polity: Polity, other: number, opinion: number) {
   const agreements: ('alliance' | 'nonAggression' | 'road' | 'trade')[] = [];
+  // At war (M6.2), since the war began.
+  for (const id of polity.wars) { const war = state.wars[id]; if (war.attacker === other || war.defender === other) return { status: 'war' as const, agreements, since: Math.floor(war.startTick / 12) as number | null }; }
   if (polity.allies.includes(other)) agreements.push('alliance');
   if (polity.pacts.includes(other)) agreements.push('nonAggression');
   if (polity.roadPartners.includes(other)) agreements.push('road');
@@ -225,11 +228,13 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
             people: Math.round(believe(state, polity, them, 'people').estimate), strength: Math.round(believe(state, polity, them, 'strength').estimate),
             sharing: (polity.exchanges.get(other) ?? 0) > state.tick, met, status: standing.status, agreements: standing.agreements, since: standing.since ?? met,
             truePeople: Math.round(truthOf(state, them, 'people')), trueStrength: Math.round(truthOf(state, them, 'strength')),
+            claims: polity.claims.filter(claim => state.owner[claim.region] === other && claimWeight(claim.tick, state.tick) >= WAR_TUNING.claimFloor).length,
+            claimed: them.claims.filter(claim => state.owner[claim.region] === polity.id && claimWeight(claim.tick, state.tick) >= WAR_TUNING.claimFloor).length,
           };
         }),
       stability: polity.kind !== 'civ' ? null : (() => {
         const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);
-        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), faith: round(now.faith), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears), demobilized: round(now.demobilized) };
+        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), faith: round(now.faith), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears), demobilized: round(now.demobilized), occupied: round(now.occupied) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
       wealth: polity.kind !== 'civ' ? null : (() => {
@@ -294,6 +299,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
   });
   return {
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews, neglected: state.neglected[region] === 1,
+    occupation: occupationOf(state, region),
     people: group ? peopleView(state, group, living.get(group.culture)!) : null,
     weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)), relief: state.reliefTick[region] >= 0 && state.tick - state.reliefTick[region] <= 1 },
     fields: (() => {
@@ -449,6 +455,35 @@ function drawable(options: readonly { score: number }[], at: number) {
     place++;
   }
   return false;
+}
+
+/** The frame's wars (M6.2): every war now, then those ended in the last century, newest first. While a war lasts, its
+ *  goal and counter are the land still to be fought for (the defender's and the attacker's). */
+function warsView(state: SimulationState): ObserverFrame['wars'] {
+  const recent = state.tick - 100 * 12, now = state.wars.filter(war => war.endTick === null);
+  const ended = state.wars.filter(war => war.endTick !== null && war.endTick >= recent).reverse();
+  return [...now, ...ended].slice(0, MAX_FRAME_WARS).map(war => ({
+    id: war.id, name: war.name, attacker: war.attacker, attackerName: state.polities[war.attacker].name, defender: war.defender, defenderName: state.polities[war.defender].name,
+    framing: war.framing, resource: war.resource >= 0 ? RESOURCE_IDS[war.resource] : null, since: Math.floor(war.startTick / 12), ended: war.endTick === null ? null : Math.floor(war.endTick / 12),
+    outcome: war.outcome, score: Math.round(war.score * 10) / 10, exhaustion: { attacker: round(war.exhaustion[0]), defender: round(war.exhaustion[1]) },
+    dead: { attacker: war.deaths[0], defender: war.deaths[1] },
+    goal: (war.endTick === null ? war.goal.filter(region => state.owner[region] === war.defender) : war.goal).slice(0, 8),
+    counter: (war.endTick === null ? war.counter.filter(region => state.owner[region] === war.attacker) : war.counter).slice(0, 8),
+    occupied: war.occupied.slice(0, 16).map(entry => ({ region: entry.region, by: entry.by })),
+    ceded: war.ceded.slice(0, 4_096), causes: war.causes.slice(0, 4),
+  }));
+}
+
+/** Who holds a region in a war now (M6.2), and since when; null when no one does. */
+function occupationOf(state: SimulationState, region: number) {
+  const by = state.occupiedBy[region];
+  if (by < 0) return null;
+  for (const war of state.wars) {
+    if (war.endTick !== null) continue;
+    const entry = war.occupied.find(held => held.region === region);
+    if (entry) return { by, name: state.polities[by].name, since: Math.floor(entry.tick / 12) };
+  }
+  return null;
 }
 
 /** A civilization's army for the inspector (M6.1): its soldiers and what it means to keep, and why. */
