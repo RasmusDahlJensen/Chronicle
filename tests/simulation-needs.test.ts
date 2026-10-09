@@ -62,7 +62,7 @@ test('a threatened realm looks for shelter in a larger realm it likes, not in th
   // It fears civilization 9 (or, in the last case, civilization 7 itself).
   const view = (threat: number, from = 9) => ({
     id: 1, tick: 1200, values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 }, people: 10_000, regions: 4, hunger: 0, unrestShare: 0, stability: 0.9,
-    needs: { hunger: 0, landPressure: 0, shortage: 0, threat, unrest: 0, friction: 0, opportunity: 0, grievance: 0, infrastructure: 0 }, threats: threat > 0 ? [{ civ: from, threat }] : [],
+    needs: { hunger: 0, landPressure: 0, shortage: 0, threat, unrest: 0, friction: 0, opportunity: 0, grievance: 0, infrastructure: 0 }, threats: threat > 0 ? [{ civ: from, threat }] : [], raided: 0,
   }) as unknown as PolityView;
   const pull = (option: Option) => option.factors.find(entry => entry.factor === 'threat')!.weight;
   assert.ok(unionScore(view(0.8), neighbour(40)).score > unionScore(view(0), neighbour(40)).score, 'threat draws it to a liked realm');

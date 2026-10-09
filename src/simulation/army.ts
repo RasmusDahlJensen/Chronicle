@@ -23,7 +23,7 @@ import { ARMY_TUNING } from './tunables.ts';
  */
 export function setArmy(state: SimulationState, civ: Polity, announce = true) {
   const decided = armyTarget(armyView(state, civ)), previous = civ.army, before = previous.target, tuning = ARMY_TUNING;
-  civ.army = { target: decided.target, garrison: decided.garrison, threatened: decided.threatened, cut: decided.cut, feared: decided.feared?.polity ?? -1, tick: state.tick };
+  civ.army = { target: decided.target, garrison: decided.garrison, threatened: decided.threatened, cut: decided.cut, feared: decided.feared?.polity ?? -1, raiders: decided.raiders, tick: state.tick };
   const change = decided.target - before;
   if (!announce || previous.tick < 0 || before <= 0 || Math.abs(change) < tuning.eventSoldiers) return;
   if (change > 0 ? change < tuning.eventChange * before : decided.target * (1 + tuning.eventChange) > before) return;
@@ -37,7 +37,7 @@ export function setArmy(state: SimulationState, civ: Polity, announce = true) {
   if (change > 0) state.metrics.mobilizations++; else state.metrics.demobilizations++;
   state.chronicle.emit({
     type: change > 0 ? 'mobilization' : 'demobilization', actors: [{ id: civ.id, role: 'civ' }], region: null, importance: 0.06, causes: reasons,
-    data: { civ: civ.name, soldiers: decided.target, from: before, change: Math.abs(change), ...(change > 0 && decided.feared ? { feared: decided.feared.name } : {}) },
+    data: { civ: civ.name, soldiers: decided.target, from: before, change: Math.abs(change), ...(change > 0 && decided.feared ? { feared: decided.feared.name, fearing: true } : {}), raiders: change > 0 && decided.raiders },
   });
 }
 

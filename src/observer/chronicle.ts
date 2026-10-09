@@ -9,7 +9,7 @@ export type EventKind = keyof typeof EVENT_KIND_NAMES;
 export const EVENT_KINDS = Object.keys(EVENT_KIND_NAMES) as EventKind[];
 
 export const EVENT_KIND: Record<EventType, EventKind> = {
-  bandSpawned: 'peoples', bandMoved: 'peoples', bandSplit: 'peoples', bandAbsorbed: 'peoples', bandJoined: 'peoples', bandSpread: 'peoples', settled: 'peoples',
+  bandSpawned: 'peoples', bandMoved: 'peoples', bandSplit: 'peoples', bandAbsorbed: 'peoples', bandJoined: 'peoples', confederation: 'peoples', bandSpread: 'peoples', settled: 'peoples',
   expansion: 'peoples', unification: 'peoples', civDestroyed: 'peoples', migrationWave: 'peoples', refugees: 'peoples', taxes: 'peoples',
   rulerSuccession: 'peoples', successionCrisis: 'peoples', governmentChange: 'peoples', unrest: 'peoples', revolt: 'peoples', secession: 'peoples',
   civilWar: 'peoples', independenceMovement: 'peoples', referendum: 'peoples', dissolution: 'peoples',
@@ -42,8 +42,8 @@ export const RUN_YEARS = 25;
 export const UNFOLDED_IMPORTANCE = 0.3;
 const ALWAYS_FOLDED: ReadonlySet<EventType> = new Set(['drought', 'famine']);
 /** The people an event is about, where it is not its first actor: the realm taking in or joined, not the band or
- *  realm joining it; the tribe a group breaks away from. */
-const MAIN_ROLE: Partial<Record<EventType, string>> = { bandAbsorbed: 'civ', bandJoined: 'civ', unification: 'union', bandSplit: 'parent' };
+ *  realm joining it; the tribe a group breaks away from; the tribe a confederation grows. */
+const MAIN_ROLE: Partial<Record<EventType, string>> = { bandAbsorbed: 'civ', bandJoined: 'civ', unification: 'union', bandSplit: 'parent', confederation: 'tribe' };
 export const peopleOf = (event: ChronicleEvent) => (event.actors.find(actor => actor.role === MAIN_ROLE[event.type]) ?? event.actors[0])?.id ?? -1;
 /** The run an event can fold into (its type and people), or null for one that stands on its own line. */
 export const runKey = (event: ChronicleEvent) => event.importance >= UNFOLDED_IMPORTANCE && !ALWAYS_FOLDED.has(event.type) ? null : `${event.type}:${peopleOf(event)}`;

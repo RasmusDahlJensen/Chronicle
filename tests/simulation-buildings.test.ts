@@ -38,7 +38,7 @@ function fixture() {
     partition: { regions: [{ id: 0, centroid: 0, settlementSites: [0, 1, 2, 3, 4], neighbors: [] }], regionOf: new Int32Array(cells) },
     cultures: [{ language: createLanguage(createRng(1, 1)) }], settlements: [], regionSettlements: [[]], chronicle: new Chronicle(),
     groups: [{ id: 0, region: 0, specialists: 0, soldiers: 0, foodSecurity: 1, size: 100_000, farmShare: 0 }], groupAt: new Int32Array([0]), unrest: new Uint8Array(1), stability: new Float64Array(1).fill(1),
-    remoteness: new Float64Array(1), remoteOwner: new Int32Array([0]), neglected: new Uint8Array(1), unsettled: new Float64Array(1), occupiedBy: new Int32Array(1).fill(-1), devastation: new Float64Array(1),
+    remoteness: new Float64Array(1), remoteOwner: new Int32Array([0]), neglected: new Uint8Array(1), unsettled: new Float64Array(1), occupiedBy: new Int32Array(1).fill(-1), devastation: new Float64Array(1), raided: new Float64Array(1),
     living: [0], ledger: { wealth: new Map() }, wonders: [], roads: new Map(), owner: new Int32Array([0]),
     farmBonus: new Float64Array(1).fill(1), droughtShield: new Float64Array(1), storeBonus: new Float64Array(1).fill(1), spoilageBonus: new Float64Array(1).fill(1),
     metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, wondersBegun: 0, wondersCompleted: 0, wondersDestroyed: 0, wondersAbandoned: 0, roadsAbandoned: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0 },
@@ -123,7 +123,7 @@ test('unpaid upkeep wears buildings down until they are lost, an event citing it
 
 test('the Build choice weighs each building\'s need where it is greatest against its cost and upkeep', () => {
   const settlement = (entry: Partial<PolityView['build']['settlements'][number]>) => ({ id: 1, region: 0, name: 'Kesh', tier: 1, urban: 8_000, housing: 8_000, hardship: 0, farmShare: 1, farmers: 20_000, stability: 0.9, frontier: 0, has: [] as number[],
-    coast: false, water: true, seaLinks: 0, mineYield: 0, quarryYield: 0, wonder: false, ...entry });
+    coast: false, water: true, seaLinks: 0, mineYield: 0, quarryYield: 0, wonder: false, raided: 0, ...entry });
   const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
   assert.ok(need('food', settlement({ hardship: 0.6 }), values) > need('food', settlement({}), values), 'hard years call for granaries');
   assert.ok(need('faith', settlement({ stability: 0.4 }), values) > need('faith', settlement({}), values), 'unrest calls for shrines and temples');

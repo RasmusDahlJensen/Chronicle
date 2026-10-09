@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 43;
+export const SIMULATION_PROTOCOL_VERSION = 44;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -40,7 +40,7 @@ export const EVENT_TYPES = [
   'religionFounded', 'schism', 'stateReligionChanged', 'drought', 'climateShock', 'famine', 'plague', 'migrationWave',
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
   'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief', 'neglect',
-  'assimilation', 'traitEarned', 'faithSpread', 'devScenario', 'mobilization', 'demobilization',
+  'assimilation', 'traitEarned', 'faithSpread', 'devScenario', 'mobilization', 'demobilization', 'confederation',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -321,8 +321,8 @@ export const ObserverFrameSchema = Type.Object({
     neglected: Type.Boolean(),
     /** (M6.2) The people occupying it in a war (its id and name, and the year it took it), or null. */
     occupation: Type.Union([Type.Null(), Type.Object({ by: id(), name: Type.String({ maxLength: 40 }), since: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })]),
-    /** (M6.3) Its devastation (0–1): what occupation has left it, fading. */
-    devastation: Type.Number({ minimum: 0, maximum: 1 }),
+    /** (M6.3) Its devastation (0–1): what occupation has left it, fading; (M6.4) its memory of raids (0–1), fading. */
+    devastation: Type.Number({ minimum: 0, maximum: 1 }), raided: Type.Number({ minimum: 0, maximum: 1 }),
     /** Its cultivated land: the share of its farmland's labour under cultivation (0–1) and the cells it covers. */
     fields: Type.Object({ share: Type.Number({ minimum: 0, maximum: 1 }), cells: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
     /** The region's settlements, living and in ruins, main one first: tier, townspeople, housing, founding tick, the
@@ -374,7 +374,7 @@ export const ObserverFrameSchema = Type.Object({
       army: Type.Union([Type.Null(), Type.Object({
         soldiers: Type.Integer({ minimum: 0 }), target: Type.Integer({ minimum: 0 }), share: Type.Number({ minimum: 0, maximum: 1 }),
         strength: Type.Number({ minimum: 0 }), upkeep: Type.Number({ minimum: 0 }),
-        garrison: Type.Integer({ minimum: 0 }), threatened: Type.Integer({ minimum: 0 }), cut: Type.Integer({ minimum: 0 }), feared: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]),
+        garrison: Type.Integer({ minimum: 0 }), threatened: Type.Integer({ minimum: 0 }), cut: Type.Integer({ minimum: 0 }), feared: Type.Union([Type.Null(), Type.String({ maxLength: 40 })]), raiders: Type.Boolean(),
       }, { additionalProperties: false })]),
       capital: Type.Union([Type.Null(), Type.Object({ name: Type.String({ maxLength: 40 }), cell: id(), settled: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })]),
       era: Type.Integer({ minimum: 0, maximum: ERA_NAMES.length - 1 }),

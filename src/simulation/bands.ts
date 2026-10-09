@@ -142,7 +142,7 @@ export function newGroup(state: SimulationState, polity: Polity, region: number,
   const group: PopulationGroup = {
     id: state.groups.length, polity: polity.id, culture: polity.culture, region, size, deathTick: null, values: { ...values }, faith, faithApart: 0, foundedTick: state.tick, arrivedTick: state.tick,
     store: 0, planted: 0, birthCarry: 0, naturalCarry: 0, famineCarry: 0, foodSecurity: 1, birthsYear: 0, deathsYear: 0, lastBirths: 0, lastDeaths: 0,
-    sizeAtYearStart: size, specialists: 0, soldiers: 0, farmShare: 0,
+    sizeAtYearStart: size, specialists: 0, soldiers: 0, farmShare: 0, herdShare: 0,
   };
   state.groups.push(group); polity.groups.push(group.id);
   state.occupant[region] = polity.id; state.groupAt[region] = group.id;
@@ -164,7 +164,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(), relations: new Map(), supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length), imports: new Float64Array(RESOURCE_IDS.length), exports: new Float64Array(RESOURCE_IDS.length), trading: [], pacts: [], allies: [], roadPartners: [], voyageTick: -1, emptyVoyages: 0,
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
     taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,
-    army: noArmy(), wars: [], claims: [], weariness: { value: 0, tick: 0 }, warIncome: { value: 0, tick: 0 },
+    army: noArmy(), wars: [], claims: [], weariness: { value: 0, tick: 0 }, warIncome: { value: 0, tick: 0 }, raids: 0,
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -277,6 +277,7 @@ export function produce(state: SimulationState, context: TickContext) {
       group.store = before + production - consumption - spoilage;
       group.foodSecurity = foodSecurity(group, farming, other * UNITS, farmed * UNITS, need, food.cycle[region], monthsToHarvest(food, region, context.month % 12 + 1), consumption);
       group.farmShare = other + farmed > 0 ? (farmed + herded) / (other + farmed) : 0;
+      group.herdShare = other + farmed > 0 ? herded / (other + farmed) : 0;
       // Hardship: the memory of hunger, which fades over the years (what moves a civilization to build granaries).
       state.hardship[region] = Math.max(state.hardship[region] * WEALTH_TUNING.hardshipFade, 1 - Math.min(1, group.foodSecurity));
       ledger.food.set(group.id, { before, production, consumption, spoilage, carriedIn: 0, carriedOut: 0, plantedBefore, sown, harvested: harvestedUnits, cropsLost: 0, weather, factor });

@@ -42,6 +42,11 @@ export function needParts(purpose: string, settlement: Facts, values: PolityView
     const farming = Math.min(1, BUILD_TUNING.irrigationBase * settlement.farmShare);
     return { farming, hardship: Math.min(1 - farming, settlement.hardship * settlement.farmShare) };
   }
+  if (purpose === 'defense') {
+    // An exposed frontier or raiders come (M6.4), whichever calls for walls more.
+    const total = need(purpose, settlement, values), raids = settlement.raided > settlement.frontier / BUILD_TUNING.frontierScale;
+    return { [raids ? 'raids' : 'frontier']: total };
+  }
   if (purpose !== 'food') return { [NEED_OF[purpose] ?? purpose]: need(purpose, settlement, values) };
   const hardship = clamp01(settlement.hardship), storage = Math.min(1 - hardship, BUILD_TUNING.farmStore * settlement.farmShare);
   return { hardship, storage };
@@ -56,7 +61,8 @@ export function need(purpose: string, settlement: Facts, values: PolityView['val
     case 'learning': return clamp01(tuning.learningBase + values.openness);
     case 'trade': return clamp01(tuning.tradeBase + tuning.tradeOpenness * values.openness);
     case 'housing': return settlement.housing > 0 ? clamp01((settlement.urban / settlement.housing - tuning.crowdFrom) / (1 - tuning.crowdFrom)) : 0;
-    case 'defense': return clamp01(settlement.frontier / tuning.frontierScale) * clamp01(tuning.defenseBase + values.militarism);
+    // Walls on exposed frontiers, and where raiders have come (M6.4: walls answer raids).
+    case 'defense': return clamp01(Math.max(settlement.frontier / tuning.frontierScale, settlement.raided)) * clamp01(tuning.defenseBase + values.militarism);
     case 'sea': return settlement.coast ? clamp01(settlement.seaLinks / tuning.seaScale) * clamp01(tuning.seaBase + (values.openness + values.expansionism) / 2) : 0;
     case 'farming': return clamp01(settlement.farmShare * (tuning.irrigationBase + settlement.hardship));
     default: return 0;

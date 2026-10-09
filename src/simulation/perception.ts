@@ -244,6 +244,8 @@ export interface PolityView {
   /** (M6.2) Neighbours it could go to war with (none while it is at war; `warTargets`), the wars it fights (`atWarOf`),
    *  its arrears (0–1) and its war-weariness (its last war's exhaustion, fading). */
   warTargets: WarTarget[]; atWar: AtWar[]; arrears: number; weariness: number;
+  /** (M6.4) How raided its land has been lately: its regions' raid memory weighed by their people (0–1); a threat it feels. */
+  raided: number;
   /** An overseas voyage it could send (M5.6): from its harbors (how many), how far its sea reach sails (km), the chance
    *  of loss at half that, the years since its last voyage (−1 never), and its voyages in a row that found nothing.
    *  Null without Sailing or a harbor. What lies beyond, it does not know. */
@@ -291,7 +293,7 @@ export interface PolityView {
      *  those one region needs only one of, anywhere in the region); whether the sea is beside it, the sea crossings its
      *  knowledge would reach from there, and the wealth a year its region's usable mineral and stone sites would give. */
     settlements: {
-      id: number; region: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; farmers: number; stability: number; frontier: number; has: number[];
+      id: number; region: number; name: string; tier: number; urban: number; housing: number; hardship: number; farmShare: number; farmers: number; stability: number; frontier: number; raided: number; has: number[];
       coast: boolean; water: boolean; seaLinks: number; mineYield: number; quarryYield: number; wonder: boolean;
     }[];
     /** The wonders it could begin (it knows how, none it knows of stands or is being built anywhere, and it builds none
@@ -515,7 +517,7 @@ function buildView(state: SimulationState, civ: Polity): PolityView['build'] {
       for (const type of works.get(settlement.id) ?? []) has.push(type);
       settlements.push({
         id: settlement.id, region, name: settlement.name, tier: settlement.tier, urban: settlement.urban, housing: settlement.housing, hardship: state.hardship[region],
-        farmShare: group.farmShare, farmers, stability: state.stability[region], frontier: foreign.size, has,
+        farmShare: group.farmShare, farmers, stability: state.stability[region], frontier: foreign.size, raided: state.raided[region], has,
         coast: bySea(state, settlement.cell), water, seaLinks, mineYield, quarryYield, wonder: settlement.wonder !== null || wonderWorks.has(settlement.id),
       });
     }
@@ -694,7 +696,7 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     budget: budgetView(state, polity), build: buildView(state, polity),
     id: polity.id, tick: state.tick, values: effectiveValues(state, polity), needs: Object.fromEntries(NEED_NAMES.map(need => [need, 0])) as PolityView['needs'], threats: [],
     sea: polity.knowledge.sea, seaTick: polity.seaTick, trades: tradeOptions(state, polity), pacts: [], roads: [], voyage: voyageOption(state, polity),
-    warTargets: [], atWar: atWarOf(state, polity), arrears: polity.arrears, weariness: wearinessOf(polity, state.tick),
+    warTargets: [], atWar: atWarOf(state, polity), arrears: polity.arrears, weariness: wearinessOf(polity, state.tick), raided: raidedOf(state, polity),
     reachKm: REACH_TUNING.baseKm * polity.knowledge.multipliers.reach,
     people, landPressure: people > 0 ? pressure / people : 0, hunger: people > 0 ? hunger / people : 0,
     ownValue: own.size ? value / own.size : 0,
@@ -759,6 +761,14 @@ function warTargets(state: SimulationState, polity: Polity, view: PolityView, ow
   return targets;
 }
 
+/** (M6.4) How raided a realm's land has been lately: its regions' raid memory weighed by their people (a few raided
+ *  villages of a great realm are little threat to it; a small realm raided all over is threatened). */
+function raidedOf(state: SimulationState, polity: Polity) {
+  let raided = 0, people = 0;
+  for (const id of polity.groups) { const group = state.groups[id]; raided += state.raided[group.region] * group.size; people += group.size; }
+  return people > 0 ? raided / people : 0;
+}
+
 /** (M6.2) The wars it fights now, as `AtWar`. */
 function atWarOf(state: SimulationState, polity: Polity): AtWar[] {
   // (A war whose enemy is gone this month ends in the war system; it is no war to make peace in.)
@@ -804,7 +814,8 @@ function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: 
   let shortage = 0;
   for (let resource = 0; resource < polity.demand.length; resource++) shortage = Math.max(shortage, shortfallFor(polity, resource));
   return {
-    hunger: clamp01(view.hunger), landPressure: clamp01(view.landPressure), shortage, threat, unrest: unrestOf(view.unrestShare, view.stability),
+    // (M6.4: raiders on its land are a threat too.)
+    hunger: clamp01(view.hunger), landPressure: clamp01(view.landPressure), shortage, threat: Math.max(threat, view.raided), unrest: unrestOf(view.unrestShare, view.stability),
     friction: frictionOf(bordering.length ? rivals / bordering.length : 0, view.values.zeal, secularity(polity)),
     opportunity: clamp01(Math.max(land, chance)), grievance: grievanceOf(state, polity), infrastructure: infrastructureNeed(view),
   };
@@ -891,8 +902,9 @@ export interface ArmyView {
   people: number; militarism: number; multiplier: number; allies: number;
   neighbours: { polity: number; name: string; strength: number; opinion: number; pact: boolean; war: boolean }[];
   revenue: number; surplus: number; arrears: number; upkeep: number;
-  /** (M6.2) The wars it fights now; (M6.3) its war income (loot and tribute received lately, fading). */
-  wars: number; warIncome: number;
+  /** (M6.2) The wars it fights now; (M6.3) its war income (loot and tribute received lately, fading); (M6.4) how raided
+   *  its land has been lately (0–1). */
+  wars: number; warIncome: number; raided: number;
 }
 export function armyView(state: SimulationState, civ: Polity): ArmyView {
   const costs = fullCostsOf(state, civ), budget = budgetView(state, civ, costs);
@@ -907,7 +919,7 @@ export function armyView(state: SimulationState, civ: Polity): ArmyView {
   }
   return {
     people, militarism: effectiveValues(state, civ).militarism, multiplier: civ.knowledge.multipliers.military, allies, neighbours,
-    revenue: budget.revenue, surplus: budget.revenue - (budget.costs - costs.army), arrears: civ.arrears, upkeep: soldierUpkeep(civ), wars: civ.wars.length, warIncome: warIncomeOf(civ, state.tick),
+    revenue: budget.revenue, surplus: budget.revenue - (budget.costs - costs.army), arrears: civ.arrears, upkeep: soldierUpkeep(civ), wars: civ.wars.length, warIncome: warIncomeOf(civ, state.tick), raided: raidedOf(state, civ),
   };
 }
 

@@ -177,6 +177,7 @@ function build(state: SimulationState, tick: number, civ: Polity) {
       state.harbors[settlement.region]++; lookAgain(civ);
     }
     state.metrics.buildingsCompleted++;
+    if (definition.effects.defense && state.raided[settlement.region] > 0.1) state.metrics.wallsAfterRaids++;
     state.chronicle.emit({
       type: 'buildingCompleted', actors: [{ id: civ.id, role: 'civ' }], region: settlement.region, settlement: settlement.id,
       causes: project.causes, importance: definition.minTier >= 2 ? 0.05 : 0.02, data: { building: definition.name, one: definition.one, name: settlement.name, civ: civ.name },

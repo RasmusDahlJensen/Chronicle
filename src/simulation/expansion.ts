@@ -166,7 +166,7 @@ export function unite(state: SimulationState, tick: number, rng: Rng, small: Pol
   const capital = small.capital !== null ? state.settlements[small.capital] : null;
   state.chronicle.emit({
     type: 'unification', actors: [{ id: small.id, role: 'civ' }, { id: large.id, role: 'union' }], region: capital?.region ?? border, causes: cited,
-    importance: 0.4, data: { name: small.name, civ: large.name, regions, population: people, kin: small.lineage === large.lineage, into: large.groups.length, techs, learned: techs > 0 },
+    importance: 0.4, data: { name: small.name, civ: large.name, regions, population: people, kin: small.lineage === large.lineage, into: large.groups.length, intoPeople: polityPopulation(state, large), techs, learned: techs > 0 },
   });
   absorbMap(state, large, small, tick);
   for (const id of small.groups.slice()) {

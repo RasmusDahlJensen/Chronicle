@@ -43,7 +43,7 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   // Conditionals cannot nest: `unready` is only set with `foundReligion`.
   devScenario: 'Development control (test only): {?drought|a drought is set off in region {region}}{?research|the {polity} are made to finish their research}{?foundReligion|the {polity} are made to found a religion}{?unready|, before they know Organized religion}{?splitCulture|the people of region {region} and their neighbours are made to split off from their culture}{?raze|a settlement of the {polity} in region {region} is razed, as in war}.',
   neglect: '{?begun|The {civ} can no longer keep up all their realm: the buildings and roads of {regions} of their far regions go unkept.}{?ended|The {civ} keep up all their buildings and roads again.}',
-  mobilization: 'The {civ} raise their army toward {soldiers|soldier|soldiers}{?feared|, fearing the {feared}}.',
+  mobilization: 'The {civ} raise their army toward {soldiers|soldier|soldiers}{?fearing|, fearing the {feared}}{?raiders|, against raiders}.',
   demobilization: 'The {civ} stand down {change|soldier|soldiers}: their army falls toward {soldiers}.',
   arrears: '{?begun|The {civ} can no longer pay for running their realm: their buildings and roads go unkept, and their far provinces grow restless.}{?ended|The {civ} pay their way again.}',
   knowledgeShared: 'The {name} and the {other} agree to share what they know for {years|year|years}.',
@@ -53,7 +53,8 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
   vassalage: '{@vassal} becomes a vassal of {@overlord}.',
   treatyCancelled: 'The {?trade|trade in {resource} between the {exporter} and the {importer}}{?pact|non-aggression pact between {@a} and {@b}}{?alliance|alliance of {@a} and {@b}}{?road|road agreement between {@a} and {@b}}{?generic|treaty between {@a} and {@b}} ends{?needPassed|: the {importer} no longer need it}{?noSurplus|: the {exporter} have none to spare}{?unpaid|: the {importer} could not pay}{?relationsSoured|: relations soured}{?partyGone|: one of them is gone}{?routeLost|: its road can no longer be built}.',
   treatyBroken: '{@breaker} break their non-aggression pact with {@other} to go to war: {war}.',
-  raid: '{@attacker} raids {@defender} in region {region}.',
+  confederation: 'The {name} join the {tribe} in one confederation{?raiders|: kin drawn to raiders who prosper}, bringing {bands|band|bands}.',
+  raid: 'Raiders of the {tribe} fall on {place} of the {civ}{?burnedOne|, burn its {burned}}{?someFood| and carry off food for {food|person|people} for a month}{?noFood| but find little food to carry off}{?someKilled|; the {civ} lose {killed|person|people}}{?someLost|; {lost|raider|raiders} fall}.',
   warDeclared: '{@attacker} declare {name} on {@defender}{?conquest|, a war of conquest}{?farmland|, for their farmland}{?resource|, for their {resource}}{?holy|, a holy war}{?reclamation|, to retake the land they lost}{?preemptive|, before they grow stronger}{?frontier|, to carry their border to a natural frontier}.',
   battleYear: 'A year of {name}: {attackerDead} of the {attacker} and {defenderDead} of the {defender} die; the {ahead} have the upper hand{?holding|, and the {attacker} hold {held|region|regions} of the {defender}}{?losing|, and the {defender} hold {lost|region|regions} of the {attacker}}.',
   regionConquered: '{place} (region {region}) passes from the {from} to the {civ} at the end of {war}.',
@@ -90,8 +91,14 @@ export const EVENT_TEMPLATES: Record<EventType, string> = {
 
 /** Fill an event's template; missing values show as "?" so gaps stay visible instead of silently vanishing. `{@role}`
  *  names the actor in that role (`names`, for example "the Vraye"); the sentence starts with a capital. */
+/** Flags an event's words need that its data implies (its numbers), so the simulation need not write them. */
+const IMPLIED: Partial<Record<EventType, (data: ChronicleEvent['data']) => Record<string, boolean>>> = {
+  raid: data => ({ someFood: Number(data.food) > 0, noFood: !(Number(data.food) > 0) }),
+};
+
 export function describeEvent(event: ChronicleEvent, names: (id: number) => string = id => `#${id}`) {
-  return fillTemplate(EVENT_TEMPLATES[event.type], event.data, {
+  const implied = IMPLIED[event.type];
+  return fillTemplate(EVENT_TEMPLATES[event.type], implied ? { ...event.data, ...implied(event.data) } : event.data, {
     region: event.region, actor: role => { const found = event.actors.find(entry => entry.role === role); return found ? names(found.id) : '?'; },
   });
 }

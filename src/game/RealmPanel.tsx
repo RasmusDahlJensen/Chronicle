@@ -141,7 +141,7 @@ const shareOf = (share: number) => share >= 0.1 ? percent(share) : `${(share * 1
 /** Why the realm keeps the army it does (M6.1), as set at its last yearly assessment. */
 function ArmyReasons({ army }: { army: NonNullable<InspectedPolity['army']> }) {
   const parts = [`a guard of ${number.format(army.garrison)} (its Militarism)`];
-  if (army.threatened > 0) parts.push(`${number.format(army.threatened)} more for fear of the ${army.feared ?? '?'}`);
+  if (army.threatened > 0) parts.push(`${number.format(army.threatened)} more for fear of ${army.raiders ? 'raiders' : army.feared ? `the ${army.feared}` : 'its enemies'}`);
   if (army.cut > 0) parts.push(`${number.format(army.cut)} fewer than it would want, for what it can afford`);
   return <p className="game-muted" id="game-army-reasons">It means to keep {plural(army.target, 'soldier', 'soldiers')}: {parts.join('; ')}. Raising soldiers takes about a year; sending them home is quick, and unsettles the regions they return to.</p>;
 }
@@ -324,6 +324,7 @@ export function RegionDetail({ inspected, region, biome, names }: { inspected: I
       {polity && <FoodHere inspected={inspected} polity={polity} />}
       {stability && <p id="game-region-stability" className={stability.unrest ? 'game-cold' : undefined}>Stability {stability.value.toFixed(2)}{stability.unrest ? ', in unrest' : ''}{burdens.length ? `, lowered by ${burdens.map(([factor, weight]) => `${factor} −${weight.toFixed(2)}`).join(', ')}` : ''}{stability.taxes < -0.005 ? `; light taxes +${(-stability.taxes).toFixed(2)}` : ''}{stability.faith < -0.005 ? `; an ascetic faith +${(-stability.faith).toFixed(2)}` : ''}.</p>}
       {inspected.occupation && <p className="game-cold" id="game-region-occupation">Held by the {inspected.occupation.name} since year {number.format(inspected.occupation.since)}: it pays its realm nothing, and is restless.</p>}
+      {inspected.raided >= 0.05 && <p className="game-cold" id="game-region-raided">Raided lately ({percent(inspected.raided)} remembered, fading over the decades).</p>}
       {inspected.devastation >= 0.05 && <p className="game-cold" id="game-region-devastation">Devastated by war ({percent(inspected.devastation)}): its harvests come in short and its people are restless{inspected.occupation ? ' while the enemy holds it' : '; it heals over the years'}{!inspected.settlements.some(settlement => settlement.status === 'alive') ? ', and its people have yet to rebuild among the ruins' : ''}.</p>}
       {inspected.neglected && <p className="game-cold">Let go unkept by its realm: its buildings and roads wear.</p>}
       {settlements.length > 0 && <ul className="game-settlements" aria-label="Settlements here">{settlements.map(settlement => <li key={settlement.id}>

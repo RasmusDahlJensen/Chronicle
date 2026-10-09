@@ -37,7 +37,7 @@ export function strengthOf(state: SimulationState, polity: Polity) {
 
 /** A polity with no army decided yet: its target and the reasons for it (soldiers its Militarism wants as a garrison,
  *  soldiers the threat adds, soldiers its budget cuts), the people it fears (−1 none) and when it was set (−1 never). */
-export const noArmy = (): Polity['army'] => ({ target: 0, garrison: 0, threatened: 0, cut: 0, feared: -1, tick: -1 });
+export const noArmy = (): Polity['army'] => ({ target: 0, garrison: 0, threatened: 0, cut: 0, feared: -1, raiders: false, tick: -1 });
 
 /** Whether a region is held in a war by another people than `owner` (M6.2): occupied land pays its owner nothing. */
 export const occupiedAway = (state: SimulationState, region: number, owner: number) => state.occupiedBy[region] >= 0 && state.occupiedBy[region] !== owner;

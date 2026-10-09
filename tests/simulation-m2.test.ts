@@ -173,7 +173,8 @@ test('M2 acceptance on Chronicle: Agriculture on fertile river land by 600, a fa
   // Civilizations unite with larger neighbours (M3.4): each union is an event with its causes, always into a larger one.
   const unions = state.chronicle.events.filter(event => event.type === 'unification');
   assert.ok(unions.length > 0 && unions.length === state.metrics.unions, `${unions.length} unions`);
-  assert.ok(unions.every(event => event.causes.length > 0 && (event.data.into as number) > (event.data.regions as number)), 'every union cites causes and goes into a larger civilization');
+  // (Larger by its people, the rule a union follows: M6.4's raids brought a union into a populous realm of fewer regions.)
+  assert.ok(unions.every(event => event.causes.length > 0 && (event.data.intoPeople as number) > (event.data.population as number)), 'every union cites causes and goes into a larger civilization');
   assert.ok(unions.every(event => state.polities[event.actors[0].id].deathTick !== null));
   const unrest = state.chronicle.events.filter(event => event.type === 'unrest');
   assert.equal(unrest.length, state.metrics.unrestOutbreaks);

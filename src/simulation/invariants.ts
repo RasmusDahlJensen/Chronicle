@@ -97,7 +97,7 @@ export function checkInvariants(state: SimulationState) {
   // The environment: weather and harvests within their bounds, droughts no longer than they last, famine as a flag;
   // devastation (M6.3) within 0–1.
   for (let region = 0; region < regions; region++) {
-    if (!(state.devastation[region] >= 0 && state.devastation[region] <= 1)) fail(`region ${region} has devastation ${state.devastation[region]}`);
+    if (!(state.devastation[region] >= 0 && state.devastation[region] <= 1) || !(state.raided[region] >= 0 && state.raided[region] <= 1)) fail(`region ${region} has devastation ${state.devastation[region]} and raid memory ${state.raided[region]}`);
     if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowest && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
     if (state.drought[region] > ENVIRONMENT_TUNING.droughtYears * 12 || state.famine[region] > 1 || !(state.famineRecent[region] >= 0)) fail(`region ${region} has drought ${state.drought[region]}, famine ${state.famine[region]} and recent famine deaths ${state.famineRecent[region]}`);
     // Cultivated land lies within the region's farmland (VISION.md "Cultivated land").

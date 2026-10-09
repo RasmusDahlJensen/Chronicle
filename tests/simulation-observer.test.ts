@@ -10,6 +10,7 @@ import { partitionRegions } from '../src/simulation/regions.ts';
 import { truthOf } from '../src/simulation/relations.ts';
 import { keeperOf, roadUnkept } from '../src/simulation/roads.ts';
 import { ruinSettlements } from '../src/simulation/settlements.ts';
+import { setArmy } from '../src/simulation/army.ts';
 import { createSimulation, stepSimulation } from '../src/simulation/simulation.ts';
 import type { Polity, SimulationState } from '../src/simulation/state.ts';
 import { TENETS } from '../src/simulation/religions.ts';
@@ -167,6 +168,25 @@ test('the ravages in the frame (M6.3): devastated regions with their levels, all
   const frame = frameOf(state, region);
   frame.devastated = { regions: [region], levels: [] };
   assert.throws(() => parseObserverFrame(structuredClone(frame)));
+});
+
+test('raids in the frame (M6.4): a region\'s raid memory, and an army kept for fear of raiders', () => {
+  const state = copied(), civ = largestCiv(state)!, region = state.groups[civ.groups[0]].region;
+  // All its land raided: the realm fears raiders more than any neighbour short of a war.
+  state.raided.fill(0);
+  for (const id of civ.groups) state.raided[state.groups[id].region] = 0.6;
+  setArmy(state, civ, false);
+  const view = observerView(state, region), army = view.inspect!.polity!.army!;
+  assert.equal(view.inspect!.raided, 0.6);
+  assert.equal(army.raiders, civ.army.raiders);
+  assert.equal(army.threatened, civ.army.threatened);
+  parseObserverFrame(structuredClone(frameOf(state, region)));
+  // Either reason reaches the frame as it was set: raiders, or a people feared.
+  civ.army = { ...civ.army, threatened: 100, raiders: true, feared: -1 };
+  assert.deepEqual([observerView(state, region).inspect!.polity!.army!.raiders, observerView(state, region).inspect!.polity!.army!.feared], [true, null]);
+  const other = state.living.find(id => id !== civ.id && state.polities[id].kind === 'civ')!;
+  civ.army = { ...civ.army, raiders: false, feared: other };
+  assert.deepEqual([observerView(state, region).inspect!.polity!.army!.raiders, observerView(state, region).inspect!.polity!.army!.feared], [false, state.polities[other].name]);
 });
 
 test('a frame with a realm panel passes the contract, and one whose eras or history are inconsistent is refused', () => {

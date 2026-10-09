@@ -302,7 +302,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
   });
   return {
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews, neglected: state.neglected[region] === 1,
-    occupation: occupationOf(state, region), devastation: round(state.devastation[region]),
+    occupation: occupationOf(state, region), devastation: round(state.devastation[region]), raided: round(state.raided[region]),
     people: group ? peopleView(state, group, living.get(group.culture)!) : null,
     weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)), relief: state.reliefTick[region] >= 0 && state.tick - state.reliefTick[region] <= 1 },
     fields: (() => {
@@ -504,7 +504,7 @@ function armyOf(state: SimulationState, civ: Polity) {
   return {
     soldiers, target: army.target, share: people > 0 ? Math.min(1, Math.round(soldiers / people * 1e5) / 1e5) : 0,
     strength: Math.round(strengthOf(state, civ)), upkeep: Math.round(soldiers * soldierUpkeep(civ)),
-    garrison: army.garrison, threatened: army.threatened, cut: army.cut, feared: army.feared >= 0 ? state.polities[army.feared].name : null,
+    garrison: army.garrison, threatened: army.threatened, cut: army.cut, feared: army.feared >= 0 ? state.polities[army.feared].name : null, raiders: army.raiders,
   };
 }
 

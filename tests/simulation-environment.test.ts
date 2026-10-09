@@ -26,7 +26,7 @@ function fixture() {
   for (let region = 0; region < 4; region++) harvest[region * 12 + 8] = 1;
   const state = {
     tick: 0, seed: 7, partition: { regions }, food: { harvest, cycle: new Uint8Array(4).fill(12) },
-    weather: new Float64Array(4).fill(1), harvestFactor: new Float64Array(4).fill(1), drought: new Uint8Array(4), famineRecent: new Float64Array(4), famine: new Uint8Array(4), devastation: new Float64Array(4),
+    weather: new Float64Array(4).fill(1), harvestFactor: new Float64Array(4).fill(1), drought: new Uint8Array(4), famineRecent: new Float64Array(4), famine: new Uint8Array(4), devastation: new Float64Array(4), raided: new Float64Array(4),
     habitable: new Uint8Array(4).fill(1), affinity: [new Set(['arid']), new Set(), new Set(), new Set()], occupant: Int32Array.from([-1, 0, -1, -1]), groupAt: Int32Array.from([-1, 0, -1, -1]),
     groups: [{ id: 0, region: 1, size: 10_000, store: 0, specialists: 0, soldiers: 0, foodSecurity: 0.9 }], regionSettlements: [[], [], [], []], settlements: [], stability: new Float64Array(4).fill(1), unrest: new Uint8Array(4),
     chronicle: new Chronicle(), metrics: { droughts: 0, famines: 0 }, capacity: new Float64Array(4).fill(10_000),

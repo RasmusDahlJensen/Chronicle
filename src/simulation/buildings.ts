@@ -44,7 +44,7 @@ const building = (id: string, purpose: Purpose, cost: number, months: number, up
 export const BUILDINGS: readonly BuildingDefinition[] = [
   // Neolithic (Masonry). A region's granary, shrine and temple serve the whole region (their effects are the region's).
   building('granary', 'food', 2_000, 12, 40, 0, { storeMonths: 1.5, spoilage: 0.8 }, { perRegion: true }),
-  building('walls', 'defense', 4_000, 24, 80, 1, { defense: 0.5 }, { stone: true, one: 'walls', many: 'walls' }),
+  building('walls', 'defense', 4_000, 24, 80, 0, { defense: 0.5 }, { stone: true, one: 'walls', many: 'walls' }),
   building('shrine', 'faith', 1_500, 12, 30, 0, { stability: 0.03 }, { perRegion: true }),
   // Bronze (Writing; Organized religion also unlocks the temple).
   building('temple', 'faith', 6_000, 36, 120, 1, { stability: 0.06 }, { stone: true, perRegion: true }),

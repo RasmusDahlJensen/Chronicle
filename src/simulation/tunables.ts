@@ -430,8 +430,9 @@ export const RELIEF_TUNING = { months: 2, costPer1000Km: 0.2, kmPerMonth: 500, t
  * need follows the building's purpose —
  *   food: hardship + farmStore × the share of food farmed; faith: (1 − stability) × (faithBase + Zeal);
  *   learning: (learningBase + Openness); trade: (tradeBase + Openness × tradeOpenness);
- *   housing: clamp((townspeople ÷ housing − crowdFrom) ÷ (1 − crowdFrom), 0, 1); defense: min(1, foreign neighbours ÷
- *   frontierScale) × (defenseBase + Militarism).
+ *   housing: clamp((townspeople ÷ housing − crowdFrom) ÷ (1 − crowdFrom), 0, 1); defense: min(1, the larger of foreign
+ *   neighbours ÷ frontierScale and (M6.4) its region's raid memory) × (defenseBase + Militarism), cited as the frontier
+ *   or as raids, whichever is larger.
  * The type's score is purposeWeight × the mean of its best `batch` settlements' values (batch = ceil(regions ÷
  * batchRegions), at most batchMax) − cost × (cost of the batch ÷ (surplus + treasury ÷ treasuryYears)) −
  * upkeepWeight × (the batch's upkeep ÷ max(surplus, surplusFloor × revenue)), where revenue is what customary taxes
@@ -860,6 +861,28 @@ export const RAVAGE_TUNING = {
   refugeeEvent: 2000, incomeYears: 10, warIncome: 0.1,
 } as const;
 
+/**
+ * Raids and confederations (VISION.md "Raids", M6 "threat drives consolidation"; M6.4).
+ * - Raids (yearly per tribe band, staggered by band): next to a civilization's region, a band weighs a raid with chance
+ *   rate × (hunger × its hunger + herding × its herding share) × riches × odds, at most maxChance: riches its store's
+ *   months of food a head over richMonths (at most 1), odds its warriors (people × ARMY_TUNING.warriors × its military
+ *   multiplier) against theirs and the walls' (soldiers × multiplier × (1 + walls × walls' defence) + watch × people ×
+ *   walls' defence). A raid takes take of their store (at most carryMonths of food a head for the band), kills
+ *   raiderDeaths × (1 − odds) of its warriors and defenderDeaths × odds × (1 − walls' defence) of their people (war
+ *   deaths), and burns a building with chance burn × (1 − walls' defence). The region remembers it: its raid memory
+ *   rises by memory (at most 1) and halves every memoryYears; it calls for walls there, and is a threat its realm feels
+ *   (army and unions, weighed by the people of its raided land). A raid cites hunger × its hunger, herding × its herding
+ *   share and richesCause × riches.
+ * - Confederations (each January): a tribe that raided lately (its raids, halved each year) may, with one chance a year
+ *   of confederate × min(1, its raids ÷ confederateRaids), draw in the largest smaller kin tribe next to it, which joins
+ *   whole (cited: raiding, and kin × kinCause).
+ */
+export const RAID_TUNING = {
+  rate: 0.6, hunger: 1, herding: 0.6, richMonths: 24, walls: 2, watch: 0.002, maxChance: 0.5, richesCause: 0.5, kinCause: 0.5,
+  take: 0.25, carryMonths: 6, raiderDeaths: 0.05, defenderDeaths: 0.002, burn: 0.15,
+  memory: 0.5, memoryYears: 10, confederate: 0.1, confederateRaids: 5,
+} as const;
+
 export function validateTunables() {
   const r = REGION_TUNING;
   const problems: string[] = [];
@@ -1026,6 +1049,9 @@ export function validateTunables() {
   if (!(Object.values(rv).every(value => Number.isFinite(value) && value >= 0) && rv.fadeYears > 0 && rv.incomeYears > 0 && rv.devastate <= 12 && rv.gone < 1
     && [rv.fieldLoss, rv.harvestCut, rv.unrest, rv.flee, rv.raze, rv.burn, rv.loot, rv.keepRaze, rv.lootShare, rv.lootFood, rv.burnBuildings, rv.burnKill, rv.burnFlee, rv.razeKill, rv.bridgeRate, rv.roadRate, rv.razedExhaustion, rv.rebuild, rv.fresh].every(value => value <= 1)
     && rv.raze + rv.burn + rv.loot <= 1 && rv.burnKill + rv.burnFlee <= 1)) problems.push('ravage settings are invalid');
+  const rd = RAID_TUNING;
+  if (!(Object.values(rd).every(value => Number.isFinite(value) && value >= 0) && rd.richMonths > 0 && rd.memoryYears > 0 && rd.confederateRaids > 0
+    && [rd.maxChance, rd.take, rd.raiderDeaths, rd.defenderDeaths, rd.burn, rd.memory, rd.confederate].every(value => value <= 1))) problems.push('raid settings are invalid');
   const x = EXPLORE_TUNING;
   if (!(x.opennessWeight >= 0 && x.expansionismWeight >= 0 && x.base >= 0 && x.frontierScale > 0 && x.freshMobility >= 0 && x.freshYears > 0 && x.range.length === 3 && x.range.every(steps => Number.isInteger(steps) && steps >= 1))) problems.push('exploration settings are invalid');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);

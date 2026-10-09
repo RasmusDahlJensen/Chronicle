@@ -146,7 +146,7 @@ export interface Polity {
   /** A civilization's army (M6.1; `army.ts`), set at its yearly assessment: the soldiers it means to keep, and why — the
    *  garrison its Militarism wants, the soldiers the threat adds and those its budget cuts (soldiers each) — the people
    *  it fears most (−1 none) and when it was set (−1 never). Its soldiers are its groups'. */
-  army: { target: number; garrison: number; threatened: number; cut: number; feared: number; tick: number };
+  army: { target: number; garrison: number; threatened: number; cut: number; feared: number; raiders: boolean; tick: number };
   /** A civilization's wars now (ids into `state.wars`; M6.2), and its claims on land it lost in a war: the region and
    *  when (their weight fades, `war.ts` `claimWeight`; a claim ends when it regains the region). */
   wars: number[]; claims: { region: number; tick: number }[];
@@ -156,6 +156,8 @@ export interface Polity {
   /** Its war income (M6.3, "conquest that pays"): loot and tribute received, and when last; it fades (halving every
    *  RAVAGE_TUNING.incomeYears) and raises what it can afford for its army. */
   warIncome: { value: number; tick: number };
+  /** A tribe's raids lately (M6.4): halved each January; they draw kin tribes into its confederation. */
+  raids: number;
 }
 
 export type WarFraming = typeof WAR_FRAMINGS[number];
@@ -368,8 +370,8 @@ export interface PopulationGroup {
   /** Soldiers (M6.1; VISION.md "Data model": occupation shares): rural people under arms, at most its people less its
    *  townspeople; they eat from its food but work no land (`soldiers.ts`). A tribe's group keeps none. */
   soldiers: number;
-  /** Share of last month's food from farming and herding. */
-  farmShare: number;
+  /** Share of last month's food from farming and herding, and (M6.4) from herding alone. */
+  farmShare: number; herdShare: number;
 }
 
 export interface CenturyStats {
@@ -503,6 +505,8 @@ export interface CenturyStats {
    *  destroyed in war, refugees; and now: regions devastated (0.05 or more), ruins (ruined or razed settlements). */
   settlementsLooted: number; settlementsBurned: number; settlementsRazed: number; razedResettled: number; roadsDestroyed: number; bridgesDestroyed: number;
   refugees: number; devastatedRegions: number; ruins: number;
+  /** Raids and confederations so far (M6.4), walls built in regions raided lately, and regions remembering raids now. */
+  raids: number; confederations: number; wallsAfterRaids: number; raidedRegions: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -607,6 +611,8 @@ export interface Metrics {
    *  bridges destroyed in war, refugees (people). */
   settlementsLooted: number; settlementsBurned: number; settlementsRazed: number; razedResettled: number; buildingsBurned: number;
   roadsDestroyed: number; bridgesDestroyed: number; refugees: number;
+  /** Raids and confederations (M6.4), and walls built in regions raided lately. */
+  raids: number; confederations: number; wallsAfterRaids: number;
 }
 
 /** One census (U.3): the year, and each living civilization (by id, ascending) with its people and regions. */
@@ -674,6 +680,8 @@ export interface SimulationState {
   wars: War[]; occupiedBy: Int32Array;
   /** Per region: devastation (M6.3; 0–1), what occupation leaves: it cuts the harvest and unsettles, and fades. */
   devastation: Float64Array;
+  /** Per region: its memory of raids (M6.4; 0–1): it calls for walls and is a threat its realm feels, and fades. */
+  raided: Float64Array;
   /** Per region: the tick famine relief last reached it (−1 never, or since its people left); relief again within
    *  RELIEF_TUNING.episodeMonths is the same episode. */
   reliefTick: Int32Array;

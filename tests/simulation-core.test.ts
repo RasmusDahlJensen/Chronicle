@@ -85,8 +85,8 @@ test('every event type has a text template that fills its data, actors and regio
     importance: 0.5, data: { population: 1200, name: 'Tarun', culture: 'Vaeli' },
   });
   assert.equal(text, 'The Tarun band of 1,200 people (Vaeli culture) appears in region 17.');
-  assert.equal(describeEvent({ id: 1, tick: 0, type: 'raid', actors: [{ id: 4, role: 'attacker' }], region: 2, settlement: null, causes: [], parents: [], importance: 0, data: {} },
-    id => `Band ${id}`), 'Band 4 raids ? in region 2.', 'actor names come from the observer, missing ones show as ?');
+  assert.equal(describeEvent({ id: 1, tick: 0, type: 'warDeclared', actors: [{ id: 4, role: 'attacker' }], region: 2, settlement: null, causes: [], parents: [], importance: 0, data: {} },
+    id => `Band ${id}`), 'Band 4 declare ? on ?.', 'actor names come from the observer, missing ones show as ?');
   // U.1: a sentence that begins with a people's name begins with a capital, and a frame's names read as "the Vraye".
   assert.equal(describeEvent({ id: 5, tick: 0, type: 'nonAggressionPact', actors: [{ id: 3, role: 'a' }, { id: 9, role: 'b' }], region: null, settlement: null, causes: [], parents: [], importance: 0, data: {} },
     frameNames([[3, 'Hounan'], [9, 'Vrihia']])), 'The Hounan and the Vrihia sign a non-aggression pact.');

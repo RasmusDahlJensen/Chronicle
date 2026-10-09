@@ -91,7 +91,8 @@ export function unionScore(view: PolityView, neighbour: Neighbour): Option {
   const parts = {
     kinship: neighbour.kin ? tuning.kin : 0, similarity: tuning.similarity * neighbour.similarity, size: tuning.size * size, opinion: tuning.opinion * neighbour.opinion / 100,
     // A threatened realm looks for shelter in a larger one it likes, never in one it fears.
-    threat: tuning.threat * view.threats.reduce((most, entry) => entry.civ === neighbour.civ ? most : Math.max(most, entry.threat), 0) * clamp01(neighbour.opinion / 100),
+    // (M6.4: raiders on its land count as a threat too.)
+    threat: tuning.threat * Math.max(view.raided, view.threats.reduce((most, entry) => entry.civ === neighbour.civ ? most : Math.max(most, entry.threat), 0)) * clamp01(neighbour.opinion / 100),
     fed: tuning.fed * neighbour.fed, stability: tuning.stability * neighbour.stability, trouble: tuning.trouble * Math.min(1, view.hunger + view.unrestShare),
     tradition: -tuning.tradition * view.values.tradition, expansionism: -tuning.expansionism * view.values.expansionism,
     contentment: -tuning.contentment * view.stability, crossing: -tuning.crossing * neighbour.crossingKm / 1000,

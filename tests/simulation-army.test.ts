@@ -109,7 +109,7 @@ test('strength is soldiers times the military multiplier (a tribe\'s, its warrio
 });
 
 const view = (overrides: Partial<ArmyView> = {}): ArmyView => ({
-  people: 1_000_000, militarism: 0.5, multiplier: 1.3, allies: 0, neighbours: [], revenue: 70_000, surplus: 0, arrears: 0, upkeep: 1.4, wars: 0, warIncome: 0, ...overrides,
+  people: 1_000_000, militarism: 0.5, multiplier: 1.3, allies: 0, neighbours: [], revenue: 70_000, surplus: 0, arrears: 0, upkeep: 1.4, wars: 0, warIncome: 0, raided: 0, ...overrides,
 });
 
 test('the target: a guard that grows with Militarism, more under threat, held to what the realm can afford, never below the floor', () => {
@@ -202,7 +202,7 @@ test('the frame carries the army: a realm\'s soldiers, target and reasons, a reg
   assert.deepEqual(polity.army, {
     soldiers, target: civ.army.target, share: Math.round(soldiers / people * 1e5) / 1e5, strength: Math.round(soldiers * civ.knowledge.multipliers.military),
     upkeep: Math.round(soldiers * soldierUpkeep(civ)), garrison: civ.army.garrison, threatened: civ.army.threatened, cut: civ.army.cut,
-    feared: civ.army.feared >= 0 ? state.polities[civ.army.feared].name : null,
+    feared: civ.army.feared >= 0 ? state.polities[civ.army.feared].name : null, raiders: civ.army.raiders,
   });
   assert.equal(polity.soldiers, state.groups[state.groupAt[region]].soldiers);
   assert.equal(polity.wealth!.costs.army, Math.round(costsOf(state, civ).army));
