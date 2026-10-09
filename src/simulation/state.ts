@@ -150,6 +150,9 @@ export interface Polity {
   /** A civilization's wars now (ids into `state.wars`; M6.2), and its claims on land it lost in a war: the region and
    *  when (their weight fades, `war.ts` `claimWeight`; a claim ends when it regains the region). */
   wars: number[]; claims: { region: number; tick: number }[];
+  /** (M6.5) The wars it fights as an ally of the defender, and its overlord if it is a vassal: since when, the war that
+   *  made it one (−1: the development control), the tribute it pays a year (set each January), the fraction of a unit not yet paid and all it paid. */
+  joined: number[]; overlord: { id: number; since: number; war: number; amount: number; carry: number; paid: number } | null;
   /** Its war-weariness (M6.2): its exhaustion when its last war ended, and when; it fades (halving every
    *  WAR_TUNING.wearyHalfLife years) and weighs against a new war. */
   weariness: { value: number; tick: number };
@@ -176,6 +179,9 @@ export interface War {
   score: number; exhaustion: [number, number]; deaths: [number, number]; carry: [number, number]; yearDeaths: [number, number]; held: number;
   startTick: number; endTick: number | null; outcome: WarOutcome | null; causes: { factor: string; weight: number }[];
   ceded: number[]; tribute: { payer: number; payee: number; amount: number; until: number; carry: number; paid: number } | null;
+  /** (M6.5) The defender's allies that joined it, in the order they joined: when, the fraction of a death not yet dealt,
+   *  their dead and their weariness from it. */
+  allies: { id: number; tick: number; carry: number; deaths: number; exhaustion: number }[];
 }
 
 /**
@@ -221,7 +227,7 @@ export interface Relation {
   intimacy: number; opinion: number; reasons: { factor: string; weight: number }[];
   memories: { reason: MemoryReason; points: number; tick: number }[];
 }
-export const MEMORY_REASONS = ['turnedAway', 'refusedExchange', 'refusedTrade', 'refusedTreaty', 'treatySoured', 'war', 'lostLand', 'brokeTreaty'] as const;
+export const MEMORY_REASONS = ['turnedAway', 'refusedExchange', 'refusedTrade', 'refusedTreaty', 'treatySoured', 'war', 'lostLand', 'brokeTreaty', 'abandoned', 'threwOff'] as const;
 export type MemoryReason = typeof MEMORY_REASONS[number];
 
 export { DECISION_ACTIONS as ACTIONS } from '../../shared/simulation.ts';
@@ -378,8 +384,9 @@ export interface CenturyStats {
   /** Living polities: tribes (of bands) and civilizations; bands are the tribes' groups, one per region. */
   year: number; regions: number; polities: number; tribes: number; bands: number; civs: number; population: number;
   largestShare: number; events: number; occupiedRegions: number;
-  /** Most regions held by one polity (a tribe's bands or a civilization's villages). */
-  largestRegions: number;
+  /** Most regions held by one polity (a tribe's bands or a civilization's villages), and (M6.5) the most any civilization
+   *  holds as a share of all habitable land regions (VISION.md M6: the largest civ's land share, reported). */
+  largestRegions: number; largestLandShare: number;
   /** Share of band population in regions with a coast, open-lake access or river tier ≥ river, and the share of land regions with them. */
   waterPopulationShare: number; waterRegionShare: number;
   bandMoves: number; bandSplits: number; bandBreakaways: number; births: number; deaths: number; famineDeaths: number;
@@ -507,6 +514,11 @@ export interface CenturyStats {
   refugees: number; devastatedRegions: number; ruins: number;
   /** Raids and confederations so far (M6.4), walls built in regions raided lately, and regions remembering raids now. */
   raids: number; confederations: number; wallsAfterRaids: number; raidedRegions: number;
+  /** (M6.5) Allies that joined a war and that refused so far, alliances made against a would-be hegemon, wars ended in
+   *  vassalage, vassals gone free; vassals now; and the strongest civilization's share of all their strength now. */
+  alliesJoined: number; alliesRefused: number; coalitions: number; warsVassalage: number; vassalsFreed: number; vassals: number; strongestShare: number;
+  /** (M6.5) The dead of raids so far (counted apart from wars'). */
+  raidDeaths: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -613,6 +625,10 @@ export interface Metrics {
   roadsDestroyed: number; bridgesDestroyed: number; refugees: number;
   /** Raids and confederations (M6.4), and walls built in regions raided lately. */
   raids: number; confederations: number; wallsAfterRaids: number;
+  /** (M6.5) Allies that joined a war and that refused, alliances made against a would-be hegemon, vassals made and gone free. */
+  alliesJoined: number; alliesRefused: number; coalitions: number; vassalages: number; vassalsFreed: number;
+  /** (M6.5) The dead of raids (war deaths in the ledger, counted apart from wars'). */
+  raidDeaths: number;
 }
 
 /** One census (U.3): the year, and each living civilization (by id, ascending) with its people and regions. */

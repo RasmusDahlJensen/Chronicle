@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 44;
+export const SIMULATION_PROTOCOL_VERSION = 45;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -41,6 +41,7 @@ export const EVENT_TYPES = [
   'refugees', 'knowledgeLost', 'industrialization', 'nuclearUse', 'spaceMilestone', 'bandSpread',
   'unification', 'independenceMovement', 'referendum', 'dissolution', 'knowledgeShared', 'buildingDecayed', 'taxes', 'arrears', 'famineRelief', 'neglect',
   'assimilation', 'traitEarned', 'faithSpread', 'devScenario', 'mobilization', 'demobilization', 'confederation',
+  'allyJoined', 'allyRefused', 'vassalFreed',
 ] as const;
 export type EventType = typeof EVENT_TYPES[number];
 
@@ -58,7 +59,7 @@ export const BELIEF_KINDS = ['people', 'strength', 'wealth', 'era'] as const;
 export const DECISION_ACTIONS = ['expand', 'explore', 'nothing', 'unite', 'share', 'build', 'trade', 'pact', 'alliance', 'roadAgreement', 'voyage', 'war', 'peace'] as const;
 /** A people's standing with a civilization in its Diplomacy (VISION.md "Civ panel"; M5.5; at war from M6.2), and the
  *  treaties it may hold. */
-export const DIPLOMATIC_STATUSES = ['allied', 'pact', 'trade', 'rival', 'neutral', 'war'] as const;
+export const DIPLOMATIC_STATUSES = ['allied', 'pact', 'trade', 'rival', 'neutral', 'war', 'vassal', 'overlord'] as const;
 export const AGREEMENT_KINDS = ['alliance', 'nonAggression', 'road', 'trade'] as const;
 /** The kinds of story the observer is told (U.3), from what M1–M5 simulate. */
 export const STORY_KINDS = ['rise', 'decline', 'union', 'first', 'faith', 'peoples', 'trade', 'voyage', 'hardship', 'wonder', 'war'] as const;
@@ -66,7 +67,7 @@ export type StoryKind = typeof STORY_KINDS[number];
 /** (M6.2) What a war is fought for (the dominant factor of the decision that began it: VISION.md's war framing), and
  *  how a war ended. */
 export const WAR_FRAMINGS = ['conquest', 'farmland', 'resource', 'holy', 'reclamation', 'preemptive', 'frontier'] as const;
-export const WAR_OUTCOMES = ['white', 'tribute', 'cession', 'annexation', 'gone'] as const;
+export const WAR_OUTCOMES = ['white', 'tribute', 'cession', 'annexation', 'vassalage', 'gone'] as const;
 /** At most this many wars in a frame: every war now, then the latest ended. */
 export const MAX_FRAME_WARS = 64;
 /** At most this many stories in a frame. */
@@ -77,7 +78,7 @@ const ValuesSchema = Type.Object(Object.fromEntries(VALUE_NAMES.map(key => [key,
  * DEVELOPMENT CONTROLS (Dev 02), not product features: scenario triggers that make something happen in a region now,
  * through the real rules, to try a feature without simulating until it happens. A history they were used on says so.
  */
-export const DEV_SCENARIOS = ['drought', 'research', 'foundReligion', 'splitCulture', 'raze'] as const;
+export const DEV_SCENARIOS = ['drought', 'research', 'foundReligion', 'splitCulture', 'raze', 'vassal'] as const;
 export type DevScenario = typeof DEV_SCENARIOS[number];
 export const SimulationControlSchema = Type.Union([
   Type.Object({ action: Type.Literal('play') }, { additionalProperties: false }),
@@ -271,6 +272,8 @@ export const ObserverFrameSchema = Type.Object({
     goal: Type.Array(id(), { maxItems: 8 }), counter: Type.Array(id(), { maxItems: 8 }), occupied: Type.Array(Type.Object({ region: id(), by: id() }, { additionalProperties: false }), { maxItems: 16 }),
     ceded: Type.Array(id(), { maxItems: 4_096 }),
     causes: Type.Array(Type.Object({ factor: Type.String({ maxLength: 48 }), weight: Type.Number() }, { additionalProperties: false }), { maxItems: 4 }),
+    /** (M6.5) The defender's allies that joined it (in order, at most eight): who, the year they joined, their dead. */
+    allies: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), since: Type.Integer({ minimum: 0 }), dead: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 8 }),
   }, { additionalProperties: false }), { maxItems: MAX_FRAME_WARS }),
   /** (U.3) The ages of the world: each era after the Stone age with the year a people first reached it (its first tech
    *  of that era), that people and the tech, in order. */
@@ -483,6 +486,10 @@ export const ObserverFrameSchema = Type.Object({
       /** (U.4) Its standing with every living people it has met (the diplomacy lens; neutral until it has formed an
        *  opinion of them), by id; empty for a tribe. */
       standings: Type.Array(Type.Object({ id: id(), status: Type.Enum(DIPLOMATIC_STATUSES) }, { additionalProperties: false }), { maxItems: 20_000 }),
+      /** (M6.5) Its overlord if it is a vassal (who, since when, its tribute a year and all it has paid), and its vassals
+       *  (at most 16; who and since when). */
+      overlord: Type.Union([Type.Null(), Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), since: Type.Integer({ minimum: 0 }), perYear: Type.Integer({ minimum: 0 }), paid: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })]),
+      vassals: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), since: Type.Integer({ minimum: 0 }), perYear: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }), { maxItems: 16 }),
       /** (U.2) The god view: the nearest peoples it has not met yet, within three regions of its land (how many away),
        *  nearest first, so the observer sees who is about to meet whom. Empty for a tribe. */
       unmet: Type.Array(Type.Object({ id: id(), name: Type.String({ maxLength: 40 }), kind: Type.Union([Type.Literal('band'), Type.Literal('civ')]), away: Type.Integer({ minimum: 1, maximum: 3 }) }, { additionalProperties: false }), { maxItems: 6 }),
@@ -601,13 +608,20 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
     if (story.regions.some(region => region >= frame.counters.regions) || story.events.some(event => event.id >= frame.eventCount || event.tick > frame.tick)) throw invalid();
   }
   // (M6.2) Wars: each once, two different peoples, within the history so far and this world's regions; ended wars carry
-  // an outcome, wars now none; occupied land is held by a side.
+  // an outcome, wars now none; occupied land is held by a side; (M6.5) its allies are other peoples, each once.
   if (new Set(frame.wars.map(war => war.id)).size !== frame.wars.length) throw invalid();
   for (const war of frame.wars) {
     if (war.attacker === war.defender || war.since > year || (war.ended !== null && (war.ended < war.since || war.ended > year)) || (war.ended === null) !== (war.outcome === null)) throw invalid();
     if ([...war.goal, ...war.ceded, ...war.occupied.map(entry => entry.region)].some(region => region >= frame.counters.regions)) throw invalid();
     if (war.occupied.some(entry => entry.by !== war.attacker && entry.by !== war.defender)) throw invalid();
+    // (M6.5) Its allies: each once, neither side, joined between its start and now.
+    const allies = war.allies.map(ally => ally.id);
+    if (new Set(allies).size !== allies.length || allies.some(id => id === war.attacker || id === war.defender) || war.allies.some(ally => ally.since < war.since || ally.since > year)) throw invalid();
   }
+  // (M6.5) A realm's overlord is another people, none of its vassals; its vassals are others, each once; all since a year
+  // of the history so far.
+  if (polity && (polity.overlord?.id === polity.id || (polity.overlord && polity.overlord.since > year) || polity.vassals.some(vassal => vassal.id === polity.id || vassal.id === polity.overlord?.id || vassal.since > year)
+    || new Set(polity.vassals.map(vassal => vassal.id)).size !== polity.vassals.length)) throw invalid();
   // (U.4) The treaty web: living civilizations of the list, lower id first, each pair and kind once.
   const pairs = new Set<string>();
   for (const treaty of frame.treaties) {

@@ -17,6 +17,7 @@ import { byWater } from './settlements.ts';
 import { edgeBetween, roadCoverage } from './roads.ts';
 import { construct } from './construction.ts';
 import { levy } from './army.ts';
+import { strengthOf } from './soldiers.ts';
 import { wageWars } from './war.ts';
 import { ravage } from './ravages.ts';
 import { raid } from './raids.ts';
@@ -33,7 +34,7 @@ import { ERAS, TECH_INDEX, TECHS } from './techs.ts';
 import { CENSUS_YEARS, CLOCK_TUNING, FOOD_TUNING, SERIES_YEARS, STORY_TUNING } from './tunables.ts';
 
 /** Bump with every slice that changes rules or tuning (part of the world-instance identity). */
-export const SIMULATION_RULES_VERSION = 34;
+export const SIMULATION_RULES_VERSION = 35;
 
 type SystemRun = (state: SimulationState, context: TickContext) => void;
 
@@ -73,8 +74,9 @@ export function createSimulation(geography: SimulationGeography, partition: Regi
       faminesWatched: 0, fieldsShrank: 0, fieldsRegrew: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, reliefUnits: 0, reliefLost: 0, reliefCost: 0, reliefBegun: 0, reliefShortTreasury: 0, reliefShortFood: 0, unionsRefusedForStrain: 0, neglectBegun: 0, cultureSplits: 0, civCultureSplits: 0, assimilations: 0, hybrids: 0, traitsEarned: 0, religionsFounded: 0, conversions: 0, stateReligionChanges: 0, schisms: 0, beliefDecisions: 0, beliefsFarOff: 0, decisionSteps: 0, causesShort: 0, resourceExpansions: 0, tradeOffers: 0, tradeRefused: 0, tradeAgreements: 0, tradeEnded: { needPassed: 0, noSurplus: 0, unpaid: 0, relationsSoured: 0, partyGone: 0 },
       pactsMade: 0, alliancesMade: 0, roadDealsMade: 0, treatiesRefused: 0, crossBorderRoads: 0, pactEnded: { relationsSoured: 0, partyGone: 0, routeLost: 0, broken: 0 },
       voyages: 0, voyagesLost: 0, voyagesEmpty: 0, voyagesOtherLand: 0, voyagesNewLand: 0, voyageContacts: 0, dominanceRun: 0, longestDominance: 0, dominanceYears: 0,
-      mobilizations: 0, demobilizations: 0, warsDeclared: 0, warsEnded: { white: 0, tribute: 0, cession: 0, annexation: 0, gone: 0 }, warDeaths: 0, regionsConquered: 0, annexations: 0, regionsUnited: 0,
-      settlementsLooted: 0, settlementsBurned: 0, settlementsRazed: 0, razedResettled: 0, buildingsBurned: 0, roadsDestroyed: 0, bridgesDestroyed: 0, refugees: 0, raids: 0, confederations: 0, wallsAfterRaids: 0 },
+      mobilizations: 0, demobilizations: 0, warsDeclared: 0, warsEnded: { white: 0, tribute: 0, cession: 0, annexation: 0, vassalage: 0, gone: 0 }, warDeaths: 0, regionsConquered: 0, annexations: 0, regionsUnited: 0,
+      settlementsLooted: 0, settlementsBurned: 0, settlementsRazed: 0, razedResettled: 0, buildingsBurned: 0, roadsDestroyed: 0, bridgesDestroyed: 0, refugees: 0, raids: 0, confederations: 0, wallsAfterRaids: 0,
+      alliesJoined: 0, alliesRefused: 0, coalitions: 0, vassalages: 0, vassalsFreed: 0, raidDeaths: 0 },
     timing: { ms: new Float64Array(SYSTEMS.length), calls: new Float64Array(SYSTEMS.length) }, stats: [], series: [], census: [], checkedEvents: 0, devActions: 0,
   };
   for (let region = 0; region < regions; region++) if (regionCapacity(state, region) > 0) state.habitable[region] = 1;
@@ -217,6 +219,27 @@ function roundedFaithStats(state: SimulationState) {
 
 /** Story health's dominance rule (VISION.md: the largest polity holds at most 35% of the world's people, except for up
  *  to 200 consecutive years), checked every year: years in a row above it, the longest such run and all such years. */
+/** (M6.5) The strongest civilization's share of all civilizations' strength (VISION.md: the largest share is reported in
+ *  M6 and limited in M7). */
+function strongestShare(state: SimulationState) {
+  let total = 0, strongest = 0;
+  for (const id of state.living) {
+    const polity = state.polities[id];
+    if (polity.kind !== 'civ') continue;
+    const strength = strengthOf(state, polity);
+    total += strength; strongest = Math.max(strongest, strength);
+  }
+  return total > 0 ? Math.round(strongest / total * 1000) / 1000 : 0;
+}
+
+/** (M6.5) The most regions any civilization holds, as a share of all habitable land regions. */
+function largestLandShare(state: SimulationState) {
+  let habitable = 0, largest = 0;
+  for (const value of state.habitable) habitable += value;
+  for (const id of state.living) if (state.polities[id].kind === 'civ') largest = Math.max(largest, state.polities[id].groups.length);
+  return habitable > 0 ? Math.round(largest / habitable * 1000) / 1000 : 0;
+}
+
 function trackDominance(state: SimulationState) {
   let total = 0, largest = 0;
   for (const id of state.living) {
@@ -309,7 +332,7 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
   for (let region = 0; region < state.owner.length; region++) if (state.owner[region] >= 0) { ruled++; stable += state.stability[region]; unrestRegions += state.unrest[region]; }
   return {
     year, regions: state.partition.regions.length, polities: state.living.length, tribes, bands, civs: state.living.length - tribes, population,
-    largestShare: population > 0 ? largest / population : 0, events: state.chronicle.events.length, occupiedRegions: occupied, largestRegions,
+    largestShare: population > 0 ? largest / population : 0, events: state.chronicle.events.length, occupiedRegions: occupied, largestRegions, largestLandShare: largestLandShare(state),
     waterPopulationShare: population > 0 ? waterPopulation / population : 0, waterRegionShare: waterRegions / state.partition.regions.length,
     bandMoves: m.moves, bandSplits: m.splits, bandBreakaways: m.breakaways, births: m.births, deaths: m.deaths, famineDeaths: m.famineDeaths,
     settlements: alive, specialists,
@@ -335,6 +358,8 @@ export function collectStats(state: SimulationState, year: number): CenturyStats
     settlementsLooted: m.settlementsLooted, settlementsBurned: m.settlementsBurned, settlementsRazed: m.settlementsRazed, razedResettled: m.razedResettled,
     roadsDestroyed: m.roadsDestroyed, bridgesDestroyed: m.bridgesDestroyed, refugees: m.refugees,
     raids: m.raids, confederations: m.confederations, wallsAfterRaids: m.wallsAfterRaids, raidedRegions: state.raided.reduce((count, value) => count + (value > 0.1 ? 1 : 0), 0),
+    alliesJoined: m.alliesJoined, alliesRefused: m.alliesRefused, coalitions: m.coalitions, warsVassalage: m.warsEnded.vassalage, vassalsFreed: m.vassalsFreed,
+    vassals: state.living.reduce((count, id) => count + (state.polities[id].overlord ? 1 : 0), 0), strongestShare: strongestShare(state), raidDeaths: m.raidDeaths,
     devastatedRegions: state.devastation.reduce((count, value) => count + (value >= 0.05 ? 1 : 0), 0), ruins: state.settlements.reduce((count, settlement) => count + (settlement.status !== 'alive' ? 1 : 0), 0),
     reliefFood: Math.round(m.reliefUnits / FOOD_TUNING.unitsPerPersonMonth), reliefLost: Math.round(m.reliefLost / FOOD_TUNING.unitsPerPersonMonth), reliefCost: m.reliefCost, reliefBegun: m.reliefBegun,
     reliefShortTreasury: Math.round(m.reliefShortTreasury / FOOD_TUNING.unitsPerPersonMonth), reliefShortFood: Math.round(m.reliefShortFood / FOOD_TUNING.unitsPerPersonMonth),
@@ -474,6 +499,7 @@ export function stateHash(state: SimulationState) {
     for (const region of war.counter) add(region);
     for (const entry of war.occupied) { add(entry.region); add(entry.by); add(entry.tick); add(entry.fled); }
     if (war.tribute) { add(war.tribute.payer); add(war.tribute.payee); add(war.tribute.amount); add(war.tribute.until); add(war.tribute.carry * 1e6); add(war.tribute.paid); }
+    for (const entry of war.allies) { add(entry.id); add(entry.tick); add(entry.carry * 1e6); add(entry.deaths); add(entry.exhaustion * 1e6); }
   }
   for (const group of state.groups) {
     add(group.size); add(group.region); add(group.arrivedTick); add(group.store); add(group.planted); add(group.birthCarry); add(group.naturalCarry); add(group.famineCarry); add(group.specialists); add(group.soldiers); add(group.foodSecurity * 1e6);
@@ -514,6 +540,9 @@ export function stateHash(state: SimulationState) {
     add(polity.army.target); add(polity.army.garrison); add(polity.army.threatened); add(polity.army.cut); add(polity.army.feared); add(polity.army.tick);
     // Its wars and claims (M6.2).
     for (const war of polity.wars) add(war);
+    // (M6.5) The wars it fights as an ally, and its overlord.
+    for (const war of polity.joined) add(war);
+    if (polity.overlord) { add(polity.overlord.id); add(polity.overlord.since); add(polity.overlord.war); add(polity.overlord.amount); add(polity.overlord.carry * 1e6); add(polity.overlord.paid); } else add(-1);
     for (const claim of polity.claims) { add(claim.region); add(claim.tick); }
     add(polity.weariness.value * 1e6); add(polity.weariness.tick); add(polity.warIncome.value * 1e6); add(polity.warIncome.tick); add(polity.raids);
     for (const id of polity.heardWonders) add(id);

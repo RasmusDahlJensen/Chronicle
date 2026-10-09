@@ -197,10 +197,10 @@ function WarTable({ wars }: { wars: ObserverFrame['wars'] }) {
       <thead><tr><th scope="col">War</th><th scope="col">Sides</th><th scope="col">Years</th><th scope="col">Now</th><th scope="col" className="game-numeric">Dead</th><th scope="col" className="game-numeric">Land</th></tr></thead>
       <tbody>{wars.map(war => <tr key={war.id}>
         <th scope="row">{war.name.charAt(0).toUpperCase() + war.name.slice(1)}<span className="game-muted"> · {FRAMING_NAMES[war.framing]}</span></th>
-        <td>the {war.attackerName} against the {war.defenderName}</td>
+        <td>the {war.attackerName} against the {war.defenderName}{war.allies.length ? ` and ${war.allies.map(ally => `the ${ally.name}`).join(', ')}` : ''}</td>
         <td>{number.format(war.since)}–{war.ended === null ? '' : number.format(war.ended)}</td>
         <td>{war.ended === null ? `${war.score >= 0 ? `the ${war.attackerName}` : `the ${war.defenderName}`} ahead (${Math.round(Math.abs(war.score))})` : OUTCOME_NAMES[war.outcome ?? 'white']}</td>
-        <td className="game-numeric">{people(war.dead.attacker + war.dead.defender)}</td>
+        <td className="game-numeric">{people(war.dead.attacker + war.dead.defender + war.allies.reduce((sum, ally) => sum + ally.dead, 0))}</td>
         <td className="game-numeric">{war.ended === null ? `${number.format(war.occupied.length)} held` : number.format(war.ceded.length)}</td>
       </tr>)}</tbody>
     </table></div> : <p className="game-muted">No war in the last century.</p>}

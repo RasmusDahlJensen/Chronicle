@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import { ERA_NAMES, parseChroniclePage } from '../../shared/simulation.ts';
 import { curate, EVENT_KIND_NAMES, EVENT_KINDS, typesOf, type EventKind } from '../../src/observer/chronicle.ts';
-import { OUTCOME_NAMES } from '../../src/observer/labels.ts';
+import { OUTCOME_NAMES, STATUS_NAMES } from '../../src/observer/labels.ts';
+import { STANDING_COLORS } from '../../src/observer/palettes.ts';
 
 // One shared simulation per host and world: these scenarios change its clock, so they run in order.
 test.describe.configure({ mode: 'serial' });
@@ -373,8 +374,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(known).toHaveCount(realm.diplomacy.length);
   await expect(known.first()).toContainText(`The ${realm.diplomacy[0].name}`);
   await expect(known.first()).toContainText(/opinion [+−]\d/);
-  const standings = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war' } as Record<string, string>;
-  await expect(known.first().locator('.game-standing')).toHaveText(standings[realm.diplomacy[0].status]);
+  await expect(known.first().locator('.game-standing')).toHaveText(STATUS_NAMES[realm.diplomacy[0].status as keyof typeof STATUS_NAMES]);
   if (realm.unmet.length) await expect(place.locator('#game-unmet').getByRole('listitem')).toHaveCount(realm.unmet.length);
   await tabs.getByRole('tab', { name: 'Economy' }).click();
   await expect(place.locator('#game-economy-purse')).toContainText(`Treasury ${realm.wealth.treasury.toLocaleString('en')}`);
@@ -402,7 +402,8 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(game.getByLabel('Diplomacy lens')).toContainText(`standing with the ${frame.civList[0].name}`);
   // Each region by its people's standing (as the frame for the realm's capital reports them), the rest not met.
   const standingOf = new Map<number, string>(realm.standings.map((entry: { id: number; status: string }) => [entry.id, entry.status]));
-  const expectedCounts: Record<string, number> = { self: 0, allied: 0, pact: 0, trade: 0, rival: 0, neutral: 0, war: 0, unknown: 0 };
+  // (Every standing the lens colours, in its order: M6.5 added vassal and overlord.)
+  const expectedCounts: Record<string, number> = Object.fromEntries(Object.keys(STANDING_COLORS).map(key => [key, 0]));
   for (const id of frame.markers.ids as number[]) expectedCounts[id === realm.id ? 'self' : standingOf.get(id) ?? 'unknown']++;
   expect(expectedCounts.self).toBe(frame.civList[0].regions);
   expect(expectedCounts.unknown).toBeLessThan(frame.markers.ids.length - expectedCounts.self);
@@ -627,8 +628,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(relations.getByRole('listitem').first()).toContainText(`intimacy ${inspected.diplomacy[0].intimacy.toFixed(2)}`);
   await expect(relations).toContainText(/opinion [+-]?\d+/);
   // M5.5: each people's standing (allied, pact, trade partner, rival or neutral) and its treaties.
-  const standing = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war' } as const;
-  await expect(relations.getByRole('listitem').first()).toContainText(standing[inspected.diplomacy[0].status as keyof typeof standing]);
+  await expect(relations.getByRole('listitem').first()).toContainText(STATUS_NAMES[inspected.diplomacy[0].status as keyof typeof STATUS_NAMES]);
   // The political map marks capitals with stars, and the civilization list takes the observer to one.
   await expect.poll(async () => Number(await canvas.getAttribute('data-capital-marks'))).toBeGreaterThan(0);
   const civilizations = history(page).getByRole('list', { name: 'Civilizations' });
@@ -673,7 +673,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await expect(details.getByRole('region', { name: 'Trade' })).toContainText(`imports ${RESOURCE_IDS[later.trades.resources[0]]} from the`);
   // M6.2: war and peace. Run on a century at a time until a war of two years or more has been fought (the frame
   // carries the wars of the last century); the ledger lists it with how it ended.
-  type FrameWar = { id: number; name: string; attacker: number; attackerName: string; defender: number; defenderName: string; since: number; ended: number | null; outcome: string | null; score: number; goal: number[]; counter: number[]; occupied: { region: number; by: number }[] };
+  type FrameWar = { id: number; name: string; attacker: number; attackerName: string; defender: number; defenderName: string; since: number; ended: number | null; outcome: string | null; score: number; goal: number[]; counter: number[]; occupied: { region: number; by: number }[]; allies: { id: number; name: string }[] };
   const fought = (wars: FrameWar[]) => wars.find(war => war.ended !== null && war.ended - war.since >= 2);
   for (let year = await tick(page) / 12 + 100; year <= 3000 && !fought(later.wars); year += 100) {
     await history(page).getByLabel('Run to year').fill(String(year));
@@ -736,6 +736,23 @@ test('farming bands settle into civilizations with villages, specialists, resear
   const razedFrame = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
   await expect(canvas).toHaveAttribute('data-ruin-marks', String(razedFrame.ruins.cells.length));
   await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText('only ruins are left');
+  // M6.5: a realm at peace made a vassal (the development control, as at an overwhelming peace): the game's Diplomacy
+  // names its overlord, and its overlord's names it, each with its standing.
+  const atWar = new Set((razedFrame.wars as FrameWar[]).filter(entry => entry.ended === null).flatMap(entry => [entry.attacker, entry.defender, ...entry.allies.map(ally => ally.id)]));
+  const peaceful = (razedFrame.civList as { id: number; name: string; capitalCell: number }[]).find(civ => !atWar.has(civ.id));
+  expect(peaceful).toBeTruthy();
+  await clickCell(page, { x: peaceful!.capitalCell % WIDTH, y: Math.floor(peaceful!.capitalCell / WIDTH) });
+  await history(page).getByRole('button', { name: 'Make them a vassal' }).click();
+  await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText(`the ${peaceful!.name} are made the vassal of the strongest realm beside them`);
+  const bound = await page.context().newPage();
+  await openGame(bound);
+  await bound.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Ledger' }).click();
+  await bound.getByRole('region', { name: 'Realms' }).getByRole('rowheader', { name: peaceful!.name, exact: true }).getByRole('button').click();
+  const boundPlace = bound.getByRole('complementary', { name: 'Selected place' });
+  await boundPlace.getByRole('tablist', { name: 'About the realm' }).getByRole('tab', { name: 'Diplomacy' }).click();
+  await expect(boundPlace.locator('#game-overlord')).toContainText('A vassal of the');
+  await expect(boundPlace.getByRole('list', { name: 'Peoples it knows' }).locator('.game-standing-overlord')).toHaveCount(1);
+  await bound.close();
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

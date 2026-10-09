@@ -15,6 +15,8 @@ import { decodeWorld } from '../scripts/checkpoints.ts';
 import { applyOverrides, runFrom } from '../scripts/fork-core.ts';
 import { Chronicle } from '../src/simulation/chronicle.ts';
 import { applyScenario } from '../src/simulation/scenarios.ts';
+import { borderingCivs } from '../src/simulation/perception.ts';
+import { strengthOf } from '../src/simulation/soldiers.ts';
 import { createSimulation, SIMULATION_RULES_VERSION, stateHash, stepSimulation } from '../src/simulation/simulation.ts';
 import { restoreCheckpoint, takeCheckpoint } from '../src/simulation/snapshot.ts';
 import type { SimulationState } from '../src/simulation/state.ts';
@@ -195,6 +197,18 @@ test('the scenario triggers act through the real rules, say so, and keep the inv
   for (const id of state.living) for (const groupId of state.polities[id].groups) if (state.groups[groupId].culture === parent.id) left += state.groups[groupId].size;
   assert.equal(parent.people, left, 'the parent counts the people who stayed');
 
+  // A vassal (M6.5): a realm at peace beside another becomes the vassal of the strongest realm beside it.
+  const bound = state.living.map(id => state.polities[id]).find(polity => polity.kind === 'civ' && !polity.wars.length && !polity.joined.length && polity.overlord === null && borderingCivs(state, polity).some(other => state.polities[other].overlord === null))!;
+  assert.ok(bound, 'a realm at peace beside another');
+  const strongest = borderingCivs(state, bound).map(id => state.polities[id]).filter(other => other.overlord === null).sort((a, b) => strengthOf(state, b) - strengthOf(state, a) || a.id - b.id)[0];
+  from = state.chronicle.events.length;
+  assert.equal(applyScenario(state, 'vassal', state.groups[bound.core].region), null);
+  assert.equal(bound.overlord?.id, strongest.id);
+  assert.ok(bound.overlord!.amount >= 0 && bound.overlord!.war === -1);
+  assert.deepEqual(newEvents(from), ['devScenario']);
+  assert.equal(said(from), `Development control (test only): the ${bound.name} are made the vassal of the strongest realm beside them.`);
+  assert.match(applyScenario(state, 'vassal', state.groups[bound.core].region) ?? '', /a vassal already/);
+
   // Refusals change nothing.
   const tribe = state.living.find(id => state.polities[id].kind === 'band');
   assert.ok(tribe !== undefined, 'tribes still roam at year 900');
@@ -203,8 +217,9 @@ test('the scenario triggers act through the real rules, say so, and keep the inv
   assert.match(applyScenario(state, 'foundReligion', state.groups[state.polities[tribe].core].region) ?? '', /tribe/);
   assert.match(applyScenario(state, 'research', empty) ?? '', /Nobody lives/);
   assert.match(applyScenario(state, 'drought', -1) ?? '', /no region/);
+  assert.match(applyScenario(state, 'vassal', state.groups[state.polities[tribe].core].region) ?? '', /tribe/);
   assert.equal(state.chronicle.events.length, from);
-  assert.equal(state.devActions, 4);
+  assert.equal(state.devActions, 5);
 
   // The altered history says so in its hash, and runs on under the invariants.
   assert.notEqual(stateHash(state), stateHash(untouched));

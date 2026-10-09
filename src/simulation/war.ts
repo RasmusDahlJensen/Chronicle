@@ -2,7 +2,7 @@ import { RESOURCE_IDS } from '../../shared/atlas.ts';
 import type { ChronicleEvent } from '../../shared/simulation.ts';
 import { setArmy } from './army.ts';
 import { endPolity, learnFrom, rehome, removeGroup } from './bands.ts';
-import { causes } from './causes.ts';
+import { causes, namesList } from './causes.ts';
 import { endTreaty } from './diplomacy.ts';
 import { transferWealth, wealthFlows } from './economy.ts';
 import { absorbMap, arrive, budgetView, capitalTravel, lookAgain } from './perception.ts';
@@ -18,6 +18,8 @@ import { chooseGoal, claimWeight, defenseOf, ownLandValue, warBetween, weariness
 export { chooseGoal, claimWeight, crossingOf, defenseOf, frontierGain, goalWorth, inTruce, medianEdge, ownLandValue, warBetween, wearinessOf } from './claims.ts';
 import { effectiveValues } from './values.ts';
 import { addWarIncome } from './ravages.ts';
+import { callAllies, fightingAllies, releaseAllies } from './allies.ts';
+import { couldHold, makeVassal, payVassals } from './vassals.ts';
 
 /**
  * War and peace (VISION.md "Diplomacy and war"; M6.2). A civilization declares war at its decision step on a neighbour
@@ -27,7 +29,9 @@ import { addWarIncome } from './ravages.ts';
  * chance; both sides lose soldiers (war deaths), the weaker more; a side ahead occupies the regions it fights for, one
  * by one; each side tires. Peace comes when a side is exhausted, when the attacker has held its goal a year, or when a
  * side seeks it and the other accepts; its terms follow the score (white peace, tribute, cession, annexation of a small
- * loser). The loser claims the land it lost; both remember the war; a truce follows.
+ * loser). The loser claims the land it lost; both remember the war; a truce follows. (M6.5) The defender's allies may
+ * join it (`allies.ts`) and fight beside it; an overwhelming win over a realm too large to annex makes it a vassal
+ * (`vassals.ts`).
  */
 
 const peopleOf = (state: SimulationState, polity: Polity) => polity.groups.reduce((sum, id) => sum + state.groups[id].size, 0);
@@ -76,7 +80,7 @@ export function declareWar(state: SimulationState, attacker: Polity, defender: P
   const war: War = {
     id: state.wars.length, name: warName(state, attacker, defender, framing, resource, own), attacker: attacker.id, defender: defender.id, framing, resource,
     goal: own, counter, occupied: [], score: 0, exhaustion: [0, 0], deaths: [0, 0], carry: [0, 0], yearDeaths: [0, 0], held: 0,
-    startTick: state.tick, endTick: null, outcome: null, causes: cited, ceded: [], tribute: null,
+    startTick: state.tick, endTick: null, outcome: null, causes: cited, ceded: [], tribute: null, allies: [],
   };
   state.wars.push(war);
   attacker.wars.push(war.id); defender.wars.push(war.id);
@@ -103,6 +107,8 @@ export function declareWar(state: SimulationState, attacker: Polity, defender: P
     data: { name: war.name, attacker: attacker.name, defender: defender.name, regions: own.length, war: war.id, warId: war.id, [framing]: true, resource: resource >= 0 ? RESOURCE_IDS[resource] : '' },
   });
   setArmy(state, attacker); setArmy(state, defender);
+  // (M6.5) The defender's allies weigh joining it; its overlord joins.
+  callAllies(state, war, attacker, defender);
   return `declared ${war.name} on the ${defender.name}`;
 }
 
@@ -174,7 +180,13 @@ export function wageWars(state: SimulationState, context: TickContext) {
     const where = front.length ? front : intoDefender ? war.goal : war.counter;
     const supplyA = supplyTo(state, attacker, where), supplyD = supplyTo(state, defender, where);
     const ground = defenseOf(state, front, intoDefender ? attacker.id : defender.id);
-    const strengthA = strengthOf(state, attacker) * supplyA * (intoDefender ? 1 : ground), strengthD = strengthOf(state, defender) * supplyD * (intoDefender ? ground : 1);
+    // (M6.5) The defender's allies send a share of their strength, as far as it reaches the front.
+    const allies = fightingAllies(state, war).map(entry => {
+      const ally = state.polities[entry.id], supply = supplyTo(state, ally, where);
+      return { entry, ally, supply, strength: tuning.allies.share * strengthOf(state, ally) * supply };
+    });
+    const allied = allies.reduce((sum, entry) => sum + entry.strength, 0);
+    const strengthA = strengthOf(state, attacker) * supplyA * (intoDefender ? 1 : ground), strengthD = (strengthOf(state, defender) * supplyD + allied) * (intoDefender ? ground : 1);
     const odds = strengthA + strengthD > 0 ? strengthA / (strengthA + strengthD) : 0.5;
     war.score = Math.max(-100, Math.min(100, war.score + tuning.scoreRate * (2 * odds - 1) + tuning.noise * (rng.next() + rng.next() - 1)));
     // The dead: engaged soldiers at a yearly rate, the weaker side more.
@@ -186,6 +198,17 @@ export function wageWars(state: SimulationState, context: TickContext) {
       war.carry[side] -= whole;
       dead[side] = kill(state, side === 0 ? attacker : defender, whole);
       war.deaths[side] += dead[side]; war.yearDeaths[side] += dead[side];
+    }
+    // Allies lose soldiers at the defender's rate, each its own count; their weariness grows as a side's does (but for
+    // occupation: their land is not fought over).
+    for (const { entry, ally, supply } of allies) {
+      entry.carry += tuning.allies.share * soldiersOf(state, ally) * supply * tuning.casualties / 12 * rate[1];
+      const whole = Math.floor(entry.carry);
+      entry.carry -= whole;
+      const lost = kill(state, ally, whole);
+      entry.deaths += lost;
+      const rise = tuning.exhaustion.years / 12 + tuning.exhaustion.dead * lost / Math.max(1, peopleOf(state, ally)) + tuning.exhaustion.arrears * ally.arrears / 12;
+      entry.exhaustion = Math.min(tuning.exhaustion.max, entry.exhaustion + rise * (1 - tuning.calm * effectiveValues(state, ally).militarism));
     }
     const changed = occupy(state, war);
     war.held = war.goal.length && war.goal.every(region => state.occupiedBy[region] === war.attacker) ? war.held + 1 : 0;
@@ -229,6 +252,7 @@ export function wageWars(state: SimulationState, context: TickContext) {
     });
   }
   payTribute(state);
+  payVassals(state, context.month);
 }
 
 /** Tribute (a peace's terms): the payer pays a twelfth of the yearly sum each month while it can, until it ends. */
@@ -254,7 +278,8 @@ function payTribute(state: SimulationState) {
  * Peace (VISION.md "Ending wars"): terms by the winner's lead in the war score — below `terms.white` a white peace;
  * below `terms.tribute` tribute; below `terms.annex` the land it holds of theirs ceded (with tribute, or tribute alone
  * if it holds none); above, annexation if the loser is small (few regions, or few people beside the winner), else
- * cession with tribute. Never the loser's capital region but in annexation.
+ * (M6.5) vassalage if the winner could hold it (`couldHold`), else cession with tribute. Never the loser's capital
+ * region but in annexation.
  */
 export function makePeace(state: SimulationState, war: War, cause: 'exhaustion' | 'goalHeld' | 'soughtPeace', cited: ChronicleEvent['causes'] = []) {
   const tuning = WAR_TUNING, attacker = state.polities[war.attacker], defender = state.polities[war.defender];
@@ -267,7 +292,7 @@ export function makePeace(state: SimulationState, war: War, cause: 'exhaustion' 
   // Holding a small realm's capital, its whole goal, for a year is decisive: there is nothing left to cede but all.
   const capitalHeld = cause === 'goalHeld' && !taken.length && small && war.occupied.some(entry => entry.region === capital && entry.by === winner.id);
   const outcome: WarOutcome = lead < tuning.terms.white ? 'white' : lead < tuning.terms.tribute ? 'tribute'
-    : (lead >= tuning.terms.annex && small) || capitalHeld ? 'annexation' : taken.length ? 'cession' : 'tribute';
+    : (lead >= tuning.terms.annex && small) || capitalHeld ? 'annexation' : lead >= tuning.terms.annex && couldHold(state, winner, loser) ? 'vassalage' : taken.length ? 'cession' : 'tribute';
   endWar(state, war, outcome, { winner, loser, taken }, cause, cited);
 }
 
@@ -283,8 +308,12 @@ export function endWar(state: SimulationState, war: War, outcome: WarOutcome, si
     polity.weariness = { value: Math.max(wearinessOf(polity, state.tick), war.exhaustion[side]), tick: state.tick };
   }
   state.metrics.warsEnded[outcome]++;
+  // (M6.5) Its allies stand down.
+  const allies = war.allies.filter(entry => state.polities[entry.id].deathTick === null).map(entry => state.polities[entry.id].name);
+  releaseAllies(state, war);
+  const beside = { allies: allies.length, withAllies: allies.length > 0, allyNames: namesList(allies) };
   // Its length, in years (in months when under one), and its dead.
-  const months = state.tick - war.startTick, years = Math.round(months / 12), dead = war.deaths[0] + war.deaths[1];
+  const months = state.tick - war.startTick, years = Math.round(months / 12), dead = war.deaths[0] + war.deaths[1] + war.allies.reduce((sum, entry) => sum + entry.deaths, 0);
   const length = { years, months, long: years >= 1, short: years < 1 };
   // Claims weighing almost nothing are forgotten.
   for (const polity of [attacker, defender]) polity.claims = polity.claims.filter(claim => claimWeight(claim.tick, state.tick) >= tuning.claimFloor);
@@ -292,7 +321,7 @@ export function endWar(state: SimulationState, war: War, outcome: WarOutcome, si
     // A side gone: the war ends with it, and the other stands down.
     state.chronicle.emit({
       type: 'peaceSigned', actors: [{ id: attacker.id, role: 'a' }, { id: defender.id, role: 'b' }], region: null, importance: 0.15, causes: [{ factor: cause, weight: 1 }],
-      data: { name: war.name, warId: war.id, attacker: attacker.name, defender: defender.name, ...length, attackerDead: war.deaths[0], defenderDead: war.deaths[1], gone: true, dead },
+      data: { name: war.name, warId: war.id, attacker: attacker.name, defender: defender.name, ...length, attackerDead: war.deaths[0], defenderDead: war.deaths[1], gone: true, dead, ...beside },
     });
     for (const polity of [attacker, defender]) if (polity.deathTick === null) setArmy(state, polity);
     return;
@@ -306,13 +335,14 @@ export function endWar(state: SimulationState, war: War, outcome: WarOutcome, si
   }
   if (outcome === 'cession') for (const region of taken) { cede(state, region, loser, winner, war); ceded++; }
   if (outcome === 'annexation') ceded = annex(state, loser, winner, war);
+  if (outcome === 'vassalage') makeVassal(state, loser, winner, war);
   if (ceded > 0) { remember(state, loser, winner.id, 'lostLand'); state.metrics.regionsConquered += ceded; }
   state.chronicle.emit({
     type: 'peaceSigned', actors: [{ id: attacker.id, role: 'a' }, { id: defender.id, role: 'b' }], region: null, importance: outcome === 'white' ? 0.2 : 0.35,
     causes: [{ factor: cause, weight: 1 }, ...cited].slice(0, 4),
     data: {
       name: war.name, warId: war.id, attacker: attacker.name, defender: defender.name, winner: winner.name, loser: loser.name, ...length, attackerDead: war.deaths[0], defenderDead: war.deaths[1],
-      [outcome]: true, regions: ceded, perYear: tribute, tributeYears: tuning.tributeYears, paysTribute: tribute > 0 && outcome === 'cession', dead,
+      [outcome]: true, regions: ceded, perYear: outcome === 'vassalage' ? loser.overlord!.amount : tribute, tributeYears: tuning.tributeYears, paysTribute: tribute > 0 && outcome === 'cession', dead, ...beside,
     },
   });
   for (const polity of [winner, loser]) if (polity.deathTick === null) { assess(state, polity); setArmy(state, polity); }

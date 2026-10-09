@@ -10,6 +10,7 @@ export const EVENT_KINDS = Object.keys(EVENT_KIND_NAMES) as EventKind[];
 
 export const EVENT_KIND: Record<EventType, EventKind> = {
   bandSpawned: 'peoples', bandMoved: 'peoples', bandSplit: 'peoples', bandAbsorbed: 'peoples', bandJoined: 'peoples', confederation: 'peoples', bandSpread: 'peoples', settled: 'peoples',
+  allyJoined: 'war', allyRefused: 'war', vassalFreed: 'diplomacy',
   expansion: 'peoples', unification: 'peoples', civDestroyed: 'peoples', migrationWave: 'peoples', refugees: 'peoples', taxes: 'peoples',
   rulerSuccession: 'peoples', successionCrisis: 'peoples', governmentChange: 'peoples', unrest: 'peoples', revolt: 'peoples', secession: 'peoples',
   civilWar: 'peoples', independenceMovement: 'peoples', referendum: 'peoples', dissolution: 'peoples',

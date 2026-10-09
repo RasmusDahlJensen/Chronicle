@@ -73,10 +73,10 @@ function weighRaid(state: SimulationState, context: TickContext, tribe: Polity, 
   }
   // The dead: some raiders and, fewer where walls stand, some defenders (war deaths).
   const raiders = Math.min(group.size - 1, Math.floor(group.size * ARMY_TUNING.warriors * tuning.raiderDeaths * (1 - target.odds)));
-  if (raiders > 0) { group.size -= raiders; state.ledger.warDeaths[group.region] += raiders; state.metrics.warDeaths += raiders; }
+  if (raiders > 0) { group.size -= raiders; state.ledger.warDeaths[group.region] += raiders; state.metrics.raidDeaths += raiders; }
   const fallen = Math.min(there.size - 1, Math.floor(there.size * tuning.defenderDeaths * target.odds * (1 - target.walls)));
   if (fallen > 0) {
-    there.size -= fallen; state.ledger.warDeaths[target.region] += fallen; state.metrics.warDeaths += fallen;
+    there.size -= fallen; state.ledger.warDeaths[target.region] += fallen; state.metrics.raidDeaths += fallen;
     // Fewer people: no more townspeople than people (rehoused), and the soldiers among the rest.
     if (there.specialists > there.size) there.specialists = house(state, target.region, there.size, false);
     there.soldiers = Math.min(there.soldiers, Math.max(0, there.size - there.specialists));

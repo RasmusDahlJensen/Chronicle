@@ -285,6 +285,26 @@ export function checkInvariants(state: SimulationState) {
   }
   for (let region = 0; region < state.occupiedBy.length; region++) if ((holding.get(region) ?? -1) !== state.occupiedBy[region]) fail(`region ${region} is occupied by ${state.occupiedBy[region]}, not by its war`);
   for (const id of state.living) for (const war of state.polities[id].wars) if (state.wars[war]?.endTick !== null) fail(`polity ${id} lists war ${war}, which is over`);
+  // Allies (M6.5): a war's living allies are civilizations other than its sides, once each, that list it; a polity's
+  // allied wars are wars now that list it.
+  for (const war of state.wars) {
+    if (war.endTick !== null) continue;
+    const seen = new Set<number>();
+    for (const entry of war.allies) {
+      const ally = state.polities[entry.id];
+      if (ally.kind !== 'civ' || entry.id === war.attacker || entry.id === war.defender || seen.has(entry.id) || entry.deaths < 0 || !Number.isInteger(entry.deaths)) fail(`war ${war.id} has an invalid ally ${entry.id}`);
+      if (ally.deathTick === null && !ally.joined.includes(war.id)) fail(`ally ${entry.id} does not list war ${war.id}`);
+      seen.add(entry.id);
+    }
+  }
+  for (const id of state.living) for (const war of state.polities[id].joined) if (state.wars[war]?.endTick !== null || !state.wars[war].allies.some(entry => entry.id === id)) fail(`polity ${id} lists war ${war} as an ally wrongly`);
+  // Vassals (M6.5): a vassal's overlord is another civilization that is no vassal itself; its tribute is whole.
+  for (const id of state.living) {
+    const bond = state.polities[id].overlord;
+    if (!bond) continue;
+    const overlord = state.polities[bond.id];
+    if (state.polities[id].kind !== 'civ' || bond.id === id || overlord.kind !== 'civ' || (overlord.deathTick === null && overlord.overlord !== null) || !Number.isInteger(bond.amount) || bond.amount < 0 || !Number.isInteger(bond.paid) || bond.carry < 0 || bond.carry >= 1) fail(`vassal ${id} has an invalid overlord ${JSON.stringify(bond)}`);
+  }
   // Exact wealth accounting (VISION.md rule 8): every treasury is explained by this tick's flows.
   for (const [id, flows] of ledger.wealth) {
     const polity = state.polities[id];

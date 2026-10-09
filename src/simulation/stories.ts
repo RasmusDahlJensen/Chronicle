@@ -1,5 +1,6 @@
 import { MAX_FRAME_STORIES, type ChronicleEvent, type ObserverFrame, type StoryKind } from '../../shared/simulation.ts';
 import type { Census, Polity, SimulationState } from './state.ts';
+import { namesList } from './causes.ts';
 import { TENETS } from './religions.ts';
 import { ERAS, TECHS } from './techs.ts';
 
@@ -308,18 +309,21 @@ export function storyCandidates(state: SimulationState): Story[] {
   for (const war of state.wars) {
     if (war.endTick !== null && war.endTick < recentFrom * 12) continue;
     const attacker = state.polities[war.attacker], defender = state.polities[war.defender];
-    const dead = war.deaths[0] + war.deaths[1];
+    const dead = war.deaths[0] + war.deaths[1] + war.allies.reduce((sum, entry) => sum + entry.deaths, 0);
     let taken = 0;
     for (const region of war.ceded) if (state.groupAt[region] >= 0) taken += state.groups[state.groupAt[region]].size;
     for (const entry of war.occupied) if (state.groupAt[entry.region] >= 0) taken += state.groups[state.groupAt[entry.region]].size;
     const ended = war.endTick !== null, outcome = war.outcome ?? 'white';
     const winner = war.score >= 0 ? attacker : defender, loser = winner === attacker ? defender : attacker;
-    const told = (mine.get(war.attacker) ?? []).filter(event => ['warDeclared', 'battleYear', 'peaceSigned', 'regionConquered', 'settlementLooted', 'settlementBurned', 'settlementRazed', 'infrastructureDestroyed'].includes(event.type) && event.data.warId === war.id);
+    const told = (mine.get(war.attacker) ?? []).filter(event => ['warDeclared', 'battleYear', 'peaceSigned', 'regionConquered', 'settlementLooted', 'settlementBurned', 'settlementRazed', 'infrastructureDestroyed', 'allyJoined', 'allyRefused'].includes(event.type) && event.data.warId === war.id);
+    // (M6.5) The allies that fought beside the defender, and their dead.
+    const allies = war.allies.map(entry => state.polities[entry.id].name);
     tell('war', attacker, yearOf(war.startTick), ended ? yearOf(war.endTick!) : year, (dead * WAR_STORY_DEAD + taken) / world, {
       war: war.name, attacker: attacker.name, defender: defender.name, since: yearOf(war.startTick), years: Math.max(1, Math.round(((ended ? war.endTick! : state.tick) - war.startTick) / 12)), dead,
       fighting: !ended, ahead: !ended && war.score >= 0, behind: !ended && war.score < 0, held: war.occupied.filter(entry => entry.by === war.attacker).length, lost: war.occupied.filter(entry => entry.by === war.defender).length,
       holding: !ended && war.occupied.some(entry => entry.by === war.attacker),
-      endedWhite: ended && outcome === 'white', endedTribute: ended && outcome === 'tribute', endedCession: ended && outcome === 'cession', endedAnnexation: ended && outcome === 'annexation', endedGone: ended && outcome === 'gone',
+      endedWhite: ended && outcome === 'white', endedTribute: ended && outcome === 'tribute', endedCession: ended && outcome === 'cession', endedAnnexation: ended && outcome === 'annexation', endedVassalage: ended && outcome === 'vassalage', endedGone: ended && outcome === 'gone',
+      allied: allies.length > 0, allyNames: namesList(allies),
       winner: winner.name, loser: loser.name, ceded: war.ceded.length,
     }, told, [...new Set([...war.goal, ...war.ceded])].sort((a, b) => a - b), centroid(state, war.goal[0] ?? war.ceded[0] ?? null), war.id, war.causes.slice(0, 2));
   }

@@ -636,7 +636,8 @@ export const RELATION_TUNING = {
   rise: 0.08, fade: 0.03, border: 0.5, contact: 0.2, exchange: 0.3,
   sameFaith: 25, rivalFaith: 30, culture: 30, culturePivot: 0.85, kin: 10, sharing: 15, borderTension: 40, borderScale: 4, correction: 0.3,
   memories: { turnedAway: { points: -20, halfLifeYears: 25 }, refusedExchange: { points: -10, halfLifeYears: 15 }, refusedTrade: { points: -10, halfLifeYears: 15 }, refusedTreaty: { points: -5, halfLifeYears: 10 }, treatySoured: { points: -5, halfLifeYears: 15 },
-    war: { points: -40, halfLifeYears: 30 }, lostLand: { points: -30, halfLifeYears: 75 }, brokeTreaty: { points: -25, halfLifeYears: 40 } },
+    war: { points: -40, halfLifeYears: 30 }, lostLand: { points: -30, halfLifeYears: 75 }, brokeTreaty: { points: -25, halfLifeYears: 40 },
+    abandoned: { points: -30, halfLifeYears: 40 }, threwOff: { points: -30, halfLifeYears: 40 } },
   forgetBelow: 1, reasonCount: 3,
 } as const;
 
@@ -817,10 +818,25 @@ export const ARMY_TUNING = {
  *   seeks peace (peace.*) is accepted when the other is at acceptExhaustion or the terms favour it or are white. Terms
  *   by the winner's lead: below terms.white a white peace; below terms.tribute tribute; below terms.annex cession of
  *   what it holds (with tribute); above, annexation when the loser holds at most annexRegions regions or annexPeople of
- *   the winner's people, else cession with tribute. Tribute: tributeShare of the loser's revenue a year for
- *   tributeYears. Holding a small realm's capital, its whole goal, for goalMonths is annexation. The loser's claims on
+ *   the winner's people, else (M6.5) vassalage when the winner is no vassal itself, else cession with tribute. Tribute:
+ *   tributeShare of the loser's revenue a year for tributeYears. Holding a small realm's capital, its whole goal, for goalMonths is annexation. The loser's claims on
  *   land it lost weigh ½ every claimHalfLife years (forgotten below claimFloor); a truce of truceYears follows.
  * - Armies at war: each war adds army × its people to the soldiers it wants, and its army budget × warBudget.
+ * - Allies (M6.5): when war is declared on a realm, each ally of it that has met the attacker, is not allied to it, is no
+ *   vassal and fights no war with it weighs joining: allies.base + allies.opinion × its opinion of the defender ÷ 100 −
+ *   allies.enmity × its opinion of the attacker ÷ 100 + allies.threat × the threat it feels from the attacker +
+ *   allies.odds × (2 × the odds − 1) (its strength and the defender's as it believes it against the attacker's) −
+ *   allies.weariness × its war-weariness − allies.arrears × its arrears − allies.busy if it fights a war − allies.pact if
+ *   a pact binds it to the attacker; above 0 it joins (a vassal's overlord always does). An ally adds allies.share × its
+ *   strength × its supply to the front to the defender's side and loses soldiers at the defender's rate; its weariness
+ *   grows as a side's exhaustion does (but for occupation) and is its war-weariness at the peace.
+ * - Hegemons (M6.5): a civilization whose believed strength is more than hegemon.share of all the strength a people
+ *   knows of (its own and every living civilization it has met, at least hegemon.known of them) is a threat to it of
+ *   hegemon.weight × (share − hegemon.share) ÷ (1 − hegemon.share), whatever it thinks of it.
+ * - Vassals (M6.5): an overwhelming winner makes the loser its vassal only if it could hold it: the loser has at most
+ *   vassal.maxSize × its people, and its strength is below vassal.breakFree × the winner's as it believes it (else
+ *   cession with tribute). A vassal pays vassal.share of its revenue a year to its overlord, and throws it off when its
+ *   strength reaches vassal.breakFree × its overlord's as it believes it.
  */
 export const WAR_TUNING = {
   goalRegions: 3, truceYears: 25, wearyHalfLife: 25,
@@ -831,6 +847,9 @@ export const WAR_TUNING = {
   peace: { exhaustion: 0.4, losing: 0.3, terms: 0.3, militarism: 0.1, base: -0.05 },
   terms: { white: 15, tribute: 40, annex: 75 }, tributeShare: 0.1, tributeYears: 10, annexRegions: 4, annexPeople: 0.25,
   claimHalfLife: 75, claimFloor: 0.05, futilityHalfLife: 60, army: 0.02, warBudget: 1.5, occupiedUnrest: 0.3,
+  allies: { base: 0.1, opinion: 0.3, enmity: 0.2, threat: 0.3, odds: 0.3, weariness: 0.3, arrears: 0.3, busy: 0.3, pact: 0.2, share: 0.5 },
+  hegemon: { share: 0.3, known: 4, weight: 1 },
+  vassal: { share: 0.15, breakFree: 1, maxSize: 2 },
 } as const;
 
 /**
@@ -1039,12 +1058,14 @@ export function validateTunables() {
     && ar.warriors >= 0 && ar.warriors <= 1 && ar.eventChange > 0 && ar.eventChange <= 1)) problems.push('army settings are invalid');
   const wt = WAR_TUNING;
   const warNumbers = (entry: object): number[] => Object.values(entry).flatMap(value => typeof value === 'number' ? [value] : warNumbers(value as object));
-  // (Seeking peace has a base below zero: Do nothing outweighs it until a war tires or turns.)
-  if (!(warNumbers({ ...wt, peace: { ...wt.peace, base: 0 } }).every(value => Number.isFinite(value) && value >= 0) && Number.isFinite(wt.peace.base) && wt.peace.base > -1 && Number.isInteger(wt.goalRegions) && wt.goalRegions >= 1 && wt.goalRegions <= 8
+  // (Seeking peace has a base below zero: Do nothing outweighs it until a war tires or turns; an ally's base may be either.)
+  if (!(warNumbers({ ...wt, peace: { ...wt.peace, base: 0 }, allies: { ...wt.allies, base: 0 } }).every(value => Number.isFinite(value) && value >= 0) && Number.isFinite(wt.peace.base) && wt.peace.base > -1
+    && Number.isFinite(wt.allies.base) && Math.abs(wt.allies.base) < 1 && Number.isInteger(wt.goalRegions) && wt.goalRegions >= 1 && wt.goalRegions <= 8
     && wt.declare.oddsSpan > 0 && wt.declare.oddsFloor < 1 && wt.supplyKm > 0 && wt.occupyStep > 0 && wt.occupyStep <= 100 && wt.peaceAt > 0 && wt.acceptExhaustion <= wt.peaceAt
     && wt.terms.white < wt.terms.tribute && wt.terms.tribute < wt.terms.annex && wt.terms.annex <= 100 && wt.tributeShare <= 1 && wt.annexPeople <= 1 && wt.claimHalfLife > 0
     && wt.calm <= 1 && wt.casualties <= 1 && wt.occupiedUnrest <= 1 && wt.frontierScale > 0 && wt.winding >= 1 && wt.maxCrossing > 0 && wt.exhaustion.max >= wt.peaceAt
-    && wt.claimFloor < 1 && wt.futilityHalfLife > 0)) problems.push('war settings are invalid');
+    && wt.claimFloor < 1 && wt.futilityHalfLife > 0 && wt.allies.share <= 1 && wt.hegemon.share < 1 && Number.isInteger(wt.hegemon.known) && wt.hegemon.known >= 1
+    && wt.vassal.share <= 1 && wt.vassal.breakFree > 0 && wt.vassal.maxSize > 0)) problems.push('war settings are invalid');
   const rv = RAVAGE_TUNING;
   if (!(Object.values(rv).every(value => Number.isFinite(value) && value >= 0) && rv.fadeYears > 0 && rv.incomeYears > 0 && rv.devastate <= 12 && rv.gone < 1
     && [rv.fieldLoss, rv.harvestCut, rv.unrest, rv.flee, rv.raze, rv.burn, rv.loot, rv.keepRaze, rv.lootShare, rv.lootFood, rv.burnBuildings, rv.burnKill, rv.burnFlee, rv.razeKill, rv.bridgeRate, rv.roadRate, rv.razedExhaustion, rv.rebuild, rv.fresh].every(value => value <= 1)

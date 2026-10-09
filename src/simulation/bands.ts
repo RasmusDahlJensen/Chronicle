@@ -164,7 +164,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(), relations: new Map(), supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length), imports: new Float64Array(RESOURCE_IDS.length), exports: new Float64Array(RESOURCE_IDS.length), trading: [], pacts: [], allies: [], roadPartners: [], voyageTick: -1, emptyVoyages: 0,
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
     taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,
-    army: noArmy(), wars: [], claims: [], weariness: { value: 0, tick: 0 }, warIncome: { value: 0, tick: 0 }, raids: 0,
+    army: noArmy(), wars: [], joined: [], overlord: null, claims: [], weariness: { value: 0, tick: 0 }, warIncome: { value: 0, tick: 0 }, raids: 0,
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.

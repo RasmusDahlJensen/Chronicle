@@ -268,7 +268,7 @@ export function Game() {
 }
 
 /** The lens key's words for each colour (a typed record: every standing the palette colours needs its word). */
-const STANDING_WORDS: Record<StandingKey, string> = { self: 'the realm', allied: 'allied', pact: 'pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war', unknown: 'not met' };
+const STANDING_WORDS: Record<StandingKey, string> = { self: 'the realm', allied: 'allied', pact: 'pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war', vassal: 'its vassal', overlord: 'its overlord', unknown: 'not met' };
 const STANDING_KEY = Object.keys(STANDING_COLORS) as StandingKey[];
 
 /** What the political, culture, faith, era and descent lenses' colours mean (U.7), from the frame: the largest first. */

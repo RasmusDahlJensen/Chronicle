@@ -147,7 +147,7 @@ function ArmyReasons({ army }: { army: NonNullable<InspectedPolity['army']> }) {
 }
 
 /** The treaty a standing comes from (shown once, as the standing). */
-const STANDING_AGREEMENT = { allied: 'alliance', pact: 'nonAggression', trade: 'trade', rival: null, neutral: null, war: null } as const;
+const STANDING_AGREEMENT = { allied: 'alliance', pact: 'nonAggression', trade: 'trade', rival: null, neutral: null, war: null, vassal: null, overlord: null } as const;
 
 /** Each people it knows: standing and since when, opinion and its reasons, the treaties and trade between them. */
 function Diplomacy({ polity }: { polity: InspectedPolity }) {
@@ -158,8 +158,14 @@ function Diplomacy({ polity }: { polity: InspectedPolity }) {
     </li>)}</ul>
     <p className="game-muted">The nearest peoples it does not know yet (seen by you, not by it): who is about to meet whom.</p>
   </section>;
-  if (!polity.diplomacy.length) return <><p className="game-muted">It has met no other people yet.</p>{unmet}</>;
+  // (M6.5) Its overlord and its vassals.
+  const bonds = <>
+    {polity.overlord && <p className="game-cold" id="game-overlord">A vassal of the {polity.overlord.name} since year {number.format(polity.overlord.since)}: it pays them {number.format(polity.overlord.perYear)} a year ({number.format(polity.overlord.paid)} so far), makes no war of its own and is defended by them, until it believes itself as strong as they are.</p>}
+    {polity.vassals.length > 0 && <p id="game-vassals">Overlord of {polity.vassals.map(vassal => `the ${vassal.name} (since year ${number.format(vassal.since)}, ${number.format(vassal.perYear)} a year)`).join(', ')}.</p>}
+  </>;
+  if (!polity.diplomacy.length) return <>{bonds}<p className="game-muted">It has met no other people yet.</p>{unmet}</>;
   return <>
+    {bonds}
     <ol className="game-rows" aria-label="Peoples it knows">{polity.diplomacy.map(row => {
       const trade = polity.treaties.filter(treaty => treaty.partnerId === row.id), also = row.agreements.filter(kind => kind !== STANDING_AGREEMENT[row.status]);
       return <li key={row.id} data-status={row.status}>
@@ -180,11 +186,13 @@ function Diplomacy({ polity }: { polity: InspectedPolity }) {
 /** Its wars now and in the last century (M6.2): each its name, the enemy and why, the lead and both sides' exhaustion,
  *  the dead, and the land held; an ended war how it ended. */
 function Wars({ polity, wars }: { polity: InspectedPolity; wars: ObserverFrame['wars'] }) {
-  const mine = wars.filter(war => war.attacker === polity.id || war.defender === polity.id);
+  const mine = wars.filter(war => war.attacker === polity.id || war.defender === polity.id || war.allies.some(ally => ally.id === polity.id));
   if (!mine.length) return <p className="game-muted" id="game-wars-none">No war in the last century. A realm goes to war at its decision step, for land, a resource, its faith, land it lost or out of fear, when it believes it can win; most wars end when a side is exhausted.</p>;
   return <>
     <ol className="game-rows" aria-label="Its wars" id="game-wars">{mine.map(war => {
       const attacker = war.attacker === polity.id, enemy = attacker ? war.defenderName : war.attackerName, lead = attacker ? war.score : -war.score;
+      // (M6.5) A war it fights as the defender's ally, and the allies beside the defender.
+      const joined = war.allies.find(ally => ally.id === polity.id) ?? null, beside = war.allies.filter(ally => ally.id !== polity.id);
       const side = attacker ? 'attacker' : 'defender', other = attacker ? 'defender' : 'attacker';
       const held = war.occupied.filter(entry => entry.by === polity.id).length, lost = war.occupied.length - held;
       const why = `${FRAMING_NAMES[war.framing]}${war.resource ? ` (${war.resource})` : ''}${war.causes.length ? `, for ${war.causes.slice(0, 2).map(cause => factorName(cause.factor)).join(' and ')}` : ''}`;
@@ -192,12 +200,15 @@ function Wars({ polity, wars }: { polity: InspectedPolity; wars: ObserverFrame['
         <p className="game-row-head"><strong>{war.name.charAt(0).toUpperCase() + war.name.slice(1)}</strong>
           <span className={`game-standing game-standing-${war.ended === null ? 'war' : 'neutral'}`}>{war.ended === null ? 'at war' : OUTCOME_NAMES[war.outcome ?? 'white']}</span>
           <span className="game-muted">{war.ended === null ? `since year ${number.format(war.since)}` : `${number.format(war.since)}–${number.format(war.ended)}`}</span></p>
-        <p className="game-muted">{attacker ? `It attacked the ${enemy}: ${why}.` : `The ${enemy} attacked it: ${why}.`}</p>
-        {war.ended === null && <Bars label={`${war.name}: how it stands`} entries={[{ name: lead >= 0 ? 'its lead' : 'their lead', value: Math.abs(lead) / 100 }, { name: 'its exhaustion', value: war.exhaustion[side] }, { name: 'their exhaustion', value: war.exhaustion[other] }]} />}
-        <p className="game-muted">Dead: {number.format(war.dead[side])} of its soldiers, {number.format(war.dead[other])} of theirs{war.ended === null ? ` · it holds ${plural(held, 'region', 'regions')} of theirs; they hold ${plural(lost, 'region', 'regions')} of its` : war.ceded.length ? ` · ${plural(war.ceded.length, 'region', 'regions')} changed hands` : ''}.</p>
+        <p className="game-muted">{joined ? `The ${war.attackerName} attacked the ${war.defenderName}: ${why}. It joined the ${war.defenderName} in year ${number.format(joined.since)}.` : attacker ? `It attacked the ${enemy}: ${why}.` : `The ${enemy} attacked it: ${why}.`}{beside.length ? ` Beside the ${war.defenderName}: ${beside.map(ally => `the ${ally.name} (${number.format(ally.dead)} dead)`).join(', ')}.` : ''}</p>
+        {war.ended === null && <Bars label={`${war.name}: how it stands`} entries={joined
+          ? [{ name: lead >= 0 ? 'its side\'s lead' : 'their lead', value: Math.abs(lead) / 100 }, { name: `the ${war.defenderName}'s exhaustion`, value: war.exhaustion.defender }, { name: `the ${war.attackerName}'s exhaustion`, value: war.exhaustion.attacker }]
+          : [{ name: lead >= 0 ? 'its lead' : 'their lead', value: Math.abs(lead) / 100 }, { name: 'its exhaustion', value: war.exhaustion[side] }, { name: 'their exhaustion', value: war.exhaustion[other] }]} />}
+        {joined ? <p className="game-muted">Dead: {number.format(joined.dead)} of its soldiers, {number.format(war.dead.defender)} of the {war.defenderName}, {number.format(war.dead.attacker)} of the {war.attackerName}.</p>
+          : <p className="game-muted">Dead: {number.format(war.dead[side])} of its soldiers, {number.format(war.dead[other])} of theirs{war.ended === null ? ` · it holds ${plural(held, 'region', 'regions')} of theirs; they hold ${plural(lost, 'region', 'regions')} of its` : war.ceded.length ? ` · ${plural(war.ceded.length, 'region', 'regions')} changed hands` : ''}.</p>}
       </li>;
     })}</ol>
-    <p className="game-muted">The lead runs to 100: a side ahead holds a region it fights for for each 25 points. A side whose exhaustion reaches 1 makes peace on terms the lead gives: white peace, tribute, land, or a small realm's end.</p>
+    <p className="game-muted">The lead runs to 100: a side ahead holds a region it fights for for each 25 points. A side whose exhaustion reaches 1 makes peace on terms the lead gives: white peace, tribute, land, a small realm's end or a large one made a vassal. An ally fights beside the realm it was called to defend until that peace.</p>
   </>;
 }
 

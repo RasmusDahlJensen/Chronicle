@@ -704,24 +704,28 @@ export function decisionView(state: SimulationState, polity: Polity): PolityView
     regions: own.size, unrestShare: own.size ? unrest / own.size : 0, stability: own.size ? stable / own.size : 1,
     neighbours: [...neighbours.values()].sort((a, b) => a.civ - b.civ), partners, exchanges,
   };
-  view.needs = needsOf(state, polity, view, own);
+  // (M6.5) The power it knows of, once for the step: what its fears of would-be hegemons are weighed against.
+  const power = knownPower(state, polity);
+  view.needs = needsOf(state, polity, view, own, power);
   view.pacts = pactOptions(state, polity, view);
   view.roads = roadOptions(state, polity);
-  view.warTargets = warTargets(state, polity, view, own);
+  view.warTargets = warTargets(state, polity, view, own, power);
   return view;
 }
 
 /** (M6.2) The wars it could declare (`WarTarget`): on each civilization it has met whose land touches its own, that is
  *  not its ally and not within a truce, while it fights no war itself (a war on a pact partner breaks the pact). */
-function warTargets(state: SimulationState, polity: Polity, view: PolityView, own: Set<number>): WarTarget[] {
-  if (polity.kind !== 'civ' || polity.wars.length) return [];
+function warTargets(state: SimulationState, polity: Polity, view: PolityView, own: Set<number>, power: KnownPower): WarTarget[] {
+  // (M6.5) Not while it fights a war, its own or an ally's, nor as a vassal.
+  if (polity.kind !== 'civ' || polity.wars.length || polity.joined.length || polity.overlord !== null) return [];
   const tuning = WAR_TUNING, targets: WarTarget[] = [];
-  const mine = strengthWithAllies(state, polity), treasury = Math.max(1, polity.wealth), km = capitalTravel(state, polity), reachKm = REACH_TUNING.baseKm * polity.knowledge.multipliers.reach;
+  const mine = strengthWithAllies(state, polity), alone = truthOf(state, polity, 'strength'), treasury = Math.max(1, polity.wealth), km = capitalTravel(state, polity), reachKm = REACH_TUNING.baseKm * polity.knowledge.multipliers.reach;
   const capitalOf = (civ: Polity) => civ.capital !== null ? state.settlements[civ.capital].region : -1;
   const claimed = new Map(polity.claims.map(claim => [claim.region, claimWeight(claim.tick, state.tick)]));
   for (const enemy of borderingCivs(state, polity, own)) {
     const them = state.polities[enemy];
-    if (them.kind !== 'civ' || polity.allies.includes(enemy) || inTruce(state, polity.id, enemy)) continue;
+    // (M6.5) Nor on its own vassal.
+    if (them.kind !== 'civ' || polity.allies.includes(enemy) || inTruce(state, polity.id, enemy) || them.overlord?.id === polity.id) continue;
     // Their land next to its own (and a region beyond), as it knows it: where taking it would move its border onto harder
     // ground first, then good land, claimed land more (VISION.md M6: borders settle onto barriers).
     const theirCapital = capitalOf(them);
@@ -733,10 +737,14 @@ function warTargets(state: SimulationState, polity: Polity, view: PolityView, ow
     const strength = believe(state, polity, them, 'strength').estimate;
     let theirs = strength;
     for (const ally of them.allies) if (polity.met.has(ally) && ally !== polity.id) theirs += DIPLOMACY_TUNING.alliance.strength * believe(state, polity, state.polities[ally], 'strength').estimate;
+    // (M6.5) Their overlord joins any war on them.
+    const overlord = them.overlord?.id ?? -1;
+    if (overlord >= 0 && overlord !== polity.id && polity.met.has(overlord) && !them.allies.includes(overlord)) theirs += WAR_TUNING.allies.share * believe(state, polity, state.polities[overlord], 'strength').estimate;
     let nearest = Number.POSITIVE_INFINITY;
     for (const region of goal) nearest = Math.min(nearest, km(region));
     theirs *= defenseOf(state, goal, polity.id, region => polity.map.status[region] === OBSERVED) * supplyFrom(state, theirCapital, goal);
-    const ours = mine / (1 + nearest / tuning.supplyKm), odds = ours + theirs > 0 ? ours / (ours + theirs) : 0.5;
+    // (M6.5) Its own strength alone: allies join only a war on their ally, never its own attack.
+    const ours = alone / (1 + nearest / tuning.supplyKm), odds = ours + theirs > 0 ? ours / (ours + theirs) : 0.5;
     const ratio = strength / Math.max(1, mine), wealth = believe(state, polity, them, 'wealth').estimate / treasury;
     let value = 0, claims = 0;
     for (const region of goal) { value += state.landValue[region]; claims = Math.max(claims, claimed.get(region) ?? 0); }
@@ -754,7 +762,7 @@ function warTargets(state: SimulationState, polity: Polity, view: PolityView, ow
     for (const region of goal) far += km(region);
     targets.push({
       enemy, name: them.name, goal, odds, strength: Math.round(strength), pact: polity.pacts.includes(enemy), reach: far / goal.length / reachKm, opportunity: chanceOf(ratio, wealth),
-      land: view.ownValue > 0 ? clamp01(value / goal.length / view.ownValue - 1) : 0, shortage, resource, holy, claims, threat: fearOf(state, polity, them, mine), opinion: opinionOf(polity, enemy),
+      land: view.ownValue > 0 ? clamp01(value / goal.length / view.ownValue - 1) : 0, shortage, resource, holy, claims, threat: fearOf(state, polity, them, mine, power), opinion: opinionOf(polity, enemy),
       frontier: clamp01(gain / tuning.frontierScale), futility: futilityOf(state, polity.id, enemy),
     });
   }
@@ -793,13 +801,13 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
  * land or a neighbour it believes weaker or richer; infrastructure (`infrastructureNeed`); resource shortage, its largest
  * shortfall (M5.3); grievance, its strongest claim on land another holds (M6.2).
  */
-function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: Set<number>): PolityView['needs'] {
+function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: Set<number>, power: KnownPower): PolityView['needs'] {
   const bordering = borderingCivs(state, polity, own);
   const strength = strengthWithAllies(state, polity), treasury = Math.max(1, polity.wealth);
   let threat = 0, rivals = 0, chance = 0;
   for (const civ of bordering) {
     const them = state.polities[civ], ratio = believe(state, polity, them, 'strength').estimate / Math.max(1, strength);
-    const fear = fearOf(state, polity, them, strength);
+    const fear = fearOf(state, polity, them, strength, power);
     if (fear > 0) view.threats.push({ civ, threat: fear });
     threat = Math.max(threat, fear);
     // (Not against those it is bound to by a pact or an alliance: M5.5.)
@@ -808,6 +816,12 @@ function needsOf(state: SimulationState, polity: Polity, view: PolityView, own: 
     if (polity.stateReligion >= 0 && them.stateReligion >= 0 && them.stateReligion !== polity.stateReligion) {
       rivals += state.religions[polity.stateReligion].tenets.includes(TOLERANCE) || state.religions[them.stateReligion].tenets.includes(TOLERANCE) ? 0.5 : 1;
     }
+  }
+  // (M6.5) A would-be hegemon it knows of is a threat to it though their lands do not touch (coalitions).
+  for (const civ of power.believed.keys()) {
+    if (bordering.includes(civ) || polity.allies.includes(civ)) continue;
+    const fear = hegemonyOf(power, civ);
+    if (fear > 0) { view.threats.push({ civ, threat: fear }); threat = Math.max(threat, fear); }
   }
   let land = 0;
   for (const candidate of view.candidates) if (view.ownValue > 0) land = Math.max(land, candidate.value / view.ownValue - 1);
@@ -915,11 +929,11 @@ export function armyView(state: SimulationState, civ: Polity): ArmyView {
   for (const other of borderingCivs(state, civ)) {
     if (civ.allies.includes(other)) continue;
     const them = state.polities[other];
-    neighbours.push({ polity: other, name: them.name, strength: believe(state, civ, them, 'strength').estimate, opinion: opinionOf(civ, other), pact: civ.pacts.includes(other), war: civ.wars.some(id => state.wars[id].attacker === other || state.wars[id].defender === other) });
+    neighbours.push({ polity: other, name: them.name, strength: believe(state, civ, them, 'strength').estimate, opinion: opinionOf(civ, other), pact: civ.pacts.includes(other), war: warBetween(state, civ.id, other) !== null });
   }
   return {
     people, militarism: effectiveValues(state, civ).militarism, multiplier: civ.knowledge.multipliers.military, allies, neighbours,
-    revenue: budget.revenue, surplus: budget.revenue - (budget.costs - costs.army), arrears: civ.arrears, upkeep: soldierUpkeep(civ), wars: civ.wars.length, warIncome: warIncomeOf(civ, state.tick), raided: raidedOf(state, civ),
+    revenue: budget.revenue, surplus: budget.revenue - (budget.costs - costs.army), arrears: civ.arrears, upkeep: soldierUpkeep(civ), wars: civ.wars.length + civ.joined.length, warIncome: warIncomeOf(civ, state.tick), raided: raidedOf(state, civ),
   };
 }
 
@@ -931,12 +945,40 @@ export function strengthWithAllies(state: SimulationState, polity: Polity) {
   return strength;
 }
 
-/** The threat it feels from another civilization (`threatOf`, against its strength with its allies): none from an
- *  ally, less from a pact partner (M5.5). */
-export function fearOf(state: SimulationState, polity: Polity, other: Polity, strength = strengthWithAllies(state, polity)) {
+/**
+ * (M6.5) The power a people knows of (VISION.md "Alliances and coalitions"): its own strength and what it believes of
+ * every living civilization it has met, in all and each (by id), and how many those are.
+ */
+export interface KnownPower { total: number; believed: Map<number, number>; known: number }
+export function knownPower(state: SimulationState, polity: Polity): KnownPower {
+  const believed = new Map<number, number>();
+  let total = truthOf(state, polity, 'strength');
+  for (const other of polity.met.keys()) {
+    const them = state.polities[other];
+    if (other === polity.id || them.kind !== 'civ' || them.deathTick !== null) continue;
+    const strength = believe(state, polity, them, 'strength').estimate;
+    believed.set(other, strength); total += strength;
+  }
+  return { total, believed, known: believed.size };
+}
+
+/** (M6.5) How far a would-be hegemon towers over the power a people knows of: its believed strength's share of it all,
+ *  above WAR_TUNING.hegemon.share, as a threat of 0–1 ((share − it) ÷ (1 − it)), once it knows of `hegemon.known`
+ *  civilizations or more. */
+export function hegemonyOf(power: KnownPower, other: number) {
+  const tuning = WAR_TUNING.hegemon;
+  if (power.known < tuning.known || power.total <= 0) return 0;
+  const share = (power.believed.get(other) ?? 0) / power.total;
+  return clamp01((share - tuning.share) / (1 - tuning.share)) * tuning.weight;
+}
+
+/** The threat it feels from another civilization: `threatOf`, against its strength with its allies, less from a pact
+ *  partner (M5.5); or, if larger, the threat of a would-be hegemon whatever it thinks of it (M6.5); none from an ally. */
+export function fearOf(state: SimulationState, polity: Polity, other: Polity, strength = strengthWithAllies(state, polity), power?: KnownPower) {
   if (polity.allies.includes(other.id)) return 0;
   const fear = threatOf(believe(state, polity, other, 'strength').estimate / Math.max(1, strength), opinionOf(polity, other.id));
-  return polity.pacts.includes(other.id) ? fear * (1 - DIPLOMACY_TUNING.pact.calm) : fear;
+  const calmed = polity.pacts.includes(other.id) ? fear * (1 - DIPLOMACY_TUNING.pact.calm) : fear;
+  return Math.max(calmed, hegemonyOf(power ?? knownPower(state, polity), other.id));
 }
 
 /** Whether a civilization has lately refused it a treaty, or a treaty between them lately soured (DIPLOMACY_TUNING.refusedYears). */

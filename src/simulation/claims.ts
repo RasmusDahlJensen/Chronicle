@@ -2,7 +2,7 @@ import { BUILDINGS } from './buildings.ts';
 import { greatCircleKm } from './geography.ts';
 import { edgeKm } from './roads.ts';
 import { livingSettlements } from './settlements.ts';
-import type { SimulationState } from './state.ts';
+import type { SimulationState, War } from './state.ts';
 import { RAVAGE_TUNING, WAR_TUNING } from './tunables.ts';
 
 /**
@@ -11,17 +11,24 @@ import { RAVAGE_TUNING, WAR_TUNING } from './tunables.ts';
  * (`war.ts`), so perception can read it.
  */
 
-/** The war two civilizations are fighting now, if any. */
+/** A people's side in a war: 0 the attacker, 1 the defender or (M6.5) an ally that joined it, −1 neither. */
+export const sideIn = (war: War, polity: number) => war.attacker === polity ? 0 : war.defender === polity || war.allies.some(entry => entry.id === polity) ? 1 : -1;
+const opposed = (war: War, a: number, b: number) => { const x = sideIn(war, a), y = sideIn(war, b); return x >= 0 && y >= 0 && x !== y; };
+
+/** The war two civilizations are fighting now on opposite sides, if any (M6.5: an ally of the defender is at war with
+ *  the attacker). */
 export function warBetween(state: SimulationState, a: number, b: number) {
-  for (const id of state.polities[a].wars) { const war = state.wars[id]; if ((war.attacker === a && war.defender === b) || (war.attacker === b && war.defender === a)) return war; }
+  const polity = state.polities[a];
+  for (const id of polity.wars) if (opposed(state.wars[id], a, b)) return state.wars[id];
+  for (const id of polity.joined) if (opposed(state.wars[id], a, b)) return state.wars[id];
   return null;
 }
 
-/** Whether a war between them ended within WAR_TUNING.truceYears. */
+/** Whether a war between them (on opposite sides) ended within WAR_TUNING.truceYears. */
 export function inTruce(state: SimulationState, a: number, b: number) {
   for (const war of state.wars) {
     if (war.endTick === null || state.tick - war.endTick >= WAR_TUNING.truceYears * 12) continue;
-    if ((war.attacker === a && war.defender === b) || (war.attacker === b && war.defender === a)) return true;
+    if (opposed(war, a, b)) return true;
   }
   return false;
 }

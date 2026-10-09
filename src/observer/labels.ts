@@ -26,15 +26,16 @@ export const REASON_NAMES: Record<string, string> = {
   sameFaith: 'same faith', rivalFaith: 'rival faith', culture: 'culture', kin: 'kin', sharing: 'sharing knowledge', trading: 'trading', borderTension: 'border tension',
   turnedAway: 'turned them away', refusedExchange: 'refused to share', refusedTrade: 'refused to trade',
   pact: 'non-aggression pact', allied: 'allies', road: 'joint road', refusedTreaty: 'refused a treaty', treatySoured: 'a treaty soured',
+  abandoned: 'left them to fight alone', threwOff: 'threw off their rule',
 };
 /** A people's standing with a civilization and the treaties they may hold (M5.5). */
-export const STATUS_NAMES: Record<typeof DIPLOMATIC_STATUSES[number], string> = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war' };
+export const STATUS_NAMES: Record<typeof DIPLOMATIC_STATUSES[number], string> = { allied: 'allied', pact: 'non-aggression pact', trade: 'trade partner', rival: 'rival', neutral: 'neutral', war: 'at war', vassal: 'its vassal', overlord: 'its overlord' };
 /** (M6.2) What a war is fought for, and how it ended. */
 export const FRAMING_NAMES: Record<typeof WAR_FRAMINGS[number], string> = {
   conquest: 'a war of conquest', farmland: 'a war for farmland', resource: 'a war for a resource', holy: 'a holy war', reclamation: 'a war to retake lost land', preemptive: 'a pre-emptive war',
   frontier: 'a war for a natural frontier',
 };
-export const OUTCOME_NAMES: Record<typeof WAR_OUTCOMES[number], string> = { white: 'white peace', tribute: 'tribute', cession: 'land ceded', annexation: 'annexed', gone: 'a side gone' };
+export const OUTCOME_NAMES: Record<typeof WAR_OUTCOMES[number], string> = { white: 'white peace', tribute: 'tribute', cession: 'land ceded', annexation: 'annexed', vassalage: 'a vassal made', gone: 'a side gone' };
 export const AGREEMENT_NAMES: Record<typeof AGREEMENT_KINDS[number], string> = { alliance: 'alliance', nonAggression: 'pact', road: 'joint road', trade: 'trade' };
 /** A realm's yearly costs in words, in the budget's order (a typed record: a new cost needs its name). */
 export const COST_NAMES: Record<keyof NonNullable<InspectedPolity['wealth']>['costs'], string> = { administration: 'administration', services: 'services', upkeep: 'upkeep', roads: 'roads', army: 'army' };

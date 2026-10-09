@@ -23,7 +23,7 @@ import { TRAITS } from './traits.ts';
 import { TENETS } from './religions.ts';
 import { ERAS, TECHS } from './techs.ts';
 import { DECISION_TUNING, FOOD_TUNING, REACH_TUNING, RESEARCH_TUNING, WAR_TUNING } from './tunables.ts';
-import { claimWeight } from './claims.ts';
+import { claimWeight, warBetween } from './claims.ts';
 
 type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'ruins' | 'devastated' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect' | 'wars'>;
 
@@ -164,13 +164,18 @@ const significant = (value: number) => value === 0 ? 0 : Number(value.toPrecisio
  */
 function standingOf(state: SimulationState, polity: Polity, other: number, opinion: number) {
   const agreements: ('alliance' | 'nonAggression' | 'road' | 'trade')[] = [];
-  // At war (M6.2), since the war began.
-  for (const id of polity.wars) { const war = state.wars[id]; if (war.attacker === other || war.defender === other) return { status: 'war' as const, agreements, since: Math.floor(war.startTick / 12) as number | null }; }
+  // At war (M6.2; M6.5: on opposite sides of a war, an ally's too), since the war began.
+  const war = warBetween(state, polity.id, other);
+  if (war) return { status: 'war' as const, agreements, since: Math.floor(war.startTick / 12) as number | null };
   if (polity.allies.includes(other)) agreements.push('alliance');
   if (polity.pacts.includes(other)) agreements.push('nonAggression');
   if (polity.roadPartners.includes(other)) agreements.push('road');
   if (polity.trading.includes(other)) agreements.push('trade');
   const since = (kind: 'alliance' | 'nonAggression') => { const treaty = treatyBetween(state, kind, polity.id, other); return treaty ? Math.floor(treaty.startTick / 12) : null; };
+  // (M6.5) Its overlord, or its vassal, since the peace that made it one.
+  if (polity.overlord?.id === other) return { status: 'overlord' as const, agreements, since: Math.floor(polity.overlord.since / 12) as number | null };
+  const theirs = state.polities[other].overlord;
+  if (theirs?.id === polity.id) return { status: 'vassal' as const, agreements, since: Math.floor(theirs.since / 12) as number | null };
   if (agreements.includes('alliance')) return { status: 'allied' as const, agreements, since: since('alliance') };
   if (agreements.includes('nonAggression')) return { status: 'pact' as const, agreements, since: since('nonAggression') };
   if (agreements.includes('trade')) {
@@ -182,6 +187,8 @@ function standingOf(state: SimulationState, polity: Polity, other: number, opini
 }
 
 function inspectRegion(state: SimulationState, region: number, living: Map<number, { regions: number; population: number }>): ObserverFrame['inspect'] {
+  // (M6.5) Its overlord and its vassals lead its Diplomacy rows.
+  const bound = (polity: Polity, other: number) => polity.overlord?.id === other || state.polities[other].overlord?.id === polity.id ? 1 : 0;
   if (!Number.isInteger(region) || region < 0 || region >= state.partition.regions.length) return null;
   const occupant = state.occupant[region];
   const polity = occupant >= 0 ? state.polities[occupant] : null, group = state.groupAt[region] >= 0 ? state.groups[state.groupAt[region]] : null;
@@ -223,7 +230,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
         barter: treaty.barter >= 0 ? RESOURCE_IDS[treaty.barter] : null, barterAmount: significant(treaty.barterAmount), price: treaty.price, since: Math.floor(treaty.startTick / 12),
       })),
       diplomacy: polity.kind !== 'civ' ? [] : [...polity.relations].filter(([other]) => state.polities[other].deathTick === null)
-        .sort((a, b) => b[1].intimacy - a[1].intimacy || b[1].opinion - a[1].opinion || a[0] - b[0]).slice(0, 24).map(([other, relation]) => {
+        .sort((a, b) => bound(polity, b[0]) - bound(polity, a[0]) || b[1].intimacy - a[1].intimacy || b[1].opinion - a[1].opinion || a[0] - b[0]).slice(0, 24).map(([other, relation]) => {
           const them = state.polities[other];
           const met = Math.floor((polity.met.get(other) ?? 0) / 12), standing = standingOf(state, polity, other, relation.opinion);
           return {
@@ -252,6 +259,11 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
       realm: polity.kind === 'civ' ? realmSummary(state, polity) : null,
       history: historyOf(state, polity), unmet: polity.kind === 'civ' ? unmetNear(state, polity) : [],
       // Every living people it has met, judged or not yet (opinion is formed yearly; until then it is neutral).
+      overlord: polity.overlord && state.polities[polity.overlord.id].deathTick === null ? {
+        id: polity.overlord.id, name: state.polities[polity.overlord.id].name, since: Math.floor(polity.overlord.since / 12), perYear: polity.overlord.amount, paid: polity.overlord.paid,
+      } : null,
+      vassals: polity.kind !== 'civ' ? [] : state.living.filter(id => state.polities[id].overlord?.id === polity.id).slice(0, 16)
+        .map(id => ({ id, name: state.polities[id].name, since: Math.floor(state.polities[id].overlord!.since / 12), perYear: state.polities[id].overlord!.amount })),
       standings: polity.kind !== 'civ' ? [] : [...polity.met.keys()].filter(other => other !== polity.id && state.polities[other].deathTick === null).sort((a, b) => a - b)
         .map(other => ({ id: other, status: standingOf(state, polity, other, polity.relations.get(other)?.opinion ?? 0).status })),
       exchanges: [...polity.exchanges].filter(([other, until]) => until > state.tick && state.polities[other].deathTick === null).slice(0, 64)
@@ -483,6 +495,7 @@ function warsView(state: SimulationState): ObserverFrame['wars'] {
     counter: (war.endTick === null ? war.counter.filter(region => state.owner[region] === war.attacker) : war.counter).slice(0, 8),
     occupied: war.occupied.slice(0, 16).map(entry => ({ region: entry.region, by: entry.by })),
     ceded: war.ceded.slice(0, 4_096), causes: war.causes.slice(0, 4),
+    allies: war.allies.slice(0, 8).map(entry => ({ id: entry.id, name: state.polities[entry.id].name, since: Math.floor(entry.tick / 12), dead: entry.deaths })),
   }));
 }
 

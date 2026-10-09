@@ -1,5 +1,5 @@
 import type { ChronicleEvent } from '../../shared/simulation.ts';
-import { borderingCivs, decisionView, fearOf, opinionOf, strengthWithAllies } from './perception.ts';
+import { borderingCivs, decisionView, fearOf, hegemonyOf, knownPower, opinionOf, strengthWithAllies } from './perception.ts';
 import { remember } from './relations.ts';
 import { jointRoute, roadKey } from './roads.ts';
 import type { Pact, PactEnd, Polity, RoadAgreement, SimulationState, TickContext } from './state.ts';
@@ -23,11 +23,11 @@ const round = (value: number) => Math.round(value * 1000) / 1000;
 /** `partner`'s own score for a non-aggression pact `civ` proposes: its fear of `civ`, how pressed it is by others, its
  *  opinion of `civ`, its Militarism and Expansionism. */
 export function pactAcceptance(state: SimulationState, partner: Polity, civ: Polity) {
-  const tuning = DIPLOMACY_TUNING.pact.accept, values = effectiveValues(state, partner), strength = strengthWithAllies(state, partner);
+  const tuning = DIPLOMACY_TUNING.pact.accept, values = effectiveValues(state, partner), strength = strengthWithAllies(state, partner), power = knownPower(state, partner);
   let pressed = 0;
-  for (const other of borderingCivs(state, partner)) if (other !== civ.id) pressed = Math.max(pressed, fearOf(state, partner, state.polities[other], strength));
+  for (const other of borderingCivs(state, partner)) if (other !== civ.id) pressed = Math.max(pressed, fearOf(state, partner, state.polities[other], strength, power));
   return {
-    base: tuning.base, fear: tuning.threat * fearOf(state, partner, civ, strength), pressed: tuning.pressed * pressed, opinion: tuning.opinion * opinionOf(partner, civ.id) / 100,
+    base: tuning.base, fear: tuning.threat * fearOf(state, partner, civ, strength, power), pressed: tuning.pressed * pressed, opinion: tuning.opinion * opinionOf(partner, civ.id) / 100,
     peace: tuning.peace * (1 - values.militarism), ambition: -tuning.ambition * values.expansionism,
   };
 }
@@ -89,9 +89,12 @@ export function proposePact(state: SimulationState, context: TickContext, civ: P
   if (!(total(parts) > 0) || opinionOf(partner, civ.id) < endOf(kind)) return refused(state, civ, partner, kind, parts);
   const treaty: Pact = { id: state.treaties.length, type: kind, parties: [civ.id, partner.id], startTick: context.tick, endTick: null, endCause: null };
   begin(state, treaty);
+  // (M6.5) Against a would-be hegemon: a coalition.
+  const hegemon = kind === 'alliance' && hegemonyOf(knownPower(state, civ), enemy!.id) > 0;
+  if (hegemon) state.metrics.coalitions++;
   state.chronicle.emit({
     type: kind === 'alliance' ? 'alliance' : 'nonAggressionPact', actors: [{ id: civ.id, role: 'a' }, { id: partner.id, role: 'b' }], region: null, causes: cited, importance: kind === 'alliance' ? 0.15 : 0.1,
-    data: { against: kind === 'alliance', enemy: enemy?.name ?? '', ...Object.fromEntries(Object.entries(parts).map(([factor, weight]) => [`accept_${factor}`, round(weight)])) },
+    data: { against: kind === 'alliance', enemy: enemy?.name ?? '', hegemon, ...Object.fromEntries(Object.entries(parts).map(([factor, weight]) => [`accept_${factor}`, round(weight)])) },
   });
   return kind === 'alliance' ? `allied with the ${partner.name} against the ${enemy!.name}` : `signed a non-aggression pact with the ${partner.name}`;
 }

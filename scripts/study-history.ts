@@ -81,6 +81,8 @@ for (const [metric, label, column] of [['population', 'World population', 1], ['
   await writeFile(join(values.out, `${metric}.svg`), chart(label, results.map(result => ({ name: result.seed, points: result.report.series.filter(point => point[0] % 10 === 0).map(point => [point[0], point[column]] as const) }))));
 }
 await writeFile(join(values.out, 'largestShare.svg'), chart('Largest polity share', results.map(result => ({ name: result.seed, points: (result.report.stats as Stats[]).map(row => [row.year, row.largestShare] as const) }))));
+// (M6.5) The largest civilization's land share (VISION.md M6: reported; a limit in M7).
+await writeFile(join(values.out, 'largestLandShare.svg'), chart('Largest civilization land share', results.map(result => ({ name: result.seed, points: (result.report.stats as Stats[]).map(row => [row.year, row.largestLandShare ?? 0] as const) }))));
 console.log(`\n${summary}\nWrote ${values.out}`);
 
 /** The brief's story-health table: per seed and century, plus per-system timing per simulated year. */
@@ -273,15 +275,15 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${show(row => `${(row.armyShare * 100).toFixed(2)}% · ${(row.armyMaxShare * 100).toFixed(1)}%`)} | ${show(row => `${(row.armyCostShare * 100).toFixed(1)}%`)} | ${show(row => `${row.mobilizations} · ${row.demobilizations}`)} |`);
   }
   // M6.2 (VISION.md "Diplomacy and war", story health): wars a century, how they end, their dead, and land changing hands.
-  lines.push('', '| Seed | Wars declared by 1,000 / 2,000 / 3,000 · a century, from the first (story health: 2–20) | Ended by 3,000: white · tribute · cession · annexation · a side gone (white or negotiated: story health ≥ 60%; M6: more than half not annexation) | War deaths by 1,000 / 2,000 / 3,000 | Regions that changed hands at a peace by 3,000 · a century as a share of owned regions (story health: 2–25%, with unions) | Realms annexed by 3,000 | Wars now at 1,000 / 2,000 / 3,000 |',
+  lines.push('', '| Seed | Wars declared by 1,000 / 2,000 / 3,000 · a century, from the first (story health: 2–20) | Ended by 3,000: white · tribute · cession · annexation · vassalage · a side gone (white or negotiated: story health ≥ 60%; M6: more than half not annexation) | War deaths by 1,000 / 2,000 / 3,000 | Regions that changed hands at a peace by 3,000 · a century as a share of owned regions (story health: 2–25%, with unions) | Realms annexed by 3,000 | Wars now at 1,000 / 2,000 / 3,000 |',
     '| --- | --- | --- | --- | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
     const show = (years: number[], value: (row: Stats) => string) => years.map(year => { const row = at(year); return row ? value(row) : '—'; }).join(' / ');
     const first = stats.find(row => row.warsDeclared > 0), span = first ? Math.max(1, (last.year - first.year) / 100 + 1) : 1;
-    const ended = last.warsWhite + last.warsTribute + last.warsCession + last.warsAnnexation, peaceful = ended ? (last.warsWhite + last.warsTribute + last.warsCession) / ended : 0;
+    const ended = last.warsWhite + last.warsTribute + last.warsCession + last.warsAnnexation + last.warsVassalage, peaceful = ended ? (last.warsWhite + last.warsTribute + last.warsCession + last.warsVassalage) / ended : 0;
     const owned = last.ownedRegions ?? 0, century = span > 0 ? (last.regionsConquered + (last.regionsUnited ?? 0)) / span : 0;
-    lines.push(`| ${result.seed} | ${show([1000, 2000, 3000], row => String(row.warsDeclared))} · ${first ? (last.warsDeclared / span).toFixed(1) : '0'} | ${last.warsWhite} · ${last.warsTribute} · ${last.warsCession} · ${last.warsAnnexation} · ${last.warsGone} (${Math.round(peaceful * 100)}% not annexed) | ${show([1000, 2000, 3000], row => Number(row.warDeaths).toLocaleString('en'))} | ${last.regionsConquered} · ${owned ? `${(century / owned * 100).toFixed(1)}%` : '—'} | ${last.annexations} | ${show([1000, 2000, 3000], row => String(row.warsActive))} |`);
+    lines.push(`| ${result.seed} | ${show([1000, 2000, 3000], row => String(row.warsDeclared))} · ${first ? (last.warsDeclared / span).toFixed(1) : '0'} | ${last.warsWhite} · ${last.warsTribute} · ${last.warsCession} · ${last.warsAnnexation} · ${last.warsVassalage} · ${last.warsGone} (${Math.round(peaceful * 100)}% not annexed) | ${show([1000, 2000, 3000], row => Number(row.warDeaths).toLocaleString('en'))} | ${last.regionsConquered} · ${owned ? `${(century / owned * 100).toFixed(1)}%` : '—'} | ${last.annexations} | ${show([1000, 2000, 3000], row => String(row.warsActive))} |`);
   }
   // M6.3 (VISION.md M6: "at least one settlement is razed and later resettled, and at least one bridge or road is
   // destroyed in war"; story health: ruins exist after M6): the ravages of war.
@@ -293,13 +295,23 @@ function storyHealth(rows: SeedResult[]) {
     lines.push(`| ${result.seed} | ${last.settlementsLooted} · ${last.settlementsBurned} · ${last.settlementsRazed} | ${last.razedResettled} | ${last.roadsDestroyed} · ${last.bridgesDestroyed} | ${Number(last.refugees).toLocaleString('en')} | ${show([1000, 2000, 3000], row => String(row.devastatedRegions))} | ${show([1000, 2000, 3000], row => String(row.ruins))} |`);
   }
   // M6.4 (VISION.md "Raids", M6 "threat drives consolidation"): raids, walls after them, confederations.
-  lines.push('', '| Seed | Raids by 1,000 / 2,000 / 3,000 · a century, from the first | Walls built in regions raided lately, by 3,000 | Confederations by 1,000 / 2,000 / 3,000 | Regions remembering raids at 1,000 / 2,000 / 3,000 | Tribes at 1,000 / 2,000 / 3,000 |',
-    '| --- | --- | ---: | --- | --- | --- |');
+  lines.push('', '| Seed | Raids by 1,000 / 2,000 / 3,000 · a century, from the first | Their dead by 3,000 | Walls built in regions raided lately, by 3,000 | Confederations by 1,000 / 2,000 / 3,000 | Regions remembering raids at 1,000 / 2,000 / 3,000 | Tribes at 1,000 / 2,000 / 3,000 |',
+    '| --- | --- | ---: | ---: | --- | --- | --- |');
   for (const result of rows) {
     const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
     const show = (years: number[], value: (row: Stats) => string) => years.map(year => { const row = at(year); return row ? value(row) : '—'; }).join(' / ');
     const first = stats.find(row => row.raids > 0), span = first ? Math.max(1, (last.year - first.year) / 100 + 1) : 1;
-    lines.push(`| ${result.seed} | ${show([1000, 2000, 3000], row => String(row.raids))} · ${first ? (last.raids / span).toFixed(1) : '0'} | ${last.wallsAfterRaids} | ${show([1000, 2000, 3000], row => String(row.confederations))} | ${show([1000, 2000, 3000], row => String(row.raidedRegions))} | ${show([1000, 2000, 3000], row => String(row.tribes))} |`);
+    lines.push(`| ${result.seed} | ${show([1000, 2000, 3000], row => String(row.raids))} · ${first ? (last.raids / span).toFixed(1) : '0'} | ${Number(last.raidDeaths ?? 0).toLocaleString('en')} | ${last.wallsAfterRaids} | ${show([1000, 2000, 3000], row => String(row.confederations))} | ${show([1000, 2000, 3000], row => String(row.raidedRegions))} | ${show([1000, 2000, 3000], row => String(row.tribes))} |`);
+  }
+  // M6.5 (VISION.md "Alliances and coalitions", "Ending wars"): allies at war, coalitions, vassals, and the largest
+  // realm's share (reported in M6, a limit in M7).
+  lines.push('', '| Seed | Allies joined · refused by 3,000 | Coalitions (alliances against a would-be hegemon) by 1,000 / 2,000 / 3,000 | Wars ended in vassalage · vassals gone free by 3,000 | Vassals at 1,000 / 2,000 / 3,000 | Strongest realm\'s share of all strength at 1,000 / 2,000 / 3,000 | Largest realm\'s share of all people at 1,000 / 2,000 / 3,000 | Largest civilization\'s land share (of habitable regions) at 1,000 / 2,000 / 3,000 · its peak |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const show = (years: number[], value: (row: Stats) => string) => years.map(year => { const row = at(year); return row ? value(row) : '—'; }).join(' / ');
+    const percent = (value: number) => `${Math.round(value * 100)}%`;
+    lines.push(`| ${result.seed} | ${last.alliesJoined} · ${last.alliesRefused} | ${show([1000, 2000, 3000], row => String(row.coalitions))} | ${last.warsVassalage} · ${last.vassalsFreed} | ${show([1000, 2000, 3000], row => String(row.vassals))} | ${show([1000, 2000, 3000], row => percent(row.strongestShare))} | ${show([1000, 2000, 3000], row => percent(row.largestShare))} | ${show([1000, 2000, 3000], row => percent(row.largestLandShare))} · ${percent(Math.max(...stats.map(row => row.largestLandShare ?? 0)))} |`);
   }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',

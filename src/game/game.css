@@ -154,6 +154,7 @@
 .game-standing-allied { border-color: #4f7f57; color: #9fd3a4; }
 .game-standing-pact, .game-standing-trade { border-color: var(--game-accent-line); color: var(--game-accent); }
 .game-standing-rival { border-color: #8a3a2b; color: #f0a58f; }
+.game-standing-vassal, .game-standing-overlord { border-color: #6b4a85; color: #cdb0ea; }
 .game-facts { margin: 0 0 6px; display: flex; flex-direction: column; gap: 4px; }
 .game-facts div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; }
 .game-facts dt { color: var(--game-muted); }

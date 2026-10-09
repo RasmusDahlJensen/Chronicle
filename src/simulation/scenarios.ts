@@ -1,5 +1,5 @@
 import { simulationDate, type DevScenario } from '../../shared/simulation.ts';
-import { forgetMap } from './perception.ts';
+import { borderingCivs, forgetMap } from './perception.ts';
 import { settle } from './bands.ts';
 import { heartOf, splitCulture, summarize } from './culture.ts';
 import { strikeDrought } from './environment.ts';
@@ -11,6 +11,9 @@ import { discover, teacherOf } from './research.ts';
 import type { SimulationGeography } from './geography.ts';
 import { systemStream } from './rng.ts';
 import { razeInScenario } from './ravages.ts';
+import { strengthOf } from './soldiers.ts';
+import { makeVassal } from './vassals.ts';
+import { warBetween } from './claims.ts';
 import { livingSettlements } from './settlements.ts';
 import { createSimulation } from './simulation.ts';
 import type { PopulationGroup, SimulationState, TickContext } from './state.ts';
@@ -57,6 +60,8 @@ const DEV_STREAMS = 1_000;
  * - `research`: the region's people finish what they are researching and learn it;
  * - `foundReligion`: the region's civilization founds a religion (even before it knows Organized religion);
  * - `raze`: a settlement of the region's civilization (not its capital) is razed as in war, the region devastated;
+ * - `vassal`: the region's civilization (at peace, no vassal) becomes the vassal of the strongest civilization beside it
+ *   that is no vassal itself, as at an overwhelming peace (M6.5);
  * - `splitCulture`: the region's people and their neighbours of the same culture in the same realm split off as a
  *   daughter culture (some of their culture must stay behind).
  * Used between months, from the first month on (before it there is no month's accounting to check): its events are
@@ -88,6 +93,14 @@ export function applyScenario(state: SimulationState, scenario: DevScenario, reg
     const target = livingSettlements(state, region).find(settlement => !settlement.capital);
     if (!target) return `Region ${region} has no settlement but its realm's capital to raze.`;
     apply = () => razeInScenario(state, target.id);
+  } else if (scenario === 'vassal') {
+    if (polity.kind !== 'civ') return `The ${polity.name} are a tribe; only a civilization becomes a vassal.`;
+    if (polity.overlord) return `The ${polity.name} are a vassal already.`;
+    if (polity.wars.length || polity.joined.length) return `The ${polity.name} are at war; only its peace can make them a vassal.`;
+    const overlord = borderingCivs(state, polity).map(id => state.polities[id]).filter(other => other.kind === 'civ' && other.overlord === null && !warBetween(state, polity.id, other.id))
+      .sort((a, b) => strengthOf(state, b) - strengthOf(state, a) || a.id - b.id)[0];
+    if (!overlord) return `No civilization beside the ${polity.name} could be their overlord.`;
+    apply = () => makeVassal(state, polity, overlord, null);
   } else if (scenario === 'foundReligion') {
     if (polity.kind !== 'civ') return `The ${polity.name} are a tribe; only civilizations found religions.`;
     apply = () => foundReligion(state, context, context.stream(polity.id, FOUNDING_STREAM), polity, foundingTrigger(state, polity));
@@ -108,7 +121,7 @@ export function applyScenario(state: SimulationState, scenario: DevScenario, reg
   }
   state.chronicle.emit({
     type: 'devScenario', actors: polity ? [{ id: polity.id, role: polity.kind === 'civ' ? 'civ' : 'band' }] : [], region, importance: 0.5,
-    data: { scenario, polity: polity?.name ?? '', drought: scenario === 'drought', research: scenario === 'research', foundReligion: scenario === 'foundReligion', splitCulture: scenario === 'splitCulture', raze: scenario === 'raze', unready: scenario === 'foundReligion' && polity !== null && !canFound(polity) },
+    data: { scenario, polity: polity?.name ?? '', drought: scenario === 'drought', research: scenario === 'research', foundReligion: scenario === 'foundReligion', splitCulture: scenario === 'splitCulture', raze: scenario === 'raze', vassal: scenario === 'vassal', unready: scenario === 'foundReligion' && polity !== null && !canFound(polity) },
   });
   apply();
   state.devActions++;

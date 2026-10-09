@@ -23,13 +23,14 @@ export const SETTLEMENT_STROKE = '#2b1d12';
 export const TERRITORY_ALPHA = { band: 0.55, civ: 0.78 } as const;
 /** The diplomacy lens (U.4; VISION.md "Diplomacy lens"): each people by its standing with the chosen realm, the realm
  *  itself in brass and peoples it has not met in dark grey. Each standing has its own hue, and their lightness differs
- *  too (CIE L*: not met 21, rival 41, trade partner 54, neutral 59, allied 69, pact 76, the realm 82). Also the treaty
+ *  too (CIE L*: not met 21, overlord 31, rival 41, trade partner 54, neutral 59, vassal 65, allied 69, pact 76, the realm 82). Also the treaty
  *  web's colours by kind of treaty. */
 /** A key of the diplomacy lens: the selected realm itself, each standing (`DIPLOMATIC_STATUSES`: a new standing, such as
  *  M6's war, must be given a colour here), and peoples it has not met. */
 export type StandingKey = 'self' | typeof DIPLOMATIC_STATUSES[number] | 'unknown';
 export const STANDING_COLORS: Record<StandingKey, [number, number, number]> = {
-  self: [238, 200, 118], allied: [96, 186, 112], pact: [110, 200, 210], trade: [92, 124, 222], rival: [176, 52, 44], neutral: [150, 140, 122], war: [244, 88, 34], unknown: [46, 52, 58],
+  self: [238, 200, 118], allied: [96, 186, 112], pact: [110, 200, 210], trade: [92, 124, 222], rival: [176, 52, 44], neutral: [150, 140, 122], war: [244, 88, 34],
+  vassal: [186, 140, 220], overlord: [96, 54, 128], unknown: [46, 52, 58],
 };
 /** (M6.2) The wars layer: land fought for is striped in this red; land held by an enemy in its occupier's colour. */
 export const WAR_COLOR: [number, number, number] = [214, 46, 38];
