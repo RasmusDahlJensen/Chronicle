@@ -12,7 +12,8 @@ import { chromium } from '@playwright/test';
  *
  * With `--game` it captures the game page instead (milestone U): the map at each year, then at the last year each of
  * its views: the largest realm's panel tab by tab, a chosen story, the diplomacy, density and perspective lenses, the
- * ledger and the chronicle. The history is driven through the host's controls.
+ * ledger, (M6) a realm that fought lately (its Wars and Diplomacy tabs) and the chronicle. The history is driven through
+ * the host's controls.
  */
 const { values } = parseArgs({
   options: {
@@ -97,7 +98,7 @@ async function gameScreenshots() {
   if (await largest.count()) {
     await largest.click();
     await page.locator('#game-realm-name').waitFor();
-    for (const tab of ['Overview', 'Diplomacy', 'Economy', 'Knowledge', 'History', 'Region']) {
+    for (const tab of ['Overview', 'Diplomacy', 'Wars', 'Economy', 'Knowledge', 'History', 'Region']) {
       await page.getByRole('tablist', { name: 'About the realm' }).getByRole('tab', { name: tab }).click();
       await shot(`realm-${tab.toLowerCase()}`);
     }
@@ -117,6 +118,20 @@ async function gameScreenshots() {
   // The ledger and the chronicle.
   await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Ledger' }).click();
   await shot('ledger');
+  // (M6) A living realm that fought lately, allies beside the defender first: its Wars tab and its Diplomacy.
+  const frame = await (await page.request.get(api(`/api/simulation/frame?${query}&cursor=999999999`))).json() as { wars: { attacker: number; defender: number; allies: unknown[] }[]; civList: { id: number; name: string }[] };
+  const living = new Map(frame.civList.map(civ => [civ.id, civ.name]));
+  const fought = [...frame.wars].sort((a, b) => b.allies.length - a.allies.length).find(war => living.has(war.defender) || living.has(war.attacker));
+  if (fought) {
+    const name = living.get(living.has(fought.defender) ? fought.defender : fought.attacker)!;
+    await page.getByRole('region', { name: 'Realms' }).getByRole('rowheader', { name, exact: true }).getByRole('button').click();
+    await page.locator('#game-realm-name').waitFor();
+    for (const tab of ['Wars', 'Diplomacy']) {
+      await page.getByRole('tablist', { name: 'About the realm' }).getByRole('tab', { name: tab }).click();
+      await shot(`war-realm-${tab.toLowerCase()}`);
+    }
+    await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Ledger' }).click();
+  } else console.log('No war in the last century: the war realm\'s tabs are left out.');
   await page.getByRole('region', { name: 'Ledger' }).evaluate(element => { element.scrollTop = element.scrollHeight; });
   await shot('ledger-web');
   await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Chronicle' }).click();
