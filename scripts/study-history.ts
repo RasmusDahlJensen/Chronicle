@@ -283,6 +283,15 @@ function storyHealth(rows: SeedResult[]) {
     const owned = last.ownedRegions ?? 0, century = span > 0 ? (last.regionsConquered + (last.regionsUnited ?? 0)) / span : 0;
     lines.push(`| ${result.seed} | ${show([1000, 2000, 3000], row => String(row.warsDeclared))} · ${first ? (last.warsDeclared / span).toFixed(1) : '0'} | ${last.warsWhite} · ${last.warsTribute} · ${last.warsCession} · ${last.warsAnnexation} · ${last.warsGone} (${Math.round(peaceful * 100)}% not annexed) | ${show([1000, 2000, 3000], row => Number(row.warDeaths).toLocaleString('en'))} | ${last.regionsConquered} · ${owned ? `${(century / owned * 100).toFixed(1)}%` : '—'} | ${last.annexations} | ${show([1000, 2000, 3000], row => String(row.warsActive))} |`);
   }
+  // M6.3 (VISION.md M6: "at least one settlement is razed and later resettled, and at least one bridge or road is
+  // destroyed in war"; story health: ruins exist after M6): the ravages of war.
+  lines.push('', '| Seed | Settlements looted · burned · razed by 3,000 | Razed ruins resettled by 3,000 (M6: ≥ 1 in most seeds) | Roads · bridges destroyed in war by 3,000 (M6: ≥ 1 in most seeds) | Refugees by 3,000 | Regions devastated at 1,000 / 2,000 / 3,000 | Ruins at 1,000 / 2,000 / 3,000 |',
+    '| --- | --- | ---: | --- | ---: | --- | --- |');
+  for (const result of rows) {
+    const stats = result.report.stats as Stats[], at = (year: number) => stats.find(row => row.year === year), last = at(3000) ?? stats.at(-1)!;
+    const show = (years: number[], value: (row: Stats) => string) => years.map(year => { const row = at(year); return row ? value(row) : '—'; }).join(' / ');
+    lines.push(`| ${result.seed} | ${last.settlementsLooted} · ${last.settlementsBurned} · ${last.settlementsRazed} | ${last.razedResettled} | ${last.roadsDestroyed} · ${last.bridgesDestroyed} | ${Number(last.refugees).toLocaleString('en')} | ${show([1000, 2000, 3000], row => String(row.devastatedRegions))} | ${show([1000, 2000, 3000], row => String(row.ruins))} |`);
+  }
   // M3c (VISION.md "Famine is mitigable, by wealth and knowledge"): relief, and famine deaths in rich and poor realms.
   lines.push('', '| Seed | Famine deaths a year per 1,000 people over their lives, richest ÷ poorest third of civilizations by output a year, at 1,000 / 2,000 / 3,000 (M3c: lower in rich realms) | Relief episodes · food landed · lost on the way (person-months) · paid for carriage, by 3,000 | A month of need left unmet by relief, for lack of treasury · of food to spare in reach (person-months, summed) by 3,000 | Famines by 3,000 |',
     '| --- | --- | --- | --- | ---: |');

@@ -68,7 +68,7 @@ test('taxes above the customary rate unsettle people and below it content them; 
   assert.equal(arrearsBurden({ arrears: 0 }, 1), 0);
   // In a region's stability: heavy taxes and arrears lower it, light taxes raise it.
   const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
-  const state = { cultures: [{ values }], settlements: [], regionSettlements: [[]], wonders: [], unsettled: new Float64Array(1), occupiedBy: new Int32Array(1).fill(-1) } as unknown as SimulationState;
+  const state = { cultures: [{ values }], settlements: [], regionSettlements: [[]], wonders: [], unsettled: new Float64Array(1), occupiedBy: new Int32Array(1).fill(-1), devastation: new Float64Array(1) } as unknown as SimulationState;
   const reach = REACH_TUNING.baseKm, group = { foodSecurity: 1.2, culture: 0, region: 0 } as never;
   const civ = (taxRate: number, arrears: number) => ({ culture: 0, knowledge: { multipliers: { reach: 1, military: 1 } }, taxRate, arrears, groups: [], settledTick: null }) as unknown as Polity;
   const usual = stabilityOf(state, civ(tuning.customaryRate, 0), group, reach / 2);
@@ -99,7 +99,7 @@ function realm(count = 2) {
     cultures: [{ language: createLanguage(createRng(1, 1)), values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 } }], settlements: [], regionSettlements: regions.map(() => []), chronicle: new Chronicle(),
     groups: regions.map(id => ({ ...(id === 0 ? { id, region: id, specialists: 0, soldiers: 0, foodSecurity: 1.1, size: 200_000, farmShare: 1 } : { id, region: id, specialists: 0, soldiers: 0, foodSecurity: 0.75, size: 20_000, farmShare: 0.6 }), values: { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 } })),
     groupAt: Int32Array.from(regions), unrest: new Uint8Array(count), stability: new Float64Array(count).fill(1),
-    remoteness: Float64Array.from(regions, id => count === 2 ? 1.5 * id : 0.8 * id), remoteOwner: new Int32Array(count), neglected: new Uint8Array(count), unsettled: new Float64Array(count), occupiedBy: new Int32Array(count).fill(-1),
+    remoteness: Float64Array.from(regions, id => count === 2 ? 1.5 * id : 0.8 * id), remoteOwner: new Int32Array(count), neglected: new Uint8Array(count), unsettled: new Float64Array(count), occupiedBy: new Int32Array(count).fill(-1), devastation: new Float64Array(count),
     living: [0], ledger: { wealth: new Map() }, wonders: [], roads: new Map(), owner: new Int32Array(count),
     farmBonus: new Float64Array(count).fill(1), droughtShield: new Float64Array(count), storeBonus: new Float64Array(count).fill(1), spoilageBonus: new Float64Array(count).fill(1),
     metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, buildingsStarted: 0, buildingsCompleted: 0, buildingsLost: 0, projectsAbandoned: 0, roadsAbandoned: 0, arrearsBegun: 0, taxesRaised: 0, taxesEased: 0, neglectBegun: 0 },
@@ -223,7 +223,7 @@ test('building weighs the realm\'s surplus after its costs: a realm already shor
 
 test('a large, old realm holds its far provinces less firmly, most in its far regions', () => {
   const values = { militarism: 0.5, zeal: 0.5, openness: 0.5, tradition: 0.5, expansionism: 0.5 };
-  const state = { tick: 12 * 1_500, cultures: [{ values }], settlements: [], regionSettlements: [[]], wonders: [], unsettled: new Float64Array(1), occupiedBy: new Int32Array(1).fill(-1) } as unknown as SimulationState;
+  const state = { tick: 12 * 1_500, cultures: [{ values }], settlements: [], regionSettlements: [[]], wonders: [], unsettled: new Float64Array(1), occupiedBy: new Int32Array(1).fill(-1), devastation: new Float64Array(1) } as unknown as SimulationState;
   const realm = (regions: number, settled: number) => ({ culture: 0, knowledge: { multipliers: { reach: 1, military: 1 } }, taxRate: BUDGET_TUNING.customaryRate, arrears: 0, groups: new Array(regions).fill(0), settledTick: settled }) as unknown as Polity;
   const group = { foodSecurity: 1.2, culture: 0, region: 0 } as never, reach = REACH_TUNING.baseKm;
   const empire = realm(400, 0), young = realm(10, 12 * 1_450);

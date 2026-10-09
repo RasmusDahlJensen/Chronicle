@@ -10,6 +10,8 @@ import type { RegionPartition } from './regions.ts';
 import { discover, teacherOf } from './research.ts';
 import type { SimulationGeography } from './geography.ts';
 import { systemStream } from './rng.ts';
+import { razeInScenario } from './ravages.ts';
+import { livingSettlements } from './settlements.ts';
 import { createSimulation } from './simulation.ts';
 import type { PopulationGroup, SimulationState, TickContext } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
@@ -54,6 +56,7 @@ const DEV_STREAMS = 1_000;
  * - `drought`: the longest drought there is strikes the region and the habitable regions beside it;
  * - `research`: the region's people finish what they are researching and learn it;
  * - `foundReligion`: the region's civilization founds a religion (even before it knows Organized religion);
+ * - `raze`: a settlement of the region's civilization (not its capital) is razed as in war, the region devastated;
  * - `splitCulture`: the region's people and their neighbours of the same culture in the same realm split off as a
  *   daughter culture (some of their culture must stay behind).
  * Used between months, from the first month on (before it there is no month's accounting to check): its events are
@@ -80,6 +83,11 @@ export function applyScenario(state: SimulationState, scenario: DevScenario, reg
       knowledge.progress[tech] = Math.max(knowledge.progress[tech], TECHS[tech].cost);
       discover(state, context, polity.id, tech, knowledge.taught[tech] > 0 ? teacherOf(state, polity, tech) : -1);
     };
+  } else if (scenario === 'raze') {
+    if (polity.kind !== 'civ') return `The ${polity.name} are a tribe; only a civilization's settlements are razed.`;
+    const target = livingSettlements(state, region).find(settlement => !settlement.capital);
+    if (!target) return `Region ${region} has no settlement but its realm's capital to raze.`;
+    apply = () => razeInScenario(state, target.id);
   } else if (scenario === 'foundReligion') {
     if (polity.kind !== 'civ') return `The ${polity.name} are a tribe; only civilizations found religions.`;
     apply = () => foundReligion(state, context, context.stream(polity.id, FOUNDING_STREAM), polity, foundingTrigger(state, polity));
@@ -100,7 +108,7 @@ export function applyScenario(state: SimulationState, scenario: DevScenario, reg
   }
   state.chronicle.emit({
     type: 'devScenario', actors: polity ? [{ id: polity.id, role: polity.kind === 'civ' ? 'civ' : 'band' }] : [], region, importance: 0.5,
-    data: { scenario, polity: polity?.name ?? '', drought: scenario === 'drought', research: scenario === 'research', foundReligion: scenario === 'foundReligion', splitCulture: scenario === 'splitCulture', unready: scenario === 'foundReligion' && polity !== null && !canFound(polity) },
+    data: { scenario, polity: polity?.name ?? '', drought: scenario === 'drought', research: scenario === 'research', foundReligion: scenario === 'foundReligion', splitCulture: scenario === 'splitCulture', raze: scenario === 'raze', unready: scenario === 'foundReligion' && polity !== null && !canFound(polity) },
   });
   apply();
   state.devActions++;

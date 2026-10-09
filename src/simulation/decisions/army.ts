@@ -1,5 +1,5 @@
 import type { ArmyView } from '../perception.ts';
-import { ARMY_TUNING, DIPLOMACY_TUNING, WAR_TUNING } from '../tunables.ts';
+import { ARMY_TUNING, DIPLOMACY_TUNING, RAVAGE_TUNING, WAR_TUNING } from '../tunables.ts';
 import { threatOf } from './threat.ts';
 
 /**
@@ -31,7 +31,9 @@ export function armyTarget(view: ArmyView) {
   // At war it wants more (each war, WAR_TUNING.army of its people) and spends more on them (WAR_TUNING.warBudget).
   const threatened = view.people * tuning.threat * threat + view.people * WAR_TUNING.army * view.wars, wanted = garrison + threatened;
   const spend = view.wars > 0 ? WAR_TUNING.warBudget : 1;
-  const budget = spend * Math.min(tuning.afford * keen * view.revenue * (1 - view.arrears), Math.max(0, view.surplus + tuning.headroom * view.revenue));
+  // Recent war income pays for more (M6.3: "army size follows threat and recent war income").
+  const budget = spend * Math.min(tuning.afford * keen * view.revenue * (1 - view.arrears), Math.max(0, view.surplus + tuning.headroom * view.revenue))
+    + RAVAGE_TUNING.warIncome * view.warIncome;
   const affordable = view.upkeep > 0 ? Math.max(0, budget) / view.upkeep : wanted;
   const target = Math.round(Math.max(tuning.floor * view.people, Math.min(wanted, affordable)));
   return {

@@ -312,7 +312,8 @@ export function RegionDetail({ inspected, region, biome, names }: { inspected: I
   const people = inspected?.people, polity = inspected?.polity, stability = polity?.stability;
   const settlements = inspected?.settlements.filter(settlement => settlement.status === 'alive') ?? [], ruins = inspected?.settlements.filter(settlement => settlement.status !== 'alive') ?? [];
   const burdens = stability ? ([['hunger', stability.hunger], ['overextension', stability.overextension], ['foreign rule', stability.foreignRule], ['another faith', stability.faith],
-    ['strain of a large, old realm', stability.strain], ['returning soldiers', stability.demobilized], ['taxes', stability.taxes], ['arrears', stability.arrears]] as const).filter(([, weight]) => weight > 0.005) : [];
+    ['strain of a large, old realm', stability.strain], ['returning soldiers', stability.demobilized], ['an enemy holding it', stability.occupied], ['devastation', stability.devastated],
+    ['taxes', stability.taxes], ['arrears', stability.arrears]] as const).filter(([, weight]) => weight > 0.005) : [];
   const water = [region.coastal && 'coast', region.openLake && 'lake', region.riverTier === 3 ? 'great river' : region.riverTier === 2 ? 'river' : region.riverTier === 1 ? 'stream' : ''].filter(Boolean).join(', ');
   return <section aria-label="The region" id="game-region">
     <h3>Region {region.id}{biome ? ` · ${biome.toLowerCase()}` : ''}</h3>
@@ -323,6 +324,7 @@ export function RegionDetail({ inspected, region, biome, names }: { inspected: I
       {polity && <FoodHere inspected={inspected} polity={polity} />}
       {stability && <p id="game-region-stability" className={stability.unrest ? 'game-cold' : undefined}>Stability {stability.value.toFixed(2)}{stability.unrest ? ', in unrest' : ''}{burdens.length ? `, lowered by ${burdens.map(([factor, weight]) => `${factor} −${weight.toFixed(2)}`).join(', ')}` : ''}{stability.taxes < -0.005 ? `; light taxes +${(-stability.taxes).toFixed(2)}` : ''}{stability.faith < -0.005 ? `; an ascetic faith +${(-stability.faith).toFixed(2)}` : ''}.</p>}
       {inspected.occupation && <p className="game-cold" id="game-region-occupation">Held by the {inspected.occupation.name} since year {number.format(inspected.occupation.since)}: it pays its realm nothing, and is restless.</p>}
+      {inspected.devastation >= 0.05 && <p className="game-cold" id="game-region-devastation">Devastated by war ({percent(inspected.devastation)}): its harvests come in short and its people are restless{inspected.occupation ? ' while the enemy holds it' : '; it heals over the years'}{!inspected.settlements.some(settlement => settlement.status === 'alive') ? ', and its people have yet to rebuild among the ruins' : ''}.</p>}
       {inspected.neglected && <p className="game-cold">Let go unkept by its realm: its buildings and roads wear.</p>}
       {settlements.length > 0 && <ul className="game-settlements" aria-label="Settlements here">{settlements.map(settlement => <li key={settlement.id}>
         <span className="game-settlement-name">{settlement.capital ? '★ ' : ''}{settlement.name}</span> <span>{SETTLEMENT_TIERS[settlement.tier]}{settlement.capital ? ', capital' : ''} · {number.format(settlement.urban)} townspeople of {number.format(settlement.housing)} it can house · founded year {year(settlement.founded)}{settlement.formerName ? ` · once ${settlement.formerName}` : ''}</span>

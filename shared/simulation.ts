@@ -7,7 +7,7 @@ import { WORLD_SIZES } from './generated-world.ts';
  * Versioned contracts between the simulation worker, the host and the observer (docs/VISION.md "Architecture and
  * engineering constraints"). The browser only reads these frames and region maps and sends observer controls.
  */
-export const SIMULATION_PROTOCOL_VERSION = 42;
+export const SIMULATION_PROTOCOL_VERSION = 43;
 export const SIMULATION_SPEEDS = ['month', 'year', 'decade', 'max'] as const;
 export type SimulationSpeed = typeof SIMULATION_SPEEDS[number];
 /** Months simulated per wall-clock second for each preset; `max` runs as fast as the worker can. */
@@ -18,6 +18,8 @@ export const MAX_FRAME_EVENTS = 200;
 export const MAX_FRAME_NAMES = 1024;
 /** The most ruins a frame carries (U.7): those that fell last. */
 export const MAX_FRAME_RUINS = 4_000;
+/** (M6.3) The devastated regions a frame carries at most. */
+export const MAX_FRAME_DEVASTATED = 2_048;
 
 /** Settlement tiers by urban population (VISION.md "Settlements"); a settlement's tier is its index here. */
 export const SETTLEMENT_TIERS = ['village', 'town', 'city', 'metropolis'] as const;
@@ -75,7 +77,7 @@ const ValuesSchema = Type.Object(Object.fromEntries(VALUE_NAMES.map(key => [key,
  * DEVELOPMENT CONTROLS (Dev 02), not product features: scenario triggers that make something happen in a region now,
  * through the real rules, to try a feature without simulating until it happens. A history they were used on says so.
  */
-export const DEV_SCENARIOS = ['drought', 'research', 'foundReligion', 'splitCulture'] as const;
+export const DEV_SCENARIOS = ['drought', 'research', 'foundReligion', 'splitCulture', 'raze'] as const;
 export type DevScenario = typeof DEV_SCENARIOS[number];
 export const SimulationControlSchema = Type.Union([
   Type.Object({ action: Type.Literal('play') }, { additionalProperties: false }),
@@ -206,6 +208,13 @@ export const ObserverFrameSchema = Type.Object({
   ruins: Type.Object({
     cells: Type.Array(id(), { maxItems: MAX_FRAME_RUINS }), names: Type.Array(Type.String({ maxLength: 40 }), { maxItems: MAX_FRAME_RUINS }),
     razed: Type.Array(Type.Integer({ minimum: 0, maximum: 1 }), { maxItems: MAX_FRAME_RUINS }),
+    /** (M6.3) All ruins in the world, and those razed in war, however many the arrays keep. */
+    total: Type.Integer({ minimum: 0 }), razedTotal: Type.Integer({ minimum: 0 }),
+  }, { additionalProperties: false }),
+  /** (M6.3) Devastated regions (devastation of 0.05 or more): the region and its devastation in percent, at most
+   *  MAX_FRAME_DEVASTATED, the most devastated first. */
+  devastated: Type.Object({
+    regions: Type.Array(id(), { maxItems: MAX_FRAME_DEVASTATED }), levels: Type.Array(Type.Integer({ minimum: 0, maximum: 100 }), { maxItems: MAX_FRAME_DEVASTATED }),
   }, { additionalProperties: false }),
   /** Standing roads as parallel arrays, in the order first built: the two regions of the land edge it lies on (the
    *  lower id first), its tier (an index into ROAD_TIER_NAMES plus one: 1 road, 2 paved road, 3 railway, 4 highway) and
@@ -312,6 +321,8 @@ export const ObserverFrameSchema = Type.Object({
     neglected: Type.Boolean(),
     /** (M6.2) The people occupying it in a war (its id and name, and the year it took it), or null. */
     occupation: Type.Union([Type.Null(), Type.Object({ by: id(), name: Type.String({ maxLength: 40 }), since: Type.Integer({ minimum: 0 }) }, { additionalProperties: false })]),
+    /** (M6.3) Its devastation (0–1): what occupation has left it, fading. */
+    devastation: Type.Number({ minimum: 0, maximum: 1 }),
     /** Its cultivated land: the share of its farmland's labour under cultivation (0–1) and the cells it covers. */
     fields: Type.Object({ share: Type.Number({ minimum: 0, maximum: 1 }), cells: Type.Integer({ minimum: 0 }) }, { additionalProperties: false }),
     /** The region's settlements, living and in ruins, main one first: tier, townspeople, housing, founding tick, the
@@ -386,7 +397,7 @@ export const ObserverFrameSchema = Type.Object({
         hunger: Type.Number({ minimum: 0 }), overextension: Type.Number({ minimum: 0 }), foreignRule: Type.Number({ minimum: 0 }), faith: Type.Number(),
         strain: Type.Number({ minimum: 0 }), taxes: Type.Number(), arrears: Type.Number({ minimum: 0 }),
         /** (M6.1) Soldiers lately sent home; (M6.2) an enemy holding it. */
-        demobilized: Type.Number({ minimum: 0 }), occupied: Type.Number({ minimum: 0 }),
+        demobilized: Type.Number({ minimum: 0 }), occupied: Type.Number({ minimum: 0 }), devastated: Type.Number({ minimum: 0 }),
       }, { additionalProperties: false })]),
       /** Its last decision step: the strongest options (best first) with their scores and factors, what it chose (its
        *  action, and its index among the options: the chosen option is always among the best three) and what came of it. */
@@ -562,6 +573,7 @@ export function parseObserverFrame(value: unknown): ObserverFrame {
   }
   if (settlements.ids.length !== frame.settlementCount || eras.some(era => era > frame.leadingEra)) throw invalid();
   if (frame.ruins.names.length !== frame.ruins.cells.length || frame.ruins.razed.length !== frame.ruins.cells.length) throw invalid();
+  if (frame.ruins.total < frame.ruins.cells.length || frame.ruins.razedTotal > frame.ruins.total || frame.devastated.levels.length !== frame.devastated.regions.length) throw invalid();
   // Each road lies on an edge between two regions of this world, named once, lower id first.
   const roads = frame.roads, edges = new Set<string>();
   if ([roads.b, roads.tiers, roads.bridges, roads.conditions].some(array => array.length !== roads.a.length)) throw invalid();

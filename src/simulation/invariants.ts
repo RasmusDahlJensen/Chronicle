@@ -9,12 +9,13 @@ import { crosses, KNOWN, OBSERVED, seaFrom, UNKNOWN } from './perception.ts';
 import { edgeBetween, ROAD_TIERS, roadKey, roadUpkeep } from './roads.ts';
 import { VALUE_KEYS, type Polity, type RoadWork, type Settlement, type SimulationState } from './state.ts';
 import { TECH_INDEX, TECHS } from './techs.ts';
-import { BUDGET_TUNING, BUILD_TUNING, ENVIRONMENT_TUNING, REGION_TUNING, SETTLEMENT_TUNING, TRAIT_TUNING } from './tunables.ts';
+import { BUDGET_TUNING, BUILD_TUNING, ENVIRONMENT_TUNING, RAVAGE_TUNING, REGION_TUNING, SETTLEMENT_TUNING, TRAIT_TUNING } from './tunables.ts';
 import { TRAITS } from './traits.ts';
 import { fieldLand } from './fields.ts';
 
 /** The least share of its crops a harvest can come in at: the worst weather in drought without irrigation. */
-const lowestHarvest = () => ENVIRONMENT_TUNING.harvestMin * (1 - ENVIRONMENT_TUNING.droughtFarmLoss);
+// (M6.3: devastated land brings in less again.)
+const lowestHarvest = () => ENVIRONMENT_TUNING.harvestMin * (1 - ENVIRONMENT_TUNING.droughtFarmLoss) * (1 - RAVAGE_TUNING.harvestCut);
 
 /** Thrown when a tick leaves the world in an impossible state; the scenario and tick are in the message. */
 export class InvariantError extends Error {}
@@ -93,8 +94,10 @@ export function checkInvariants(state: SimulationState) {
   for (let region = 0; region < regions; region++) {
     if (state.farmBonus[region] !== farm[region] || state.droughtShield[region] !== shield[region] || state.storeBonus[region] !== store[region] || state.spoilageBonus[region] !== spoilage[region]) fail(`region ${region}'s building effects are not what its settlements' buildings give`);
   }
-  // The environment: weather and harvests within their bounds, droughts no longer than they last, famine as a flag.
+  // The environment: weather and harvests within their bounds, droughts no longer than they last, famine as a flag;
+  // devastation (M6.3) within 0–1.
   for (let region = 0; region < regions; region++) {
+    if (!(state.devastation[region] >= 0 && state.devastation[region] <= 1)) fail(`region ${region} has devastation ${state.devastation[region]}`);
     if (!(state.weather[region] >= ENVIRONMENT_TUNING.harvestMin && state.weather[region] <= ENVIRONMENT_TUNING.harvestMax && state.harvestFactor[region] >= lowest && state.harvestFactor[region] <= ENVIRONMENT_TUNING.harvestMax)) fail(`region ${region} has weather ${state.weather[region]} and harvest ${state.harvestFactor[region]}`);
     if (state.drought[region] > ENVIRONMENT_TUNING.droughtYears * 12 || state.famine[region] > 1 || !(state.famineRecent[region] >= 0)) fail(`region ${region} has drought ${state.drought[region]}, famine ${state.famine[region]} and recent famine deaths ${state.famineRecent[region]}`);
     // Cultivated land lies within the region's farmland (VISION.md "Cultivated land").
@@ -190,7 +193,9 @@ export function checkInvariants(state: SimulationState) {
       // Soldiers (M6.1) are rural people: never more than its people less its townspeople; a tribe keeps none.
       if (!Number.isInteger(group.soldiers) || group.soldiers < 0 || group.soldiers > group.size - group.specialists) fail(`group ${groupId} has ${group.soldiers} soldiers of ${group.size - group.specialists} rural people`);
       if (polity.kind === 'band' && group.soldiers > 0) fail(`band ${groupId} has soldiers`);
-      if (polity.kind === 'civ' && (state.owner[region] !== id || villages[region] < 1)) fail(`civilization ${id} does not own region ${region}, where its people live, or has no village there`);
+      // (M6.3: a region whose last settlement was razed in war has none while it is occupied, or devastated until its
+      // people rebuild.)
+      if (polity.kind === 'civ' && (state.owner[region] !== id || (villages[region] < 1 && state.occupiedBy[region] < 0 && !(state.devastation[region] > 0)))) fail(`civilization ${id} does not own region ${region}, where its people live, or has no village there`);
       if (polity.kind === 'civ' && urban[region] !== group.specialists) fail(`region ${region}'s settlements house ${urban[region]} townspeople, not its ${group.specialists} specialists`);
       const flows = ledger.food.get(group.id);
       if (!flows) fail(`group ${groupId} has no food flows this tick`);

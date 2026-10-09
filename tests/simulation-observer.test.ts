@@ -148,11 +148,26 @@ function frameOf(state: SimulationState, region: number): ObserverFrame {
     tick: state.tick, playing: false, speed: 'year', epoch: 0, runTo: null, dev: { actions: 0, refused: null, checkpoints: null, loadedFrom: null }, eventCount: state.chronicle.events.length,
     counters: { regions: state.partition.regions.length, landmasses: 1 }, population: 30, polities: 1, civs: 0, settlementCount: 0, specialists: 0, leadingEra: 0, lineages: ['Vaeli'],
     cultures: [{ id: 0, name: 'Vaeli', hue: 20, parent: null, regions: 1, population: 30 }], religions: [], largest: [], civList: [], treaties: [], census: { years: [], civs: [], ids: [], people: [] },
-    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] }, ruins: { cells: [], names: [], razed: [] }, wars: [], 
+    markers: { ids: [0], regions: [0], populations: [30], kinds: [0], eras: [0], lineages: [0], cultures: [0], faiths: [-1] }, settlements: { ids: [], cells: [], owners: [], capitals: [], tiers: [], names: [], features: [] }, ruins: { cells: [], names: [], razed: [], total: 0, razedTotal: 0 }, devastated: { regions: [], levels: [] }, wars: [], 
     roads: { a: [], b: [], tiers: [], bridges: [], conditions: [] }, trades: { from: [], to: [], resources: [], sea: [] }, fields: { regions: [], cells: [] }, series: [[0, 30, 1]], wonders: [], names: [], events: [], perspective: null, ...storiesView(state),
     inspect: observerView(state, region).inspect,
   } as ObserverFrame;
 }
+
+test('the ravages in the frame (M6.3): devastated regions with their levels, all ruins counted, a region\'s devastation and its burden', () => {
+  const state = copied(), civ = largestCiv(state)!, region = state.groups[civ.groups[0]].region, other = state.groups[civ.groups[1]].region;
+  state.devastation.fill(0); state.devastation[region] = 0.4; state.devastation[other] = 0.02;
+  const view = observerView(state, region);
+  assert.deepEqual(view.devastated, { regions: [region], levels: [40] }, 'at 0.05 or more, in percent');
+  assert.equal(view.inspect!.devastation, 0.4);
+  assert.ok(view.inspect!.polity!.stability!.devastated > 0, 'a burden on its stability');
+  assert.equal(view.ruins.total, state.settlements.filter(settlement => settlement.status !== 'alive').length);
+  assert.equal(view.ruins.razedTotal, state.settlements.filter(settlement => settlement.status === 'razed').length);
+  // A frame whose devastated regions and levels disagree is refused.
+  const frame = frameOf(state, region);
+  frame.devastated = { regions: [region], levels: [] };
+  assert.throws(() => parseObserverFrame(structuredClone(frame)));
+});
 
 test('a frame with a realm panel passes the contract, and one whose eras or history are inconsistent is refused', () => {
   const civ = largestCiv(history)!, frame = frameOf(history, history.groups[civ.groups[0]].region);

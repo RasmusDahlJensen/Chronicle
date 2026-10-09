@@ -139,14 +139,15 @@ const count = (value: number, one: string, many: string) => `${number.format(val
 /** The world now (U.7): its people, peoples and realms, settlements by tier and ruins, fields, roads and trade. */
 function WorldNow({ frame }: { frame: ObserverFrame }) {
   const tiers = SETTLEMENT_TIERS.map((_, tier) => frame.settlements.tiers.filter(value => value === tier).length);
-  const razed = frame.ruins.razed.filter(Boolean).length, bridges = frame.roads.bridges.filter(Boolean).length, bySea = frame.trades.sea.filter(Boolean).length;
+  const bridges = frame.roads.bridges.filter(Boolean).length, bySea = frame.trades.sea.filter(Boolean).length;
   const fields = frame.fields.cells.reduce((sum, cells) => sum + cells, 0);
   return <section className="game-ledger-card" aria-label="The world now">
     <h2>The world now</h2>
     <dl className="game-facts" id="game-world-now">
       <div><dt>People</dt><dd>{people(frame.population)}{frame.specialists ? `, ${people(frame.specialists)} of them townspeople and specialists` : ''}</dd></div>
       <div><dt>Peoples</dt><dd>{count(frame.civs, 'civilization', 'civilizations')} and {count(frame.polities - frame.civs, 'tribe', 'tribes')} in {count(frame.markers.regions.length, 'region', 'regions')} of {number.format(frame.counters.regions)}</dd></div>
-      <div><dt>Settlements</dt><dd>{tiers.some(Boolean) ? tiers.map((value, tier) => value ? count(value, SETTLEMENT_TIERS[tier], TIER_PLURALS[tier]) : '').filter(Boolean).reverse().join(' · ') : 'none yet'}{frame.ruins.cells.length ? ` · ${count(frame.ruins.cells.length, 'ruin', 'ruins')}${razed ? `, ${number.format(razed)} razed` : ''}` : ''}</dd></div>
+      <div><dt>Settlements</dt><dd>{tiers.some(Boolean) ? tiers.map((value, tier) => value ? count(value, SETTLEMENT_TIERS[tier], TIER_PLURALS[tier]) : '').filter(Boolean).reverse().join(' · ') : 'none yet'}{frame.ruins.total ? ` · ${count(frame.ruins.total, 'ruin', 'ruins')}${frame.ruins.razedTotal ? `, ${number.format(frame.ruins.razedTotal)} razed in war` : ''}` : ''}</dd></div>
+      {frame.devastated.regions.length > 0 && <div><dt>War</dt><dd id="game-world-devastated">{count(frame.devastated.regions.length, 'region', 'regions')} devastated by war</dd></div>}
       <div><dt>Fields</dt><dd>{fields ? `${count(fields, 'cell', 'cells')} of farmland cultivated in ${count(frame.fields.regions.length, 'region', 'regions')}` : 'none yet'}</dd></div>
       <div><dt>Roads</dt><dd>{frame.roads.a.length ? `${count(frame.roads.a.length, 'stretch', 'stretches')}${bridges ? `, ${count(bridges, 'bridge', 'bridges')}` : ''}` : 'none yet'}</dd></div>
       <div><dt>Trade</dt><dd>{frame.trades.from.length ? `${count(frame.trades.from.length, 'route', 'routes')} of trade agreements${bySea ? `, ${number.format(bySea)} by sea` : ''}` : 'no trade agreements yet'}</dd></div>

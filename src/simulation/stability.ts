@@ -8,7 +8,7 @@ import { faithBurden } from './faith.ts';
 import { budgetView, capitalTravel } from './perception.ts';
 import type { Polity, PopulationGroup, SimulationState, TickContext } from './state.ts';
 import { occupiedAway } from './soldiers.ts';
-import { ARMY_TUNING, BUDGET_TUNING, REACH_TUNING, STABILITY_TUNING, WAR_TUNING } from './tunables.ts';
+import { ARMY_TUNING, BUDGET_TUNING, RAVAGE_TUNING, REACH_TUNING, STABILITY_TUNING, WAR_TUNING } from './tunables.ts';
 
 /**
  * Regional stability (VISION.md "Stability, fracture and civil war", M3's basic form): hungry regions, regions far
@@ -38,9 +38,11 @@ export function stabilityOf(state: SimulationState, civ: Polity, group: Populati
   // enemy holding it (M6.2).
   const demobilized = ARMY_TUNING.demobUnrest * Math.min(1, state.unsettled[group.region] / ARMY_TUNING.demobScale);
   const occupied = occupiedAway(state, group.region, civ.id) ? WAR_TUNING.occupiedUnrest : 0;
+  // Devastated land is restless (M6.3).
+  const devastated = RAVAGE_TUNING.unrest * state.devastation[group.region];
   // How calm the region is apart from its realm's budget: what its taxes can rest on.
-  const calm = Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - faith - strain - demobilized - occupied + buildings));
-  return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - faith - strain - demobilized - occupied - taxes - arrears + buildings)), calm, hunger, overextension, foreignRule, faith, strain, demobilized, occupied, taxes, arrears, buildings };
+  const calm = Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - faith - strain - demobilized - occupied - devastated + buildings));
+  return { value: Math.max(0, Math.min(1, tuning.base - hunger - overextension - foreignRule - faith - strain - demobilized - occupied - devastated - taxes - arrears + buildings)), calm, hunger, overextension, foreignRule, faith, strain, demobilized, occupied, devastated, taxes, arrears, buildings };
 }
 
 /**
@@ -82,7 +84,7 @@ function judge(state: SimulationState, civ: Polity, km: (region: number) => numb
       state.unrest[region] = 1; state.metrics.unrestOutbreaks++;
       state.chronicle.emit({
         type: 'unrest', actors: [{ id: civ.id, role: 'civ' }], region,
-        causes: causes({ hunger: result.hunger, overextension: result.overextension, foreignRule: result.foreignRule, faith: Math.max(0, result.faith), strain: result.strain, demobilized: result.demobilized, occupied: result.occupied, taxes: result.taxes, arrears: result.arrears }), importance: 0.1,
+        causes: causes({ hunger: result.hunger, overextension: result.overextension, foreignRule: result.foreignRule, faith: Math.max(0, result.faith), strain: result.strain, demobilized: result.demobilized, occupied: result.occupied, devastated: result.devastated, taxes: result.taxes, arrears: result.arrears }), importance: 0.1,
         data: { civ: civ.name, stability: Math.round(result.value * 100) / 100 },
       });
     } else if (state.unrest[region] && result.value >= tuning.unrestBelow + tuning.hysteresis) state.unrest[region] = 0;

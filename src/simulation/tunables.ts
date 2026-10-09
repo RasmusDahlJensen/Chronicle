@@ -832,6 +832,34 @@ export const WAR_TUNING = {
   claimHalfLife: 75, claimFloor: 0.05, futilityHalfLife: 60, army: 0.02, warBudget: 1.5, occupiedUnrest: 0.3,
 } as const;
 
+/**
+ * The ravages of war (VISION.md "Diplomacy and war", "Destruction"; M6.3).
+ * - Devastation (monthly): an occupied region gains devastate ÷ 12 (at most 1), and its fields lose fieldLoss ÷ 12 ×
+ *   devastation of their cultivated land; elsewhere it halves every fadeYears (gone below `gone`). The harvest comes in
+ *   × (1 − harvestCut × devastation); the region's stability loses unrest × devastation; while occupied, flee ×
+ *   devastation of its people leave a year as refugees.
+ * - Ravages (monthly per occupied region): each living settlement but a capital is razed with chance raze ÷ 12, else
+ *   burned with burn ÷ 12, else looted with loot ÷ 12, each × the occupier's intent (½ + Militarism) × (1 + hatred × a
+ *   holy war or a rival state religion) × (1 − its walls' defence), razing × keepRaze where the occupier fights to keep
+ *   the land. Looting takes lootShare of the owner's treasury × the settlement's share of its townspeople (or of its
+ *   people, shared among the region's settlements, if larger) and lootFood of the region's stored food (shared among its
+ *   settlements); burning destroys each building with chance burnBuildings, kills burnKill and drives out burnFlee of
+ *   its townspeople; razing kills razeKill and drives out the rest, and adds razedExhaustion to its owner's side of the
+ *   war. A bridged road loses its bridge with chance bridgeRate ÷ 12; a road without one is destroyed with roadRate ÷ 12.
+ * - Refugees go to the owner's nearest region not occupied; a flight of refugeeEvent people or more is an event (from
+ *   devastated land, the year's flight at once).
+ * - Rebuilding: a region left without a settlement founds one when its occupation is over, each month with chance
+ *   rebuild ÷ 12 × (1 − devastation), and at the latest when its devastation is gone: on its ruins, or with chance
+ *   `fresh` on a free site beside them (the ruins left standing) where there is one.
+ * - War income: loot and tribute received, halving every incomeYears; a realm's army budget adds warIncome × it.
+ */
+export const RAVAGE_TUNING = {
+  devastate: 0.5, fieldLoss: 0.3, fadeYears: 4, gone: 0.01, harvestCut: 0.6, unrest: 0.25, flee: 0.05,
+  raze: 0.06, burn: 0.06, loot: 0.2, hatred: 1, keepRaze: 0.25, lootShare: 0.5, lootFood: 0.4, razedExhaustion: 0.05, rebuild: 0.3, fresh: 0.5,
+  burnBuildings: 0.4, burnKill: 0.05, burnFlee: 0.15, razeKill: 0.3, bridgeRate: 0.3, roadRate: 0.25,
+  refugeeEvent: 2000, incomeYears: 10, warIncome: 0.1,
+} as const;
+
 export function validateTunables() {
   const r = REGION_TUNING;
   const problems: string[] = [];
@@ -994,6 +1022,10 @@ export function validateTunables() {
     && wt.terms.white < wt.terms.tribute && wt.terms.tribute < wt.terms.annex && wt.terms.annex <= 100 && wt.tributeShare <= 1 && wt.annexPeople <= 1 && wt.claimHalfLife > 0
     && wt.calm <= 1 && wt.casualties <= 1 && wt.occupiedUnrest <= 1 && wt.frontierScale > 0 && wt.winding >= 1 && wt.maxCrossing > 0 && wt.exhaustion.max >= wt.peaceAt
     && wt.claimFloor < 1 && wt.futilityHalfLife > 0)) problems.push('war settings are invalid');
+  const rv = RAVAGE_TUNING;
+  if (!(Object.values(rv).every(value => Number.isFinite(value) && value >= 0) && rv.fadeYears > 0 && rv.incomeYears > 0 && rv.devastate <= 12 && rv.gone < 1
+    && [rv.fieldLoss, rv.harvestCut, rv.unrest, rv.flee, rv.raze, rv.burn, rv.loot, rv.keepRaze, rv.lootShare, rv.lootFood, rv.burnBuildings, rv.burnKill, rv.burnFlee, rv.razeKill, rv.bridgeRate, rv.roadRate, rv.razedExhaustion, rv.rebuild, rv.fresh].every(value => value <= 1)
+    && rv.raze + rv.burn + rv.loot <= 1 && rv.burnKill + rv.burnFlee <= 1)) problems.push('ravage settings are invalid');
   const x = EXPLORE_TUNING;
   if (!(x.opennessWeight >= 0 && x.expansionismWeight >= 0 && x.base >= 0 && x.frontierScale > 0 && x.freshMobility >= 0 && x.freshYears > 0 && x.range.length === 3 && x.range.every(steps => Number.isInteger(steps) && steps >= 1))) problems.push('exploration settings are invalid');
   if (problems.length) throw new Error(`Invalid simulation tunables: ${problems.join('; ')}.`);

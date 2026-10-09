@@ -12,7 +12,7 @@ import { edgeKm, edgeTravel, jointRoute, knownRoadTier, ROAD_TIERS, roadRoutes }
 import { landPressure } from './pressure.ts';
 import { soldierUpkeep, workersOf } from './soldiers.ts';
 import { threatOf } from './decisions/threat.ts';
-import { chooseGoal, claimWeight, defenseOf, futilityOf, inTruce, supplyFrom, warBetween, wearinessOf } from './claims.ts';
+import { chooseGoal, claimWeight, defenseOf, futilityOf, inTruce, supplyFrom, warBetween, warIncomeOf, wearinessOf } from './claims.ts';
 import { beliefBias, estimate, truthOf } from './relations.ts';
 import { landStock, reliefThere, shortfallFor } from './supply.ts';
 import { hubOf } from './hubs.ts';
@@ -891,8 +891,8 @@ export interface ArmyView {
   people: number; militarism: number; multiplier: number; allies: number;
   neighbours: { polity: number; name: string; strength: number; opinion: number; pact: boolean; war: boolean }[];
   revenue: number; surplus: number; arrears: number; upkeep: number;
-  /** (M6.2) The wars it fights now. */
-  wars: number;
+  /** (M6.2) The wars it fights now; (M6.3) its war income (loot and tribute received lately, fading). */
+  wars: number; warIncome: number;
 }
 export function armyView(state: SimulationState, civ: Polity): ArmyView {
   const costs = fullCostsOf(state, civ), budget = budgetView(state, civ, costs);
@@ -907,7 +907,7 @@ export function armyView(state: SimulationState, civ: Polity): ArmyView {
   }
   return {
     people, militarism: effectiveValues(state, civ).militarism, multiplier: civ.knowledge.multipliers.military, allies, neighbours,
-    revenue: budget.revenue, surplus: budget.revenue - (budget.costs - costs.army), arrears: civ.arrears, upkeep: soldierUpkeep(civ), wars: civ.wars.length,
+    revenue: budget.revenue, surplus: budget.revenue - (budget.costs - costs.army), arrears: civ.arrears, upkeep: soldierUpkeep(civ), wars: civ.wars.length, warIncome: warIncomeOf(civ, state.tick),
   };
 }
 

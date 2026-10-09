@@ -17,6 +17,7 @@ import { chooseGoal, claimWeight, defenseOf, ownLandValue, warBetween, weariness
 
 export { chooseGoal, claimWeight, crossingOf, defenseOf, frontierGain, goalWorth, inTruce, medianEdge, ownLandValue, warBetween, wearinessOf } from './claims.ts';
 import { effectiveValues } from './values.ts';
+import { addWarIncome } from './ravages.ts';
 
 /**
  * War and peace (VISION.md "Diplomacy and war"; M6.2). A civilization declares war at its decision step on a neighbour
@@ -150,7 +151,7 @@ function occupy(state: SimulationState, war: War) {
     if (state.occupiedBy[entry.region] === entry.by) state.occupiedBy[entry.region] = -1;
     return false;
   });
-  for (const [region, by] of wanted) { war.occupied.push({ region, by, tick: state.tick }); state.occupiedBy[region] = by; }
+  for (const [region, by] of wanted) { war.occupied.push({ region, by, tick: state.tick, fled: 0 }); state.occupiedBy[region] = by; }
   return war.occupied.length !== before || wanted.size > 0;
 }
 
@@ -245,6 +246,7 @@ function payTribute(state: SimulationState) {
     payer.wealth -= paid; payee.wealth += paid;
     given.given += paid; received.received += paid;
     tribute.paid += paid;
+    addWarIncome(state, payee, paid);
   }
 }
 

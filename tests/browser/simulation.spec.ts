@@ -298,7 +298,7 @@ test('bands appear as markers and territories, the world chart grows and a band 
 
 test('farming bands settle into civilizations with villages, specialists, research the inspector explains, roads, trade and war', async ({ page }) => {
   // Fourteen centuries or more of history run in the worker, and again to a war.
-  test.setTimeout(480_000);
+  test.setTimeout(720_000);
   await ready(page);
   const canvas = page.locator('#generated-world-canvas');
   await history(page).getByLabel('Run to year').fill('650');
@@ -646,7 +646,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   for (let year = 1200; year <= 2000 && !later.roads.a.length; year += 100) {
     await history(page).getByLabel('Run to year').fill(String(year));
     await history(page).getByRole('button', { name: 'Run', exact: true }).click();
-    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 120_000 });
+    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 240_000 });
     later = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
   }
   expect(later.roads.a.length).toBeGreaterThan(0);
@@ -659,7 +659,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   for (let year = await tick(page) / 12 + 100; year <= 2000 && !later.trades.from.length; year += 100) {
     await history(page).getByLabel('Run to year').fill(String(year));
     await history(page).getByRole('button', { name: 'Run', exact: true }).click();
-    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 120_000 });
+    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 240_000 });
     later = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
   }
   expect(later.trades.from.length).toBeGreaterThan(0);
@@ -678,7 +678,7 @@ test('farming bands settle into civilizations with villages, specialists, resear
   for (let year = await tick(page) / 12 + 100; year <= 3000 && !fought(later.wars); year += 100) {
     await history(page).getByLabel('Run to year').fill(String(year));
     await history(page).getByRole('button', { name: 'Run', exact: true }).click();
-    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 120_000 });
+    await expect(history(page)).toHaveAttribute('data-tick', String(year * 12), { timeout: 240_000 });
     later = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
   }
   const war = fought(later.wars)!;
@@ -690,6 +690,10 @@ test('farming bands settle into civilizations with villages, specialists, resear
   const warRows = afterwards.locator('#game-wars-table tbody tr');
   await expect(warRows).toHaveCount(later.wars.length);
   await expect(warRows.filter({ hasText: title(war.name) }).first()).toContainText(OUTCOME_NAMES[war.outcome as keyof typeof OUTCOME_NAMES]);
+  // M6.3: the world now counts the ruins (those razed in war among them) and the land devastated.
+  const worldNow = afterwards.locator('#game-world-now');
+  if (later.ruins.total) await expect(worldNow).toContainText(`${later.ruins.total.toLocaleString('en')} ruin`);
+  if (later.devastated.regions.length) await expect(afterwards.locator('#game-world-devastated')).toContainText(`${later.devastated.regions.length.toLocaleString('en')} region`);
   await afterwards.close();
   // Back to a year it was being fought (the history is reproducible; Load year starts from the checkpoint saved before
   // it): the wars layer stripes the land fought over, the attacker's Wars tab tells the war and its Diplomacy shows the
@@ -702,8 +706,9 @@ test('farming bands settle into civilizations with villages, specialists, resear
   const front = await page.context().newPage();
   await openGame(front);
   const frontMap = front.locator('#game-map-canvas');
-  // The land fought over now (the defender's while the attacker is ahead, else the attacker's), and land held.
-  const striped = new Set((during.wars as FrameWar[]).filter(entry => entry.ended === null).flatMap(entry => [...(entry.score >= 0 ? entry.goal : entry.counter), ...entry.occupied.map(held => held.region)]));
+  // The land fought over now (the defender's while the attacker is ahead, else the attacker's), land held, and (M6.3)
+  // land devastated.
+  const striped = new Set([...(during.wars as FrameWar[]).filter(entry => entry.ended === null).flatMap(entry => [...(entry.score >= 0 ? entry.goal : entry.counter), ...entry.occupied.map(held => held.region)]), ...during.devastated.regions]);
   await expect(frontMap).toHaveAttribute('data-hatched-regions', String(striped.size));
   await front.getByRole('checkbox', { name: 'Wars' }).uncheck();
   await expect(frontMap).toHaveAttribute('data-hatched-regions', '0');
@@ -720,6 +725,17 @@ test('farming bands settle into civilizations with villages, specialists, resear
   await warTabs.getByRole('tab', { name: 'Diplomacy' }).click();
   await expect(warPlace.getByRole('list', { name: 'Peoples it knows' }).getByRole('listitem').filter({ hasText: `The ${war.defenderName}` }).locator('.game-standing')).toHaveText('at war');
   await front.close();
+  // M6.3 (the promise U.7 made): a settlement razed (the development control razes it through war's own rule) leaves
+  // ruins the map draws, as the frame reports them.
+  const razable = (during.settlements.capitals as number[]).findIndex(capital => !capital);
+  expect(razable).toBeGreaterThanOrEqual(0);
+  const razeCell = during.settlements.cells[razable];
+  await clickCell(page, { x: razeCell % WIDTH, y: Math.floor(razeCell / WIDTH) });
+  await history(page).getByRole('button', { name: 'Raze a settlement here' }).click();
+  await expect.poll(async () => (await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json()).ruins.razedTotal).toBe(during.ruins.razedTotal + 1);
+  const razedFrame = await (await page.request.get(`/api/simulation/frame?${query}&cursor=0`)).json();
+  await expect(canvas).toHaveAttribute('data-ruin-marks', String(razedFrame.ruins.cells.length));
+  await expect(history(page).getByRole('list', { name: 'Chronicle events' })).toContainText('only ruins are left');
   await history(page).getByRole('button', { name: 'Reset to year 0' }).click();
   await expect(history(page)).toHaveAttribute('data-tick', '0');
 });

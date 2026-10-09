@@ -189,7 +189,7 @@ export function storyCandidates(state: SimulationState): Story[] {
     // (M6.2) Land lost in war: regions it ceded, and its end if it was annexed.
     const lostInWar = since.filter(event => (event.type === 'regionConquered' && acts(event, civ.id, 'defender')) || (event.type === 'civDestroyed' && event.data.annexed === true && acts(event, civ.id, 'civ')));
     const regionsLostInWar = lostInWar.reduce((sum, event) => sum + (event.type === 'civDestroyed' ? number(event.data.regions) : 1), 0);
-    const hard = since.filter(event => ['famine', 'neglect', 'arrears', 'unrest', 'buildingDecayed', 'infrastructureDestroyed', 'civDestroyed', 'drought', 'regionConquered', 'peaceSigned', 'warDeclared'].includes(event.type));
+    const hard = since.filter(event => ['famine', 'neglect', 'arrears', 'unrest', 'buildingDecayed', 'infrastructureDestroyed', 'civDestroyed', 'drought', 'regionConquered', 'peaceSigned', 'warDeclared', 'settlementRazed', 'settlementBurned', 'settlementLooted', 'refugees'].includes(event.type));
     const regions = ended ? regionsOf(since) : landOf(state, civ);
     tell('decline', civ, peak.year, ended ? yearOf(civ.deathTick!) : year, (peak.people - people) / world, {
       name: civ.name, peak: peak.people, peakYear: peak.year, people, regionsPeak: peak.regions, regions: civ.groups.length, ended, declining: !ended,
@@ -314,7 +314,7 @@ export function storyCandidates(state: SimulationState): Story[] {
     for (const entry of war.occupied) if (state.groupAt[entry.region] >= 0) taken += state.groups[state.groupAt[entry.region]].size;
     const ended = war.endTick !== null, outcome = war.outcome ?? 'white';
     const winner = war.score >= 0 ? attacker : defender, loser = winner === attacker ? defender : attacker;
-    const told = (mine.get(war.attacker) ?? []).filter(event => (event.type === 'warDeclared' || event.type === 'battleYear' || event.type === 'peaceSigned' || event.type === 'regionConquered') && event.data.warId === war.id);
+    const told = (mine.get(war.attacker) ?? []).filter(event => ['warDeclared', 'battleYear', 'peaceSigned', 'regionConquered', 'settlementLooted', 'settlementBurned', 'settlementRazed', 'infrastructureDestroyed'].includes(event.type) && event.data.warId === war.id);
     tell('war', attacker, yearOf(war.startTick), ended ? yearOf(war.endTick!) : year, (dead * WAR_STORY_DEAD + taken) / world, {
       war: war.name, attacker: attacker.name, defender: defender.name, since: yearOf(war.startTick), years: Math.max(1, Math.round(((ended ? war.endTick! : state.tick) - war.startTick) / 12)), dead,
       fighting: !ended, ahead: !ended && war.score >= 0, behind: !ended && war.score < 0, held: war.occupied.filter(entry => entry.by === war.attacker).length, lost: war.occupied.filter(entry => entry.by === war.defender).length,

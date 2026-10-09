@@ -90,22 +90,26 @@ export function byWater(state: SimulationState, cell: number) { return nearWater
  * chance `keepName`), otherwise one is founded on the best candidate site no living settlement holds. A region's first
  * settlement takes its best site wherever it lies; further ones need a site by a river, lake, coast or resource site
  * (dry country holds one town, not many). Returns null when there is no such room; a region without a living
- * settlement always gets one. Announced at once unless the caller announces it after its own event.
+ * settlement always gets one. Announced at once unless the caller announces it after its own event. With `fresh`
+ * (M6.3: a people rebuilding after its town was razed may build anew beside the ruins), a free site is taken first and
+ * the ruins left standing, if there is one.
  */
 export function foundSettlement(state: SimulationState, rng: Rng, polity: Polity, region: number, capital: boolean, tick: number,
-  cited: ChronicleEvent['causes'] = [], announce = true): Settlement | null {
+  cited: ChronicleEvent['causes'] = [], announce = true, fresh = false): Settlement | null {
   const entry = state.partition.regions[region], sites = entry.settlementSites, here = state.regionSettlements[region];
   const rank = (cell: number) => { const at = sites.indexOf(cell); return at < 0 ? sites.length : at; };
   let ruin: Settlement | null = null, living = 0;
   for (const id of here) if (state.settlements[id].status === 'alive') living++;
+  const free = fresh && sites.some(site => !here.some(id => state.settlements[id].cell === site));
   for (const id of here) {
     const settlement = state.settlements[id];
     // Ruins are resettled under the same rule: a further settlement only by water.
-    if (settlement.status !== 'alive' && (living === 0 || byWater(state, settlement.cell)) && (!ruin || rank(settlement.cell) < rank(ruin.cell))) ruin = settlement;
+    if (!free && settlement.status !== 'alive' && (living === 0 || byWater(state, settlement.cell)) && (!ruin || rank(settlement.cell) < rank(ruin.cell))) ruin = settlement;
   }
   let settlement: Settlement;
   if (ruin) {
     const oldName = ruin.name;
+    if (ruin.status === 'razed') state.metrics.razedResettled++;
     if (!rng.chance(SETTLEMENT_TUNING.keepName)) ruin.name = createName(rng, state.cultures[polity.culture].language);
     Object.assign(ruin, { status: 'alive', owner: polity.id, capital, tier: 0, urban: 0, urbanMean: 0, tierYears: 0, buildings: [], bonus: bonusOf([]), wonder: null, housing: housingOf({ capital }), formerName: ruin.name === oldName ? null : oldName });
     settlement = ruin;
@@ -260,6 +264,8 @@ export function growSettlements(state: SimulationState, context: Pick<TickContex
         data: { name: settlement.name, tier: SETTLEMENT_TIERS[tier], civ: civ.name, urban: mean, rising, falling: !rising },
       });
     }
+    // (M6.3: not while an enemy holds it, nor while it lies devastated without a settlement: its people rebuild then.)
+    if (state.occupiedBy[region] >= 0 || !livingSettlements(state, region).length) continue;
     const housing = regionHousing(state, region);
     if (housing > 0 && group.specialists >= tuning.foundAt * housing) {
       rng ??= context.stream(civ.id, GROWING);

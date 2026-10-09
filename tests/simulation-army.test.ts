@@ -109,11 +109,14 @@ test('strength is soldiers times the military multiplier (a tribe\'s, its warrio
 });
 
 const view = (overrides: Partial<ArmyView> = {}): ArmyView => ({
-  people: 1_000_000, militarism: 0.5, multiplier: 1.3, allies: 0, neighbours: [], revenue: 70_000, surplus: 0, arrears: 0, upkeep: 1.4, wars: 0, ...overrides,
+  people: 1_000_000, militarism: 0.5, multiplier: 1.3, allies: 0, neighbours: [], revenue: 70_000, surplus: 0, arrears: 0, upkeep: 1.4, wars: 0, warIncome: 0, ...overrides,
 });
 
 test('the target: a guard that grows with Militarism, more under threat, held to what the realm can afford, never below the floor', () => {
   const calm = armyTarget(view());
+  // (M6.3) Recent war income pays for more soldiers when it is what holds the army back.
+  const atWar = view({ neighbours: [{ polity: 9, name: 'Kesh', strength: 50_000, opinion: -60, pact: false, war: true }] });
+  assert.ok(armyTarget({ ...atWar, warIncome: 100_000 }).target > armyTarget(atWar).target, 'loot and tribute pay for soldiers');
   assert.equal(calm.target, Math.round(1_000_000 * ARMY_TUNING.garrison), 'a guard of garrison × its people at Militarism ½');
   assert.ok(armyTarget(view({ militarism: 0.9 })).target > calm.target, 'more for a militaristic people');
   // A hostile neighbour twice as strong as its guard threatens fully.

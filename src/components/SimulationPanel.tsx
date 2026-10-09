@@ -7,7 +7,7 @@ import { useObserver } from '../observer/useObserver.ts';
 
 const SPEED_LABELS: Record<SimulationSpeed, string> = { month: '1 month/s', year: '1 year/s', decade: '10 years/s', max: 'Fastest' };
 /** DEVELOPMENT CONTROLS (Dev 02), not product features: scenario triggers in the selected region. */
-const DEV_LABELS: Record<DevScenario, string> = { drought: 'Drought here and around', research: 'Finish their research', foundReligion: 'Found a religion', splitCulture: 'Split off their culture' };
+const DEV_LABELS: Record<DevScenario, string> = { drought: 'Drought here and around', research: 'Finish their research', foundReligion: 'Found a religion', splitCulture: 'Split off their culture', raze: 'Raze a settlement here' };
 
 interface Props {
   settings: WorldSettings | null;

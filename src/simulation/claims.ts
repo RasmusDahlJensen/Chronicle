@@ -3,7 +3,7 @@ import { greatCircleKm } from './geography.ts';
 import { edgeKm } from './roads.ts';
 import { livingSettlements } from './settlements.ts';
 import type { SimulationState } from './state.ts';
-import { WAR_TUNING } from './tunables.ts';
+import { RAVAGE_TUNING, WAR_TUNING } from './tunables.ts';
 
 /**
  * What wars leave behind that other systems read (M6.2): which wars are being fought, truces, the weight of claims on
@@ -157,3 +157,6 @@ export function futilityOf(state: SimulationState, attacker: number, enemy: numb
   }
   return futility;
 }
+
+/** A people's war income now (M6.3): the loot and tribute it has received, fading by half every RAVAGE_TUNING.incomeYears. */
+export const warIncomeOf = (polity: { warIncome: { value: number; tick: number } }, now: number) => polity.warIncome.value * 0.5 ** ((now - polity.warIncome.tick) / 12 / RAVAGE_TUNING.incomeYears);

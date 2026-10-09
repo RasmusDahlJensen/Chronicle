@@ -1,7 +1,7 @@
 import { regionDroughtShield } from './economy.ts';
 import { checkFamineWatches, fallow } from './fields.ts';
 import type { SimulationState, TickContext } from './state.ts';
-import { ENVIRONMENT_TUNING } from './tunables.ts';
+import { ENVIRONMENT_TUNING, RAVAGE_TUNING } from './tunables.ts';
 
 // RNG salts within the environment system: a harvest's weather, a drought's onset.
 const HARVEST = 1, DROUGHT = 2;
@@ -73,9 +73,11 @@ export function strikeDrought(state: SimulationState, struck: number[], years: n
   });
 }
 
-/** The share of its crops a region's harvest comes in at now: the weather, and less in drought (irrigation softens it). */
+/** The share of its crops a region's harvest comes in at now: the weather, less in drought (irrigation softens it),
+ *  and less on devastated land (M6.3: fields trampled and burned, farmers fled or under arms). */
 export function harvestYield(state: SimulationState, region: number) {
-  return state.weather[region] * (state.drought[region] > 0 ? 1 - ENVIRONMENT_TUNING.droughtFarmLoss * (1 - regionDroughtShield(state, region)) : 1);
+  return state.weather[region] * (state.drought[region] > 0 ? 1 - ENVIRONMENT_TUNING.droughtFarmLoss * (1 - regionDroughtShield(state, region)) : 1)
+    * (1 - RAVAGE_TUNING.harvestCut * state.devastation[region]);
 }
 
 /** The share of their yield herds give in a region now: less in drought (irrigation softens it). */

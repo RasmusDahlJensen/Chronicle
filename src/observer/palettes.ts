@@ -33,6 +33,8 @@ export const STANDING_COLORS: Record<StandingKey, [number, number, number]> = {
 };
 /** (M6.2) The wars layer: land fought for is striped in this red; land held by an enemy in its occupier's colour. */
 export const WAR_COLOR: [number, number, number] = [214, 46, 38];
+/** (M6.3) Devastated land in the wars layer: striped in ash, more opaque the more devastated. */
+export const DEVASTATION_COLOR: [number, number, number] = [58, 46, 40];
 export const TREATY_COLORS: Record<'alliance' | 'nonAggression' | 'trade' | 'road', string> = { alliance: '#60ba70', nonAggression: '#40a0b0', trade: '#6f8ff0', road: '#d8c79a' };
 /** The perspective lens (U.6): unknown land under fog; remembered land muted toward grey in its last-known people's
  *  colour, or under a grey veil where no one lived. */

@@ -1,5 +1,5 @@
 import { RESOURCE_IDS } from '../../shared/atlas.ts';
-import { CHRONICLE_SCAN, MAX_CHRONICLE_PAGE, MAX_FRAME_NAMES, MAX_FRAME_RUINS, MAX_FRAME_WARS, type ChronicleEvent, type ChronicleQuery, type ObserverFrame } from '../../shared/simulation.ts';
+import { CHRONICLE_SCAN, MAX_CHRONICLE_PAGE, MAX_FRAME_NAMES, MAX_FRAME_RUINS, MAX_FRAME_WARS, type ChronicleEvent, type ChronicleQuery, type ObserverFrame, MAX_FRAME_DEVASTATED } from '../../shared/simulation.ts';
 import { capacity, harvest, METHOD_COUNT, regionYields } from './food.ts';
 import { cultivatedCells, fieldLand } from './fields.ts';
 import { speedOf } from './knowledge.ts';
@@ -25,7 +25,7 @@ import { ERAS, TECHS } from './techs.ts';
 import { DECISION_TUNING, FOOD_TUNING, REACH_TUNING, RESEARCH_TUNING, WAR_TUNING } from './tunables.ts';
 import { claimWeight } from './claims.ts';
 
-type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'ruins' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect' | 'wars'>;
+type View = Pick<ObserverFrame, 'population' | 'polities' | 'civs' | 'settlementCount' | 'specialists' | 'leadingEra' | 'lineages' | 'cultures' | 'religions' | 'largest' | 'civList' | 'treaties' | 'census' | 'markers' | 'settlements' | 'ruins' | 'devastated' | 'roads' | 'trades' | 'fields' | 'wonders' | 'series' | 'stories' | 'ages' | 'perspective' | 'inspect' | 'wars'>;
 
 /** Whether a settlement looks worn: something stands there and its region is let go unkept, or a building or its
  *  wonder is below 80% condition. */
@@ -102,7 +102,10 @@ export function observerView(state: SimulationState, inspect: number | null, per
   }
   // Ruins: the MAX_FRAME_RUINS that fell last, in settlement order.
   const kept = fallen.length <= MAX_FRAME_RUINS ? fallen : [...fallen].sort((a, b) => (b.ruinedTick ?? 0) - (a.ruinedTick ?? 0) || b.id - a.id).slice(0, MAX_FRAME_RUINS).sort((a, b) => a.id - b.id);
-  const ruins = { cells: kept.map(settlement => settlement.cell), names: kept.map(settlement => settlement.name), razed: kept.map(settlement => settlement.status === 'razed' ? 1 : 0) };
+  const ruins = {
+    cells: kept.map(settlement => settlement.cell), names: kept.map(settlement => settlement.name), razed: kept.map(settlement => settlement.status === 'razed' ? 1 : 0),
+    total: fallen.length, razedTotal: fallen.filter(settlement => settlement.status === 'razed').length,
+  };
   const roads = { a: [] as number[], b: [] as number[], tiers: [] as number[], bridges: [] as number[], conditions: [] as number[] };
   for (const road of state.roads.values()) { roads.a.push(road.a); roads.b.push(road.b); roads.tiers.push(road.tier); roads.bridges.push(road.bridge ? 1 : 0); roads.conditions.push(Math.round(road.condition * 100)); }
   const trades = { from: [] as number[], to: [] as number[], resources: [] as number[], sea: [] as number[] };
@@ -131,7 +134,7 @@ export function observerView(state: SimulationState, inspect: number | null, per
       const religion = state.religions[id];
       return { id, name: religion.name, hue: round(religion.hue, 2), regions: entry.regions, population: entry.population, civs: entry.civs.size };
     }),
-    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds, faiths }, settlements, ruins, roads, trades, fields, series,
+    markers: { ids, regions, populations, kinds, eras, lineages, cultures: cultureIds, faiths }, settlements, ruins, devastated: devastatedView(state), roads, trades, fields, series,
     wonders: state.wonders.filter(wonder => wonder.status === 'building' || wonder.status === 'standing').slice(0, 32).map(wonder => {
       const settlement = state.settlements[wonder.settlement];
       return { name: WONDERS[wonder.type].name, city: settlement.name, civ: state.polities[settlement.owner].name, begun: Math.floor(wonder.begunTick / 12), built: wonder.builtTick === null ? null : Math.floor(wonder.builtTick / 12) };
@@ -234,7 +237,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
         }),
       stability: polity.kind !== 'civ' ? null : (() => {
         const now = stabilityOf(state, polity, group, kmFromCapital ?? Number.POSITIVE_INFINITY);
-        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), faith: round(now.faith), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears), demobilized: round(now.demobilized), occupied: round(now.occupied) };
+        return { value: round(state.stability[region]), unrest: state.unrest[region] === 1, hunger: round(now.hunger), overextension: round(now.overextension), foreignRule: round(now.foreignRule), faith: round(now.faith), strain: round(now.strain), taxes: round(now.taxes), arrears: round(now.arrears), demobilized: round(now.demobilized), occupied: round(now.occupied), devastated: round(now.devastated) };
       })(),
       regionsKnown: knownRegionCount(polity), regionsInSight: polity.map.observed.length, met: [...polity.met.keys()].filter(other => state.polities[other].deathTick === null).length,
       wealth: polity.kind !== 'civ' ? null : (() => {
@@ -299,7 +302,7 @@ function inspectRegion(state: SimulationState, region: number, living: Map<numbe
   });
   return {
     region, capacity: Math.round(people), gameStock: round(state.gameStock[region]), settlements: settlementViews, neglected: state.neglected[region] === 1,
-    occupation: occupationOf(state, region),
+    occupation: occupationOf(state, region), devastation: round(state.devastation[region]),
     people: group ? peopleView(state, group, living.get(group.culture)!) : null,
     weather: { harvest: round(state.harvestFactor[region]), drought: state.drought[region], famine: state.famine[region] === 1, irrigation: round(regionFarm(state, region)), relief: state.reliefTick[region] >= 0 && state.tick - state.reliefTick[region] <= 1 },
     fields: (() => {
@@ -455,6 +458,15 @@ function drawable(options: readonly { score: number }[], at: number) {
     place++;
   }
   return false;
+}
+
+/** The frame's devastated regions (M6.3): those at 0.05 or more, the most devastated first, in percent. */
+function devastatedView(state: SimulationState): ObserverFrame['devastated'] {
+  const regions: number[] = [];
+  for (let region = 0; region < state.devastation.length; region++) if (state.devastation[region] >= 0.05) regions.push(region);
+  regions.sort((a, b) => state.devastation[b] - state.devastation[a] || a - b);
+  const kept = regions.slice(0, MAX_FRAME_DEVASTATED);
+  return { regions: kept, levels: kept.map(region => Math.round(state.devastation[region] * 100)) };
 }
 
 /** The frame's wars (M6.2): every war now, then those ended in the last century, newest first. While a war lasts, its

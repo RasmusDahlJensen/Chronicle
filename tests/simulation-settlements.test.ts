@@ -20,7 +20,7 @@ function fixture() {
   const state = {
     tick: 0, geography, partition: { regions: [{ id: 0, centroid: 3, settlementSites: [4, 1, 0, 2, 5] }], regionOf },
     cultures: [{ language: createLanguage(createRng(1, 1)) }], settlements: [], regionSettlements: [[]], chronicle: new Chronicle(),
-    groups: [{ id: 0, region: 0, specialists: 0, soldiers: 0, foodSecurity: 1 }], unrest: new Uint8Array(1), stability: new Float64Array(1).fill(1),
+    groups: [{ id: 0, region: 0, specialists: 0, soldiers: 0, foodSecurity: 1 }], unrest: new Uint8Array(1), stability: new Float64Array(1).fill(1), occupiedBy: new Int32Array(1).fill(-1),
     metrics: { settlementsGrown: 0, ruinsResettled: 0, tierChanges: 0, projectsAbandoned: 0 }, wonders: [],
     farmBonus: new Float64Array(1).fill(1), droughtShield: new Float64Array(1), storeBonus: new Float64Array(1).fill(1), spoilageBonus: new Float64Array(1).fill(1),
   } as unknown as SimulationState;

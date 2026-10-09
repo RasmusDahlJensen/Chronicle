@@ -4,7 +4,7 @@ import type { DIPLOMATIC_STATUSES, ObserverFrame, RegionMap } from '../../shared
 import { createWorldTileClient } from '../api/generated-world.ts';
 import { fetchRegionMap } from '../api/simulation.ts';
 import { createGeneratedWorldRenderer, type ViewInsets, type WorldCoordinate, type WorldLayer } from '../renderer/generated-world.ts';
-import { cultureColor, densityColor, ERA_COLORS, regionDensities, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, muted, packColor, PERSPECTIVE, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, STANDING_COLORS, TERRITORY_ALPHA, WAR_COLOR, type StandingKey } from './palettes.ts';
+import { cultureColor, densityColor, ERA_COLORS, regionDensities, eraColor, faithColor, FOLK_COLOR, HIGHLIGHT, lineageColor, muted, packColor, PERSPECTIVE, polityColor, SETTLEMENT_COLOR, SETTLEMENT_STROKE, STANDING_COLORS, TERRITORY_ALPHA, DEVASTATION_COLOR, WAR_COLOR, type StandingKey } from './palettes.ts';
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : 'The world could not be displayed. Try again.';
 
@@ -179,7 +179,8 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
     if (canvas.current) canvas.current.dataset.highlightRegions = String(shown && regions ? [...shown].filter(region => region < regions.map.regions.length).length : 0);
     if (canvas.current) canvas.current.dataset.perspective = '';
     const fighting = showWars && frame ? frame.wars.filter(war => war.ended === null) : [];
-    if ((peoples === 'off' && !shown && !perspective && !fighting.length) || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
+    const devastated = showWars && frame ? frame.devastated : null;
+    if ((peoples === 'off' && !shown && !perspective && !fighting.length && !devastated?.regions.length) || !frame || !regions || !world || frame.instance.worldKey !== world.worldKey) { renderer.current.setTerritories(null); return; }
     const fill = new Uint32Array(regions.map.regions.length);
     const { ids, regions: at, kinds, eras, lineages, cultures, faiths } = frame.markers;
     const hues = new Map(frame.cultures.map(entry => [entry.id, entry.hue])), faithHues = new Map(frame.religions.map(entry => [entry.id, entry.hue]));
@@ -224,9 +225,11 @@ export function useWorldMap({ world, layer, resources, rivers, regions, showRegi
     // The wars layer (M6.2): the land fought over now in red stripes (the defender's while the attacker is ahead, the
     // attacker's when the war turns), land held by an enemy in its occupier's; a perspective shows only the wars it sees.
     let hatch: Uint32Array | null = null;
-    if (fighting.length) {
+    if (fighting.length || devastated?.regions.length) {
       hatch = new Uint32Array(fill.length);
       const seen = (region: number) => !perspective || perspective.observed.has(region);
+      // (M6.3) Devastated land in ash, under the land fought over now.
+      if (devastated) devastated.regions.forEach((region, at) => { if (region < hatch!.length && seen(region)) hatch![region] = packColor(DEVASTATION_COLOR, 0.35 + 0.55 * devastated.levels[at] / 100); });
       for (const war of fighting) for (const region of war.score >= 0 ? war.goal : war.counter) if (region < hatch.length && seen(region)) hatch[region] = packColor(WAR_COLOR, 0.8);
       for (const war of fighting) for (const entry of war.occupied) if (entry.region < hatch.length && seen(entry.region)) hatch[entry.region] = packColor(polityColor(entry.by), 0.95);
     }

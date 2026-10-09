@@ -153,6 +153,9 @@ export interface Polity {
   /** Its war-weariness (M6.2): its exhaustion when its last war ended, and when; it fades (halving every
    *  WAR_TUNING.wearyHalfLife years) and weighs against a new war. */
   weariness: { value: number; tick: number };
+  /** Its war income (M6.3, "conquest that pays"): loot and tribute received, and when last; it fades (halving every
+   *  RAVAGE_TUNING.incomeYears) and raises what it can afford for its army. */
+  warIncome: { value: number; tick: number };
 }
 
 export type WarFraming = typeof WAR_FRAMINGS[number];
@@ -167,7 +170,7 @@ export type WarOutcome = typeof WAR_OUTCOMES[number];
  */
 export interface War {
   id: number; name: string; attacker: number; defender: number; framing: WarFraming; resource: number;
-  goal: number[]; counter: number[]; occupied: { region: number; by: number; tick: number }[];
+  goal: number[]; counter: number[]; occupied: { region: number; by: number; tick: number; fled: number }[];
   score: number; exhaustion: [number, number]; deaths: [number, number]; carry: [number, number]; yearDeaths: [number, number]; held: number;
   startTick: number; endTick: number | null; outcome: WarOutcome | null; causes: { factor: string; weight: number }[];
   ceded: number[]; tribute: { payer: number; payee: number; amount: number; until: number; carry: number; paid: number } | null;
@@ -496,6 +499,10 @@ export interface CenturyStats {
   warDeaths: number; regionsConquered: number; annexations: number; warsActive: number; chosenWar: number; chosenPeace: number;
   /** Regions civilizations hold now, and regions that passed to another realm by a union so far (turnover with conquest). */
   ownedRegions: number; regionsUnited: number;
+  /** The ravages of war (M6.3) so far: settlements looted, burned and razed, razed ruins resettled, roads and bridges
+   *  destroyed in war, refugees; and now: regions devastated (0.05 or more), ruins (ruined or razed settlements). */
+  settlementsLooted: number; settlementsBurned: number; settlementsRazed: number; razedResettled: number; roadsDestroyed: number; bridgesDestroyed: number;
+  refugees: number; devastatedRegions: number; ruins: number;
 }
 
 /** Per-tick flows that explain every change in region population and band food stores (VISION.md rule 8). */
@@ -596,6 +603,10 @@ export interface Metrics {
   warsDeclared: number; warsEnded: Record<WarOutcome, number>; warDeaths: number; regionsConquered: number; annexations: number;
   /** Regions that passed to another realm by a union (M3.4), for region ownership turnover with conquest (M6.2). */
   regionsUnited: number;
+  /** The ravages of war (M6.3): settlements looted, burned and razed, razed ruins resettled, buildings burned, roads and
+   *  bridges destroyed in war, refugees (people). */
+  settlementsLooted: number; settlementsBurned: number; settlementsRazed: number; razedResettled: number; buildingsBurned: number;
+  roadsDestroyed: number; bridgesDestroyed: number; refugees: number;
 }
 
 /** One census (U.3): the year, and each living civilization (by id, ascending) with its people and regions. */
@@ -661,6 +672,8 @@ export interface SimulationState {
   unsettled: Float64Array;
   /** Every war ever fought (M6.2), and per region the people occupying it in a war (−1 none). */
   wars: War[]; occupiedBy: Int32Array;
+  /** Per region: devastation (M6.3; 0–1), what occupation leaves: it cuts the harvest and unsettles, and fades. */
+  devastation: Float64Array;
   /** Per region: the tick famine relief last reached it (−1 never, or since its people left); relief again within
    *  RELIEF_TUNING.episodeMonths is the same episode. */
   reliefTick: Int32Array;

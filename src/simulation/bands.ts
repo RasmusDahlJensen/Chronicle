@@ -19,7 +19,7 @@ import { landPressure, unrestDepth } from './pressure.ts';
 import { createRng, type Rng } from './rng.ts';
 import { noArmy, occupiedAway, workersOf } from './soldiers.ts';
 import { VALUE_KEYS, type Culture, type CultureValues, type Polity, type PopulationGroup, type Settlement, type SimulationState, type TickContext } from './state.ts';
-import { BAND_TUNING, BUDGET_TUNING, CLOCK_TUNING, CULTURE_TUNING, ENVIRONMENT_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING } from './tunables.ts';
+import { BAND_TUNING, BUDGET_TUNING, CLOCK_TUNING, CULTURE_TUNING, ENVIRONMENT_TUNING, FOOD_TUNING, JOIN_TUNING, MIGRATION_TUNING, STABILITY_TUNING, POPULATION_TUNING, SETTLE_TUNING, SPAWN_TUNING, SPECIALIST_TUNING, WEALTH_TUNING, RAVAGE_TUNING } from './tunables.ts';
 
 /**
  * Tribes and settled polities (VISION.md "Food, population and borders"). A polity holds one or more regions with
@@ -164,7 +164,7 @@ function newTribe(state: SimulationState, rng: Rng, region: number, size: number
     decisions: [], lastExpansion: null, longestExpansionGap: 0, seaTick: -1, rebuffed: new Map(), relations: new Map(), supply: new Float64Array(RESOURCE_IDS.length), demand: new Float64Array(RESOURCE_IDS.length), imports: new Float64Array(RESOURCE_IDS.length), exports: new Float64Array(RESOURCE_IDS.length), trading: [], pacts: [], allies: [], roadPartners: [], voyageTick: -1, emptyVoyages: 0,
     wealth: 0, wealthCarry: 0, upkeepCarry: 0, projects: [], repairing: false, roadWorks: [], roadsUnpaid: 0, heardWonders: [],
     taxRate: BUDGET_TUNING.customaryRate, arrears: 0, inArrears: false, heavyTaxes: false, deferring: false, keptYears: 0, famineDeaths: 0, personMonths: 0, outputSum: 0,
-    army: noArmy(), wars: [], claims: [], weariness: { value: 0, tick: 0 },
+    army: noArmy(), wars: [], claims: [], weariness: { value: 0, tick: 0 }, warIncome: { value: 0, tick: 0 },
   };
   state.polities.push(polity); state.living.push(polity.id);
   // A breakaway knows whom its parent knows before it looks around.
@@ -352,7 +352,7 @@ export function reserveShortfall(state: SimulationState, polity: Polity, group: 
 }
 
 /** A region of a polity that fell into famine this month: its deaths over about a year, its people and why. */
-export interface FamineOnset { region: number; deaths: number; population: number; shortfall: number; factors: Record<'drought' | 'poorHarvest' | 'uncleared' | 'crowding' | 'unrest', number> }
+export interface FamineOnset { region: number; deaths: number; population: number; shortfall: number; factors: Record<'drought' | 'devastation' | 'poorHarvest' | 'uncleared' | 'crowding' | 'unrest', number> }
 
 /**
  * A region whose famine deaths over about a year reach a share of its people falls into famine (VISION.md event
@@ -369,10 +369,13 @@ export function recordFamine(state: SimulationState, polity: Polity, group: Popu
   if (state.famineSince[region] >= 0 && state.tick - state.famineSince[region] < 12) return;
   state.famineSince[region] = state.tick;
   const weather = state.weather[region], farming = polity.knowledge.methods.farm;
+  // (M6.3: war's devastation cuts the harvest too; it is its own cause, not the drought's.)
+  const ravaged = RAVAGE_TUNING.harvestCut * state.devastation[region], unravaged = weather * (1 - ravaged);
   onsets.push({
     region, deaths: Math.round(recent), population: group.size, shortfall: 1 - Math.min(1, group.foodSecurity),
     factors: {
-      drought: Math.max(farming && weather > 0 ? 1 - state.harvestFactor[region] / weather : 0, 1 - herdYield(state, region)),
+      drought: Math.max(farming && unravaged > 0 ? 1 - state.harvestFactor[region] / unravaged : 0, 1 - herdYield(state, region)),
+      devastation: farming ? ravaged : 0,
       poorHarvest: farming ? Math.max(0, 1 - weather) : 0,
       uncleared: 1 - state.fieldShare[region],
       crowding: capacity > 0 ? Math.max(0, group.size / capacity - 1) : 1,
